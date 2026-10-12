@@ -1,6 +1,7 @@
 package dev.tramai.build.release
 
 import dev.tramai.build.publishing.TramaiPublishingRepositories
+import dev.tramai.build.quality.MergeGateVerifier
 import dev.tramai.build.quality.ModuleCatalog
 import dev.tramai.build.quality.ModuleManifest
 import org.gradle.api.GradleException
@@ -66,7 +67,109 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
         registerVerifyAuditClosure(project)
         registerVerify060ZeroEgress(project)
         registerVerify060MaintainabilityRelease(project)
+        registerVerifyMergeGate(project)
     }
+
+    /**
+     * The durable form of the merge-gate correction: on 2026-10-12 a merge proceeded through a gate whose
+     * query was invalid (`gh api … --json`), so it read nothing, reported success, and merged. The merge
+     * was correct by luck of ordering, not because anything checked it.
+     *
+     * Everything that can go wrong at the boundary — `gh` absent, an invalid flag, a non-zero exit, an
+     * empty response — yields empty evidence, and empty evidence is REFUSED by [MergeGateVerifier]. The
+     * rules live there and are unit-tested; this task is only the transport.
+     */
+    private fun registerVerifyMergeGate(project: Project) {
+        project.tasks.register("verifyMergeGate") {
+            group = "verification"
+            description =
+                "Refuses to authorize a merge unless the exact head has complete, green status checks and the " +
+                "required workflows succeeded at that commit. Fails closed when gh or its data is unavailable."
+            val expectedHead = (project.findProperty("expectedHead") as String?)?.trim().orEmpty()
+            val prNumber = (project.findProperty("prNumber") as String?)?.trim().orEmpty()
+            val requiredWorkflows = listOf("CI", "Architecture Authority", "Sovereign Runtime Release Candidate")
+            doLast {
+                if (expectedHead.isEmpty() || prNumber.isEmpty()) {
+                    throw GradleException(
+                        "verifyMergeGate requires -PexpectedHead=<sha> and -PprNumber=<number>. Without an " +
+                            "explicit commit there is no evidence to tie the checks to, which is a refusal.",
+                    )
+                }
+                val evidence =
+                    MergeGateVerifier.Evidence(
+                        expectedHead = expectedHead,
+                        reportedHead =
+                            gh(project, "pr", "view", prNumber, "--json", "headRefOid", "--jq", ".headRefOid")
+                                .trim(),
+                        checkStates =
+                            MergeGateVerifier.parseCheckStates(
+                                gh(
+                                    project,
+                                    "pr",
+                                    "view",
+                                    prNumber,
+                                    "--json",
+                                    "statusCheckRollup",
+                                    "--jq",
+                                    // `gh pr view --json X --jq EXPR` applies EXPR to the whole response
+                                    // OBJECT, so the path must go through `.statusCheckRollup[]`. Using
+                                    // `.[]` iterated the object's values, failed with "expected an object
+                                    // but got: array", and yielded no checks at all.
+                                    """.statusCheckRollup[] | if .__typename == "CheckRun" then (.conclusion // .status) else .state end""",
+                                ),
+                            ),
+                        workflowRuns =
+                            MergeGateVerifier.parseWorkflowRuns(
+                                gh(
+                                    project,
+                                    "api",
+                                    "repos/{owner}/{repo}/actions/runs?head_sha=$expectedHead&per_page=50",
+                                    "--jq",
+                                    """.workflow_runs[] | "\(.name)|\(.status)|\(.conclusion // "null")|\(.head_sha)"""",
+                                ),
+                            ),
+                        requiredWorkflows = requiredWorkflows,
+                    )
+                val violations = MergeGateVerifier.verify(evidence)
+                val rendered = MergeGateVerifier.render(expectedHead, violations)
+                if (violations.isEmpty()) {
+                    logger.lifecycle(rendered)
+                } else {
+                    throw GradleException(rendered)
+                }
+            }
+        }
+    }
+
+    /**
+     * Runs `gh`, returning stdout only on a clean exit. Any failure — `gh` missing, a bad flag, a non-zero
+     * exit — returns an empty string, so the rules refuse instead of passing.
+     */
+    private fun gh(
+        project: Project,
+        vararg args: String,
+    ): String =
+        try {
+            val process =
+                ProcessBuilder(listOf("gh") + args)
+                    .directory(project.rootProject.projectDir)
+                    .redirectErrorStream(false)
+                    .start()
+            val out = process.inputStream.bufferedReader().readText()
+            val err = process.errorStream.bufferedReader().readText()
+            val code = process.waitFor()
+            if (code == 0) {
+                out
+            } else {
+                // Surface the reason: a silent empty result is indistinguishable from "no failures", which
+                // is the defect this whole task exists to prevent.
+                project.logger.warn("gh ${args.joinToString(" ")} failed (exit $code): ${err.trim().take(400)}")
+                ""
+            }
+        } catch (e: Exception) {
+            project.logger.warn("gh ${args.joinToString(" ")} could not run: ${e.message}")
+            ""
+        }
 
     private fun registerRootApiCheckAggregator(project: Project) {
         project.plugins.withId("org.jetbrains.kotlinx.binary-compatibility-validator") {

@@ -1,0 +1,294 @@
+package dev.tramai.build.quality
+
+import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * Positive and negative functional tests for [MergeGateVerifier], as `build-logic/AGENTS.md` requires of
+ * every gate: proof that it catches a violation and proof that it passes clean evidence.
+ *
+ * The first test after the positive case is the regression test for the defect this verifier exists for —
+ * a gate that read nothing and reported success. It must fail here if that behaviour ever returns.
+ */
+class MergeGateVerifierTest {
+    private val head = "32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3"
+
+    private fun greenEvidence(
+        reportedHead: String? = head,
+        checkStates: List<String> = List(12) { "SUCCESS" },
+        workflowRuns: List<MergeGateVerifier.WorkflowRun> = requiredRuns(head),
+        requiredWorkflows: List<String> = REQUIRED,
+    ) = MergeGateVerifier.Evidence(
+        expectedHead = head,
+        reportedHead = reportedHead,
+        checkStates = checkStates,
+        workflowRuns = workflowRuns,
+        requiredWorkflows = requiredWorkflows,
+    )
+
+    private fun requiredRuns(sha: String) = REQUIRED.map { MergeGateVerifier.WorkflowRun(it, "COMPLETED", "SUCCESS", sha) }
+
+    private fun rules(violations: List<MergeGateVerifier.Violation>) = violations.map { it.rule }
+
+    // ── positive: clean evidence passes ──────────────────────────────────────
+
+    @Test
+    fun `complete green evidence passes`() {
+        val violations = MergeGateVerifier.verify(greenEvidence())
+
+        assertEquals(emptyList(), violations, MergeGateVerifier.render(head, violations))
+        assertTrue(MergeGateVerifier.render(head, violations).contains("PASSED"))
+    }
+
+    @Test
+    fun `neutral and skipped checks are accepted alongside successes`() {
+        val violations =
+            MergeGateVerifier.verify(greenEvidence(checkStates = List(10) { "SUCCESS" } + listOf("NEUTRAL", "SKIPPED")))
+
+        assertEquals(emptyList(), violations, "NEUTRAL and SKIPPED are not failures")
+    }
+
+    // ── the regression: reading nothing must not pass ────────────────────────
+
+    @Test
+    fun `an empty check set is refused even though no check is failing`() {
+        // This is the defect that motivated the verifier: an invalid query returned nothing, and a gate
+        // that only looked for failures reported success.
+        val violations = MergeGateVerifier.verify(greenEvidence(checkStates = emptyList()))
+
+        assertTrue(
+            "checks-unavailable" in rules(violations),
+            "reading no checks must refuse; it must never read as 'nothing failed'",
+        )
+    }
+
+    @Test
+    fun `no workflow runs at all is refused`() {
+        val violations = MergeGateVerifier.verify(greenEvidence(workflowRuns = emptyList()))
+
+        assertTrue("workflow-runs-unavailable" in rules(violations))
+        assertTrue("required-workflow-missing" in rules(violations))
+    }
+
+    // ── unavailable or wronghead evidence ────────────────────────────────────
+
+    @Test
+    fun `an unavailable head is refused`() {
+        val violations = MergeGateVerifier.verify(greenEvidence(reportedHead = null))
+
+        assertTrue("head-unavailable" in rules(violations))
+    }
+
+    @Test
+    fun `a blank reported head is refused`() {
+        assertTrue("head-unavailable" in rules(MergeGateVerifier.verify(greenEvidence(reportedHead = "   "))))
+    }
+
+    @Test
+    fun `a moved head is refused because the evidence belongs to another commit`() {
+        val violations = MergeGateVerifier.verify(greenEvidence(reportedHead = "deadbeef"))
+
+        assertTrue("head-mismatch" in rules(violations))
+        assertTrue(MergeGateVerifier.render(head, violations).contains("head-mismatch"))
+    }
+
+    @Test
+    fun `a blank expected head cannot pass`() {
+        val violations =
+            MergeGateVerifier.verify(MergeGateVerifier.Evidence("", head, List(12) { "SUCCESS" }, requiredRuns(head), REQUIRED))
+
+        assertTrue("expected-head-unusable" in rules(violations))
+    }
+
+    // ── pending and unsuccessful checks ──────────────────────────────────────
+
+    @Test
+    fun `a pending check is refused`() {
+        assertTrue(
+            "check-not-successful" in
+                rules(MergeGateVerifier.verify(greenEvidence(checkStates = List(12) { "SUCCESS" } + listOf("IN_PROGRESS")))),
+        )
+    }
+
+    @Test
+    fun `a failed check is refused`() {
+        assertTrue(
+            "check-not-successful" in
+                rules(MergeGateVerifier.verify(greenEvidence(checkStates = List(12) { "SUCCESS" } + listOf("FAILURE")))),
+        )
+    }
+
+    @Test
+    fun `a cancelled check is refused`() {
+        assertTrue(
+            "check-not-successful" in
+                rules(MergeGateVerifier.verify(greenEvidence(checkStates = List(12) { "SUCCESS" } + listOf("CANCELLED")))),
+        )
+    }
+
+    @Test
+    fun `too few successes is refused so a partial read cannot pass`() {
+        val violations = MergeGateVerifier.verify(greenEvidence(checkStates = List(3) { "SUCCESS" }))
+
+        assertTrue("insufficient-successes" in rules(violations))
+    }
+
+    // ── required workflows ───────────────────────────────────────────────────
+
+    @Test
+    fun `a required workflow missing at the head is refused`() {
+        val runs = requiredRuns(head).filterNot { it.name == "Architecture Authority" }
+
+        val violations = MergeGateVerifier.verify(greenEvidence(workflowRuns = runs))
+
+        assertTrue("required-workflow-missing" in rules(violations))
+    }
+
+    @Test
+    fun `a required workflow that ran at another commit is refused`() {
+        val runs =
+            requiredRuns(head).map {
+                if (it.name == "Sovereign Runtime Release Candidate") it.copy(headSha = "deadbeef") else it
+            }
+
+        val violations = MergeGateVerifier.verify(greenEvidence(workflowRuns = runs))
+
+        assertTrue(
+            "required-workflow-wrong-commit" in rules(violations),
+            "a workflow run from another commit must not stand in for this head",
+        )
+    }
+
+    @Test
+    fun `a required workflow that is not successful is refused`() {
+        for (state in listOf(
+            Triple("IN_PROGRESS", null, "required-workflow-not-successful"),
+            Triple("COMPLETED", "FAILURE", "required-workflow-not-successful"),
+            Triple("COMPLETED", null, "required-workflow-not-successful"),
+        )) {
+            val runs =
+                requiredRuns(head).map {
+                    if (it.name == "CI") it.copy(status = state.first, conclusion = state.second) else it
+                }
+
+            val violations = MergeGateVerifier.verify(greenEvidence(workflowRuns = runs))
+
+            assertTrue(
+                state.third in rules(violations),
+                "CI as ${state.first}/${state.second} must be refused, got ${rules(violations)}",
+            )
+        }
+    }
+
+    @Test
+    fun `a refusal names every failing rule and the head it refused`() {
+        val violations =
+            MergeGateVerifier.verify(
+                greenEvidence(reportedHead = "deadbeef", checkStates = emptyList(), workflowRuns = emptyList()),
+            )
+
+        val rendered = MergeGateVerifier.render(head, violations)
+        assertTrue(rendered.contains("REFUSED"))
+        assertTrue(rendered.contains(head), "the refusal states which head it judged")
+        for (rule in rules(violations)) {
+            assertTrue(rendered.contains(rule), "rule $rule is named in the refusal")
+        }
+    }
+
+    // ── the fetch boundary: empty input must never look green ────────────────
+
+    @Test
+    fun `empty fetched text parses to no checks, which the verifier refuses`() {
+        // The regression, at the transport boundary as well as the rule: a failed fetch produced nothing
+        // before, and the gate still passed. Nothing must stay nothing, and nothing must be refused.
+        val states = MergeGateVerifier.parseCheckStates("")
+
+        assertEquals(emptyList(), states)
+        assertTrue(
+            "checks-unavailable" in
+                rules(MergeGateVerifier.verify(greenEvidence(checkStates = states))),
+            "an empty fetch must be refused, not read as 'no checks failed'",
+        )
+    }
+
+    @Test
+    fun `check states parse one per line, ignoring blank lines`() {
+        val states = MergeGateVerifier.parseCheckStates("SUCCESS\n\n  SUCCESS  \nNEUTRAL\n")
+
+        assertEquals(listOf("SUCCESS", "SUCCESS", "NEUTRAL"), states)
+    }
+
+    @Test
+    fun `workflow runs parse name, status, conclusion and commit`() {
+        val runs =
+            MergeGateVerifier.parseWorkflowRuns(
+                "CI|COMPLETED|SUCCESS|$head\n" +
+                    "Architecture Authority|COMPLETED|SUCCESS|$head\n" +
+                    "Sovereign Runtime Release Candidate|COMPLETED|SUCCESS|$head\n",
+            )
+
+        assertEquals(3, runs.size)
+        assertEquals("Architecture Authority", runs[1].name)
+        assertEquals(head, runs[1].headSha)
+    }
+
+    @Test
+    fun `a malformed workflow line is dropped rather than invented`() {
+        val runs = MergeGateVerifier.parseWorkflowRuns("garbage\nCI|COMPLETED|SUCCESS|$head\nnot|enough|fields\n")
+
+        assertEquals(1, runs.size)
+        assertEquals("CI", runs.single().name)
+    }
+
+    @Test
+    fun `an empty workflow response parses to nothing, which the verifier refuses`() {
+        val runs = MergeGateVerifier.parseWorkflowRuns("")
+
+        assertEquals(emptyList(), runs)
+        assertTrue("workflow-runs-unavailable" in rules(MergeGateVerifier.verify(greenEvidence(workflowRuns = runs))))
+    }
+
+    // ── transport realities: whitespace and the API's mixed casing ───────────
+    //
+    // All three of these were found by running the real task against real data, not by these tests. They
+    // are recorded here so the same class of transport defect cannot come back silently.
+
+    @Test
+    fun `a head fetch with a trailing newline is not a mismatch`() {
+        // `gh` returns headRefOid with a trailing newline. Untrimmed, the rule reported
+        // "head moved from X to X" — identical SHAs, spurious refusal.
+        val violations = MergeGateVerifier.verify(greenEvidence(reportedHead = "$head\n"))
+
+        assertTrue(
+            "head-mismatch" !in rules(violations),
+            "identical SHAs must not read as a moved head: ${rules(violations)}",
+        )
+    }
+
+    @Test
+    fun `the Actions API's lowercase status and conclusion are accepted`() {
+        // The Actions API returns completed/success; the status rollup returns COMPLETED/SUCCESS. A
+        // case-sensitive comparison rejected a genuinely successful workflow run. Built from the full
+        // required set so the run is complete and only the casing is under test.
+        val runs = MergeGateVerifier.parseWorkflowRuns(REQUIRED.joinToString("\n") { "$it|completed|success|$head" })
+
+        assertEquals(3, runs.size)
+        assertTrue(runs.all { it.status == "COMPLETED" && it.conclusion == "SUCCESS" })
+        assertEquals(emptyList(), MergeGateVerifier.verify(greenEvidence(workflowRuns = runs)).map { it.rule })
+    }
+
+    @Test
+    fun `lowercase check states are accepted`() {
+        // Normalisation happens at the transport boundary, so this goes through the parser rather than
+        // around it — a fixture that skips the parser would test a layer the fetch never uses.
+        val states = MergeGateVerifier.parseCheckStates(List(12) { "success" }.joinToString("\n"))
+
+        assertEquals(List(12) { "SUCCESS" }, states)
+        assertTrue("check-not-successful" !in rules(MergeGateVerifier.verify(greenEvidence(checkStates = states))))
+    }
+
+    private companion object {
+        val REQUIRED = listOf("CI", "Architecture Authority", "Sovereign Runtime Release Candidate")
+    }
+}
