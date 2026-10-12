@@ -22,8 +22,13 @@ import kotlin.test.assertTrue
  *
  * That is the intended contract, not an oversight: [PolicyDecisionAuditEmitter] requires a
  * [PolicyDecision], and inventing one would make this helper a decision authority — which the
- * "one authoritative governance evaluator" invariant forbids. A refusal that is not a decision is
- * recorded by the caller's governance-unavailable path, exactly as the XR1 boundary does.
+ * "one authoritative governance evaluator" invariant forbids.
+ *
+ * **Scope of this suite.** It establishes, at the engine entry point, that a real decision is audited,
+ * that a refusal propagates without a fabricated decision, and that a policy denial is distinguishable
+ * from such a refusal. It does **not** establish that every engine caller records an independent
+ * governance-unavailable event: the declared XR1 boundary does, but that is a property of that boundary.
+ * Do not read this as comprehensive failure-audit coverage.
  *
  * These three cases are mutually distinguishable, so the suite cannot pass by accident: a helper that
  * fabricated a decision for the refusal fails the second, and one that suppressed the audit for real
