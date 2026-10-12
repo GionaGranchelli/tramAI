@@ -400,6 +400,7 @@ class MergeGateVerifierTest {
                         checkNames = List(12) { "some-check-$it" },
                         conditionalChecks = mutation,
                         changedPaths = listOf("tramai-engine/src/main/kotlin/dev/tramai/engine/Router.kt"),
+                        changedFilesTotal = 1,
                     ),
             )
 
@@ -415,6 +416,7 @@ class MergeGateVerifierTest {
                         checkNames = List(12) { "some-check-$it" },
                         conditionalChecks = mutation,
                         changedPaths = listOf("config/quality/0.6.0-baseline.json"),
+                        changedFilesTotal = 1,
                     ),
             )
 
@@ -436,6 +438,26 @@ class MergeGateVerifierTest {
             )
 
         assertTrue("changed-paths-unavailable" in rules(violations), "rules: ${rules(violations)}")
+    }
+
+    @Test
+    fun `a truncated path list is refused even though some paths were retrieved`() {
+        // The distinction that matters: some evidence was retrieved, but not all of it. A 101st file could be
+        // the only one matching a filter, so a short list cannot establish inapplicability.
+        val truncated = List(100) { "tramai-engine/src/main/kotlin/dev/tramai/engine/File$it.kt" }
+        val violations =
+            MergeGateVerifier.verify(
+                greenEvidence()
+                    .copy(
+                        checkNames = List(12) { "some-check-$it" },
+                        conditionalChecks = mutation,
+                        changedPaths = truncated,
+                        changedFilesTotal = 101,
+                    ),
+            )
+
+        assertTrue("changed-paths-incomplete" in rules(violations), "rules: ${rules(violations)}")
+        assertTrue("changed-paths-unavailable" !in rules(violations), "paths were retrieved, just not all")
     }
 
     @Test

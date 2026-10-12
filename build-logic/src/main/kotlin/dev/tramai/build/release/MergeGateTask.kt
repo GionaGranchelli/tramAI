@@ -30,7 +30,10 @@ private const val WORKFLOW_RUN_LINES_JQ =
 private const val GH_STDERR_QUOTE_LIMIT = 400
 
 /** One changed path per line, so applicability can be decided from real pull request contents. */
-private const val CHANGED_PATHS_JQ = ".files[].path"
+private const val CHANGED_PATHS_JQ = ".[].filename"
+
+/** GitHub's changed-file count, compared against the retrieved paths to detect a partial read. */
+private const val CHANGED_FILES_JQ = ".changedFiles"
 
 /**
  * Every check a merge requires, as observed on a green rollup. Each entry is either a complete name or the
@@ -136,6 +139,7 @@ internal fun Project.registerVerifyMergeGate() {
                     requiredCheckIdentities = requiredCheckIdentities,
                     conditionalChecks = CONDITIONAL_CHECKS,
                     changedPaths = fetchChangedPaths(prNumberProperty),
+                    changedFilesTotal = fetchChangedFilesTotal(prNumberProperty),
                     workflowRuns = fetchRuns(expectedHeadProperty),
                     requiredWorkflows = requiredWorkflows,
                 )
@@ -165,15 +169,23 @@ private fun Project.fetchChecks(prNumber: String): List<MergeGateVerifier.Check>
     )
 
 /**
- * The pull request's changed paths. An empty result means the read failed rather than that the pull request
- * changed nothing, and the verifier refuses on an empty list rather than treating every conditional check as
- * inapplicable.
+ * The pull request's changed paths, retrieved through the **paginated** files endpoint rather than
+ * `gh pr view --json files`, which is documented to truncate at 100 files. A partial list is the dangerous
+ * shape: it looks complete, so applicability would be decided from missing evidence. Note `filename`, not
+ * `path` — the REST shape differs from the `gh pr view` one.
  */
 private fun Project.fetchChangedPaths(prNumber: String): List<String> =
-    gh("pr", "view", prNumber, "--json", "files", "--jq", CHANGED_PATHS_JQ)
+    gh("api", "repos/{owner}/{repo}/pulls/$prNumber/files", "--paginate", "--jq", CHANGED_PATHS_JQ)
         .lines()
         .map { it.trim() }
         .filter { it.isNotEmpty() }
+
+/**
+ * GitHub's own changed-file count, from the pull request object. The retrieved paths are compared against it
+ * so a truncated or partial response is refused rather than trusted: some evidence is not all evidence.
+ */
+private fun Project.fetchChangedFilesTotal(prNumber: String): Int =
+    gh("pr", "view", prNumber, "--json", "changedFiles", "--jq", CHANGED_FILES_JQ).trim().toIntOrNull() ?: 0
 
 private fun Project.fetchRuns(head: String): List<MergeGateVerifier.WorkflowRun> =
     MergeGateVerifier.parseWorkflowRuns(

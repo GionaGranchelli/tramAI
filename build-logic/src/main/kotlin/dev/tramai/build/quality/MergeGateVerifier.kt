@@ -174,6 +174,12 @@ object MergeGateVerifier {
         val conditionalChecks: Map<String, List<String>> = emptyMap(),
         /** The pull request's changed paths, used to decide applicability. Empty means unread, not "none". */
         val changedPaths: List<String> = emptyList(),
+        /**
+         * GitHub's own changed-file count, so a **partial** path list is detectable. A truncated response
+         * looks complete — a pull request whose 101st file is the only match would otherwise be judged
+         * inapplicable from evidence that omits it. Zero means the count was not read, which refuses.
+         */
+        val changedFilesTotal: Int = 0,
         /** The rollup's check names, paired by position with [checkStates]. */
         val checkNames: List<String> = emptyList(),
     )
@@ -302,6 +308,18 @@ object MergeGateVerifier {
                         "changed-paths-unavailable",
                         "${conditional.size} conditional check(s) are configured but the pull request's " +
                             "changed paths were not read; applicability cannot be decided, which is not a pass",
+                    )
+            }
+
+            // A partial list is not a usable one: some evidence retrieved is not all evidence retrieved.
+            // GitHub truncates long responses, so a list shorter than GitHub's own count must not be used to
+            // conclude that a workflow is inapplicable.
+            conditional.isNotEmpty() && evidence.changedFilesTotal != evidence.changedPaths.size -> {
+                violations +=
+                    Violation(
+                        "changed-paths-incomplete",
+                        "read ${evidence.changedPaths.size} of ${evidence.changedFilesTotal} changed path(s); " +
+                            "applicability cannot be decided from incomplete evidence",
                     )
             }
 
