@@ -1,5 +1,8 @@
 package dev.tramai.build.quality
 
+import java.nio.file.FileSystems
+import java.nio.file.Paths
+
 /** Fields in one `name|status|conclusion|headSha` line. */
 private const val WORKFLOW_FIELD_COUNT = 4
 
@@ -8,6 +11,78 @@ private const val CHECK_FIELD_COUNT = 2
 
 /** The separator the fetcher uses between fields. */
 private const val FIELD_SEPARATOR = '|'
+
+/**
+ * Does a workflow's declared path filter match one changed path? Uses the JDK's own glob matcher rather than
+ * a hand-rolled one, so `**` and `*` mean what they mean everywhere else.
+ *
+ * An unusable pattern counts as a match: applicability is the fail-closed direction, because treating an
+ * unparseable filter as inapplicable would let a typo silently drop a required check.
+ */
+private fun matchesGlob(
+    glob: String,
+    path: String,
+): Boolean =
+    runCatching { FileSystems.getDefault().getPathMatcher("glob:$glob").matches(Paths.get(path)) }
+        .getOrDefault(true)
+
+/**
+ * The identities that apply to this pull request: the unconditional set, plus every conditional check whose
+ * parent workflow's filters match a changed path. File-level rather than a member so the rule method stays
+ * within the method-length limit without the object growing another function.
+ */
+private fun applicableIdentities(evidence: MergeGateVerifier.Evidence): List<String> =
+    evidence.requiredCheckIdentities +
+        evidence.conditionalChecks
+            .filter { (_, globs) ->
+                globs.any { glob -> evidence.changedPaths.any { path -> matchesGlob(glob, path) } }
+            }.keys
+
+/**
+ * The refusals for a rollup whose required identities have been decided: an inconsistent read, and every
+ * effective identity that is missing or did not succeed. File-level for the same length reason as above.
+ */
+private fun coverageViolations(evidence: MergeGateVerifier.Evidence): List<MergeGateVerifier.Violation> {
+    val effective = applicableIdentities(evidence)
+    val violations = mutableListOf<MergeGateVerifier.Violation>()
+    if (evidence.checkNames.size != evidence.checkStates.size) {
+        violations +=
+            MergeGateVerifier.Violation(
+                "checks-inconsistent",
+                "read ${evidence.checkNames.size} check name(s) but ${evidence.checkStates.size} " +
+                    "state(s); the response is inconsistent",
+            )
+    }
+    // Every effective identity must be present, not one per family: a partial read can contain a single
+    // member of each family and still be missing the checks that matter.
+    val present = { identity: String ->
+        evidence.checkNames.any { it == identity || it.startsWith("$identity,") }
+    }
+    val missing = effective.filterNot(present)
+    if (missing.isNotEmpty()) {
+        violations +=
+            MergeGateVerifier.Violation(
+                "required-check-missing",
+                "${missing.size} required check(s) absent from the rollup: ${missing.joinToString(", ")}",
+            )
+    }
+    // An effective check must have SUCCEEDED. SKIPPED and NEUTRAL stay acceptable only for checks that are
+    // not required, so presence alone cannot authorise a merge.
+    val states = evidence.checkNames.zip(evidence.checkStates)
+    val notSuccessful =
+        effective.filter(present).filter { identity ->
+            val state = states.first { it.first == identity || it.first.startsWith("$identity,") }
+            state.second != "SUCCESS"
+        }
+    if (notSuccessful.isNotEmpty()) {
+        violations +=
+            MergeGateVerifier.Violation(
+                "required-check-not-successful",
+                "${notSuccessful.size} required check(s) did not succeed: ${notSuccessful.joinToString(", ")}",
+            )
+    }
+    return violations
+}
 
 /**
  * Decides whether a pull request may be merged, from evidence that has already been fetched.
@@ -71,7 +146,7 @@ object MergeGateVerifier {
         /**
          * A gate that read nothing must not pass; also guards against a query returning a partial set. This is
          * a sanity floor only — it cannot establish completeness, because a partial response whose omitted
-         * entries were failures would still satisfy it. Completeness comes from [requiredCheckPrefixes].
+         * entries were failures would still satisfy it. Completeness comes from [requiredCheckIdentities].
          */
         val minSuccesses: Int = 10,
         /**
@@ -87,6 +162,18 @@ object MergeGateVerifier {
          * Empty means the caller does not require identity coverage, and the identity rules do not apply.
          */
         val requiredCheckIdentities: List<String> = emptyList(),
+        /**
+         * Checks that are required only when their producing workflow is **applicable**: identity to the path
+         * filters that workflow declares. A path-filtered workflow GitHub legitimately skipped must not block
+         * a merge, and a workflow whose filters do match must not be allowed to go missing — otherwise the
+         * gate refuses unrelated work, which is the failure it exists to prevent.
+         *
+         * The contract here is applicability, not a historical rollup: a green check list records what ran on
+         * one pull request, which is not the same as what must run on every pull request.
+         */
+        val conditionalChecks: Map<String, List<String>> = emptyMap(),
+        /** The pull request's changed paths, used to decide applicability. Empty means unread, not "none". */
+        val changedPaths: List<String> = emptyList(),
         /** The rollup's check names, paired by position with [checkStates]. */
         val checkNames: List<String> = emptyList(),
     )
@@ -191,9 +278,10 @@ object MergeGateVerifier {
      */
     private fun identityViolations(evidence: Evidence): List<Violation> {
         val required = evidence.requiredCheckIdentities
+        val conditional = evidence.conditionalChecks
         val violations = mutableListOf<Violation>()
         when {
-            required.isEmpty() -> {
+            required.isEmpty() && conditional.isEmpty() -> {
                 Unit
             }
 
@@ -206,47 +294,21 @@ object MergeGateVerifier {
                     )
             }
 
+            // Applicability is decided from the changed paths, so a gate that cannot read them cannot tell
+            // an inapplicable workflow from a missing one. Refusing is the only honest option.
+            conditional.isNotEmpty() && evidence.changedPaths.isEmpty() -> {
+                violations +=
+                    Violation(
+                        "changed-paths-unavailable",
+                        "${conditional.size} conditional check(s) are configured but the pull request's " +
+                            "changed paths were not read; applicability cannot be decided, which is not a pass",
+                    )
+            }
+
             else -> {
-                if (evidence.checkNames.size != evidence.checkStates.size) {
-                    violations +=
-                        Violation(
-                            "checks-inconsistent",
-                            "read ${evidence.checkNames.size} check name(s) but ${evidence.checkStates.size} " +
-                                "state(s); the response is inconsistent",
-                        )
-                }
-                // Every required identity must be present, not one per family: a partial read can contain a
-                // single member of each family and still be missing the checks that matter.
-                val present = { identity: String ->
-                    evidence.checkNames.any { it == identity || it.startsWith("$identity,") }
-                }
-                val missing = required.filterNot(present)
-                if (missing.isNotEmpty()) {
-                    violations +=
-                        Violation(
-                            "required-check-missing",
-                            "${missing.size} required check(s) absent from the rollup: " +
-                                missing.joinToString(", "),
-                        )
-                }
-                // A required check must have SUCCEEDED. SKIPPED and NEUTRAL stay acceptable only for checks
-                // that are not required, so presence alone cannot authorise a merge.
-                val stateOf = evidence.checkNames.zip(evidence.checkStates).toMap()
-                val notSuccessful =
-                    required
-                        .filter(present)
-                        .filter { identity ->
-                            val state = stateOf.entries.first { it.key == identity || it.key.startsWith("$identity,") }
-                            state.value != "SUCCESS"
-                        }
-                if (notSuccessful.isNotEmpty()) {
-                    violations +=
-                        Violation(
-                            "required-check-not-successful",
-                            "${notSuccessful.size} required check(s) did not succeed: " +
-                                notSuccessful.joinToString(", "),
-                        )
-                }
+                // Only the applicable conditional checks join the required set. A path-filtered workflow that
+                // GitHub correctly did not run must not be demanded here.
+                violations += coverageViolations(evidence)
             }
         }
         return violations

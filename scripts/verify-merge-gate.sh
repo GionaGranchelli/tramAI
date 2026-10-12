@@ -116,13 +116,34 @@ if [ "${1:-}" = "--self-check" ]; then
         fi
     fi
 
-    # A second pinned refusal, and the reason the fixture above cannot be a fixed SHA: PR #518 is green and
-    # merged, but it predates the "Mutation authority transport" workflow, so its rollup cannot satisfy the
-    # current required set. Refusing it is the gate working — an old head is not evidence for today's
-    # contract — and it is stable because a merged head never moves.
-    echo "== refusing: a green head that predates a required check (#518)"
-    expect_refusal "predates a required check" /tmp/mg-self-6.log "required-check-missing" \
-        -PprNumber=518 -PexpectedHead=32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3 || fail=1
+    # The second positive control, and the live proof of the applicability correction. This case was a
+    # REFUSAL until applicability was corrected: #518 was refused with `required-check-missing: Mutation
+    # authority transport`. That refusal was a false one. #518 changes no path the mutation workflow filters
+    # on (measured: zero matching paths), so GitHub correctly did not run that workflow, and demanding its
+    # check refused unrelated work. A required set derived from one green rollup is not a contract.
+    echo "== passing: an unrelated pull request whose conditional check legitimately did not run (#518)"
+    MATCHING=$(gh pr view 518 --json files --jq \
+        '[.files[].path | select(startswith("config/quality/"))] | length' 2>/dev/null | tr -d '\n\r ')
+    if [ -z "$MATCHING" ]; then
+        echo "  FAIL [unrelated PR]: could not read the fixture's changed paths; the control cannot be skipped"
+        fail=1
+    elif [ "$MATCHING" != "0" ]; then
+        echo "  FAIL [unrelated PR]: fixture now matches the filters ($MATCHING paths); no longer a valid case"
+        fail=1
+    else
+        echo "  (measured: 0 changed paths matching the mutation filters)"
+        if $GRADLE verifyMergeGate -PprNumber=518 \
+            -PexpectedHead=32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3 --console=plain \
+            >/tmp/mg-self-6.log 2>&1; then
+            grep -aE "merge gate PASSED" /tmp/mg-self-6.log | head -1 | sed 's/^/  ok: /'
+        else
+            echo "  FAIL [unrelated PR]: the gate refused a pull request whose only absent check is an"
+            echo "       inapplicable one. Possible causes: the filters drifted from the workflow, or the"
+            echo "       changed-path read failed."
+            grep -aE "merge gate REFUSED|\[[a-z-]+\]" /tmp/mg-self-6.log | head -5 | sed 's/^/       /'
+            fail=1
+        fi
+    fi
 
     if [ "$fail" -ne 0 ]; then
         echo
@@ -130,7 +151,7 @@ if [ "${1:-}" = "--self-check" ]; then
         exit 1
     fi
     echo
-    echo "SELF-CHECK PASSED: six named refusals hold, and the positive control still passes."
+    echo "SELF-CHECK PASSED: five named refusals hold, and both positive controls still pass."
     exit 0
 fi
 

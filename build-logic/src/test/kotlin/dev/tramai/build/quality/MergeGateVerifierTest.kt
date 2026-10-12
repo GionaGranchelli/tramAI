@@ -15,6 +15,9 @@ import kotlin.test.assertTrue
 class MergeGateVerifierTest {
     private val head = "32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3"
 
+    /** Stands in for a path-filtered workflow: what actually applies is decided by the changed paths. */
+    private val mutation = mapOf("Mutation authority transport" to listOf("config/quality/**"))
+
     private fun greenEvidence(
         reportedHead: String? = head,
         checkStates: List<String> = List(12) { "SUCCESS" },
@@ -384,6 +387,55 @@ class MergeGateVerifierTest {
             MergeGateVerifier.verify(namedEvidence(checks, listOf("quality (static", "contract-tests (formatting")))
 
         assertEquals(emptyList(), violations, MergeGateVerifier.render(head, violations))
+    }
+
+    @Test
+    fun `an unrelated pull request without a conditional check passes`() {
+        // A path-filtered workflow GitHub legitimately did not run must not be demanded. Making it
+        // unconditionally required would refuse unrelated work, the failure this gate exists to prevent.
+        val violations =
+            MergeGateVerifier.verify(
+                greenEvidence()
+                    .copy(
+                        checkNames = List(12) { "some-check-$it" },
+                        conditionalChecks = mutation,
+                        changedPaths = listOf("tramai-engine/src/main/kotlin/dev/tramai/engine/Router.kt"),
+                    ),
+            )
+
+        assertEquals(emptyList(), violations, MergeGateVerifier.render(head, violations))
+    }
+
+    @Test
+    fun `a change matching a conditional filter requires that check`() {
+        val violations =
+            MergeGateVerifier.verify(
+                greenEvidence()
+                    .copy(
+                        checkNames = List(12) { "some-check-$it" },
+                        conditionalChecks = mutation,
+                        changedPaths = listOf("config/quality/0.6.0-baseline.json"),
+                    ),
+            )
+
+        assertTrue("required-check-missing" in rules(violations), "rules: ${rules(violations)}")
+    }
+
+    @Test
+    fun `conditional checks configured but changed paths unread is refused`() {
+        // Treating an unread path set as "nothing matched" would silently drop the check; the honest
+        // verdict for undecidable applicability is a refusal.
+        val violations =
+            MergeGateVerifier.verify(
+                greenEvidence()
+                    .copy(
+                        checkNames = List(12) { "some-check-$it" },
+                        conditionalChecks = mutation,
+                        changedPaths = emptyList(),
+                    ),
+            )
+
+        assertTrue("changed-paths-unavailable" in rules(violations), "rules: ${rules(violations)}")
     }
 
     @Test

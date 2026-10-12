@@ -29,6 +29,9 @@ private const val WORKFLOW_RUN_LINES_JQ =
 /** How much of `gh`'s stderr to quote in a diagnostic; enough to identify the failure, not a log dump. */
 private const val GH_STDERR_QUOTE_LIMIT = 400
 
+/** One changed path per line, so applicability can be decided from real pull request contents. */
+private const val CHANGED_PATHS_JQ = ".files[].path"
+
 /**
  * Every check a merge requires, as observed on a green rollup. Each entry is either a complete name or the
  * stable leading part of one, which tolerates both the matrix arguments that trail a name and the
@@ -53,8 +56,28 @@ private val REQUIRED_CHECK_IDENTITIES =
         "performance-policy-tests",
         "zero-egress",
         "GitGuardian Security Checks",
-        "Mutation authority transport",
         "validate",
+    )
+
+/**
+ * Checks required only when their producing workflow is **applicable**, with the path filters that workflow
+ * declares. Transcribed from `.github/workflows/mutation-authority-integration.yml`; if that workflow's
+ * `paths:` change, this must change with them.
+ *
+ * Why not unconditional: a green check list records what ran on one pull request, which is not the contract
+ * for what must run on every pull request. Making a path-filtered workflow unconditionally required would
+ * refuse unrelated work — the failure this gate exists to prevent.
+ */
+private val CONDITIONAL_CHECKS =
+    mapOf(
+        "Mutation authority transport" to
+            listOf(
+                "build-logic/src/main/kotlin/dev/tramai/build/quality/**",
+                "build-logic/src/test/kotlin/dev/tramai/build/quality/Mutation*.kt",
+                "build-logic/build.gradle.kts",
+                "config/quality/**",
+                ".github/workflows/mutation-authority-integration.yml",
+            ),
     )
 
 /**
@@ -111,6 +134,8 @@ internal fun Project.registerVerifyMergeGate() {
                     checkStates = checks.map { it.state },
                     checkNames = checks.map { it.name },
                     requiredCheckIdentities = requiredCheckIdentities,
+                    conditionalChecks = CONDITIONAL_CHECKS,
+                    changedPaths = fetchChangedPaths(prNumberProperty),
                     workflowRuns = fetchRuns(expectedHeadProperty),
                     requiredWorkflows = requiredWorkflows,
                 )
@@ -138,6 +163,17 @@ private fun Project.fetchChecks(prNumber: String): List<MergeGateVerifier.Check>
     MergeGateVerifier.parseChecks(
         gh("pr", "view", prNumber, "--json", "statusCheckRollup", "--jq", CHECK_LINES_JQ),
     )
+
+/**
+ * The pull request's changed paths. An empty result means the read failed rather than that the pull request
+ * changed nothing, and the verifier refuses on an empty list rather than treating every conditional check as
+ * inapplicable.
+ */
+private fun Project.fetchChangedPaths(prNumber: String): List<String> =
+    gh("pr", "view", prNumber, "--json", "files", "--jq", CHANGED_PATHS_JQ)
+        .lines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
 
 private fun Project.fetchRuns(head: String): List<MergeGateVerifier.WorkflowRun> =
     MergeGateVerifier.parseWorkflowRuns(
