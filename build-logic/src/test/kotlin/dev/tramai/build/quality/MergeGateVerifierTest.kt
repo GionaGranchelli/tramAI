@@ -1,5 +1,6 @@
 package dev.tramai.build.quality
 
+import dev.tramai.build.quality.MergeGateVerifier.WorkflowRun
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -17,7 +18,6 @@ class MergeGateVerifierTest {
     private fun greenEvidence(
         reportedHead: String? = head,
         checkStates: List<String> = List(12) { "SUCCESS" },
-        checkNames: List<String> = emptyList(),
         requiredCheckPrefixes: List<String> = emptyList(),
         workflowRuns: List<MergeGateVerifier.WorkflowRun> = requiredRuns(head),
         requiredWorkflows: List<String> = REQUIRED,
@@ -25,13 +25,36 @@ class MergeGateVerifierTest {
         expectedHead = head,
         reportedHead = reportedHead,
         checkStates = checkStates,
-        checkNames = checkNames,
         requiredCheckPrefixes = requiredCheckPrefixes,
         workflowRuns = workflowRuns,
         requiredWorkflows = requiredWorkflows,
     )
 
-    private fun requiredRuns(sha: String) = REQUIRED.map { MergeGateVerifier.WorkflowRun(it, "COMPLETED", "SUCCESS", sha) }
+    private fun requiredRuns(sha: String) = REQUIRED.map { WorkflowRun(it, "COMPLETED", "SUCCESS", sha) }
+
+    /**
+     * Evidence carrying check names as well as states, for the identity rules. A second helper rather than
+     * more parameters on [greenEvidence]: the parameter threshold is 6 and it is inclusive, so six
+     * parameters is already a finding.
+     */
+    private fun namedEvidence(
+        checks: List<MergeGateVerifier.Check>,
+        prefixes: List<String>,
+    ) = MergeGateVerifier.Evidence(
+        expectedHead = head,
+        reportedHead = head,
+        checkStates = checks.map { it.state },
+        checkNames = checks.map { it.name },
+        requiredCheckPrefixes = prefixes,
+        workflowRuns = requiredRuns(head),
+        requiredWorkflows = REQUIRED,
+    )
+
+    /** The rules triggered by one non-SUCCESS state alongside a green set. */
+    private fun stateRules(extraState: String): List<String> {
+        val states = List(12) { "SUCCESS" } + listOf(extraState)
+        return rules(MergeGateVerifier.verify(greenEvidence(checkStates = states)))
+    }
 
     private fun rules(violations: List<MergeGateVerifier.Violation>) = violations.map { it.rule }
 
@@ -99,8 +122,15 @@ class MergeGateVerifierTest {
 
     @Test
     fun `a blank expected head cannot pass`() {
-        val violations =
-            MergeGateVerifier.verify(MergeGateVerifier.Evidence("", head, List(12) { "SUCCESS" }, requiredRuns(head), REQUIRED))
+        val evidence =
+            MergeGateVerifier.Evidence(
+                expectedHead = "",
+                reportedHead = head,
+                checkStates = List(12) { "SUCCESS" },
+                workflowRuns = requiredRuns(head),
+                requiredWorkflows = REQUIRED,
+            )
+        val violations = MergeGateVerifier.verify(evidence)
 
         assertTrue("expected-head-unusable" in rules(violations))
     }
@@ -109,26 +139,17 @@ class MergeGateVerifierTest {
 
     @Test
     fun `a pending check is refused`() {
-        assertTrue(
-            "check-not-successful" in
-                rules(MergeGateVerifier.verify(greenEvidence(checkStates = List(12) { "SUCCESS" } + listOf("IN_PROGRESS")))),
-        )
+        assertTrue("check-not-successful" in stateRules("IN_PROGRESS"))
     }
 
     @Test
     fun `a failed check is refused`() {
-        assertTrue(
-            "check-not-successful" in
-                rules(MergeGateVerifier.verify(greenEvidence(checkStates = List(12) { "SUCCESS" } + listOf("FAILURE")))),
-        )
+        assertTrue("check-not-successful" in stateRules("FAILURE"))
     }
 
     @Test
     fun `a cancelled check is refused`() {
-        assertTrue(
-            "check-not-successful" in
-                rules(MergeGateVerifier.verify(greenEvidence(checkStates = List(12) { "SUCCESS" } + listOf("CANCELLED")))),
-        )
+        assertTrue("check-not-successful" in stateRules("CANCELLED"))
     }
 
     @Test
@@ -299,14 +320,8 @@ class MergeGateVerifierTest {
         // The reported defect: ten successes satisfy the floor, yet the rollup may be missing checks
         // whose omitted entries were failures. Presence of the required identities is what establishes
         // coverage; the floor remains a sanity check only.
-        val violations =
-            MergeGateVerifier.verify(
-                greenEvidence(
-                    checkStates = List(10) { "SUCCESS" },
-                    checkNames = List(10) { "quality (static, $it)" },
-                    requiredCheckPrefixes = listOf("quality (", "contract-tests ("),
-                ),
-            )
+        val checks = List(10) { MergeGateVerifier.Check("quality (static, $it)", "SUCCESS") }
+        val violations = MergeGateVerifier.verify(namedEvidence(checks, listOf("quality (", "contract-tests (")))
 
         assertTrue(
             "required-check-missing" in rules(violations),
@@ -316,14 +331,10 @@ class MergeGateVerifierTest {
 
     @Test
     fun `all required identities present and green passes`() {
-        val violations =
-            MergeGateVerifier.verify(
-                greenEvidence(
-                    checkNames =
-                        List(6) { "quality (static, $it)" } + List(6) { "contract-tests (formatting, $it)" },
-                    requiredCheckPrefixes = listOf("quality (", "contract-tests ("),
-                ),
-            )
+        val checks =
+            List(6) { MergeGateVerifier.Check("quality (static, $it)", "SUCCESS") } +
+                List(6) { MergeGateVerifier.Check("contract-tests (formatting, $it)", "SUCCESS") }
+        val violations = MergeGateVerifier.verify(namedEvidence(checks, listOf("quality (", "contract-tests (")))
 
         assertEquals(emptyList(), violations, MergeGateVerifier.render(head, violations))
     }
@@ -337,13 +348,19 @@ class MergeGateVerifierTest {
 
     @Test
     fun `a names and states count mismatch is refused as inconsistent`() {
-        val violations =
-            MergeGateVerifier.verify(
-                greenEvidence(
-                    checkNames = List(11) { "quality (static, $it)" },
-                    requiredCheckPrefixes = listOf("quality ("),
-                ),
+        // An inconsistent read cannot be expressed through the helper, which derives both facts from one
+        // list: that is the shape working as intended, so this builds the evidence directly.
+        val evidence =
+            MergeGateVerifier.Evidence(
+                expectedHead = head,
+                reportedHead = head,
+                checkStates = List(12) { "SUCCESS" },
+                checkNames = List(11) { "quality (static, $it)" },
+                requiredCheckPrefixes = listOf("quality ("),
+                workflowRuns = requiredRuns(head),
+                requiredWorkflows = REQUIRED,
             )
+        val violations = MergeGateVerifier.verify(evidence)
 
         assertTrue("checks-inconsistent" in rules(violations))
     }
