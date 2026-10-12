@@ -85,6 +85,23 @@ private fun coverageViolations(evidence: MergeGateVerifier.Evidence): List<Merge
 }
 
 /**
+ * The required identities for a run: the built-in set plus any additions, deduplicated. An override may only
+ * **add**.
+ *
+ * Replacing would be a bypass by flag rather than by query: `-PrequiredChecks=tests` would drop the other
+ * seventeen identities and still authorise a merge, which is the fail-open shape this gate exists to refuse.
+ * Additions-only means the flag cannot narrow the gate, and the only way to change the contract is to change
+ * the defaults — in the source, where they are reviewable.
+ *
+ * File level and `internal` so the invariant is unit-testable: inline in the task it would not be, and this is
+ * exactly the rule a later simplification would quietly restore to replacement.
+ */
+internal fun requiredIdentities(
+    defaults: List<String>,
+    additions: List<String>,
+): List<String> = (defaults + additions).distinct()
+
+/**
  * Decides whether a pull request may be merged, from evidence that has already been fetched.
  *
  * ## Why this exists

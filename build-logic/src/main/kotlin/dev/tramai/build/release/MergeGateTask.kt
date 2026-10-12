@@ -1,6 +1,7 @@
 package dev.tramai.build.release
 
 import dev.tramai.build.quality.MergeGateVerifier
+import dev.tramai.build.quality.requiredIdentities
 import org.gradle.api.GradleException
 import org.gradle.api.Project
 import java.util.concurrent.CancellationException
@@ -107,7 +108,10 @@ internal fun Project.registerVerifyMergeGate() {
         "requiredChecks was supplied but is empty. An empty override would disable required-check " +
             "coverage entirely, which is a refusal rather than a pass; omit the property to use the defaults."
     }
-    val requiredCheckIdentities = parsedOverride ?: REQUIRED_CHECK_IDENTITIES
+    // Additive, not replacing. An override that replaced the defaults would be a bypass by flag:
+    // -PrequiredChecks=tests would drop the other seventeen and still authorise a merge.
+    val requiredCheckIdentities =
+        requiredIdentities(REQUIRED_CHECK_IDENTITIES, parsedOverride.orEmpty())
 
     tasks.register("verifyMergeGate") {
         group = "verification"

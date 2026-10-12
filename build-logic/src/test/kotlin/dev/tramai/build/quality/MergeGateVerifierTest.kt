@@ -461,6 +461,24 @@ class MergeGateVerifierTest {
     }
 
     @Test
+    fun `a nonempty override cannot remove a required check`() {
+        // The regression this pins: resolving an override by replacement makes -PrequiredChecks=tests a
+        // one-flag bypass of the other seventeen identities. Additions only.
+        val resolved = requiredIdentities(listOf("quality (static", "tests"), listOf("extra"))
+
+        assertTrue("quality (static" in resolved, "overriding must not drop a default: $resolved")
+        assertTrue("tests" in resolved, "overriding must not drop a default: $resolved")
+        assertTrue("extra" in resolved, "an override still adds: $resolved")
+    }
+
+    @Test
+    fun `an empty override leaves the required set unchanged`() {
+        val defaults = listOf("quality (static", "tests")
+
+        assertEquals(defaults, requiredIdentities(defaults, emptyList()))
+    }
+
+    @Test
     fun `required identities configured but no names read is refused`() {
         val violations = MergeGateVerifier.verify(greenEvidence(requiredCheckIdentities = listOf("quality (static")))
 
