@@ -88,6 +88,15 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
             val expectedHead = (project.findProperty("expectedHead") as String?)?.trim().orEmpty()
             val prNumber = (project.findProperty("prNumber") as String?)?.trim().orEmpty()
             val requiredWorkflows = listOf("CI", "Architecture Authority", "Sovereign Runtime Release Candidate")
+            // Check identities that must appear in the rollup. A count floor cannot establish coverage:
+            // a partial read whose omitted entries were failures would satisfy it. Overridable with
+            // -PrequiredChecks=a,b when the CI partition names change.
+            val requiredCheckPrefixes =
+                (project.findProperty("requiredChecks") as String?)
+                    ?.split(',')
+                    ?.map { it.trim() }
+                    ?.filter { it.isNotEmpty() }
+                    ?: listOf("quality (", "contract-tests (")
             doLast {
                 if (expectedHead.isEmpty() || prNumber.isEmpty()) {
                     throw GradleException(
@@ -95,29 +104,32 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
                             "explicit commit there is no evidence to tie the checks to, which is a refusal.",
                     )
                 }
+                // One query yields both facts per check, so names and states cannot come from different
+                // reads and silently disagree.
+                val checks =
+                    MergeGateVerifier.parseChecks(
+                        gh(
+                            project,
+                            "pr",
+                            "view",
+                            prNumber,
+                            "--json",
+                            "statusCheckRollup",
+                            "--jq",
+                            // `gh pr view --json X --jq EXPR` applies EXPR to the whole response OBJECT,
+                            // so the path goes through `.statusCheckRollup[]`.
+                            """.statusCheckRollup[] | "\(.name // .context)|\(if .__typename == "CheckRun" then (.conclusion // .status) else .state end)"""",
+                        ),
+                    )
                 val evidence =
                     MergeGateVerifier.Evidence(
                         expectedHead = expectedHead,
                         reportedHead =
                             gh(project, "pr", "view", prNumber, "--json", "headRefOid", "--jq", ".headRefOid")
                                 .trim(),
-                        checkStates =
-                            MergeGateVerifier.parseCheckStates(
-                                gh(
-                                    project,
-                                    "pr",
-                                    "view",
-                                    prNumber,
-                                    "--json",
-                                    "statusCheckRollup",
-                                    "--jq",
-                                    // `gh pr view --json X --jq EXPR` applies EXPR to the whole response
-                                    // OBJECT, so the path must go through `.statusCheckRollup[]`. Using
-                                    // `.[]` iterated the object's values, failed with "expected an object
-                                    // but got: array", and yielded no checks at all.
-                                    """.statusCheckRollup[] | if .__typename == "CheckRun" then (.conclusion // .status) else .state end""",
-                                ),
-                            ),
+                        checkStates = checks.map { it.state },
+                        checkNames = checks.map { it.name },
+                        requiredCheckPrefixes = requiredCheckPrefixes,
                         workflowRuns =
                             MergeGateVerifier.parseWorkflowRuns(
                                 gh(

@@ -22,9 +22,12 @@ package dev.tramai.build.quality
  *
  * ## What it does not do
  *
- * It cannot verify that the *fetcher* supplied everything the API holds: it can see an empty or partial
- * set, not a set that is silently missing entries. [Evidence.minSuccesses] is the guard against that,
- * and the fetcher is responsible for failing closed when `gh` itself errors.
+ * It cannot verify that the *fetcher* supplied everything the API holds, and cardinality cannot
+ * establish it: [Evidence.minSuccesses] is a sanity floor, and a partial response whose omitted entries
+ * were failures would still satisfy it. Completeness comes from [Evidence.requiredCheckPrefixes] — the
+ * required check identities must be present in the rollup — and a names/states length mismatch is
+ * refused as an inconsistent read. The fetcher remains separately responsible for failing closed when
+ * `gh` itself errors.
  */
 object MergeGateVerifier {
     /** Conclusions and states that permit a merge. Anything else is pending or unsuccessful. */
@@ -60,7 +63,20 @@ object MergeGateVerifier {
         val checkStates: List<String>,
         val workflowRuns: List<WorkflowRun>,
         val requiredWorkflows: List<String>,
+        /**
+         * A gate that read nothing must not pass; also guards against a query returning a partial set.
+         * This is a sanity floor only — it cannot establish completeness, because a partial response
+         * whose omitted entries were failures would still satisfy it. Completeness comes from
+         * [requiredCheckPrefixes].
+         */
         val minSuccesses: Int = 10,
+        /**
+         * Check-name prefixes that must be present in the rollup, e.g. `"quality ("`. Empty means the
+         * caller does not require identity coverage, and the identity rules do not apply.
+         */
+        val requiredCheckPrefixes: List<String> = emptyList(),
+        /** The rollup's check names, paired by position with [checkStates]. */
+        val checkNames: List<String> = emptyList(),
     )
 
     data class Violation(
@@ -173,6 +189,44 @@ object MergeGateVerifier {
             }
         }
 
+        // ── check identities, when the caller requires them ──────────────────
+        //
+        // A cardinality floor is a sanity check, not evidence completeness: ten successes from a set
+        // whose remaining entries were never read would satisfy it. When required identities are
+        // configured, their absence is refused, and a names/states length mismatch is refused as an
+        // inconsistent read.
+        if (evidence.requiredCheckPrefixes.isNotEmpty()) {
+            if (evidence.checkNames.isEmpty()) {
+                violations +=
+                    Violation(
+                        "check-names-unavailable",
+                        "required check identities were configured but no check names were read; " +
+                            "completeness cannot be established from states alone",
+                    )
+            } else {
+                if (evidence.checkNames.size != evidence.checkStates.size) {
+                    violations +=
+                        Violation(
+                            "checks-inconsistent",
+                            "read ${evidence.checkNames.size} check name(s) but " +
+                                "${evidence.checkStates.size} state(s); the response is inconsistent",
+                        )
+                }
+                val missing =
+                    evidence.requiredCheckPrefixes.filterNot { prefix ->
+                        evidence.checkNames.any { it.startsWith(prefix) }
+                    }
+                if (missing.isNotEmpty()) {
+                    violations +=
+                        Violation(
+                            "required-check-missing",
+                            "${missing.size} required check(s) absent from the rollup: " +
+                                missing.joinToString(", "),
+                        )
+                }
+            }
+        }
+
         return violations
     }
 
@@ -192,6 +246,32 @@ object MergeGateVerifier {
             .map { it.trim().uppercase() }
             .filter { it.isNotEmpty() }
             .toList()
+
+    /**
+     * Parses `name|state` per line, as the fetcher prints them.
+     *
+     * One line carries both facts so the names and states cannot be fetched from different reads and
+     * silently disagree; [verify] still refuses a length mismatch as an inconsistent response.
+     */
+    fun parseChecks(text: String): List<Check> =
+        text
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .mapNotNull { line ->
+                val parts = line.split('|')
+                if (parts.size != 2) {
+                    null
+                } else {
+                    Check(name = parts[0].trim(), state = parts[1].trim().uppercase())
+                }
+            }.toList()
+
+    /** A single check as the rollup reports it. */
+    data class Check(
+        val name: String,
+        val state: String,
+    )
 
     /**
      * Parses `name|status|conclusion|headSha` per line. Lines without all four fields are dropped, and an

@@ -17,12 +17,16 @@ class MergeGateVerifierTest {
     private fun greenEvidence(
         reportedHead: String? = head,
         checkStates: List<String> = List(12) { "SUCCESS" },
+        checkNames: List<String> = emptyList(),
+        requiredCheckPrefixes: List<String> = emptyList(),
         workflowRuns: List<MergeGateVerifier.WorkflowRun> = requiredRuns(head),
         requiredWorkflows: List<String> = REQUIRED,
     ) = MergeGateVerifier.Evidence(
         expectedHead = head,
         reportedHead = reportedHead,
         checkStates = checkStates,
+        checkNames = checkNames,
+        requiredCheckPrefixes = requiredCheckPrefixes,
         workflowRuns = workflowRuns,
         requiredWorkflows = requiredWorkflows,
     )
@@ -286,6 +290,75 @@ class MergeGateVerifierTest {
 
         assertEquals(List(12) { "SUCCESS" }, states)
         assertTrue("check-not-successful" !in rules(MergeGateVerifier.verify(greenEvidence(checkStates = states))))
+    }
+
+    // ── required check identities: cardinality is not completeness (review finding) ──
+
+    @Test
+    fun `a required check identity that is absent is refused even when the floor is met`() {
+        // The reported defect: ten successes satisfy the floor, yet the rollup may be missing checks
+        // whose omitted entries were failures. Presence of the required identities is what establishes
+        // coverage; the floor remains a sanity check only.
+        val violations =
+            MergeGateVerifier.verify(
+                greenEvidence(
+                    checkStates = List(10) { "SUCCESS" },
+                    checkNames = List(10) { "quality (static, $it)" },
+                    requiredCheckPrefixes = listOf("quality (", "contract-tests ("),
+                ),
+            )
+
+        assertTrue(
+            "required-check-missing" in rules(violations),
+            "an absent required identity must refuse: ${rules(violations)}",
+        )
+    }
+
+    @Test
+    fun `all required identities present and green passes`() {
+        val violations =
+            MergeGateVerifier.verify(
+                greenEvidence(
+                    checkNames =
+                        List(6) { "quality (static, $it)" } + List(6) { "contract-tests (formatting, $it)" },
+                    requiredCheckPrefixes = listOf("quality (", "contract-tests ("),
+                ),
+            )
+
+        assertEquals(emptyList(), violations, MergeGateVerifier.render(head, violations))
+    }
+
+    @Test
+    fun `required identities configured but no names read is refused`() {
+        val violations = MergeGateVerifier.verify(greenEvidence(requiredCheckPrefixes = listOf("quality (")))
+
+        assertTrue("check-names-unavailable" in rules(violations))
+    }
+
+    @Test
+    fun `a names and states count mismatch is refused as inconsistent`() {
+        val violations =
+            MergeGateVerifier.verify(
+                greenEvidence(
+                    checkNames = List(11) { "quality (static, $it)" },
+                    requiredCheckPrefixes = listOf("quality ("),
+                ),
+            )
+
+        assertTrue("checks-inconsistent" in rules(violations))
+    }
+
+    @Test
+    fun `check lines parse name and state together`() {
+        val checks =
+            MergeGateVerifier.parseChecks(
+                "quality (static, spotlessCheck)|SUCCESS\ncontract-tests (formatting, 8)|failure\n",
+            )
+
+        assertEquals(2, checks.size)
+        assertEquals("quality (static, spotlessCheck)", checks[0].name)
+        assertEquals("SUCCESS", checks[0].state)
+        assertEquals("FAILURE", checks[1].state)
     }
 
     private companion object {
