@@ -79,6 +79,24 @@ class GovernedIdentityValidationTest {
         assertEquals(completeTuple, received, "no key was dropped, renamed or re-minted on the way in")
     }
 
+    @Test
+    fun `a complete tuple with blank identity values is accepted today - presence only`() {
+        // Pins the current, weaker guarantee so it cannot change silently: the shared validator checks
+        // key PRESENCE, not whether a value is meaningful. A blank workloadId therefore passes here.
+        // This is not a bypass at the Spring AI boundary, whose typed constructors hold real values;
+        // it is the general public-PolicyContext caller that can reach this shape. Rejecting blanks
+        // belongs with authoritative identity binding (G2) or a change to the 0.7.1d validator, which
+        // this slice must not make. If that rule changes, this test fails and the docs must change too.
+        val blanks = completeTuple.mapValues { "" }
+
+        val decision = evaluate(workflowRunId = runId, attributes = blanks)
+
+        assertTrue(
+            decision is dev.tramai.core.policy.PolicyDecision.Deny,
+            "blank values pass validation today; documented, not endorsed",
+        )
+    }
+
     // ── partial or run-less tuples are refused, never normalised ─────────────
 
     @Test
