@@ -18,14 +18,14 @@ class MergeGateVerifierTest {
     private fun greenEvidence(
         reportedHead: String? = head,
         checkStates: List<String> = List(12) { "SUCCESS" },
-        requiredCheckPrefixes: List<String> = emptyList(),
+        requiredCheckIdentities: List<String> = emptyList(),
         workflowRuns: List<MergeGateVerifier.WorkflowRun> = requiredRuns(head),
         requiredWorkflows: List<String> = REQUIRED,
     ) = MergeGateVerifier.Evidence(
         expectedHead = head,
         reportedHead = reportedHead,
         checkStates = checkStates,
-        requiredCheckPrefixes = requiredCheckPrefixes,
+        requiredCheckIdentities = requiredCheckIdentities,
         workflowRuns = workflowRuns,
         requiredWorkflows = requiredWorkflows,
     )
@@ -39,13 +39,13 @@ class MergeGateVerifierTest {
      */
     private fun namedEvidence(
         checks: List<MergeGateVerifier.Check>,
-        prefixes: List<String>,
+        identities: List<String>,
     ) = MergeGateVerifier.Evidence(
         expectedHead = head,
         reportedHead = head,
         checkStates = checks.map { it.state },
         checkNames = checks.map { it.name },
-        requiredCheckPrefixes = prefixes,
+        requiredCheckIdentities = identities,
         workflowRuns = requiredRuns(head),
         requiredWorkflows = REQUIRED,
     )
@@ -321,7 +321,8 @@ class MergeGateVerifierTest {
         // whose omitted entries were failures. Presence of the required identities is what establishes
         // coverage; the floor remains a sanity check only.
         val checks = List(10) { MergeGateVerifier.Check("quality (static, $it)", "SUCCESS") }
-        val violations = MergeGateVerifier.verify(namedEvidence(checks, listOf("quality (", "contract-tests (")))
+        val violations =
+            MergeGateVerifier.verify(namedEvidence(checks, listOf("quality (static", "contract-tests (formatting")))
 
         assertTrue(
             "required-check-missing" in rules(violations),
@@ -330,18 +331,64 @@ class MergeGateVerifierTest {
     }
 
     @Test
+    fun `a missing sibling within a matching family is refused`() {
+        // The earlier rule required one name per prefix, so a partial read containing a single member of
+        // each family passed. Every required identity must be present.
+        val checks =
+            List(6) { MergeGateVerifier.Check("quality (static, $it)", "SUCCESS") } +
+                List(6) { MergeGateVerifier.Check("contract-tests (formatting, $it)", "SUCCESS") }
+        val violations =
+            MergeGateVerifier.verify(
+                namedEvidence(checks, listOf("quality (static", "contract-tests (formatting", "tests")),
+            )
+
+        assertTrue("required-check-missing" in rules(violations), "rules: ${rules(violations)}")
+    }
+
+    @Test
+    fun `a required check that is SKIPPED is refused even though SKIPPED is not a failure`() {
+        // SKIPPED and NEUTRAL stay acceptable for checks that are not required; a required one must have
+        // succeeded, so presence alone cannot authorise a merge.
+        val checks = List(6) { MergeGateVerifier.Check("quality (static, $it)", "SUCCESS") }
+        val withSkipped = checks + MergeGateVerifier.Check("contract-tests (formatting, 0)", "SKIPPED")
+        val identities = listOf("quality (static", "contract-tests (formatting")
+        val violations = MergeGateVerifier.verify(namedEvidence(withSkipped, identities))
+
+        assertTrue("required-check-not-successful" in rules(violations), "rules: ${rules(violations)}")
+        assertTrue("check-not-successful" !in rules(violations), "SKIPPED is not a failing check")
+    }
+
+    @Test
+    fun `a wrong-head success plus an expected-head in-progress run is refused`() {
+        // Success and SHA-presence must not be satisfied by two different runs: the earlier rule accepted
+        // this pair because one run answered each question.
+        val runs =
+            listOf(
+                WorkflowRun("CI", "COMPLETED", "SUCCESS", "deadbeef"),
+                WorkflowRun("CI", "IN_PROGRESS", null, head),
+            )
+        val violations = MergeGateVerifier.verify(greenEvidence(workflowRuns = runs))
+
+        assertTrue(
+            "required-workflow-not-successful" in rules(violations),
+            "the expected-head run is not successful: ${rules(violations)}",
+        )
+    }
+
+    @Test
     fun `all required identities present and green passes`() {
         val checks =
             List(6) { MergeGateVerifier.Check("quality (static, $it)", "SUCCESS") } +
                 List(6) { MergeGateVerifier.Check("contract-tests (formatting, $it)", "SUCCESS") }
-        val violations = MergeGateVerifier.verify(namedEvidence(checks, listOf("quality (", "contract-tests (")))
+        val violations =
+            MergeGateVerifier.verify(namedEvidence(checks, listOf("quality (static", "contract-tests (formatting")))
 
         assertEquals(emptyList(), violations, MergeGateVerifier.render(head, violations))
     }
 
     @Test
     fun `required identities configured but no names read is refused`() {
-        val violations = MergeGateVerifier.verify(greenEvidence(requiredCheckPrefixes = listOf("quality (")))
+        val violations = MergeGateVerifier.verify(greenEvidence(requiredCheckIdentities = listOf("quality (static")))
 
         assertTrue("check-names-unavailable" in rules(violations))
     }
@@ -356,7 +403,7 @@ class MergeGateVerifierTest {
                 reportedHead = head,
                 checkStates = List(12) { "SUCCESS" },
                 checkNames = List(11) { "quality (static, $it)" },
-                requiredCheckPrefixes = listOf("quality ("),
+                requiredCheckIdentities = listOf("quality (static"),
                 workflowRuns = requiredRuns(head),
                 requiredWorkflows = REQUIRED,
             )

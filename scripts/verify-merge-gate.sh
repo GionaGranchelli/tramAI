@@ -63,7 +63,22 @@ if [ "${1:-}" = "--self-check" ]; then
     echo "== refusing: a required check identity absent from the rollup"
     expect_refusal "missing required check" /tmp/mg-self-3.log "required-check-missing" \
         -PprNumber=518 -PexpectedHead=32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3 \
-        -PrequiredChecks="quality (,nonexistent-partition (" || fail=1
+        -PrequiredChecks="an-identity-that-does-not-exist" || fail=1
+
+    echo "== refusing: an explicitly empty required-checks override"
+    # An empty override would disable identity coverage entirely. It fails at configuration time, so it
+    # carries no [rule] line and is asserted on its own message.
+    if $GRADLE verifyMergeGate -PprNumber=518 \
+        -PexpectedHead=32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3 -PrequiredChecks="" \
+        --console=plain >/tmp/mg-self-3b.log 2>&1; then
+        echo "  FAIL [empty override]: the gate ran with identity coverage disabled"
+        fail=1
+    elif grep -q "requiredChecks was supplied but is empty" /tmp/mg-self-3b.log; then
+        echo "  ok [empty override]: refused"
+    else
+        echo "  FAIL [empty override]: nonzero exit, but not the intended refusal"
+        fail=1
+    fi
 
     echo "== refusing: invoked without a commit to tie evidence to"
     if $GRADLE verifyMergeGate --console=plain >/tmp/mg-self-4.log 2>&1; then
@@ -76,19 +91,38 @@ if [ "${1:-}" = "--self-check" ]; then
         fail=1
     fi
 
-    # The positive control. Three expected failures cannot establish that the real verification path
-    # still works: a gate that refuses everything would produce the same transcript. This asserts that
-    # a genuinely verified commit still passes.
-    echo "== passing: a genuinely verified commit (positive control)"
-    if $GRADLE verifyMergeGate -PprNumber=518 -PexpectedHead=32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3 \
-        --console=plain >/tmp/mg-self-5.log 2>&1; then
-        grep -aE "merge gate PASSED" /tmp/mg-self-5.log | head -1 | sed 's/^/  ok: /'
-    else
-        echo "  FAIL [positive control]: a commit whose checks and workflows are complete and green was"
-        echo "        refused. The gate is refusing everything, which proves nothing."
-        grep -aE "\- \[" /tmp/mg-self-5.log | head -5 | sed 's/^/        /'
+    # The positive control. The expected failures above are equally consistent with a gate that refuses
+    # everything, so this asserts that a genuinely verified commit still passes, exercising the fetch, parse,
+    # head and workflow paths end to end.
+    #
+    # The head is fetched at runtime rather than pinned: a pinned head stops being the PR's head on the next
+    # push, so the control would break every time the branch moved. The pinned cases are the refusals, where
+    # the fixture is a merged head that never moves.
+    FIXTURE_HEAD=$(gh pr view 519 --json headRefOid --jq .headRefOid 2>/dev/null | tr -d '\n\r ')
+    if [ -z "$FIXTURE_HEAD" ]; then
+        echo "  FAIL [positive control]: could not read the fixture head; the control cannot be skipped"
         fail=1
+    else
+        echo "== passing: the fixture PR's current head, which is green (positive control) [$FIXTURE_HEAD]"
+        if $GRADLE verifyMergeGate -PprNumber=519 -PexpectedHead="$FIXTURE_HEAD" --console=plain \
+            >/tmp/mg-self-5.log 2>&1; then
+            grep -aE "merge gate PASSED" /tmp/mg-self-5.log | head -1 | sed 's/^/  ok: /'
+        else
+            echo "  FAIL [positive control]: a commit whose checks and workflows are complete and green was"
+            echo "       not verified. Possible causes: the branch is red at its head, the CI matrix changed,"
+            echo "       or a rule now refuses evidence it used to accept."
+            grep -aE "merge gate REFUSED|\[[a-z-]+\]" /tmp/mg-self-5.log | head -5 | sed 's/^/       /'
+            fail=1
+        fi
     fi
+
+    # A second pinned refusal, and the reason the fixture above cannot be a fixed SHA: PR #518 is green and
+    # merged, but it predates the "Mutation authority transport" workflow, so its rollup cannot satisfy the
+    # current required set. Refusing it is the gate working — an old head is not evidence for today's
+    # contract — and it is stable because a merged head never moves.
+    echo "== refusing: a green head that predates a required check (#518)"
+    expect_refusal "predates a required check" /tmp/mg-self-6.log "required-check-missing" \
+        -PprNumber=518 -PexpectedHead=32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3 || fail=1
 
     if [ "$fail" -ne 0 ]; then
         echo
@@ -96,7 +130,7 @@ if [ "${1:-}" = "--self-check" ]; then
         exit 1
     fi
     echo
-    echo "SELF-CHECK PASSED: four named refusals hold, and the positive control still passes."
+    echo "SELF-CHECK PASSED: six named refusals hold, and the positive control still passes."
     exit 0
 fi
 

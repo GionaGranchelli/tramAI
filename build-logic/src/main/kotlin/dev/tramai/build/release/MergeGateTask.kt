@@ -30,6 +30,34 @@ private const val WORKFLOW_RUN_LINES_JQ =
 private const val GH_STDERR_QUOTE_LIMIT = 400
 
 /**
+ * Every check a merge requires, as observed on a green rollup. Each entry is either a complete name or the
+ * stable leading part of one, which tolerates both the matrix arguments that trail a name and the
+ * 100-character truncation GitHub applies to the longest of them.
+ */
+private val REQUIRED_CHECK_IDENTITIES =
+    listOf(
+        "api-architecture (verify060Architecture)",
+        "quality (compiler-warnings",
+        "quality (static",
+        "quality (hygiene",
+        "quality (junit-test-signatures",
+        "contract-tests (formatting",
+        "contract-tests (static-safety",
+        "contract-tests (compiler-deps",
+        "contract-tests (static-analysis",
+        "contract-tests (ci-wiring",
+        "contract-tests (api-compatibility",
+        "tests",
+        "consumer-smoke",
+        "artifact-prep",
+        "performance-policy-tests",
+        "zero-egress",
+        "GitGuardian Security Checks",
+        "Mutation authority transport",
+        "validate",
+    )
+
+/**
  * Registers `verifyMergeGate` on the root project.
  *
  * It refuses to authorise a merge unless the exact head has complete, green status checks and the required
@@ -40,15 +68,20 @@ internal fun Project.registerVerifyMergeGate() {
     val expectedHeadProperty = (findProperty("expectedHead") as String?)?.trim().orEmpty()
     val prNumberProperty = (findProperty("prNumber") as String?)?.trim().orEmpty()
     val requiredWorkflows = listOf("CI", "Architecture Authority", "Sovereign Runtime Release Candidate")
-    // Check identities that must appear in the rollup. A count floor cannot establish coverage: a partial
-    // read whose omitted entries were failures would satisfy it. Overridable with -PrequiredChecks=a,b when
-    // the CI partition names change.
-    val requiredCheckPrefixes =
-        (findProperty("requiredChecks") as String?)
-            ?.split(',')
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
-            ?: listOf("quality (", "contract-tests (")
+    // The complete set of check identities a merge requires, each matched as an exact name or its
+    // "<identity>, ..." matrix form, and EVERY entry required. When the CI matrix changes, change this
+    // list: the gate then refuses a rollup that omits an identity, which is the point — a silent job
+    // rename must not silently weaken the gate. Override with -PrequiredChecks="a;b" (semicolons, because
+    // the names themselves contain commas).
+    val override = (findProperty("requiredChecks") as String?)?.trim()
+    val parsedOverride = override?.split(';')?.map { it.trim() }?.filter { it.isNotEmpty() }
+    // `require` rather than `throw GradleException`: the same refusal, without a third throw statement in
+    // this function (detekt's ThrowsCount counts them).
+    require(override == null || !parsedOverride.isNullOrEmpty()) {
+        "requiredChecks was supplied but is empty. An empty override would disable required-check " +
+            "coverage entirely, which is a refusal rather than a pass; omit the property to use the defaults."
+    }
+    val requiredCheckIdentities = parsedOverride ?: REQUIRED_CHECK_IDENTITIES
 
     tasks.register("verifyMergeGate") {
         group = "verification"
@@ -77,7 +110,7 @@ internal fun Project.registerVerifyMergeGate() {
                     reportedHead = fetchHead(prNumberProperty),
                     checkStates = checks.map { it.state },
                     checkNames = checks.map { it.name },
-                    requiredCheckPrefixes = requiredCheckPrefixes,
+                    requiredCheckIdentities = requiredCheckIdentities,
                     workflowRuns = fetchRuns(expectedHeadProperty),
                     requiredWorkflows = requiredWorkflows,
                 )

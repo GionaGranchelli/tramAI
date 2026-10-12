@@ -75,10 +75,18 @@ object MergeGateVerifier {
          */
         val minSuccesses: Int = 10,
         /**
-         * Check-name prefixes that must be present in the rollup, e.g. `"quality ("`. Empty means the caller
-         * does not require identity coverage, and the identity rules do not apply.
+         * The **complete** set of check identities that must be present *and* successful. Each entry is
+         * either an exact rollup name or the stable leading part of one, and **every** entry is required:
+         * requiring one name per job family is satisfied by a partial read that happens to contain a single
+         * member of each family.
+         *
+         * Matched as `name == identity` or `name.startsWith("$identity,")`, which keeps entries short enough
+         * to read while tolerating two GitHub behaviours: the matrix arguments trailing the name, and the
+         * 100-character truncation GitHub applies to the longest ones.
+         *
+         * Empty means the caller does not require identity coverage, and the identity rules do not apply.
          */
-        val requiredCheckPrefixes: List<String> = emptyList(),
+        val requiredCheckIdentities: List<String> = emptyList(),
         /** The rollup's check names, paired by position with [checkStates]. */
         val checkNames: List<String> = emptyList(),
     )
@@ -182,11 +190,13 @@ object MergeGateVerifier {
      * names/states mismatch is refused as an inconsistent read.
      */
     private fun identityViolations(evidence: Evidence): List<Violation> {
-        if (evidence.requiredCheckPrefixes.isEmpty()) {
-            return emptyList()
-        }
+        val required = evidence.requiredCheckIdentities
         val violations = mutableListOf<Violation>()
         when {
+            required.isEmpty() -> {
+                Unit
+            }
+
             evidence.checkNames.isEmpty() -> {
                 violations +=
                     Violation(
@@ -205,16 +215,36 @@ object MergeGateVerifier {
                                 "state(s); the response is inconsistent",
                         )
                 }
-                val missing =
-                    evidence.requiredCheckPrefixes.filterNot { prefix ->
-                        evidence.checkNames.any { it.startsWith(prefix) }
-                    }
+                // Every required identity must be present, not one per family: a partial read can contain a
+                // single member of each family and still be missing the checks that matter.
+                val present = { identity: String ->
+                    evidence.checkNames.any { it == identity || it.startsWith("$identity,") }
+                }
+                val missing = required.filterNot(present)
                 if (missing.isNotEmpty()) {
                     violations +=
                         Violation(
                             "required-check-missing",
                             "${missing.size} required check(s) absent from the rollup: " +
                                 missing.joinToString(", "),
+                        )
+                }
+                // A required check must have SUCCEEDED. SKIPPED and NEUTRAL stay acceptable only for checks
+                // that are not required, so presence alone cannot authorise a merge.
+                val stateOf = evidence.checkNames.zip(evidence.checkStates).toMap()
+                val notSuccessful =
+                    required
+                        .filter(present)
+                        .filter { identity ->
+                            val state = stateOf.entries.first { it.key == identity || it.key.startsWith("$identity,") }
+                            state.value != "SUCCESS"
+                        }
+                if (notSuccessful.isNotEmpty()) {
+                    violations +=
+                        Violation(
+                            "required-check-not-successful",
+                            "${notSuccessful.size} required check(s) did not succeed: " +
+                                notSuccessful.joinToString(", "),
                         )
                 }
             }
@@ -245,37 +275,38 @@ object MergeGateVerifier {
         evidence: Evidence,
         required: String,
     ): List<Violation> {
-        val matching = evidence.workflowRuns.filter { it.name == required }
-        if (matching.isEmpty()) {
-            return listOf(
+        val expected = evidence.expectedHead.trim()
+        // Filtered to the reviewed commit FIRST. Success and SHA-presence must not be satisfied by two
+        // different runs: a wrong-SHA success plus an expected-SHA run still in progress would otherwise
+        // pass, because one run answered each question.
+        val atExpectedHead = evidence.workflowRuns.filter { it.name == required && it.headSha.trim() == expected }
+        val ranElsewhere = evidence.workflowRuns.any { it.name == required }
+        return if (atExpectedHead.isEmpty()) {
+            listOf(
                 Violation(
-                    "required-workflow-missing",
-                    "'$required' has no workflow run at ${evidence.expectedHead}",
+                    if (ranElsewhere) "required-workflow-wrong-commit" else "required-workflow-missing",
+                    if (ranElsewhere) {
+                        "'$required' did not run at $expected"
+                    } else {
+                        "'$required' has no workflow run at $expected"
+                    },
+                ),
+            )
+        } else if (atExpectedHead.any {
+                it.status == REQUIRED_WORKFLOW_STATUS && it.conclusion == REQUIRED_WORKFLOW_CONCLUSION
+            }
+        ) {
+            emptyList()
+        } else {
+            val run = atExpectedHead.first()
+            listOf(
+                Violation(
+                    "required-workflow-not-successful",
+                    "'$required' at $expected is ${run.status.lowercase()}/${run.conclusion?.lowercase()}; " +
+                        "$REQUIRED_WORKFLOW_STATUS/$REQUIRED_WORKFLOW_CONCLUSION is required",
                 ),
             )
         }
-        val violations = mutableListOf<Violation>()
-        val complete =
-            matching.firstOrNull {
-                it.status == REQUIRED_WORKFLOW_STATUS && it.conclusion == REQUIRED_WORKFLOW_CONCLUSION
-            }
-        if (complete == null) {
-            val run = matching.first()
-            violations +=
-                Violation(
-                    "required-workflow-not-successful",
-                    "'$required' is ${run.status.lowercase()}/${run.conclusion?.lowercase()}; " +
-                        "$REQUIRED_WORKFLOW_STATUS/$REQUIRED_WORKFLOW_CONCLUSION is required",
-                )
-        }
-        if (matching.none { it.headSha.trim() == evidence.expectedHead.trim() }) {
-            violations +=
-                Violation(
-                    "required-workflow-wrong-commit",
-                    "'$required' did not run at ${evidence.expectedHead}",
-                )
-        }
-        return violations
     }
 
     /** Renders a human-readable refusal, naming the rule that failed for each violation. */
