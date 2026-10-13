@@ -242,9 +242,11 @@ REGISTERED_BOUNDARIES = {
     "spring-ai-tool-callback": ("BEFORE_TOOL_EXECUTION", "AUTHORITATIVE"),
 }
 EVIDENCE_METADATA_KEYS = {
-    "policy.decision": POLICY_METADATA_KEYS | GOVERNED_IDENTITY_KEYS | GOVERNED_BOUNDARY_KEYS,
-    "approval.decision": APPROVAL_METADATA_KEYS | GOVERNED_IDENTITY_KEYS | GOVERNED_BOUNDARY_KEYS,
-    "provider.route": ROUTING_METADATA_KEYS | GOVERNED_IDENTITY_KEYS | GOVERNED_BOUNDARY_KEYS,
+    "policy.decision": POLICY_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
+    "approval.decision": APPROVAL_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
+    "provider.route": ROUTING_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
+    # Enforcement-boundary provenance is scoped to the family that declares a boundary. Composing it
+    # across families would let another family claim tool-boundary provenance.
     "tool.permission": TOOL_PERMISSION_METADATA_KEYS | GOVERNED_IDENTITY_KEYS | GOVERNED_BOUNDARY_KEYS,
 }
 

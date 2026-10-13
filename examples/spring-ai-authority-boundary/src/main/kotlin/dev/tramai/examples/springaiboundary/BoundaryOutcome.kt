@@ -114,7 +114,9 @@ data class BoundaryRefusal(
      * The strength this boundary claims **to its caller**. This is the refusal payload, not evidence:
      * the strength recorded in evidence is resolved by the framework from this boundary's registration
      * and is never read from here. The two are pinned to agree by
-     * `GovernanceBoundaryTest.evidence identifies this boundary and is exported through the repository schema`.
+     * `GovernanceBoundaryTest.every refusal declares the strength the framework resolves in the same call's
+     * evidence`, which compares this value against the exported evidence strength on the DENY,
+     * REQUIRE_APPROVAL and governance-unavailable paths.
      */
     val enforcementStrength: EnforcementStrength,
 ) {

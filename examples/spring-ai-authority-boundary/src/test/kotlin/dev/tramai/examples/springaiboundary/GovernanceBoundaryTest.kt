@@ -190,6 +190,44 @@ class GovernanceBoundaryTest {
         )
     }
 
+    // ── Enforcement-strength agreement ──────────────────────────────────────
+
+    @Test
+    fun `every refusal declares the strength the framework resolves in the same call's evidence`() {
+        val cases =
+            listOf(
+                "DENY" to DefaultPolicyEngine(PolicyConfiguration()),
+                "REQUIRE_APPROVAL" to
+                    DefaultPolicyEngine(
+                        PolicyConfiguration(
+                            allowedTools = setOf(SideEffectfulToolCallback.TOOL_NAME),
+                            allowedPermissions = setOf(TOOL_PERMISSION),
+                            requireApprovalForRiskLevel = setOf(RiskLevel.LOW),
+                        ),
+                    ),
+                "GOVERNANCE_UNAVAILABLE" to UnavailablePolicyEngine(),
+            )
+
+        cases.forEach { (label, engine) ->
+            val boundary = boundary(SideEffectfulToolCallback(), engine)
+            val refusal = boundary.call("""{"value":"probe"}""")
+            val exported = boundary.evidence().single()
+
+            val declared =
+                Regex("\"enforcementStrength\":\"([A-Z_]+)\"")
+                    .find(refusal)
+                    ?.groupValues
+                    ?.get(1)
+                    ?: error("the $label refusal must declare a strength: $refusal")
+
+            assertEquals(
+                declared,
+                exported.metadata["boundary.enforcementStrength"],
+                "the $label refusal's declared strength must agree with the framework-resolved evidence strength",
+            )
+        }
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────────
 
     /**

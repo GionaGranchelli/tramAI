@@ -170,6 +170,34 @@ class ToolPermissionBoundaryProvenanceTest {
     }
 
     @Test
+    fun `the registration does not verify the origin of a declared identifier`() {
+        // LIMITATION, pinned deliberately so it cannot be forgotten or overclaimed.
+        //
+        // provenanceFor resolves a DECLARED identifier against the registration. It does not establish
+        // that the event came from that boundary: nothing in the evidence path observes which code
+        // emitted the event. This test fabricates an event directly -- GovernedToolCallback is never
+        // constructed, no delegate exists, and no prevention happens -- and the record still advertises
+        // the registered boundary at its registered strength.
+        //
+        // So the strength states what the registration grants the DECLARED boundary, not that this
+        // boundary enforced this call. Closing that gap needs the event's ORIGIN authenticated (workload
+        // identity), which is explicitly outside this slice's scope. This test must be revisited if the
+        // gap is closed, and it must not be read as evidence that origin is checked.
+        val fabricated = export(boundaryEvent(metadata = boundaryMetadata()))
+
+        assertEquals(
+            "AUTHORITATIVE",
+            fabricated.metadata["boundary.enforcementStrength"],
+            "an identifier alone currently yields the registered strength; origin is not verified",
+        )
+        assertEquals(
+            BOUNDARY_ID,
+            fabricated.metadata["boundary.id"],
+            "the fabricated event names the registered boundary without having come from it",
+        )
+    }
+
+    @Test
     fun `the exported record's digest binds the provenance it advertises`() {
         val event = boundaryEvent(metadata = boundaryMetadata())
         val record = export(event)
@@ -220,21 +248,52 @@ class ToolPermissionBoundaryProvenanceTest {
         assertEquals(RUN_ID, record.workflowRunId)
     }
 
+    @Test
+    fun `another evidence family cannot claim tool boundary provenance`() {
+        // The G2 contract scopes boundary provenance to the tool family. Composing the reserved keys
+        // across every family would let any family assert an enforcement boundary and inherit the
+        // strength its registration grants.
+        val foreignFamily =
+            recordWith(
+                metadata =
+                    mapOf(
+                        "boundary.id" to BOUNDARY_ID,
+                        "boundary.enforcementStrength" to "AUTHORITATIVE",
+                    ),
+                eventType = "policy.decision",
+                reasonCode = "policy-denied",
+            )
+
+        val thrown =
+            assertFailsWith<IllegalArgumentException> {
+                RuntimeEvidenceContractValidator.validate(listOf(foreignFamily))
+            }
+
+        assertTrue(
+            thrown.message.orEmpty().contains("not allowlisted"),
+            "a non-tool family must not be able to carry boundary provenance: ${thrown.message}",
+        )
+    }
+
     private fun export(event: AuditEvent): RuntimeEvidenceRecord = exporter.export(listOf(event)).single()
 
     private val exporter = ToolPermissionRuntimeEvidenceExporter()
 
     /** A hand-built record, used only where the point is the validator's rule rather than the export path. */
-    private fun recordWith(metadata: Map<String, String>): RuntimeEvidenceRecord =
+    private fun recordWith(
+        metadata: Map<String, String>,
+        eventType: String = "tool.permission",
+        reasonCode: String = "tool.permission.denied",
+    ): RuntimeEvidenceRecord =
         RuntimeEvidenceRecord(
             eventId = "evt-g2",
-            eventType = "tool.permission",
+            eventType = eventType,
             workflowRunId = RUN_ID,
             correlationId = "corr-g2",
             actor = "actor-g2",
             createdAt = Instant.parse("2026-10-13T00:00:00Z"),
             source = RuntimeEvidenceSource(component = "policy-engine", module = POLICY_VERSION),
-            decision = RuntimeEvidenceDecision(kind = "DENY", reasonCode = "tool.permission.denied"),
+            decision = RuntimeEvidenceDecision(kind = "DENY", reasonCode = reasonCode),
             digests =
                 RuntimeEvidenceDigests(
                     subjectDigest = "sha256:" + "a".repeat(64),
