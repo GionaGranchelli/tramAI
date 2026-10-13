@@ -12,6 +12,14 @@ import java.util.concurrent.CopyOnWriteArrayList
 internal const val BOUNDARY_ENFORCEMENT_POINT = "BEFORE_TOOL_EXECUTION"
 
 /**
+ * The declared boundary identifier this example is registered under.
+ *
+ * Only the identifier travels in evidence. Its enforcement strength is resolved by the framework from
+ * the registration, so nothing in this module asserts a strength anywhere on the evidence path.
+ */
+internal const val BOUNDARY_ID = "spring-ai-tool-callback"
+
+/**
  * Records what this boundary decided and whether the operation ran, through the repository's existing
  * audit chain and its existing `tool.permission` evidence exporter.
  *
@@ -24,7 +32,9 @@ internal const val BOUNDARY_ENFORCEMENT_POINT = "BEFORE_TOOL_EXECUTION"
  * - it identifies the enforcement point, the tool, the decision and its reason code;
  * - it carries the governed identity of the run this boundary was wired with, as the reserved
  *   `identity.*` keys plus the canonical `workflowRunId`, so evaluation and evidence cannot drift;
- * - it attests that **this declared boundary** enforced that decision;
+ * - it resolves the enforcement strength the registration grants **this declared boundary**, from the
+ *   identifier the producer declares. It is **not** an attestation that this boundary emitted or
+ *   enforced this particular event: the identifier is producer-declared and its origin is not verified;
  * - it says nothing about any other execution path in the host application.
  *
  * It does **not** independently prove where that identity came from: the reserved keys are carried,
@@ -81,17 +91,23 @@ class BoundaryEvidenceRecorder(
                         policyVersion = context.policyVersion,
                         workflowDigest = null,
                         reasonCode = reasonCode,
-                        // Only allowlisted metadata keys, plus the reserved governed-identity keys.
-                        // The exporter FILTERS unrecognised keys out and fails closed only for a
-                        // missing required toolName (ToolPermissionRuntimeEvidenceExporter: :62
-                        // filters, :54 requires). Nothing may rely on an unrecognised key being
-                        // rejected. The identity keys are not left to that path: they are read as
-                        // attribution, and the exporter refuses a partial tuple rather than
-                        // recording it (:74).
+                        // Only allowlisted metadata keys, plus the reserved governed-identity keys and
+                        // this boundary's declared identifier. The exporter FILTERS unrecognised keys
+                        // out and fails closed only for a missing required toolName
+                        // (ToolPermissionRuntimeEvidenceExporter: :62 filters, :54 requires). Nothing
+                        // may rely on an unrecognised key being rejected. The identity keys are not
+                        // left to that path: they are read as attribution, and the exporter refuses a
+                        // partial tuple rather than recording it (:74). The boundary id is read as
+                        // provenance on the same terms: the exporter resolves its strength from the
+                        // framework-owned registration, and an unregistered id, or any
+                        // caller-supplied strength, refuses there rather than degrading to legacy
+                        // evidence. A strength is deliberately NOT written here — that is exactly the
+                        // self-assertion the registration exists to replace.
                         metadata =
                             mapOf(
                                 "toolName" to toolName,
                                 "enforcementPoint" to BOUNDARY_ENFORCEMENT_POINT,
+                                "boundary.id" to BOUNDARY_ID,
                             ) + context.identityAttribution,
                     ),
                 )

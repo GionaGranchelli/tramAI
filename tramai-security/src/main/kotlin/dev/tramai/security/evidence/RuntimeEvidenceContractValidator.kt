@@ -38,6 +38,8 @@ internal object RuntimeEvidenceContractValidator {
             "no-route",
         )
 
+    private const val TOOL_PERMISSION_EVENT_TYPE = "tool.permission"
+
     private val TOOL_RISK_LEVELS = setOf("LOW", "MEDIUM", "HIGH", "CRITICAL")
 
     fun validate(records: List<RuntimeEvidenceRecord>) {
@@ -130,9 +132,27 @@ internal object RuntimeEvidenceContractValidator {
         // Governed attribution is cross-family framework metadata, so it composes here rather than
         // being duplicated into each family vocabulary above. Validation is atomic: a partial
         // tuple is corruption, never a silent downgrade to legacy evidence.
-        val allowedKeys = familyAllowedKeys + RuntimeEvidenceAttribution.metadataKeys
+        //
+        // Enforcement-boundary provenance is deliberately NOT cross-family: only an event type that
+        // declares an enforcement boundary may carry it, so composing it everywhere would let another
+        // family claim tool-boundary provenance. Its applicability rule needs the enforcement point the
+        // record itself claims, so that a registration cannot be applied to a point it does not cover.
+        val boundaryKeys =
+            if (record.eventType == TOOL_PERMISSION_EVENT_TYPE) {
+                RuntimeBoundaryProvenance.metadataKeys
+            } else {
+                emptySet()
+            }
+
+        val allowedKeys =
+            familyAllowedKeys +
+                RuntimeEvidenceAttribution.metadataKeys +
+                boundaryKeys
 
         RuntimeEvidenceAttribution.validate(record.workflowRunId, record.metadata)
+        if (boundaryKeys.isNotEmpty()) {
+            RuntimeBoundaryProvenance.validate(record.metadata["enforcementPoint"].orEmpty(), record.metadata)
+        }
 
         for (key in record.metadata.keys) {
             require(key in allowedKeys) {

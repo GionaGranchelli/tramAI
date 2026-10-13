@@ -264,6 +264,7 @@ class AdversarialDiscriminatorTest {
                         reason = "denied",
                         correlationId = context.correlationId,
                         runId = "run-generated-at-the-boundary",
+                        enforcementStrength = EnforcementStrength.AUTHORITATIVE,
                     ).toJson()
                 }
 

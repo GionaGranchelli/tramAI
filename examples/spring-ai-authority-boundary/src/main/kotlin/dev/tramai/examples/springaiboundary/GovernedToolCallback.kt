@@ -136,6 +136,10 @@ class GovernedToolCallback(
             reason = reason,
             correlationId = context.correlationId,
             runId = context.runId,
+            // The caller-facing claim. It is NOT the evidence strength: the framework resolves that
+            // from this boundary's registration when the record is exported, and a caller-supplied
+            // strength is refused there.
+            enforcementStrength = EnforcementStrength.AUTHORITATIVE,
         ).toJson()
 
     internal companion object {

@@ -18,8 +18,12 @@ import dev.tramai.security.DefaultPolicyEngine
 import dev.tramai.security.PolicyConfiguration
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.InMemoryAuditStore
+import dev.tramai.security.evidence.RuntimeEvidenceBundleWriter
 import dev.tramai.security.evidence.RuntimeEvidenceRecord
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -78,9 +82,9 @@ class ToolPermissionEvidenceAttributionTest {
             "the deployment tuple survives into the exported record",
         )
         assertEquals(
-            setOf("toolName", "enforcementPoint") + EXPECTED_ATTRIBUTION.keys,
+            setOf("toolName", "enforcementPoint") + EXPECTED_ATTRIBUTION.keys + EXPECTED_PROVENANCE.keys,
             record.metadata.keys,
-            "the record carries the family allowlist plus exactly the reserved identity keys",
+            "the record carries the family allowlist plus exactly the reserved identity and provenance keys",
         )
         assertTrue(
             record.digests.payloadDigest.startsWith("sha256:"),
@@ -106,6 +110,55 @@ class ToolPermissionEvidenceAttributionTest {
             second.digests.payloadDigest,
             "the digest must cover the identity, or two deployments would be indistinguishable evidence",
         )
+    }
+
+    // ── G2: registered enforcement-boundary provenance, through the real boundary ──────────────
+
+    @Test
+    fun `exported evidence names the declared registered boundary and its registered strength`() {
+        val boundary = boundary(governedIdentity())
+        boundary.call("""{"value":"denied"}""")
+
+        val record = boundary.evidence().single()
+
+        assertEquals(
+            EXPECTED_PROVENANCE,
+            record.metadata.filterKeys { it.startsWith("boundary.") },
+            "the record must name the declared boundary and the strength its registration grants",
+        )
+        assertEquals(
+            "policy-engine",
+            record.source.component,
+            "the boundary must not displace the decision producer in source.component",
+        )
+    }
+
+    @Test
+    fun `the boundary's record satisfies the evidence contract and keeps its provenance serialized`(
+        @TempDir tempDir: Path,
+    ) {
+        val boundary = boundary(governedIdentity())
+        boundary.call("""{"value":"denied"}""")
+        val record = boundary.evidence().single()
+
+        // The writer requires a bundle root; the manifest's own contract is exercised elsewhere.
+        tempDir.resolve("manifest.json").toFile().writeText(
+            """{"bundleType": "sovereign-lab-evidence-bundle", "schemaVersion": 1, """ +
+                """"claimBoundary": {}, "requiredFiles": [], "files": []}""",
+        )
+
+        // The writer validates through the production contract validator before writing anything, so
+        // reaching the written file proves the provenance this boundary produced is contract-valid —
+        // and that it survived serialization rather than being filtered on the way out.
+        val written = RuntimeEvidenceBundleWriter().write(tempDir, listOf(record))
+
+        val jsonl = Files.readString(written.runtimeEvidenceDirectory.resolve("tool-permissions.jsonl"))
+        EXPECTED_PROVENANCE.forEach { (key, value) ->
+            assertTrue(
+                jsonl.contains("\"$key\":\"$value\""),
+                "the serialized record must carry $key=$value, got: $jsonl",
+            )
+        }
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────
@@ -163,6 +216,17 @@ class ToolPermissionEvidenceAttributionTest {
                 "identity.configurationVersion" to "v3",
                 "identity.environmentId" to "environment-g1b",
                 "identity.deploymentId" to "deployment-g1b-1",
+            )
+
+        /**
+         * The reserved provenance keys the framework resolves for this declared boundary, pinned as
+         * literals for the same reason the identity keys are: a rename must fail a test rather than
+         * silently drop provenance from the evidence.
+         */
+        val EXPECTED_PROVENANCE =
+            mapOf(
+                "boundary.id" to "spring-ai-tool-callback",
+                "boundary.enforcementStrength" to "AUTHORITATIVE",
             )
     }
 }
