@@ -14,8 +14,10 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
- * G2: a `tool.permission` record states which declared boundary enforced the decision and with what
- * strength, and no producer can promote itself to AUTHORITATIVE by asserting it.
+ * G2: a `tool.permission` record states which declared boundary the producer names and what enforcement
+ * strength that boundary's registration grants it. No producer can promote itself to AUTHORITATIVE by
+ * asserting a strength; the identifier itself is producer-declared and its origin is not verified here,
+ * which is why that limitation has its own test.
  *
  * The chain under test is the repository's own: the event comes from the production [AuditEngine]
  * through the same `AuditEmission` shape [dev.tramai.examples.springaiboundary.BoundaryEvidenceRecorder]

@@ -32,7 +32,9 @@ internal const val BOUNDARY_ID = "spring-ai-tool-callback"
  * - it identifies the enforcement point, the tool, the decision and its reason code;
  * - it carries the governed identity of the run this boundary was wired with, as the reserved
  *   `identity.*` keys plus the canonical `workflowRunId`, so evaluation and evidence cannot drift;
- * - it attests that **this declared boundary** enforced that decision;
+ * - it resolves the enforcement strength the registration grants **this declared boundary**, from the
+ *   identifier the producer declares. It is **not** an attestation that this boundary emitted or
+ *   enforced this particular event: the identifier is producer-declared and its origin is not verified;
  * - it says nothing about any other execution path in the host application.
  *
  * It does **not** independently prove where that identity came from: the reserved keys are carried,

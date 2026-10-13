@@ -5,16 +5,26 @@ package dev.tramai.security.evidence
  *
  * Authorization and enforcement are different facts. A `tool.permission` record reports the policy
  * engine's decision, and [RuntimeEvidenceRecord] pins `source.component` to the decision producer
- * (`"policy-engine"`). This object supplies the *other* fact: which declared execution boundary
- * enforced that decision, and what enforcement strength that boundary is entitled to claim.
+ * (`"policy-engine"`). This object supplies the *other* half of that pair, and only that half: the
+ * enforcement strength the registration grants the boundary a producer **declares**, resolved from the
+ * declared identifier. It resolves a declared identifier's strength; it does **not** establish that the
+ * declared boundary emitted, or enforced, this particular event.
  *
  * ## Strength is derived, never asserted
  *
- * The central invariant: an integration cannot claim AUTHORITATIVE enforcement merely by declaring
- * itself authoritative. Strength is therefore a property of a framework-owned registration, resolved
- * here from the boundary's declared identifier. A producing boundary supplies only `boundary.id`; a
- * caller-supplied `boundary.enforcementStrength` is refused rather than silently overwritten, because
- * accepting it would make the field a self-asserted claim and ignoring it would hide the attempt.
+ * The central invariant: an integration cannot claim AUTHORITATIVE **strength** by asserting strength.
+ * Strength is therefore a property of a framework-owned registration, resolved here from the boundary's
+ * declared identifier. A producing boundary supplies only `boundary.id`; a caller-supplied
+ * `boundary.enforcementStrength` is refused rather than silently overwritten, because accepting it would
+ * make the field a self-asserted claim and ignoring it would hide the attempt.
+ *
+ * **The identifier itself is producer-declared and its origin is unverified, and the invariant above does
+ * not cover that.** A producer that names a registered identifier obtains that registration's strength
+ * without having gone through the boundary — pinned by
+ * `ToolPermissionBoundaryProvenanceTest.the registration does not verify the origin of a declared
+ * identifier`. What this object delivers is registered-strength resolution for a declared identifier, not
+ * attestation that the boundary emitted or enforced this event. Verified event-origin attribution is
+ * tracked as a separate security requirement; it is not established here.
  *
  * Registration is what makes [AUTHORITATIVE] reachable, and nothing outside this module can add an
  * entry. An unregistered identifier is refused: a record naming a boundary that no contract covers

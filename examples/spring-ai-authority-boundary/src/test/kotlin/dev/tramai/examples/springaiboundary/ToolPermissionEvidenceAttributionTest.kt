@@ -115,7 +115,7 @@ class ToolPermissionEvidenceAttributionTest {
     // ── G2: registered enforcement-boundary provenance, through the real boundary ──────────────
 
     @Test
-    fun `exported evidence names the registered boundary that enforced the decision`() {
+    fun `exported evidence names the declared registered boundary and its registered strength`() {
         val boundary = boundary(governedIdentity())
         boundary.call("""{"value":"denied"}""")
 
