@@ -1,13 +1,16 @@
 package dev.tramai.security.audit
 
 import dev.tramai.core.approval.SafeActorIdPolicy
-import dev.tramai.core.policy.*
+import dev.tramai.core.policy.EnforcementPoint
+import dev.tramai.core.policy.PolicyContext
+import dev.tramai.core.policy.PolicyDecision
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
+import dev.tramai.security.evidence.RuntimeEvidenceAttribution
 
 class AuditEnginePolicyDecisionAuditEmitter(
     private val auditEngine: AuditEngine,
     private val streamIdResolver: AuditStreamIdResolver = DefaultAuditStreamIdResolver,
 ) : PolicyDecisionAuditEmitter {
-
     companion object {
         private const val MAX_METADATA_ENTRIES = 16
         private const val MAX_KEY_LENGTH = 64
@@ -20,10 +23,11 @@ class AuditEnginePolicyDecisionAuditEmitter(
          * Only keys in this set are exported. All other attributes are dropped
          * to prevent accidental data exfiltration through the audit trail.
          */
-        private val ALLOWED_ATTRIBUTE_KEYS = setOf(
-            "cacheReuse",
-            "fallbackReason",
-        )
+        private val ALLOWED_ATTRIBUTE_KEYS =
+            setOf(
+                "cacheReuse",
+                "fallbackReason",
+            )
 
         /**
          * Strict token pattern for [PolicyDecision.Deny.reasonCode].
@@ -38,8 +42,7 @@ class AuditEnginePolicyDecisionAuditEmitter(
          */
         private val SAFE_REASON_CODE = Regex("[a-z0-9][a-z0-9._:-]{0,127}")
 
-        private fun safeReasonCode(raw: String): String =
-            raw.takeIf(SAFE_REASON_CODE::matches) ?: "policy_denied"
+        private fun safeReasonCode(raw: String): String = raw.takeIf(SAFE_REASON_CODE::matches) ?: "policy_denied"
     }
 
     override suspend fun emit(
@@ -48,26 +51,29 @@ class AuditEnginePolicyDecisionAuditEmitter(
         decision: PolicyDecision,
     ) {
         val streamId = resolveSafeStreamId(context)
-        val (decisionStr, reasonCode) = when (decision) {
-            is PolicyDecision.Allow -> Pair("ALLOW", "policy_allowed")
-            is PolicyDecision.Deny -> Pair("DENY", safeReasonCode(decision.reasonCode))
-            is PolicyDecision.RequireApproval -> Pair("REQUIRE_APPROVAL", "policy_requires_approval")
-        }
+        val (decisionStr, reasonCode) =
+            when (decision) {
+                is PolicyDecision.Allow -> Pair("ALLOW", "policy_allowed")
+                is PolicyDecision.Deny -> Pair("DENY", safeReasonCode(decision.reasonCode))
+                is PolicyDecision.RequireApproval -> Pair("REQUIRE_APPROVAL", "policy_requires_approval")
+            }
 
         val metadata = buildSafeMetadata(context)
 
-        auditEngine.emit(AuditEmission(
-            auditStreamId = streamId,
-            workflowRunId = context.workflowRunId,
-            correlationId = context.correlationId,
-            actor = SafeActorIdPolicy.safeActorId(context.actorId),
-            enforcementPoint = enforcementPoint.name,
-            decision = decisionStr,
-            policyVersion = context.policyVersion,
-            workflowDigest = context.workflowDigest,
-            reasonCode = reasonCode,
-            metadata = metadata,
-        ))
+        auditEngine.emit(
+            AuditEmission(
+                auditStreamId = streamId,
+                workflowRunId = context.workflowRunId,
+                correlationId = context.correlationId,
+                actor = SafeActorIdPolicy.safeActorId(context.actorId),
+                enforcementPoint = enforcementPoint.name,
+                decision = decisionStr,
+                policyVersion = context.policyVersion,
+                workflowDigest = context.workflowDigest,
+                reasonCode = reasonCode,
+                metadata = metadata,
+            ),
+        )
     }
 
     private fun resolveSafeStreamId(context: PolicyContext): String {
@@ -94,6 +100,21 @@ class AuditEnginePolicyDecisionAuditEmitter(
         context.toolSecurity?.risk?.let { map["riskLevel"] = bounded(it.name) }
         context.fallbackProviderId?.let { map["fallbackProviderName"] = bounded(it) }
 
+        // G1b: the framework-bound governed identity travels VERBATIM under its own reserved keys,
+        // never under the `attr_` prefix, because the runtime-evidence boundary matches those exact
+        // key names. It is reserved before the attribute budget is computed so a slot shortage can
+        // never truncate a complete tuple into a partial one — the evidence boundary refuses a
+        // partial tuple as corruption rather than reading it as legacy.
+        //
+        // Values are not length-truncated into corruption: every identity value comes from the
+        // typed core identity model, which refuses an id longer than 128 characters
+        // (IdentityValidation.ID_MAX_LENGTH), leaving the 256-character bound a no-op here.
+        context.attributes
+            .asSequence()
+            .filter { (key, _) -> key in RuntimeEvidenceAttribution.metadataKeys }
+            .sortedBy { (key, _) -> key }
+            .forEach { (key, value) -> map[key] = bounded(value) }
+
         // Explicit attribute allowlist — only known safe keys are exported.
         // Unknown keys (e.g. "prompt", "toolArguments", "secret") are dropped.
         val remainingSlots = MAX_METADATA_ENTRIES - map.size
@@ -117,7 +138,10 @@ class AuditEnginePolicyDecisionAuditEmitter(
         return value.take(MAX_VALUE_LENGTH)
     }
 
-    private fun bounded(value: String, maxLen: Int): String {
+    private fun bounded(
+        value: String,
+        maxLen: Int,
+    ): String {
         if (value.length <= maxLen) return value
         return value.take(maxLen)
     }

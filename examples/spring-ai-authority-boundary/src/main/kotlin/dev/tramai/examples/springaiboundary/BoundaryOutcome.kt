@@ -19,6 +19,31 @@ data class BoundaryContext(
 ) {
     /** The governed run id, never re-minted at the boundary. */
     val runId: String get() = identity.runId.value
+
+    /**
+     * The deployment tuple as the reserved `identity.*` keys — the single place this boundary
+     * translates its typed identity, so the evaluator's context and the recorded evidence cannot
+     * drift from one another.
+     *
+     * The key names are repeated literal-for-literal because the validator that defines them
+     * (`RuntimeEvidenceAttribution`) is internal to `tramai-security` and this example is a separate
+     * module, so they cannot be imported. A shared public constant would remove the duplication, and
+     * would also be an API change to a contract this slice must not touch — hence the carriage
+     * test, which fails if a key is renamed here rather than silently downgrading a governed
+     * context to an ungoverned one.
+     *
+     * The run component is deliberately absent: the canonical run identifier is `workflowRunId`,
+     * and duplicating it here would create a second run identifier that could disagree with it.
+     */
+    internal val identityAttribution: Map<String, String>
+        get() =
+            mapOf(
+                "identity.workloadId" to identity.deployment.workloadId.value,
+                "identity.configurationId" to identity.deployment.configuration.id.value,
+                "identity.configurationVersion" to identity.deployment.configuration.version.value,
+                "identity.environmentId" to identity.deployment.environmentId.value,
+                "identity.deploymentId" to identity.deployment.deploymentId.value,
+            )
 }
 
 /**

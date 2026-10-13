@@ -1,0 +1,86 @@
+=== G1b: production path traced BEFORE the change
+base 067e6f61224f67c6b19c4da5c2f6826560450dc3, worktree /home/gionag/tramai-g1b
+
+--- how it was traced
+  grep -rn "BEFORE_TOOL_EXPOSURE|BEFORE_TOOL_EXECUTION|BEFORE_TOOL_RESULT_REINJECTION" --include=*.kt */src/main
+  grep -rn "AuditEvent(" --include=*.kt */src/main          # found the single governed-path constructor
+  grep -rn "PolicyDecisionAuditEmitter" --include=*.kt        # found the single production implementation
+  read: AuditEngine.kt, PolicyEnforcementHelper.kt, AuditEnginePolicyDecisionAuditEmitter.kt,
+        ToolPermissionRuntimeEvidenceExporter.kt, RuntimeEvidenceAttribution.kt, AuditEvent.kt,
+        GovernanceDecisionEvidence.kt (the working exemplar), BoundaryEvidenceRecorder.kt,
+        GovernedToolCallback.kt, BoundaryOutcome.kt
+
+--- the path
+  ToolAuthorizationCoordinator            tramai-engine/src/main/kotlin/dev/tramai/engine/tool/ToolAuthorizationCoordinator.kt:12
+    (also ToolExposureCoordinator:17, ToolReinjectionCoordinator:39)
+  -> policyHelper.evaluate(context)       tramai-engine/src/main/kotlin/dev/tramai/engine/PolicyEnforcementHelper.kt:39-44
+       policyEngine.evaluate(context) -> PolicyDecision        (G1a identity already in context.attributes)
+       auditEmitter.emit(enforcementPoint, context, decision)  <-- the emitter RECEIVES the full PolicyContext
+  -> AuditEnginePolicyDecisionAuditEmitter.emit(...)   tramai-security/.../audit/AuditEnginePolicyDecisionAuditEmitter.kt:45-71
+  -> AuditEngine.emit(AuditEmission)                   tramai-security/.../audit/AuditEngine.kt:11-34
+  -> ToolPermissionRuntimeEvidenceExporter.export(events)     tramai-security/.../evidence/ToolPermissionRuntimeEvidenceExporter.kt:41-50
+  -> AuditEvent.toToolPermissionRuntimeEvidenceRecord()      same file :52-87
+  -> RuntimeEvidenceRecord
+
+  The G1a boundary example takes its own second route out of the same decision:
+  GovernedToolCallback.govern  -> PolicyEngine.evaluate(contextFor(toolName))     (real evaluator)
+                               -> BoundaryEvidenceRecorder.record(...)  -> AuditEngine.emit(AuditEmission)
+                               -> ToolPermissionRuntimeEvidenceExporter (via .evidence())
+
+--- GAP 1: the transfer was blocked in the emitter, before the change
+  AuditEnginePolicyDecisionAuditEmitter.kt buildSafeMetadata() (L84-113, pre-change):
+      private val ALLOWED_ATTRIBUTE_KEYS = setOf("cacheReuse", "fallbackReason")   // L23-26
+      ...
+      val remainingSlots = MAX_METADATA_ENTRIES - map.size                        // L99
+      if (remainingSlots > 0) {
+          context.attributes
+              .asSequence()
+              .filter { (key, _) -> key in ALLOWED_ATTRIBUTE_KEYS }               // L103
+              .sortedBy { (key, _) -> key }
+              .take(remainingSlots)
+              .forEach { (key, value) -> map["attr_${bounded(key, MAX_KEY_LENGTH)}"] = bounded(value, MAX_VALUE_LENGTH) }
+      }
+  => the five reserved identity.* attributes are dropped; no identity ever reaches the AuditEvent.
+     The PolicyContext IS available at this point (emit() receives it); the allowlist is what discards it.
+     MAX_METADATA_ENTRIES = 16 (L12); the seven scalar fields plus five identity keys fit.
+
+--- GAP 1b (same defect class, the G1a example): the boundary's own recorder
+  BoundaryEvidenceRecorder.kt record() (pre-change):
+      metadata = mapOf("toolName" to toolName, "enforcementPoint" to BOUNDARY_ENFORCEMENT_POINT),
+  => the boundary's exported evidence carried no identity, although GovernedToolCallback documents
+     "Evaluation, refusal and evidence therefore all carry the same identity".
+
+--- GAP 2: the exporter never attributed, before the change
+  ToolPermissionRuntimeEvidenceExporter.kt (pre-change):
+      internal val TOOL_PERMISSION_ALLOWED_METADATA_KEYS = setOf(                       // L21-27
+          "toolName", "enforcementPoint", "riskLevel", "classification", "classificationSource")
+      ...
+      val safeMetadata = mutableMapOf<String, String>().apply {
+          put("enforcementPoint", enforcementPoint)
+          putAll(metadata.filterKeys { it in TOOL_PERMISSION_ALLOWED_METADATA_KEYS && it != "enforcementPoint" })  // L62
+      }
+      val payloadDigest = computeToolPermissionPayloadDigest(safeMetadata)              // L64
+      ... metadata = safeMetadata
+  => no RuntimeEvidenceAttribution.merge, no .validate; the family allowlist would drop identity.*
+     anyway; computeToolPermissionPayloadDigest (L102-114) covers only eventType, decision, reasonCode,
+     sourceComponent, sourceModule, metadata. Identity neither travelled NOR bound.
+
+--- the contract that already existed and was unused on this path
+  RuntimeEvidenceAttribution.kt L37-38:
+    "Callers must overlay before the canonical payload digest is computed, so the identity
+     participates in the digest the record advertises."
+  RuntimeEvidenceAttribution.kt L55-73: zero keys = legacy; partial tuple = corruption (refused);
+  complete tuple without a non-blank canonical workflowRunId = refused.
+  GovernanceDecisionEvidence.kt L70-93 already performs exactly this sequence for the
+  governance.decision family: validate -> payloadDigest(outcome, attribution) -> merge(emptyMap(), attribution).
+
+--- what already existed for reuse (so G1b invents nothing)
+  RuntimeEvidenceAttributionTest.kt:62-65        caller-supplied metadata cannot replace framework attribution
+  RuntimeEvidenceContractValidatorTest.kt:182-197 bundle validator already covers complete AND partial tuples
+  GovernedIdentityValidationTest.kt:56-140        the evaluator's validate-before-branch rule, pinned
+  GovernedToolCallback.kt:114-145                 the actual G1a boundary, already emitting all five keys
+  GovernedIdentityAttribution (internal object, GovernanceDecisionEvidence.kt:214)  typed identity -> keys
+
+--- the anti-pattern this slice must not produce
+  GovernedIdentityAuditContractTest.kt:40-44 hand-builds the five-key tuple. Legitimate as a unit test of
+  the refusal contract, but it is NOT attribution evidence: it copies a hand-made tuple into an object.
