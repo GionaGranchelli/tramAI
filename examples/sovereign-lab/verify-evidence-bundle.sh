@@ -220,11 +220,18 @@ TOOL_PERMISSION_METADATA_KEYS = {
     "toolName", "enforcementPoint", "riskLevel", "classification",
     "classificationSource",
 }
+GOVERNED_IDENTITY_KEYS = {
+    "identity.workloadId",
+    "identity.configurationId",
+    "identity.configurationVersion",
+    "identity.environmentId",
+    "identity.deploymentId",
+}
 EVIDENCE_METADATA_KEYS = {
-    "policy.decision": POLICY_METADATA_KEYS,
-    "approval.decision": APPROVAL_METADATA_KEYS,
-    "provider.route": ROUTING_METADATA_KEYS,
-    "tool.permission": TOOL_PERMISSION_METADATA_KEYS,
+    "policy.decision": POLICY_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
+    "approval.decision": APPROVAL_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
+    "provider.route": ROUTING_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
+    "tool.permission": TOOL_PERMISSION_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
 }
 
 SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -465,6 +472,22 @@ def validate_runtime_evidence():
                         fail(
                             f"runtime-evidence/{filename} line {line_num}: "
                             f"metadata value for '{key}' must be a string"
+                        )
+
+                # Governed identity atomic attribution
+                present_identity_keys = [k for k in meta if k in GOVERNED_IDENTITY_KEYS]
+                if 0 < len(present_identity_keys) < len(GOVERNED_IDENTITY_KEYS):
+                    missing_identity_keys = sorted(GOVERNED_IDENTITY_KEYS - set(present_identity_keys))
+                    fail(
+                        f"runtime-evidence/{filename} line {line_num}: "
+                        f"partial governed identity attribution, expected all five reserved keys or none, missing: {missing_identity_keys}"
+                    )
+                elif len(present_identity_keys) == len(GOVERNED_IDENTITY_KEYS):
+                    wfr = record.get("workflowRunId")
+                    if not isinstance(wfr, str) or not wfr.strip():
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"missing or blank canonical workflowRunId for governed identity attribution, got: {wfr!r}"
                         )
 
                 # ── Family-specific metadata value validation ────────
