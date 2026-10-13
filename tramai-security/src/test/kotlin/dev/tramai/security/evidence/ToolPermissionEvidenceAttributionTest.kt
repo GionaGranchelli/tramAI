@@ -1,5 +1,6 @@
 package dev.tramai.security.evidence
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.identity.ConfigurationId
 import dev.tramai.core.identity.ConfigurationVersion
 import dev.tramai.core.identity.DeploymentId
@@ -9,9 +10,14 @@ import dev.tramai.core.identity.RunId
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
+import dev.tramai.core.policy.ApprovalMode
+import dev.tramai.core.policy.AuditDetail
 import dev.tramai.core.policy.EnforcementPoint
+import dev.tramai.core.policy.ManagedNetworkEgress
 import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
+import dev.tramai.core.policy.RiskLevel
+import dev.tramai.core.policy.ToolSecurityMetadata
 import dev.tramai.security.DefaultPolicyEngine
 import dev.tramai.security.PolicyConfiguration
 import dev.tramai.security.audit.AuditEngine
@@ -21,6 +27,9 @@ import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.InMemoryAuditStore
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
@@ -252,7 +261,314 @@ class ToolPermissionEvidenceAttributionTest {
         )
     }
 
+    // ── authoritative identity length bounds (Finding 1) ─────────────────
+
+    @Test
+    fun `an overlength reserved identity value is refused rather than silently truncated`() {
+        val identity = governedIdentity()
+        val baseAttributes = GovernedIdentityAttribution.of(identity)
+
+        // Two complete policy contexts differing ONLY after the 256th character of identity.deploymentId.
+        val overlengthA = "x".repeat(256) + "A"
+        val overlengthB = "x".repeat(256) + "B"
+        val contextA = policyContext(identity, attributes = baseAttributes + ("identity.deploymentId" to overlengthA))
+        val contextB = policyContext(identity, attributes = baseAttributes + ("identity.deploymentId" to overlengthB))
+
+        // Both are accepted by the real policy engine's presence-based validation and evaluated.
+        val decisionA = evaluate(contextA)
+        val decisionB = evaluate(contextB)
+        assertTrue(decisionA is PolicyDecision.Deny)
+        assertTrue(decisionB is PolicyDecision.Deny)
+
+        // The real emitter must fail closed and refuse overlength reserved identity values,
+        // rather than silently truncating both to 256 chars and mapping two distinct identities
+        // onto identical evidence with identical payload digests.
+        val failureA = assertFailsWith<IllegalArgumentException> { emit(contextA, decisionA) }
+        assertTrue(
+            failureA.message!!.contains("identity.deploymentId") &&
+                failureA.message!!.contains("256") &&
+                failureA.message!!.contains("length"),
+            "refusal names the offending key, bound, and length attribute: ${failureA.message}",
+        )
+
+        val failureB = assertFailsWith<IllegalArgumentException> { emit(contextB, decisionB) }
+        assertTrue(
+            failureB.message!!.contains("identity.deploymentId") &&
+                failureB.message!!.contains("256") &&
+                failureB.message!!.contains("length"),
+            "refusal names the offending key, bound, and length attribute: ${failureB.message}",
+        )
+    }
+
+    @Test
+    fun `a 256-character identity value is preserved intact and exported unchanged byte-for-byte`() {
+        val identity = governedIdentity()
+        val baseAttributes = GovernedIdentityAttribution.of(identity)
+        val exact256 = "x".repeat(256)
+        val contextExact = policyContext(identity, attributes = baseAttributes + ("identity.deploymentId" to exact256))
+
+        val decisionExact = evaluate(contextExact)
+        val eventExact = emit(contextExact, decisionExact)
+
+        // Boundary control: a value of exactly 256 characters is accepted and
+        // preserved byte-for-byte in the audit event.
+        assertEquals(
+            exact256,
+            eventExact.metadata["identity.deploymentId"],
+            "a 256-character identity value is preserved byte-for-byte in the audit event",
+        )
+
+        // The exporter also preserves identity values exactly without truncation.
+        val recordExact = exporter.export(listOf(eventExact)).single()
+        assertEquals(
+            exact256,
+            recordExact.metadata["identity.deploymentId"],
+            "the exporter preserves the 256-character identity value without truncation",
+        )
+    }
+
+    // ── attributed bundle round-trip and tamper detection (Finding 2) ────────
+
+    /**
+     * Proves that real attributed tool.permission records (covering ALLOW, REQUIRE_APPROVAL, and DENY)
+     * produced by the real evaluator/emitter/exporter can be bundled by [RuntimeEvidenceBundleWriter],
+     * and that all reserved identity keys and digests survive serialization intact upon re-reading the joined file.
+     */
+    @Test
+    fun `complete real tool-permission evidence is bundled across ALLOW, REQUIRE_APPROVAL and DENY and survives intact`(
+        @TempDir bundleDir: Path,
+    ) {
+        val identity = governedIdentity()
+        val writer = RuntimeEvidenceBundleWriter()
+        createBundleManifest(bundleDir)
+
+        // 1. DENY: produced by the real DefaultPolicyEngine rejecting an unknown tool under default configuration
+        val denyContext = policyContext(identity).copy(toolName = "ledger.append")
+        val denyRecord = produceAttributedRecord(denyContext, PolicyConfiguration())
+        assertEquals("DENY", denyRecord.decision.kind)
+
+        // 2. ALLOW: produced by the real DefaultPolicyEngine permitting an allowed tool
+        val allowConfig =
+            PolicyConfiguration(
+                allowedTools = setOf("calculator"),
+                allowLegacyToolsWithoutSecurityMetadata = true,
+            )
+        val allowContext = policyContext(identity).copy(toolName = "calculator")
+        val allowRecord = produceAttributedRecord(allowContext, allowConfig)
+        assertEquals("ALLOW", allowRecord.decision.kind)
+
+        // 3. REQUIRE_APPROVAL: produced by the real DefaultPolicyEngine requiring human approval for high risk
+        val approvalRecord = produceRequireApprovalRecord(identity)
+        assertEquals("REQUIRE_APPROVAL", approvalRecord.decision.kind)
+
+        val records = listOf(denyRecord, allowRecord, approvalRecord)
+
+        // All three records carry complete attribution before bundling
+        for (r in records) {
+            assertEquals(identity.runId.value, r.workflowRunId)
+            assertEquals(
+                GovernedIdentityAttribution.of(identity),
+                r.metadata.filterKeys { it in RuntimeEvidenceAttribution.metadataKeys },
+            )
+        }
+
+        // Write into the sovereign lab bundle directory
+        val writeResult = writer.write(bundleDir, records)
+        val toolPermissionsFile = writeResult.runtimeEvidenceDirectory.resolve("tool-permissions.jsonl")
+        assertTrue(Files.exists(toolPermissionsFile), "tool-permissions.jsonl must exist in the bundle")
+        assertEquals(3, writeResult.countsByEventType["tool.permission"])
+
+        // Re-read the joined file and assert every record's identity and digests survived intact
+        assertBundledRecordsSurviveIntact(toolPermissionsFile, records)
+    }
+
+    /**
+     * Proves that modifications to attributed tool-permission evidence are detected by the repository's
+     * production verifiers ([RuntimeEvidenceContractValidator] and [RuntimeEvidenceBundleWriter]).
+     *
+     * LIMITATION NOTE:
+     * The repository's production in-tree verifier for runtime evidence is [RuntimeEvidenceContractValidator],
+     * which verifies contract adherence and attribution invariants in memory (atomic attribution presence,
+     * canonical workflowRunId requirement, metadata allowlists, digest shapes).
+     * The repository has no production JVM bundle verifier that performs cryptographic file hash (SHA-256)
+     * integrity checking of on-disk `tool-permissions.jsonl` files against `manifest.json`.
+     * (The shell verifier `examples/sovereign-lab/verify-evidence-bundle.sh` verifies file SHA-256 against
+     * `manifest.json["files"]` for sovereign lab bundles, but only allowlists un-attributed metadata keys
+     * and therefore rejects attributed records during structural validation).
+     * Therefore, within the JVM evidence pipeline, integrity verification operates via
+     * [RuntimeEvidenceContractValidator] and [RuntimeEvidenceBundleWriter], which refuse corrupt attribution
+     * tuples, missing run IDs, unallowlisted keys, and invalid manifests.
+     */
+    @Test
+    fun `tampered attributed tool-permission evidence is detected by production contract verification`(
+        @TempDir bundleDir: Path,
+    ) {
+        val identity = governedIdentity()
+        val writer = RuntimeEvidenceBundleWriter()
+        createBundleManifest(bundleDir)
+
+        val validRecord =
+            produceAttributedRecord(
+                policyContext(identity).copy(toolName = "ledger.append"),
+                PolicyConfiguration(),
+            )
+
+        // Baseline: valid record passes contract validator and bundle writer
+        RuntimeEvidenceContractValidator.validate(listOf(validRecord))
+        writer.write(bundleDir, listOf(validRecord))
+
+        assertAttributionTamperDetected(validRecord, bundleDir, writer)
+        assertMetadataAndManifestTamperDetected(validRecord, bundleDir, writer)
+    }
+
+    private fun assertAttributionTamperDetected(
+        validRecord: RuntimeEvidenceRecord,
+        bundleDir: Path,
+        writer: RuntimeEvidenceBundleWriter,
+    ) {
+        // Tamper 1: attribution corruption - stripping one reserved identity key (partial tuple)
+        val tamperedAttribution =
+            validRecord.copy(
+                metadata = validRecord.metadata - "identity.deploymentId",
+            )
+        val partialEx =
+            assertFailsWith<IllegalStateException> {
+                RuntimeEvidenceContractValidator.validate(listOf(tamperedAttribution))
+            }
+        assertTrue(
+            partialEx.message!!.contains("partial governed attribution"),
+            "validator detects partial attribution: ${partialEx.message}",
+        )
+        val writerPartialEx =
+            assertFailsWith<IllegalStateException> {
+                writer.write(bundleDir, listOf(tamperedAttribution))
+            }
+        assertTrue(
+            writerPartialEx.message!!.contains("partial governed attribution"),
+            "writer refuses partial attribution: ${writerPartialEx.message}",
+        )
+
+        // Tamper 2: attribution without canonical run ID
+        val tamperedRunId = validRecord.copy(workflowRunId = null)
+        val runIdEx =
+            assertFailsWith<IllegalStateException> {
+                RuntimeEvidenceContractValidator.validate(listOf(tamperedRunId))
+            }
+        assertTrue(
+            runIdEx.message!!.contains("attribution without the canonical workflowRunId"),
+            "validator detects missing run ID: ${runIdEx.message}",
+        )
+    }
+
+    private fun assertMetadataAndManifestTamperDetected(
+        validRecord: RuntimeEvidenceRecord,
+        bundleDir: Path,
+        writer: RuntimeEvidenceBundleWriter,
+    ) {
+        // Tamper 3: metadata corruption - injecting unallowlisted metadata key
+        val tamperedMetadata =
+            validRecord.copy(
+                metadata = validRecord.metadata + ("unallowlistedKey" to "injectedValue"),
+            )
+        val metaEx =
+            assertFailsWith<IllegalArgumentException> {
+                RuntimeEvidenceContractValidator.validate(listOf(tamperedMetadata))
+            }
+        assertTrue(
+            metaEx.message!!.contains("Metadata key 'unallowlistedKey' is not allowlisted"),
+            "validator detects unallowlisted metadata: ${metaEx.message}",
+        )
+
+        // Tamper 4: manifest.json corruption
+        bundleDir.resolve("manifest.json").toFile().writeText("""{"bundleType": "untrusted-bundle"}""")
+        val manifestEx =
+            assertFailsWith<IllegalArgumentException> {
+                writer.write(bundleDir, listOf(validRecord))
+            }
+        assertTrue(
+            manifestEx.message!!.contains("manifest.json must declare bundleType"),
+            "writer refuses untrusted manifest: ${manifestEx.message}",
+        )
+    }
+
+    private fun assertBundledRecordsSurviveIntact(
+        toolPermissionsFile: Path,
+        expectedRecords: List<RuntimeEvidenceRecord>,
+    ) {
+        val lines = Files.readAllLines(toolPermissionsFile)
+        assertEquals(expectedRecords.size, lines.size, "records written to tool-permissions.jsonl")
+
+        val mapper = ObjectMapper()
+        val parsedNodes = lines.map { mapper.readTree(it) }
+        val sortedExpected =
+            expectedRecords.sortedWith(
+                compareBy(RuntimeEvidenceRecord::createdAt, RuntimeEvidenceRecord::eventId),
+            )
+
+        for (i in sortedExpected.indices) {
+            val expected = sortedExpected[i]
+            val node = parsedNodes[i]
+
+            assertEquals("runtime-evidence.v1", node.get("schemaVersion").asText())
+            assertEquals("tool.permission", node.get("eventType").asText())
+            assertEquals(expected.eventId, node.get("eventId").asText())
+            assertEquals(expected.workflowRunId, node.get("workflowRunId").asText())
+            assertEquals(expected.decision.kind, node.get("decision").get("kind").asText())
+            assertEquals(expected.decision.reasonCode, node.get("decision").get("reasonCode").asText())
+            assertEquals(expected.digests.subjectDigest, node.get("digests").get("subjectDigest").asText())
+            assertEquals(expected.digests.payloadDigest, node.get("digests").get("payloadDigest").asText())
+
+            val metaNode = node.get("metadata")
+            for (key in RuntimeEvidenceAttribution.metadataKeys) {
+                assertEquals(
+                    expected.metadata[key],
+                    metaNode.get(key).asText(),
+                    "Reserved identity key '$key' must survive serialization intact, key for key and value for value",
+                )
+            }
+        }
+    }
+
+    private fun produceRequireApprovalRecord(identity: GovernedRunIdentity): RuntimeEvidenceRecord {
+        val approvalToolSecurity =
+            ToolSecurityMetadata(
+                permission = "tool.transfer",
+                risk = RiskLevel.HIGH,
+                approval = ApprovalMode.HUMAN_REQUIRED,
+                managedNetworkEgress = ManagedNetworkEgress.ALLOWLIST_ONLY,
+                audit = AuditDetail.FULL,
+            )
+        val approvalConfig =
+            PolicyConfiguration(
+                allowedTools = setOf("funds.transfer"),
+                allowedPermissions = setOf("tool.transfer"),
+                requireApprovalForRiskLevel = setOf(RiskLevel.HIGH),
+            )
+        val approvalContext =
+            policyContext(identity).copy(
+                toolName = "funds.transfer",
+                toolSecurity = approvalToolSecurity,
+            )
+        return produceAttributedRecord(approvalContext, approvalConfig)
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────────
+
+    private fun produceAttributedRecord(
+        context: PolicyContext,
+        config: PolicyConfiguration = PolicyConfiguration(),
+    ): RuntimeEvidenceRecord {
+        val decision = runBlocking { DefaultPolicyEngine(config).evaluate(context) }
+        val event = emit(context, decision)
+        return exporter.export(listOf(event)).single()
+    }
+
+    private fun createBundleManifest(dir: Path) {
+        val manifestJson =
+            """{"bundleType": "sovereign-lab-evidence-bundle", "schemaVersion": 1, """ +
+                """"claimBoundary": {}, "requiredFiles": [], "files": []}"""
+        dir.resolve("manifest.json").toFile().writeText(manifestJson)
+    }
 
     /** The full production chain, ending in the exported record. */
     private fun govern(identity: GovernedRunIdentity): RuntimeEvidenceRecord {

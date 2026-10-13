@@ -106,14 +106,20 @@ class AuditEnginePolicyDecisionAuditEmitter(
         // never truncate a complete tuple into a partial one — the evidence boundary refuses a
         // partial tuple as corruption rather than reading it as legacy.
         //
-        // Values are not length-truncated into corruption: every identity value comes from the
-        // typed core identity model, which refuses an id longer than 128 characters
-        // (IdentityValidation.ID_MAX_LENGTH), leaving the 256-character bound a no-op here.
+        // Authoritative identity must never pass through a lossy function: values are preserved
+        // byte-for-byte and bounded by MAX_VALUE_LENGTH (256). Any overlength identity attribute
+        // fails closed rather than being silently truncated into ambiguous evidence.
         context.attributes
             .asSequence()
             .filter { (key, _) -> key in RuntimeEvidenceAttribution.metadataKeys }
             .sortedBy { (key, _) -> key }
-            .forEach { (key, value) -> map[key] = bounded(value) }
+            .forEach { (key, value) ->
+                require(value.length <= MAX_VALUE_LENGTH) {
+                    "Reserved identity attribute '$key' value length (${value.length}) " +
+                        "exceeds bound of $MAX_VALUE_LENGTH"
+                }
+                map[key] = value
+            }
 
         // Explicit attribute allowlist — only known safe keys are exported.
         // Unknown keys (e.g. "prompt", "toolArguments", "secret") are dropped.
