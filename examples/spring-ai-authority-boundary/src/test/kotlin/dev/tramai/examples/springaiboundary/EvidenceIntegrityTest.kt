@@ -131,6 +131,7 @@ class EvidenceIntegrityTest {
                 reason = "denied${controlCharacter}with a control character\u0009and a tab",
                 correlationId = "corr-escape",
                 runId = "run-escape",
+                enforcementStrength = EnforcementStrength.AUTHORITATIVE,
             ).toJson()
 
         assertTrue(refusal.contains("\\u0001"), "the control character is escaped, not emitted raw")

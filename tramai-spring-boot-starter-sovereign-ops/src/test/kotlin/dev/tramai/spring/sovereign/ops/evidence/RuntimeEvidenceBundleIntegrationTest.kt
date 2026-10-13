@@ -325,6 +325,7 @@ class RuntimeEvidenceBundleIntegrationTest {
                 "identity.environmentId" to "env-g1b",
                 "identity.deploymentId" to "dep-g1b",
             ),
+        boundaryAttributes: Map<String, String> = emptyMap(),
     ): RuntimeEvidenceRecord {
         val event =
             AuditEvent(
@@ -344,7 +345,7 @@ class RuntimeEvidenceBundleIntegrationTest {
                 eventHash = "hash-tool-001",
                 timestamp = fixedTimestamp,
                 reasonCode = "tool_allowed",
-                metadata = mapOf("toolName" to toolName) + identityAttributes,
+                metadata = mapOf("toolName" to toolName) + identityAttributes + boundaryAttributes,
             )
         return toolPermissionExporter.export(listOf(event)).single()
     }
@@ -504,4 +505,104 @@ class RuntimeEvidenceBundleIntegrationTest {
             "Verify must fail with not allowlisted reason:\n${verifyResult.output}",
         )
     }
+
+    // ── G2: registered enforcement-boundary provenance through the reviewer verifier ──────────
+
+    @Test
+    fun `reviewer verifier accepts a registered boundary's provenance and the legacy control`() {
+        val root = findRepositoryRoot()
+        val finalizeScript = root.resolve("examples/sovereign-lab/finalize-evidence-bundle.sh")
+        val verifyScript = root.resolve("examples/sovereign-lab/verify-evidence-bundle.sh")
+
+        createSovereignLabManifest(tempDir)
+        bundleWriter.write(
+            tempDir,
+            listOf(produceAttributedToolPermissionRecord(boundaryAttributes = registeredBoundary)),
+        )
+        assertEquals(0, runScript(finalizeScript, tempDir).exitCode, "Finalize must exit 0")
+
+        val attributed = runScript(verifyScript, tempDir)
+        assertEquals(
+            0,
+            attributed.exitCode,
+            "the reviewer verifier must accept a registered boundary's provenance:\n${attributed.output}",
+        )
+        assertTrue(
+            attributed.stdout.contains("Evidence bundle verified:"),
+            "the verifier must report the bundle verified:\n${attributed.output}",
+        )
+
+        // Control: the same record without provenance is pre-G2 legacy evidence and must still verify.
+        createSovereignLabManifest(tempDir)
+        bundleWriter.write(tempDir, listOf(produceAttributedToolPermissionRecord()))
+        assertEquals(0, runScript(finalizeScript, tempDir).exitCode, "Finalize must exit 0")
+
+        val legacy = runScript(verifyScript, tempDir)
+        assertEquals(
+            0,
+            legacy.exitCode,
+            "legacy evidence without boundary provenance must still verify:\n${legacy.output}",
+        )
+    }
+
+    @Test
+    fun `reviewer verifier refuses boundary provenance the registration does not cover`() {
+        val root = findRepositoryRoot()
+        val finalizeScript = root.resolve("examples/sovereign-lab/finalize-evidence-bundle.sh")
+        val verifyScript = root.resolve("examples/sovereign-lab/verify-evidence-bundle.sh")
+
+        val cases =
+            listOf<Triple<String, (ObjectNode) -> Unit, String>>(
+                Triple(
+                    "an unregistered boundary identifier",
+                    { node -> node.metadataNode().put("boundary.id", "some-other-adapter") },
+                    "unregistered enforcement boundary 'some-other-adapter'",
+                ),
+                Triple(
+                    "a strength the registration does not grant",
+                    { node -> node.metadataNode().put("boundary.enforcementStrength", "OBSERVED") },
+                    "cannot claim 'OBSERVED'",
+                ),
+                Triple(
+                    "partial provenance",
+                    { node -> node.metadataNode().remove("boundary.enforcementStrength") },
+                    "partial enforcement-boundary provenance",
+                ),
+                Triple(
+                    "a registration applied at the wrong enforcement point",
+                    { node -> node.metadataNode().put("enforcementPoint", "BEFORE_TOOL_EXPOSURE") },
+                    "is registered for BEFORE_TOOL_EXECUTION",
+                ),
+            )
+
+        cases.forEach { (label, mutation, expectedReason) ->
+            createSovereignLabManifest(tempDir)
+            bundleWriter.write(
+                tempDir,
+                listOf(produceAttributedToolPermissionRecord(boundaryAttributes = registeredBoundary)),
+            )
+            mutateToolPermissionsRecord(tempDir, mutation)
+            // Re-finalize so the digests match and the refusal can only be the provenance rule.
+            assertEquals(0, runScript(finalizeScript, tempDir).exitCode, "Finalize must exit 0 for: $label")
+
+            val verifyResult = runScript(verifyScript, tempDir)
+            assertNotEquals(
+                0,
+                verifyResult.exitCode,
+                "the verifier must refuse $label:\n${verifyResult.output}",
+            )
+            assertTrue(
+                verifyResult.stderr.contains(expectedReason),
+                "the refusal for $label must name the rule, expected '$expectedReason':\n${verifyResult.output}",
+            )
+        }
+    }
+
+    private fun ObjectNode.metadataNode(): ObjectNode = get("metadata") as ObjectNode
+
+    /**
+     * The declared boundary identifier only. The strength is deliberately absent: the framework
+     * resolves it from the registration, and the exporter refuses a caller-supplied strength.
+     */
+    private val registeredBoundary = mapOf("boundary.id" to "spring-ai-tool-callback")
 }

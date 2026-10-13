@@ -74,7 +74,18 @@ internal fun AuditEvent.toToolPermissionRuntimeEvidenceRecord(): RuntimeEvidence
     // run id, refuses here instead of being read as legacy evidence.
     val attribution = metadata.filterKeys { it in RuntimeEvidenceAttribution.metadataKeys }
     RuntimeEvidenceAttribution.validate(workflowRunId, attribution)
-    val attributedMetadata = RuntimeEvidenceAttribution.merge(safeMetadata, attribution)
+
+    // G2: which declared boundary enforced this decision, and how strongly. The identifier is what the
+    // producing boundary declares; the strength is resolved from the framework-owned registration, so
+    // the record advertises a registration fact rather than a caller's claim. A caller-supplied
+    // strength, or an unregistered identifier, refuses here rather than degrading to legacy evidence.
+    //
+    // Overlaid before the digest for the same reason identity is: a digest computed afterwards would
+    // advertise a record whose provenance it does not bind.
+    val provenance = RuntimeBoundaryProvenance.provenanceFor(metadata, enforcementPoint)
+
+    val attributedMetadata =
+        RuntimeEvidenceAttribution.merge(safeMetadata, attribution) + provenance
 
     val payloadDigest = computeToolPermissionPayloadDigest(attributedMetadata)
 
@@ -115,7 +126,8 @@ internal fun AuditEvent.toToolPermissionRuntimeEvidenceRecord(): RuntimeEvidence
  * - source.module (if present)
  * - workflowRunId — **only when the record is attributed** (see below)
  * - metadata (filtered, sorted) — including the reserved governed-identity keys when the event is
- *   attributed, so the digest binds the identity this record advertises
+ *   attributed and the registered enforcement-boundary provenance when the record declares a boundary
+ *   id, so the digest binds both the identity and the boundary the record advertises
  *
  * The canonical run id is part of the complete governed identity, so an attributed record binds it
  * here rather than relying on `subjectDigest` alone: `subjectDigest` is `sha256(auditStreamId)`, and

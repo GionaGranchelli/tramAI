@@ -130,9 +130,18 @@ internal object RuntimeEvidenceContractValidator {
         // Governed attribution is cross-family framework metadata, so it composes here rather than
         // being duplicated into each family vocabulary above. Validation is atomic: a partial
         // tuple is corruption, never a silent downgrade to legacy evidence.
-        val allowedKeys = familyAllowedKeys + RuntimeEvidenceAttribution.metadataKeys
+        //
+        // G2 enforcement-boundary provenance composes the same way and for the same reason: it is
+        // framework-resolved metadata, not a family vocabulary entry. Its applicability rule needs the
+        // enforcement point the record itself claims, so that a registration cannot be applied to a
+        // point it does not cover.
+        val allowedKeys =
+            familyAllowedKeys +
+                RuntimeEvidenceAttribution.metadataKeys +
+                RuntimeBoundaryProvenance.metadataKeys
 
         RuntimeEvidenceAttribution.validate(record.workflowRunId, record.metadata)
+        RuntimeBoundaryProvenance.validate(record.metadata["enforcementPoint"].orEmpty(), record.metadata)
 
         for (key in record.metadata.keys) {
             require(key in allowedKeys) {

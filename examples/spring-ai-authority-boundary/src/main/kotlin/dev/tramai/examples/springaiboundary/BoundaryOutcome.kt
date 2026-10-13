@@ -110,7 +110,13 @@ data class BoundaryRefusal(
     val reason: String,
     val correlationId: String,
     val runId: String,
-    val enforcementStrength: EnforcementStrength = EnforcementStrength.AUTHORITATIVE,
+    /**
+     * The strength this boundary claims **to its caller**. This is the refusal payload, not evidence:
+     * the strength recorded in evidence is resolved by the framework from this boundary's registration
+     * and is never read from here. The two are pinned to agree by
+     * `GovernanceBoundaryTest.evidence identifies this boundary and is exported through the repository schema`.
+     */
+    val enforcementStrength: EnforcementStrength,
 ) {
     /** Stable, machine-readable shape; every JSON-required escape is applied to free-form values. */
     fun toJson(): String =

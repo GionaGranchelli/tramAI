@@ -227,11 +227,25 @@ GOVERNED_IDENTITY_KEYS = {
     "identity.environmentId",
     "identity.deploymentId",
 }
+
+# G2: registered enforcement-boundary provenance. Enforcement strength is a REGISTRATION fact, never a
+# value the record is trusted to assert, so this table mirrors the framework-owned registry in
+# tramai-security (RuntimeBoundaryProvenance). A record naming a boundary outside this table is
+# rejected rather than downgraded: an identifier no contract covers cannot be validated against one.
+GOVERNED_BOUNDARY_ID_KEY = "boundary.id"
+GOVERNED_BOUNDARY_STRENGTH_KEY = "boundary.enforcementStrength"
+GOVERNED_BOUNDARY_KEYS = {GOVERNED_BOUNDARY_ID_KEY, GOVERNED_BOUNDARY_STRENGTH_KEY}
+ENFORCEMENT_STRENGTHS = {"AUTHORITATIVE", "INSTRUMENTED", "OBSERVED", "IMPORTED"}
+
+# boundary id -> (applicable enforcement point, the strength its contract grants)
+REGISTERED_BOUNDARIES = {
+    "spring-ai-tool-callback": ("BEFORE_TOOL_EXECUTION", "AUTHORITATIVE"),
+}
 EVIDENCE_METADATA_KEYS = {
-    "policy.decision": POLICY_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
-    "approval.decision": APPROVAL_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
-    "provider.route": ROUTING_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
-    "tool.permission": TOOL_PERMISSION_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
+    "policy.decision": POLICY_METADATA_KEYS | GOVERNED_IDENTITY_KEYS | GOVERNED_BOUNDARY_KEYS,
+    "approval.decision": APPROVAL_METADATA_KEYS | GOVERNED_IDENTITY_KEYS | GOVERNED_BOUNDARY_KEYS,
+    "provider.route": ROUTING_METADATA_KEYS | GOVERNED_IDENTITY_KEYS | GOVERNED_BOUNDARY_KEYS,
+    "tool.permission": TOOL_PERMISSION_METADATA_KEYS | GOVERNED_IDENTITY_KEYS | GOVERNED_BOUNDARY_KEYS,
 }
 
 SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -488,6 +502,46 @@ def validate_runtime_evidence():
                         fail(
                             f"runtime-evidence/{filename} line {line_num}: "
                             f"missing or blank canonical workflowRunId for governed identity attribution, got: {wfr!r}"
+                        )
+
+                # Registered enforcement-boundary provenance (G2). Atomic like identity, and validated
+                # against the registration rather than trusted from the record: the strength must be the
+                # one the registered contract grants, at the enforcement point that contract covers.
+                present_boundary_keys = [k for k in meta if k in GOVERNED_BOUNDARY_KEYS]
+                if 0 < len(present_boundary_keys) < len(GOVERNED_BOUNDARY_KEYS):
+                    missing_boundary_keys = sorted(GOVERNED_BOUNDARY_KEYS - set(present_boundary_keys))
+                    fail(
+                        f"runtime-evidence/{filename} line {line_num}: "
+                        f"partial enforcement-boundary provenance, expected both reserved keys or none, "
+                        f"missing: {missing_boundary_keys}"
+                    )
+                elif len(present_boundary_keys) == len(GOVERNED_BOUNDARY_KEYS):
+                    boundary_id = meta.get(GOVERNED_BOUNDARY_ID_KEY)
+                    strength = meta.get(GOVERNED_BOUNDARY_STRENGTH_KEY)
+                    registration = REGISTERED_BOUNDARIES.get(boundary_id)
+                    if registration is None:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unregistered enforcement boundary '{boundary_id}'"
+                        )
+                    if strength not in ENFORCEMENT_STRENGTHS:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unknown enforcement strength '{strength}'; "
+                            f"the vocabulary is {sorted(ENFORCEMENT_STRENGTHS)}"
+                        )
+                    registered_point, registered_strength = registration
+                    if meta.get("enforcementPoint") != registered_point:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary '{boundary_id}' is registered for {registered_point} but the record "
+                            f"enforces at {meta.get('enforcementPoint')}"
+                        )
+                    if strength != registered_strength:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary '{boundary_id}' is registered at {registered_strength} and cannot "
+                            f"claim '{strength}'"
                         )
 
                 # ── Family-specific metadata value validation ────────
