@@ -112,11 +112,11 @@ jobs:
             # entry. ci-wiring is already a required check identity in MergeGateVerifier, so reusing it
             # enforces the regression suite without changing the required-check contract or the
             # verifier implementation. Measured locally under the same JDK 25 the lane uses, with both
-            # classes selected: 6 + 49 = 55, all zero failures/errors/skipped.
+            # classes selected: 6 + 51 = 57, all zero failures/errors/skipped.
             # 0.7.4b5 added the RC-applicability tests to this class, so both counts below moved with
             # them; they are the measurements, not arithmetic.
             test-filter: "--tests 'dev.tramai.build.quality.TestsWatchdogWiringTest' --tests 'dev.tramai.build.quality.MergeGateVerifierTest'"
-            expected: 55
+            expected: 57
           - name: api-compatibility
             test-filter: "--tests 'dev.tramai.build.quality.ApiCompatibilityMutationTest' --tests 'dev.tramai.build.quality.ApiBaselineVerifierTest' --tests 'dev.tramai.build.quality.ApiStabilityPolicyTest'"
             expected: 67
@@ -147,7 +147,7 @@ jobs:
           if [ "${{ matrix.name }}" = "ci-wiring" ]; then
           python3 - <<'EOF'
           import glob, sys, xml.etree.ElementTree as ET
-          # Non-vacuity: an aggregate count cannot tell "the 49 enrolled tests passed" from "49 other
+          # Non-vacuity: an aggregate count cannot tell "the 51 enrolled tests passed" from "51 other
           # tests passed". Read this class's own report and hold it to the exact contract, so a
           # selection that runs zero of them can never produce a successful enrollment verdict.
           #
@@ -155,7 +155,7 @@ jobs:
           # its terminator land at column 0 after YAML strips the block indent. Indenting it further
           # (e.g. to nest it under the if) breaks the terminator and python's indentation together.
           CLS = 'dev.tramai.build.quality.MergeGateVerifierTest'
-          EXPECTED = 49
+          EXPECTED = 51
           paths = glob.glob(f'build-logic/build/test-results/test/TEST-{CLS}.xml')
           if len(paths) != 1:
               sys.exit(f'enrollment: expected exactly 1 report for {CLS}, found {len(paths)}; '

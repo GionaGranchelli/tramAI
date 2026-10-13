@@ -17,6 +17,8 @@ private const val PATHS_KEY = "paths:"
 
 private const val ITEM_PREFIX = "- "
 
+private const val COMMENT_PREFIX = "#"
+
 /**
  * The `pull_request.paths:` filters a workflow declares, read from that workflow's own YAML.
  *
@@ -52,10 +54,10 @@ private fun filtersInPullRequestBlock(lines: List<String>): List<String> {
     return if (pathsAt < 0) {
         emptyList()
     } else {
-        val itemIndent = indentOf(block[pathsAt])
+        val pathsIndent = indentOf(block[pathsAt])
         block
             .drop(pathsAt + 1)
-            .takeWhile { indentOf(it) >= itemIndent }
+            .takeWhile { keepsPathsSequenceOpen(it, pathsIndent) }
             .filter { it.trim().startsWith(ITEM_PREFIX) }
             .map {
                 it
@@ -65,6 +67,26 @@ private fun filtersInPullRequestBlock(lines: List<String>): List<String> {
                     .trim('"', '\'')
             }
     }
+}
+
+/**
+ * Whether [line] leaves the `paths:` sequence that starts at [pathsIndent] open.
+ *
+ * Open means one of its items, or an intervening blank or comment line. The sequence CLOSES at the first key
+ * line, so collecting by indentation alone is wrong in a way that reintroduces the defect this parser removes:
+ * a sibling key such as `branches:` sits at exactly `paths:`'s indentation, and its own items are indented just
+ * as deep as the paths, so a purely positional scan accepts the sibling's entries as path filters and the gate
+ * then demands an RC run for pull requests GitHub never triggered it for.
+ */
+private fun keepsPathsSequenceOpen(
+    line: String,
+    pathsIndent: Int,
+): Boolean {
+    val trimmed = line.trim()
+    if (trimmed.isEmpty() || trimmed.startsWith(COMMENT_PREFIX)) {
+        return true
+    }
+    return trimmed.startsWith(ITEM_PREFIX) && indentOf(line) >= pathsIndent
 }
 
 /** A line's indentation. A blank line counts as deeper than anything, so it never ends a block. */

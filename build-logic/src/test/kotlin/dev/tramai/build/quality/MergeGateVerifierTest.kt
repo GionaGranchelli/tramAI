@@ -2,6 +2,7 @@ package dev.tramai.build.quality
 
 import dev.tramai.build.quality.MergeGateVerifier.WorkflowRun
 import org.junit.jupiter.api.Test
+import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -543,12 +544,13 @@ class MergeGateVerifierTest {
         runs: List<WorkflowRun> = requiredRuns(head),
         checks: List<MergeGateVerifier.Check> = List(12) { MergeGateVerifier.Check("some-check-$it", "SUCCESS") },
         changedFilesTotal: Int = changedPaths.size,
+        filters: List<String> = rcFilters,
     ) = greenEvidence(workflowRuns = runs)
         .copy(
             checkStates = checks.map { it.state },
             checkNames = checks.map { it.name },
-            conditionalChecks = mutation + (VALIDATE to rcFilters),
-            conditionalWorkflows = mapOf(RC_WORKFLOW to rcFilters),
+            conditionalChecks = mutation + (VALIDATE to filters),
+            conditionalWorkflows = mapOf(RC_WORKFLOW to filters),
             changedPaths = changedPaths,
             changedFilesTotal = changedFilesTotal,
         )
@@ -679,6 +681,65 @@ class MergeGateVerifierTest {
         val filters = pullRequestPathFilters("name: X\non:\n  workflow_dispatch:\n")
 
         assertEquals(listOf(MATCHES_EVERY_PATH), filters)
+    }
+
+    @Test
+    fun `a sibling key after the paths sequence does not extend it`() {
+        // `branches:` sits at `paths:`'s own indentation and its items sit exactly as deep as the paths, so a
+        // positional scan reads `docs/**` as a path filter and the gate demands an RC run for pull requests
+        // GitHub never triggered it for — the false refusal this parser exists to remove, reintroduced.
+        val filters =
+            pullRequestPathFilters(
+                """
+                name: Example
+                on:
+                  pull_request:
+                    paths:
+                      - "tramai-security/**"
+                    branches:
+                      - "docs/**"
+                jobs:
+                  validate:
+                    runs-on: ubuntu-latest
+                """.trimIndent(),
+            )
+
+        assertEquals(listOf("tramai-security/**"), filters)
+    }
+
+    @Test
+    fun `the real RC workflow's own filters decide the RC requirement`() {
+        // Wiring, not just parsing: these filters decide whether an RC run is demanded, so editing the RC
+        // workflow's paths moves this gate's behaviour.
+        val filters = pullRequestPathFilters(rcWorkflowText())
+
+        assertTrue(filters.any { it.startsWith("build-logic/") }, "RC filters: $filters")
+        assertTrue(filters.any { it.startsWith("docs/releases/") }, "RC filters: $filters")
+
+        val analyzer =
+            "build-logic/src/main/kotlin/dev/tramai/build/quality/MergeGatePathFilters.kt"
+        assertTrue(
+            "required-workflow-missing" in
+                rules(MergeGateVerifier.verify(rcEvidence(listOf(analyzer), filters = filters))),
+            "an RC-relevant path must require the RC workflow",
+        )
+
+        val documentation = "docs/evidence/runtime-evidence-export-model.md"
+        assertTrue(
+            "required-workflow-missing" !in
+                rules(MergeGateVerifier.verify(rcEvidence(listOf(documentation), filters = filters))),
+            "ordinary documentation is not an RC path: $filters",
+        )
+    }
+
+    /**
+     * The RC workflow as committed. Resolved from the module directory, which is the test JVM's working
+     * directory, so the assertion is about the file this repository ships rather than about a copy of it.
+     */
+    private fun rcWorkflowText(): String {
+        val workflow = File("../.github/workflows/sovereign-runtime-release-candidate.yml")
+        assertTrue(workflow.isFile, "RC workflow not found at ${workflow.absolutePath}")
+        return workflow.readText()
     }
 
     private val workflowFixture =
