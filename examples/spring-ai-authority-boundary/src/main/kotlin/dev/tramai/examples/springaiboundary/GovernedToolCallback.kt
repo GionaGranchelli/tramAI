@@ -120,28 +120,7 @@ class GovernedToolCallback(
             toolName = toolName,
             toolSecurity = context.security,
             policyVersion = context.policyVersion,
-            attributes = context.identityAttribution(),
-        )
-
-    /**
-     * The deployment tuple as reserved keys. The evaluator validates the tuple atomically and refuses a
-     * partial one rather than reading it as ungoverned, so these keys and that validation are two halves
-     * of one contract.
-     *
-     * The key names are repeated literal-for-literal because the validator that defines them
-     * (`RuntimeEvidenceAttribution`) is internal to `tramai-security` and this example is a separate
-     * module, so they cannot be imported. The carriage test asserts the evaluator receives all five, so a
-     * rename here fails a test rather than silently downgrading a governed context to a legacy one. A
-     * shared public constant would remove the duplication, and would also be an API change to a contract
-     * this slice must not touch — hence the test, not the constant.
-     */
-    private fun BoundaryContext.identityAttribution(): Map<String, String> =
-        mapOf(
-            "identity.workloadId" to identity.deployment.workloadId.value,
-            "identity.configurationId" to identity.deployment.configuration.id.value,
-            "identity.configurationVersion" to identity.deployment.configuration.version.value,
-            "identity.environmentId" to identity.deployment.environmentId.value,
-            "identity.deploymentId" to identity.deployment.deploymentId.value,
+            attributes = context.identityAttribution,
         )
 
     private fun refusal(

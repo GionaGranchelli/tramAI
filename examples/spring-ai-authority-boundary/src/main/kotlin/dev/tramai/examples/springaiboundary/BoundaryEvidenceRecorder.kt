@@ -22,8 +22,14 @@ internal const val BOUNDARY_ENFORCEMENT_POINT = "BEFORE_TOOL_EXECUTION"
  *
  * What this evidence does *and does not* mean:
  * - it identifies the enforcement point, the tool, the decision and its reason code;
+ * - it carries the governed identity of the run this boundary was wired with, as the reserved
+ *   `identity.*` keys plus the canonical `workflowRunId`, so evaluation and evidence cannot drift;
  * - it attests that **this declared boundary** enforced that decision;
  * - it says nothing about any other execution path in the host application.
+ *
+ * It does **not** independently prove where that identity came from: the reserved keys are carried,
+ * not re-derived or cryptographically bound, so the guarantee that they are the governed run's own
+ * identity is a property of the wiring (one [BoundaryContext] per boundary), not of this evidence.
  *
  * A governance *availability* failure is recorded as a `DENY` whose reason code is
  * `governance-unavailable`: the operation was refused, and the reason code carries why. That keeps the
@@ -75,11 +81,18 @@ class BoundaryEvidenceRecorder(
                         policyVersion = context.policyVersion,
                         workflowDigest = null,
                         reasonCode = reasonCode,
-                        // Only allowlisted metadata keys. The exporter FILTERS unrecognised keys out and
-                        // fails closed only for a missing required toolName
-                        // (ToolPermissionRuntimeEvidenceExporter: :62 filters, :53-56 requires). Nothing
-                        // may rely on an unrecognised key being rejected.
-                        metadata = mapOf("toolName" to toolName, "enforcementPoint" to BOUNDARY_ENFORCEMENT_POINT),
+                        // Only allowlisted metadata keys, plus the reserved governed-identity keys.
+                        // The exporter FILTERS unrecognised keys out and fails closed only for a
+                        // missing required toolName (ToolPermissionRuntimeEvidenceExporter: :62
+                        // filters, :54 requires). Nothing may rely on an unrecognised key being
+                        // rejected. The identity keys are not left to that path: they are read as
+                        // attribution, and the exporter refuses a partial tuple rather than
+                        // recording it (:74).
+                        metadata =
+                            mapOf(
+                                "toolName" to toolName,
+                                "enforcementPoint" to BOUNDARY_ENFORCEMENT_POINT,
+                            ) + context.identityAttribution,
                     ),
                 )
             }
