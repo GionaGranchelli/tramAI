@@ -177,7 +177,7 @@ class MergeGateVerifierTest {
     fun `a required workflow that ran at another commit is refused`() {
         val runs =
             requiredRuns(head).map {
-                if (it.name == "Sovereign Runtime Release Candidate") it.copy(headSha = "deadbeef") else it
+                if (it.name == "CI") it.copy(headSha = "deadbeef") else it
             }
 
         val violations = MergeGateVerifier.verify(greenEvidence(workflowRuns = runs))
@@ -301,7 +301,9 @@ class MergeGateVerifierTest {
         // required set so the run is complete and only the casing is under test.
         val runs = MergeGateVerifier.parseWorkflowRuns(REQUIRED.joinToString("\n") { "$it|completed|success|$head" })
 
-        assertEquals(3, runs.size)
+        // The count follows the required set rather than a hard-coded three, so adding or removing an
+        // unconditional workflow does not make this casing test look like a parsing defect.
+        assertEquals(REQUIRED.size, runs.size)
         assertTrue(runs.all { it.status == "COMPLETED" && it.conclusion == "SUCCESS" })
         assertEquals(emptyList(), MergeGateVerifier.verify(greenEvidence(workflowRuns = runs)).map { it.rule })
     }
@@ -518,6 +520,182 @@ class MergeGateVerifierTest {
     }
 
     private companion object {
-        val REQUIRED = listOf("CI", "Architecture Authority", "Sovereign Runtime Release Candidate")
+        val REQUIRED = listOf("CI", "Architecture Authority")
+        const val RC_WORKFLOW = "Sovereign Runtime Release Candidate"
+        const val VALIDATE = "validate"
     }
+
+    /**
+     * The RC applicability filters, as the production gate reads them from the RC workflow. A representative
+     * subset: the entries that make a change RC-relevant, including the documentation path the RC workflow
+     * declares for release notes.
+     */
+    private val rcFilters =
+        listOf("build-logic/**", "tramai-security/**", "docs/releases/**", ".github/workflows/ci.yml")
+
+    /**
+     * Evidence for a pull request whose RC applicability is decided from its changed paths, with the RC
+     * workflow and its `validate` job configured exactly as the production gate configures them: the check and
+     * the run both conditional on the same filters.
+     */
+    private fun rcEvidence(
+        changedPaths: List<String>,
+        runs: List<WorkflowRun> = requiredRuns(head),
+        checks: List<MergeGateVerifier.Check> = List(12) { MergeGateVerifier.Check("some-check-$it", "SUCCESS") },
+        changedFilesTotal: Int = changedPaths.size,
+    ) = greenEvidence(workflowRuns = runs)
+        .copy(
+            checkStates = checks.map { it.state },
+            checkNames = checks.map { it.name },
+            conditionalChecks = mutation + (VALIDATE to rcFilters),
+            conditionalWorkflows = mapOf(RC_WORKFLOW to rcFilters),
+            changedPaths = changedPaths,
+            changedFilesTotal = changedFilesTotal,
+        )
+
+    private fun rcRun(
+        sha: String = head,
+        status: String = "COMPLETED",
+        conclusion: String? = "SUCCESS",
+    ) = WorkflowRun(RC_WORKFLOW, status, conclusion, sha)
+
+    // ── RC applicability ─────────────────────────────────────────────────────
+
+    @Test
+    fun `a documentation-only change does not require the RC workflow`() {
+        // The defect this pins: the RC workflow declares its own paths filter and GitHub legitimately skips
+        // it for a documentation-only pull request, so demanding its run refused correct work.
+        val violations =
+            MergeGateVerifier.verify(rcEvidence(listOf("docs/evidence/runtime-evidence-export-model.md")))
+
+        assertEquals(emptyList(), violations, MergeGateVerifier.render(head, violations))
+    }
+
+    @Test
+    fun `a change matching the RC filters requires the RC workflow`() {
+        val violations =
+            MergeGateVerifier.verify(
+                rcEvidence(listOf("build-logic/src/main/kotlin/dev/tramai/build/quality/MergeGateVerifier.kt")),
+            )
+
+        assertTrue("required-workflow-missing" in rules(violations), "rules: ${rules(violations)}")
+    }
+
+    @Test
+    fun `a change matching the RC filters requires the validate check`() {
+        val violations =
+            MergeGateVerifier.verify(
+                rcEvidence(
+                    changedPaths = listOf("tramai-security/src/main/kotlin/dev/tramai/security/Engine.kt"),
+                    runs = requiredRuns(head) + rcRun(),
+                ),
+            )
+
+        assertTrue("required-check-missing" in rules(violations), "rules: ${rules(violations)}")
+    }
+
+    @Test
+    fun `validate must have succeeded when the RC filters match`() {
+        // SKIPPED is not a failure, and it is not a success either: conditional applicability decides that
+        // the check is required, and a required check that did not succeed cannot authorise a merge.
+        val checks =
+            List(12) { MergeGateVerifier.Check("some-check-$it", "SUCCESS") } +
+                MergeGateVerifier.Check(VALIDATE, "SKIPPED")
+        val violations =
+            MergeGateVerifier.verify(
+                rcEvidence(listOf("docs/releases/0.7.0-release-readiness.md"), requiredRuns(head) + rcRun(), checks),
+            )
+
+        assertTrue("required-check-not-successful" in rules(violations), "rules: ${rules(violations)}")
+    }
+
+    @Test
+    fun `an RC run at another commit does not satisfy the RC requirement`() {
+        val violations =
+            MergeGateVerifier.verify(
+                rcEvidence(
+                    changedPaths = listOf("build-logic/build.gradle.kts"),
+                    runs = requiredRuns(head) + rcRun(sha = "deadbeef"),
+                ),
+            )
+
+        assertTrue("required-workflow-wrong-commit" in rules(violations), "rules: ${rules(violations)}")
+    }
+
+    @Test
+    fun `a pending RC run is refused when the RC filters match`() {
+        val violations =
+            MergeGateVerifier.verify(
+                rcEvidence(
+                    changedPaths = listOf(".github/workflows/ci.yml"),
+                    runs = requiredRuns(head) + rcRun(status = "IN_PROGRESS", conclusion = null),
+                ),
+            )
+
+        assertTrue("required-workflow-not-successful" in rules(violations), "rules: ${rules(violations)}")
+    }
+
+    @Test
+    fun `conditional workflows configured but changed paths unread is refused`() {
+        // Unread paths cannot tell an inapplicable workflow from a missing one, so the conditional workflow is
+        // demanded as well as refused: the run-level rule fails closed on its own evidence.
+        val violations = MergeGateVerifier.verify(rcEvidence(emptyList()))
+
+        assertTrue("changed-paths-unavailable" in rules(violations), "rules: ${rules(violations)}")
+        assertTrue("required-workflow-missing" in rules(violations), "rules: ${rules(violations)}")
+    }
+
+    @Test
+    fun `a truncated path list leaves conditional workflows demanded`() {
+        val truncated = List(100) { "tramai-engine/src/main/kotlin/dev/tramai/engine/File$it.kt" }
+        val violations = MergeGateVerifier.verify(rcEvidence(truncated, changedFilesTotal = 101))
+
+        assertTrue("changed-paths-incomplete" in rules(violations), "rules: ${rules(violations)}")
+        assertTrue("required-workflow-missing" in rules(violations), "rules: ${rules(violations)}")
+    }
+
+    // ── reading the filters from the workflow ────────────────────────────────
+
+    @Test
+    fun `the pull request path filters are read from the workflow itself`() {
+        // Read, not transcribed: a copy in the gate drifts the moment the workflow's paths: change, and the
+        // drift either demands a workflow that did not run or stops demanding one that should have.
+        val filters = pullRequestPathFilters(workflowFixture)
+
+        assertEquals(listOf("build-logic/**", "docs/releases/**", ".github/workflows/ci.yml"), filters)
+    }
+
+    @Test
+    fun `filters inside another trigger block are not mistaken for pull request filters`() {
+        val filters = pullRequestPathFilters(workflowFixture)
+
+        assertTrue("tramai-engine/**" !in filters, "a push: filter is not a pull_request: filter: $filters")
+    }
+
+    @Test
+    fun `workflow text without pull request paths falls back to matching every path`() {
+        // Fail closed: no parsable filter must not mean "applies to nothing", which would silently drop a
+        // requirement this gate exists to enforce.
+        val filters = pullRequestPathFilters("name: X\non:\n  workflow_dispatch:\n")
+
+        assertEquals(listOf(MATCHES_EVERY_PATH), filters)
+    }
+
+    private val workflowFixture =
+        """
+        name: Example
+        on:
+          push:
+            paths:
+              - "tramai-engine/**"
+          pull_request:
+            # a comment between the key and its sequence
+            paths:
+              - "build-logic/**"
+              - "docs/releases/**"
+              - ".github/workflows/ci.yml"
+        jobs:
+          validate:
+            runs-on: ubuntu-latest
+        """.trimIndent()
 }
