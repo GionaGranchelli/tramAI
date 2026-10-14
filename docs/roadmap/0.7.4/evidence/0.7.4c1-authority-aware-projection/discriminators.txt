@@ -45,7 +45,7 @@ gradle_exit=0
   tests=15 failures=0 errors=0
 C1 DISCRIMINATION-2 DONE
 
-=== PASS 3 (final head, after clearing detekt/format findings): both killed, restorations byte-identical ===
+=== PASS 3 (after clearing detekt/format findings): both killed, restorations byte-identical ===
 final-state sha256 CLS=1a95e81f69a35dbaeb58cb70921fbae0dee5ca1e2d2696113a3406993740dd8d PROJ=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc
 ########## CONTROL at final state ##########
   gradle_exit=0
@@ -80,3 +80,49 @@ final-state sha256 CLS=1a95e81f69a35dbaeb58cb70921fbae0dee5ca1e2d2696113a3406993
   gradle_exit=0
   tests=20 failures=0 errors=0
 C1 FINAL DISCRIMINATION DONE
+
+=== PASS 4 (head under review 6dc1a003: 23 discriminators, after the three review corrections) ===
+### discrimination re-run at this head
+A applied
+B applied
+final-state sha256 CLS=8aa1b5ccb43940294562dfdd3a3c34ecbe6ca82ece956a8465d10cb45050cdcc PROJ=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc
+########## CONTROL at final state ##########
+  gradle_exit=0
+  tests=23 failures=0 errors=0
+########## MUTATION A at final state: recorded decisions -> AUTHORITATIVE_PERSISTED ##########
+  gradle_exit=1
+  tests=23 failures=9 errors=0
+  FAILED: freshness is not invented when the source reports no watermark()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: reading the projection changes no authoritative state and invokes no effect()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an older record cannot overwrite the newer position()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a historical decision is never restated at the current registration version()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a duplicated source event does not duplicate the projected fact()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a fold with a missing intermediate event does not claim completeness()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a registered boundary named by a record grants no verified-origin claim()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an ALLOW record is authorization evidence and the read surface cannot carry completion()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a wide gap between source positions is a gap, not a hang()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  restored CLS=8aa1b5ccb43940294562dfdd3a3c34ecbe6ca82ece956a8465d10cb45050cdcc pristine=8aa1b5ccb43940294562dfdd3a3c34ecbe6ca82ece956a8465d10cb45050cdcc
+########## MUTATION B at final state: CURRENT_AT_VERSION authority guard removed ##########
+  gradle_exit=1
+  tests=23 failures=1 errors=0
+  FAILED: a declared identity cannot be labelled current at the version it does not own()
+    org.opentest4j.AssertionFailedError: Expected an exception of class java.lang.IllegalArgumentException to be thrown, but was compl
+  restored PROJ=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc pristine=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc
+########## CONTROL after restoration ##########
+  gradle_exit=0
+  tests=23 failures=0 errors=0
+C1 FINAL DISCRIMINATION DONE
+C1 POST-REVIEW DONE
+
+Note: mutation verdicts in pass 4 were recorded at content hash CLS=8aa1b5cc / PROJ=d60fd973; the subsequent
+spotlessApply pass reflowed the added tests only (formatting, no semantic change) and the control run after it is
+recorded in /tmp/c1-sp4.log: spotlessCheck clean, module 84 tests, 0 failures.
