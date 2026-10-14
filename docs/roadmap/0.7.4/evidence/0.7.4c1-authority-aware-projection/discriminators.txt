@@ -1,0 +1,82 @@
+0.7.4c1 authority-aware projection — discriminator experiments (control / mutation / failure / restoration)
+Test: ./gradlew :tramai-control-plane:test --tests 'dev.tramai.controlplane.GovernanceProjectionTest'
+JDK 25; Gradle 9.0.0.
+
+=== PASS 1 (intermediate code state): mutation A killed, mutation B SURVIVED ===
+pristine sha256 CLS=22ee3b3bc3d0411decb3037ded288d8c94ede0a8b1a74dd5e0bd97fc679e4a37 PROJ=c02090e8cbd96803d2a3463b872a0da5f4826e166eb4774b4292b2585d29179a
+########## MUTATION A: recorded decisions upgraded to authoritative runtime state ##########
+gradle_exit=1
+  tests=15 failures=8 errors=0
+  FAILED: freshness is not invented when the source reports no watermark()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: reading the projection changes no authoritative state and invokes no effect()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an older record cannot overwrite the newer position()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a historical decision is never restated at the current registration version()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a duplicated source event does not duplicate the projected fact()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a fold with a missing intermediate event does not claim completeness()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a registered boundary named by a record grants no verified-origin claim()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an ALLOW record is authorization evidence and the read surface cannot carry completion()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+restored CLS sha256=22ee3b3bc3d0411decb3037ded288d8c94ede0a8b1a74dd5e0bd97fc679e4a37 (pristine=22ee3b3bc3d0411decb3037ded288d8c94ede0a8b1a74dd5e0bd97fc679e4a37)
+########## MUTATION B: the current-at-version guard removed ##########
+gradle_exit=0
+  tests=15 failures=0 errors=0
+restored PROJ sha256=c02090e8cbd96803d2a3463b872a0da5f4826e166eb4774b4292b2585d29179a (pristine=c02090e8cbd96803d2a3463b872a0da5f4826e166eb4774b4292b2585d29179a)
+########## CONTROL (restored) ##########
+gradle_exit=0
+  tests=15 failures=0 errors=0
+C1 DISCRIMINATION DONE
+
+=== PASS 2 (after adding the isolating discriminator): mutation B killed ===
+########## MUTATION B (repeat, with the added discriminator) ##########
+gradle_exit=1
+  tests=15 failures=1 errors=0
+  FAILED: a non-authoritative fact cannot be constructed as authoritative()
+    org.opentest4j.AssertionFailedError: Expected an exception of class java.lang.IllegalArgumentException to be thrown, but was completed succe
+restored PROJ sha256=c02090e8cbd96803d2a3463b872a0da5f4826e166eb4774b4292b2585d29179a (pristine=c02090e8cbd96803d2a3463b872a0da5f4826e166eb4774b4292b2585d29179a)
+########## CONTROL (restored) ##########
+gradle_exit=0
+  tests=15 failures=0 errors=0
+C1 DISCRIMINATION-2 DONE
+
+=== PASS 3 (final head, after clearing detekt/format findings): both killed, restorations byte-identical ===
+final-state sha256 CLS=1a95e81f69a35dbaeb58cb70921fbae0dee5ca1e2d2696113a3406993740dd8d PROJ=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc
+########## CONTROL at final state ##########
+  gradle_exit=0
+  tests=20 failures=0 errors=0
+########## MUTATION A at final state: recorded decisions -> AUTHORITATIVE_PERSISTED ##########
+  gradle_exit=1
+  tests=20 failures=8 errors=0
+  FAILED: freshness is not invented when the source reports no watermark()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: reading the projection changes no authoritative state and invokes no effect()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an older record cannot overwrite the newer position()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a historical decision is never restated at the current registration version()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a duplicated source event does not duplicate the projected fact()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a fold with a missing intermediate event does not claim completeness()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a registered boundary named by a record grants no verified-origin claim()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an ALLOW record is authorization evidence and the read surface cannot carry completion()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  restored CLS=1a95e81f69a35dbaeb58cb70921fbae0dee5ca1e2d2696113a3406993740dd8d pristine=1a95e81f69a35dbaeb58cb70921fbae0dee5ca1e2d2696113a3406993740dd8d
+########## MUTATION B at final state: CURRENT_AT_VERSION authority guard removed ##########
+  gradle_exit=1
+  tests=20 failures=1 errors=0
+  FAILED: a declared identity cannot be labelled current at the version it does not own()
+    org.opentest4j.AssertionFailedError: Expected an exception of class java.lang.IllegalArgumentException to be thrown, but was compl
+  restored PROJ=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc pristine=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc
+########## CONTROL after restoration ##########
+  gradle_exit=0
+  tests=20 failures=0 errors=0
+C1 FINAL DISCRIMINATION DONE
