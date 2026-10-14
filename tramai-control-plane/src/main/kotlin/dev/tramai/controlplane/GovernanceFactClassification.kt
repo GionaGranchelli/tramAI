@@ -7,6 +7,25 @@ package dev.tramai.controlplane
  * cannot declare its own record authoritative by supplying one.
  */
 internal object GovernanceFactClassification {
+    /**
+     * The freshness a read may claim, from the consistency the port reported and the watermark it
+     * can name.
+     *
+     * The table is here, in one place, because inverting it is a silent authority violation rather
+     * than a visible failure: an authoritative read labelled as lagging understates it, while a
+     * derived read labelled current claims an authority the source never had. A projection whose
+     * watermark cannot be named is neither: it reports freshness as unestablished.
+     */
+    fun freshnessFor(
+        consistency: QueryConsistency,
+        watermark: Long?,
+    ): FactFreshness =
+        when {
+            consistency == QueryConsistency.AUTHORITATIVE -> FactFreshness.CURRENT_AT_VERSION
+            watermark != null -> FactFreshness.EVENTUAL_KNOWN_LAG
+            else -> FactFreshness.STALE_OR_UNKNOWN
+        }
+
     fun authorityFor(kind: DecisionKind): FactAuthority =
         when (kind) {
             DecisionKind.POLICY_DECISION, DecisionKind.TOOL_PERMISSION -> FactAuthority.POLICY_AUTHORIZATION_RECORD

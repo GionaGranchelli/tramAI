@@ -41,7 +41,7 @@ internal class GovernanceProjectionReader(
         declaredRunIdentity: DeclaredRunIdentity?,
         workflowRunId: String?,
     ): GovernanceProjection {
-        val read = if (workflowRunId == null) null else facts.decisionsFor(workflowRunId)
+        val read = decisionRead(workflowRunId)
         val records = read?.records.orEmpty()
         val coverage = read?.assertedRange
         return GovernanceProjection(
@@ -50,6 +50,26 @@ internal class GovernanceProjectionReader(
             decisions = decisions(records, coverage),
             telemetry = telemetryFact(workflowRunId),
         )
+    }
+
+    /**
+     * The source's decision read, refused unless it is about the run that was asked for.
+     *
+     * A record carrying another run's identifier would otherwise be projected as this run's fact, so
+     * the mismatch is a source defect rather than a coverage gap. Dropping such records silently
+     * would be worse than refusing: the projection could then claim completeness over data it
+     * quietly discarded. Which run the read is about is not authentication — it is consistency
+     * between the request and what came back.
+     */
+    private suspend fun decisionRead(workflowRunId: String?): DecisionFactRead? {
+        if (workflowRunId == null) {
+            return null
+        }
+        val read = facts.decisionsFor(workflowRunId)
+        require(read.records.all { it.workflowRunId == workflowRunId }) {
+            "the decision source returned records for another run: refusing to project them"
+        }
+        return read
     }
 
     /**
@@ -74,16 +94,12 @@ internal class GovernanceProjectionReader(
                     ),
             )
         }
-        val projected = read.consistency == QueryConsistency.AUTHORITATIVE
+        val authoritative = read.consistency == QueryConsistency.AUTHORITATIVE
+        val watermark = if (authoritative) null else read.observedVersion.value
         return ProjectedFact(
             value = read.exposure,
             authority = FactAuthority.AUTHORITATIVE_PERSISTED,
-            freshness =
-                if (projected) {
-                    FactFreshness.EVENTUAL_KNOWN_LAG
-                } else {
-                    FactFreshness.CURRENT_AT_VERSION
-                },
+            freshness = GovernanceFactClassification.freshnessFor(read.consistency, watermark),
             established =
                 "the registration authority's state for this scope at version ${read.observedVersion.value}",
             mustNotInfer =
@@ -92,7 +108,7 @@ internal class GovernanceProjectionReader(
                     "registration is not evidence that a run executed or completed",
                 ),
             observedVersion = read.observedVersion,
-            watermark = if (projected) read.observedVersion.value else null,
+            watermark = watermark,
         )
     }
 

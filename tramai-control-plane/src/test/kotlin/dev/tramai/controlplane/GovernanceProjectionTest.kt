@@ -1,7 +1,10 @@
 package dev.tramai.controlplane
 
 import dev.tramai.controlplane.testing.WorkloadRegistrationFixtures
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
 import dev.tramai.core.identity.WorkloadMetadata
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -48,6 +51,29 @@ class GovernanceProjectionTest {
             telemetryReads++
             return telemetry
         }
+    }
+
+    /**
+     * A port that reports its read as [QueryConsistency.PROJECTION], so the reader's consistency to
+     * freshness mapping can be exercised on the derived path a real projection source will use.
+     */
+    private class ProjectedConsistencyPort(
+        private val delegate: WorkloadControlPlaneQueries,
+    ) : WorkloadControlPlaneQueries {
+        override suspend fun authoritative(
+            workloadId: WorkloadId,
+            environmentId: EnvironmentId,
+            deploymentId: DeploymentId,
+        ): ClassifiedRead? =
+            delegate
+                .authoritative(workloadId, environmentId, deploymentId)
+                ?.let { ClassifiedRead(it.exposure, QueryConsistency.PROJECTION, it.observedVersion) }
+
+        override suspend fun projection(
+            workloadId: WorkloadId,
+            environmentId: EnvironmentId,
+            deploymentId: DeploymentId,
+        ): ClassifiedRead? = delegate.projection(workloadId, environmentId, deploymentId)
     }
 
     private fun reader(
@@ -425,6 +451,59 @@ class GovernanceProjectionTest {
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.completeness).isEqualTo(Completeness.GAPS_PRESENT)
             assertThat(policy.latest.sourceVersion).isEqualTo(5_000_000_000L)
+        }
+
+    // ------------------------------------------------- review findings: freshness and attribution
+
+    @Test
+    fun `a live authoritative registration read is current at its own version`() =
+        runBlocking<Unit> {
+            val projection = reader(registeredAuthority()).read(identity, declared(), "run-1")
+
+            assertThat(projection.registration.authority).isEqualTo(FactAuthority.AUTHORITATIVE_PERSISTED)
+            assertThat(projection.registration.freshness).isEqualTo(FactFreshness.CURRENT_AT_VERSION)
+            assertThat(projection.registration.freshness).isNotEqualTo(FactFreshness.EVENTUAL_KNOWN_LAG)
+            assertThat(projection.registration.observedVersion?.value).isEqualTo(WorkloadStateVersion.INITIAL.value)
+            assertThat(projection.registration.watermark).isNull()
+        }
+
+    @Test
+    fun `a projected registration read is never labelled current`() =
+        runBlocking<Unit> {
+            val projection =
+                reader(ProjectedConsistencyPort(registeredAuthority())).read(identity, declared(), "run-1")
+
+            assertThat(projection.registration.freshness).isNotEqualTo(FactFreshness.CURRENT_AT_VERSION)
+            assertThat(projection.registration.freshness).isEqualTo(FactFreshness.EVENTUAL_KNOWN_LAG)
+            assertThat(projection.registration.watermark).isEqualTo(WorkloadStateVersion.INITIAL.value)
+        }
+
+    @Test
+    fun `a projection that cannot name its watermark is not claimed current`() {
+        assertThat(GovernanceFactClassification.freshnessFor(QueryConsistency.PROJECTION, null))
+            .isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
+        assertThat(GovernanceFactClassification.freshnessFor(QueryConsistency.AUTHORITATIVE, null))
+            .isEqualTo(FactFreshness.CURRENT_AT_VERSION)
+    }
+
+    @Test
+    fun `a decision record for another run is refused, not projected`() =
+        runBlocking<Unit> {
+            val foreign =
+                RecordedDecision(
+                    workflowRunId = "run-2",
+                    kind = DecisionKind.POLICY_DECISION,
+                    decision = "ALLOW",
+                    sourceSequence = 1,
+                )
+            val refusal =
+                assertFailsWith<IllegalArgumentException> {
+                    reader(
+                        registeredAuthority(),
+                        ScriptedFacts(decisions = listOf(foreign), assertedRange = 1L..1L),
+                    ).read(identity, declared(), "run-1")
+                }
+            assertThat(refusal.message).contains("another run")
         }
 
     // ------------------------------------------------- review findings: completeness and absence
