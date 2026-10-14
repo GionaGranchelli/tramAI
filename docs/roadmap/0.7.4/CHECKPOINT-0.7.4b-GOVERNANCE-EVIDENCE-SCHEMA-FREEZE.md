@@ -40,6 +40,15 @@ Source reads: `PolicyContext.kt`, `RuntimeEvidenceAttribution.kt` (full), `Runti
 `ToolPermissionRuntimeEvidenceExporter.kt`, `GovernedToolCallback.kt` (full), `IdentityValidation.kt`,
 `ProviderRoutingRuntimeEvidenceExporter.kt`, the export model and bundle map, the audit, the XR1 checkpoint.
 
+**How to read the test citations below.** A bare class name means the class exists once in the tree. Two simple
+names are **not** unique, so they are qualified where they appear: `ToolPermissionEvidenceAttributionTest` exists in
+both `examples/spring-ai-authority-boundary` (5 tests) and `tramai-security` (13 tests), and the class names in
+S7/S12/S16 (`GovernedIdentityCarriageTest`, `EvidenceIntegrityTest`, `GovernanceBoundaryTest`,
+`FrameworkDispatchTest`, `AdversarialDiscriminatorTest`) belong to the **example module**. Counts are the ones
+recorded in `evidence/0.7.4b-schema-freeze/verification.txt`, not estimates: every `n/n` and `(n tests)` claim in
+this record was re-checked against that file by a script after review, and one miscount was found and corrected
+there (`RuntimeEvidenceAttributionTest` was cited as 14 tests; it has 8).
+
 ## Contract matrix
 
 Status vocabulary: **VERIFIED** (reproduced at this SHA, command recorded) · **DECLARED** (contract statement, no
@@ -50,9 +59,9 @@ established; must not be read as solved).
 |---|---|---|---|
 | S1 | `runtime-evidence.v1` identity: schema version + event types + per-family source component | VERIFIED | `EXPECTED_SOURCE_COMPONENTS` pinning is enforced by the validator; 209 security evidence tests green |
 | S2 | Per-family metadata allowlist; unknown non-reserved keys filtered | VERIFIED | exporter tests + G1a correction (unknown-key filtering) |
-| S3 | Reserved **identity** keys are atomic: zero = legacy, partial = corruption, full requires non-blank `workflowRunId` | VERIFIED | `RuntimeEvidenceAttribution.validate:55-73`; `RuntimeEvidenceAttributionTest` (14 tests, green) |
+| S3 | Reserved **identity** keys are atomic: zero = legacy, partial = corruption, full requires non-blank `workflowRunId` | VERIFIED | `RuntimeEvidenceAttribution.validate:55-73`; `RuntimeEvidenceAttributionTest` (8 tests, green) |
 | S4 | Caller/event metadata cannot shadow identity (`merge` refuses non-identity attribution keys) | VERIFIED | `RuntimeEvidenceAttribution.merge:40-49`; `GovernanceDecisionEvidenceTest:350` asserts the refusal |
-| S5 | Identity participates in `digests.payloadDigest` (overlay strictly before the digest) | VERIFIED | `ToolPermissionRuntimeEvidenceExporter.kt:88` (merge + provenance before digest); `ToolPermissionEvidenceAttributionTest.evidence for two deployments of the same run does not share a payload digest` |
+| S5 | Identity participates in `digests.payloadDigest` (overlay strictly before the digest) | VERIFIED | `ToolPermissionRuntimeEvidenceExporter.kt:88` (merge + provenance before digest); `examples/spring-ai-authority-boundary` → `ToolPermissionEvidenceAttributionTest.evidence for two deployments of the same run does not share a payload digest` |
 | S6 | `workflowRunId` is the single canonical run identifier, deliberately not duplicated into metadata | VERIFIED | `RuntimeEvidenceAttribution.kt:23`, `GovernedToolCallback.contextFor`; carriage test `the evaluator receives the canonical governed identity` |
 | S7 | Identity is carried across the external boundary, both callback overloads, never re-minted | VERIFIED | `GovernedIdentityCarriageTest` 5/5 (both overloads carry the same identity; the boundary re-mints nothing it was given; denial still prevents execution) |
 | S8 | Reserved **boundary** keys: strength is framework-derived, never caller-asserted | VERIFIED | `RuntimeBoundaryProvenance.provenanceFor:115-125` refuses a caller-supplied `boundary.enforcementStrength`; `ToolPermissionBoundaryProvenanceTest` green |
