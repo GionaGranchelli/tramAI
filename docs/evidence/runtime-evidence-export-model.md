@@ -204,6 +204,16 @@ in `digests.payloadDigest`:
   strength its registration grants it. Strength is resolved from the framework-owned registration; a
   caller-supplied strength, or an unregistered identifier, is refused rather than accepted or downgraded.
 
+**Workload identity is declared, not authenticated.** The `identity.*` values are supplied by the producing
+integration and validated only for *syntax* (non-blank, no surrounding whitespace, bounded length, no control
+characters — no silent canonicalisation). They are **not** authenticated against the workload registration
+authority (`tramai-control-plane`), and no check ties them to a workload that is registered to produce this event.
+A record therefore attests the identity that was **declared** at the boundary; it does not attest that the
+declaring process was entitled to declare it. This is a known, unresolved limitation of `runtime-evidence.v1`,
+tracked as T1 in the 0.7.4a audit; authenticity of the workload origin is separate, unimplemented work. A reader
+must not treat a valid identity tuple as proof of workload origin, and must not infer origin from the absence of a
+mismatch — nothing checks for one.
+
 A declared boundary does **not** become a verified origin through this: **a producer-declared boundary identifier
 and its registered strength do not independently verify the event's origin**, and the strength is scoped to the
 declared enforcement point only — it says nothing about any other path by which the host application might reach
