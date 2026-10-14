@@ -148,6 +148,52 @@ Tool permission decisions are produced when the policy engine evaluates a tool a
 - `REDACT_RESULT` or `ALLOW_INTERNAL_ONLY` decisions (not valid for tool.permission)
 - Provider or model metadata
 
+#### What a `tool.permission` decision attests — and what it does not
+
+A `tool.permission` record is **evidence of an authorization decision at one enforcement point**. It is not
+evidence that the operation ran, completed, succeeded, or changed external state. Those are different facts, and
+the record carries only the first.
+
+**Decision semantics (normative).**
+
+| `decision.kind` | Attests | Does not attest |
+|-----------------|---------|-----------------|
+| `ALLOW` | The policy engine authorized the operation at the specified enforcement point. | Proof that execution started, completed or succeeded. |
+| `DENY` | The policy engine refused permission at the specified enforcement point. | Proof about every possible execution path outside the governed boundary. |
+| `REQUIRE_APPROVAL` | The policy engine required approval. | That approval was subsequently granted, or that execution resumed. |
+
+**Three facts, kept apart.**
+
+1. **Policy decision** — what the policy engine authorized or refused. This is the fact the record attests.
+2. **Enforcement contract** — what a particular governed boundary is designed and tested to prevent. It is a
+   property of that boundary and its tests, not of the record.
+3. **Execution completion** — whether the operation ran, and what it returned. This is a **separate fact that
+   `tool.permission` does not attest**, in either direction: a record's presence does not establish completion,
+   and the absence of any completion evidence is not evidence of success *or* of failure.
+
+**Why the decision is recorded before the effect.** A governed boundary records the authorization **before** it
+invokes the guarded action, deliberately: if the authorization audit write cannot be accepted, the action must not
+run at all (fail closed). One consequence is that an `ALLOW` record is produced both by an implementation whose
+action then succeeded and by one whose action threw or failed after authorization — the record itself does not
+distinguish those outcomes, and no reader may resolve the difference from it.
+
+**Reserved metadata (framework-owned).** Two reserved key groups may accompany the family allowlist above. Both
+are validated atomically — all keys of a group present, or none, which is legacy evidence — and both participate
+in `digests.payloadDigest`:
+
+- `identity.workloadId`, `identity.configurationId`, `identity.configurationVersion`, `identity.environmentId`,
+  `identity.deploymentId` — the governed run identity; `workflowRunId` remains the single canonical run
+  identifier and is deliberately not duplicated in metadata.
+- `boundary.id` and `boundary.enforcementStrength` — the enforcement boundary a producer **declares**, and the
+  strength its registration grants it. Strength is resolved from the framework-owned registration; a
+  caller-supplied strength, or an unregistered identifier, is refused rather than accepted or downgraded.
+
+A declared boundary does **not** become a verified origin through this: **a producer-declared boundary identifier
+and its registered strength do not independently verify the event's origin**, and the strength is scoped to the
+declared enforcement point only — it says nothing about any other path by which the host application might reach
+the same side effect. Verified event-origin attribution is separate, unimplemented work and is not established by
+this model.
+
 ---
 
 ## Evidence Bundle Placement
@@ -197,6 +243,8 @@ No sub-manifest is placed under `runtime-evidence/`. The root `manifest.json` at
 - The system is production-ready.
 - The evidence proves EU AI Act or any regulatory compliance.
 - The evidence chain replaces an audit.
+- An `ALLOW` record proves the operation executed, completed or succeeded — or, conversely, that the absence of a
+  completion record means the operation failed. `tool.permission` attests the authorization decision only.
 
 This matches the existing evidence-chain boundary documented in the [Sovereign Lab Evidence Chain](../../examples/sovereign-lab/EVIDENCE-CHAIN.md): the verifier checks manifests, paths, sizes, digests, and claim boundaries, but does **not** verify evidence truth, compliance, production readiness, security certification, or audit sufficiency.
 
@@ -222,6 +270,7 @@ These rules are not optional. A verifier that encounters raw sensitive data in a
 - Evidence records prove that a decision was recorded with a specific outcome. They do not prove the decision was correct, compliant, or sufficiently reviewed.
 - Bundle artifacts are local, reviewable evidence artifacts — they are not production deployments, compliance submissions, or certification materials.
 - The bundle verifier checks structural integrity and digest consistency. It does not verify correctness of recorded decisions.
+- An `ALLOW` record attests authorization, not execution completion: it does not establish that the operation ran, succeeded, or changed external state, and it does not let a reader infer either outcome from its absence.
 
 ---
 
