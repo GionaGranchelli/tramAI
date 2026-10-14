@@ -26,6 +26,12 @@ private fun matchesGlob(
     runCatching { FileSystems.getDefault().getPathMatcher("glob:$glob").matches(Paths.get(path)) }
         .getOrDefault(true)
 
+/** Does any of a workflow's declared filters match any changed path? */
+private fun matchesAny(
+    globs: List<String>,
+    paths: List<String>,
+): Boolean = globs.any { glob -> paths.any { path -> matchesGlob(glob, path) } }
+
 /**
  * The identities that apply to this pull request: the unconditional set, plus every conditional check whose
  * parent workflow's filters match a changed path. File-level rather than a member so the rule method stays
@@ -34,9 +40,33 @@ private fun matchesGlob(
 private fun applicableIdentities(evidence: MergeGateVerifier.Evidence): List<String> =
     evidence.requiredCheckIdentities +
         evidence.conditionalChecks
-            .filter { (_, globs) ->
-                globs.any { glob -> evidence.changedPaths.any { path -> matchesGlob(glob, path) } }
-            }.keys
+            .filter { (_, globs) -> matchesAny(globs, evidence.changedPaths) }
+            .keys
+
+/**
+ * The workflows that apply to this pull request: the unconditional set, plus every path-conditional workflow
+ * whose own filters match a changed path.
+ *
+ * Undecidable applicability is demanded rather than skipped. When the changed paths were not read, or were
+ * read only in part, this gate cannot tell "the workflow does not apply" from "the workflow is missing", and
+ * the matching refusal in [identityViolations] names the unread evidence. Demanding the workflow as well
+ * keeps the run-level rule fail-closed on its own rather than relying on a refusal raised elsewhere.
+ */
+private fun applicableWorkflows(evidence: MergeGateVerifier.Evidence): List<String> {
+    val conditional = evidence.conditionalWorkflows
+    if (conditional.isEmpty()) {
+        return evidence.requiredWorkflows
+    }
+    val decidable =
+        evidence.changedPaths.isNotEmpty() && evidence.changedFilesTotal == evidence.changedPaths.size
+    val applicable =
+        if (decidable) {
+            conditional.filter { (_, globs) -> matchesAny(globs, evidence.changedPaths) }.keys
+        } else {
+            conditional.keys
+        }
+    return evidence.requiredWorkflows + applicable
+}
 
 /**
  * The refusals for a rollup whose required identities have been decided: an inconsistent read, and every
@@ -189,6 +219,16 @@ object MergeGateVerifier {
          * one pull request, which is not the same as what must run on every pull request.
          */
         val conditionalChecks: Map<String, List<String>> = emptyMap(),
+        /**
+         * Required **workflows** that are required only when their own declared `paths:` filters match a
+         * changed path: workflow name to the filters that workflow itself declares.
+         *
+         * The run-level mirror of [conditionalChecks], and for the same reason. A workflow GitHub correctly
+         * skipped for a pull request it does not apply to must not be demanded — demanding it refuses
+         * unrelated work, which is the failure this gate exists to prevent — while a workflow whose filters
+         * do match must not be allowed to go missing.
+         */
+        val conditionalWorkflows: Map<String, List<String>> = emptyMap(),
         /** The pull request's changed paths, used to decide applicability. Empty means unread, not "none". */
         val changedPaths: List<String> = emptyList(),
         /**
@@ -302,9 +342,12 @@ object MergeGateVerifier {
     private fun identityViolations(evidence: Evidence): List<Violation> {
         val required = evidence.requiredCheckIdentities
         val conditional = evidence.conditionalChecks
+        // Applicability is decided from the changed paths, so any path-dependent requirement (a conditional
+        // check, or a conditional workflow whose run is judged by the same evidence) needs them read.
+        val pathDependent = conditional.size + evidence.conditionalWorkflows.size
         val violations = mutableListOf<Violation>()
         when {
-            required.isEmpty() && conditional.isEmpty() -> {
+            required.isEmpty() && pathDependent == 0 -> {
                 Unit
             }
 
@@ -319,11 +362,11 @@ object MergeGateVerifier {
 
             // Applicability is decided from the changed paths, so a gate that cannot read them cannot tell
             // an inapplicable workflow from a missing one. Refusing is the only honest option.
-            conditional.isNotEmpty() && evidence.changedPaths.isEmpty() -> {
+            pathDependent > 0 && evidence.changedPaths.isEmpty() -> {
                 violations +=
                     Violation(
                         "changed-paths-unavailable",
-                        "${conditional.size} conditional check(s) are configured but the pull request's " +
+                        "$pathDependent conditional requirement(s) are configured but the pull request's " +
                             "changed paths were not read; applicability cannot be decided, which is not a pass",
                     )
             }
@@ -331,7 +374,7 @@ object MergeGateVerifier {
             // A partial list is not a usable one: some evidence retrieved is not all evidence retrieved.
             // GitHub truncates long responses, so a list shorter than GitHub's own count must not be used to
             // conclude that a workflow is inapplicable.
-            conditional.isNotEmpty() && evidence.changedFilesTotal != evidence.changedPaths.size -> {
+            pathDependent > 0 && evidence.changedFilesTotal != evidence.changedPaths.size -> {
                 violations +=
                     Violation(
                         "changed-paths-incomplete",
@@ -364,7 +407,7 @@ object MergeGateVerifier {
             } else {
                 emptyList()
             }
-        return unavailable + evidence.requiredWorkflows.flatMap { required -> runViolations(evidence, required) }
+        return unavailable + applicableWorkflows(evidence).flatMap { required -> runViolations(evidence, required) }
     }
 
     /** The refusals for one required workflow, so the caller needs no `continue` and no shared mutable state. */

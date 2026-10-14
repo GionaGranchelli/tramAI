@@ -1,6 +1,7 @@
 package dev.tramai.build.release
 
 import dev.tramai.build.quality.MergeGateVerifier
+import dev.tramai.build.quality.pullRequestPathFilters
 import dev.tramai.build.quality.requiredIdentities
 import org.gradle.api.GradleException
 import org.gradle.api.Project
@@ -40,6 +41,9 @@ private const val CHANGED_FILES_JQ = ".changedFiles"
  * Every check a merge requires, as observed on a green rollup. Each entry is either a complete name or the
  * stable leading part of one, which tolerates both the matrix arguments that trail a name and the
  * 100-character truncation GitHub applies to the longest of them.
+ *
+ * `validate` is deliberately **not** here: it is the job of a path-filtered workflow, so it is required
+ * through [CONDITIONAL_CHECKS] where its applicability can be decided from the pull request's contents.
  */
 private val REQUIRED_CHECK_IDENTITIES =
     listOf(
@@ -60,8 +64,20 @@ private val REQUIRED_CHECK_IDENTITIES =
         "performance-policy-tests",
         "zero-egress",
         "GitGuardian Security Checks",
-        "validate",
     )
+
+/** The RC workflow, its job, and the file whose `paths:` filter decides whether both are required. */
+private const val RC_WORKFLOW_NAME = "Sovereign Runtime Release Candidate"
+
+private const val RC_WORKFLOW_CHECK = "validate"
+
+private const val RC_WORKFLOW_FILE = ".github/workflows/sovereign-runtime-release-candidate.yml"
+
+/**
+ * Workflows required on **every** pull request. The path-filtered ones are conditional instead: see
+ * [MergeGateVerifier.Evidence.conditionalWorkflows].
+ */
+private val REQUIRED_WORKFLOWS = listOf("CI", "Architecture Authority")
 
 /**
  * Checks required only when their producing workflow is **applicable**, with the path filters that workflow
@@ -71,6 +87,9 @@ private val REQUIRED_CHECK_IDENTITIES =
  * Why not unconditional: a green check list records what ran on one pull request, which is not the contract
  * for what must run on every pull request. Making a path-filtered workflow unconditionally required would
  * refuse unrelated work — the failure this gate exists to prevent.
+ *
+ * The RC workflow's entry is added at execution time from the filters that workflow itself declares, so the
+ * two cannot drift.
  */
 private val CONDITIONAL_CHECKS =
     mapOf(
@@ -94,7 +113,6 @@ private val CONDITIONAL_CHECKS =
 internal fun Project.registerVerifyMergeGate() {
     val expectedHeadProperty = (findProperty("expectedHead") as String?)?.trim().orEmpty()
     val prNumberProperty = (findProperty("prNumber") as String?)?.trim().orEmpty()
-    val requiredWorkflows = listOf("CI", "Architecture Authority", "Sovereign Runtime Release Candidate")
     // The complete set of check identities a merge requires, each matched as an exact name or its
     // "<identity>, ..." matrix form, and EVERY entry required. When the CI matrix changes, change this
     // list: the gate then refuses a rollup that omits an identity, which is the point — a silent job
@@ -134,6 +152,11 @@ internal fun Project.registerVerifyMergeGate() {
                 )
             }
             val checks = fetchChecks(prNumberProperty)
+            // The RC workflow's own path filters decide whether its run and its `validate` job are required
+            // for this pull request. Read from the workflow file, so the two cannot drift; a file that cannot
+            // be read yields a match-everything filter, which demands the run rather than silently dropping
+            // it — the fail-closed direction.
+            val rcFilters = pullRequestPathFilters(readWorkflowFile(RC_WORKFLOW_FILE))
             val evidence =
                 MergeGateVerifier.Evidence(
                     expectedHead = expectedHeadProperty,
@@ -141,11 +164,12 @@ internal fun Project.registerVerifyMergeGate() {
                     checkStates = checks.map { it.state },
                     checkNames = checks.map { it.name },
                     requiredCheckIdentities = requiredCheckIdentities,
-                    conditionalChecks = CONDITIONAL_CHECKS,
+                    conditionalChecks = CONDITIONAL_CHECKS + (RC_WORKFLOW_CHECK to rcFilters),
+                    conditionalWorkflows = mapOf(RC_WORKFLOW_NAME to rcFilters),
                     changedPaths = fetchChangedPaths(prNumberProperty),
                     changedFilesTotal = fetchChangedFilesTotal(prNumberProperty),
                     workflowRuns = fetchRuns(expectedHeadProperty),
-                    requiredWorkflows = requiredWorkflows,
+                    requiredWorkflows = REQUIRED_WORKFLOWS,
                 )
             val violations = MergeGateVerifier.verify(evidence)
             val rendered = MergeGateVerifier.render(expectedHeadProperty, violations)
@@ -157,6 +181,21 @@ internal fun Project.registerVerifyMergeGate() {
         }
     }
 }
+
+/**
+ * The text of a repository file an applicability rule comes from; empty when it cannot be read.
+ *
+ * Empty is not "no filters": [pullRequestPathFilters] turns it into a match-everything filter, so an
+ * unreadable workflow file keeps its requirement in force instead of silently dropping it.
+ */
+private fun Project.readWorkflowFile(relativePath: String): String =
+    runCatching { rootProject.file(relativePath).readText() }.getOrElse { failure ->
+        if (failure is CancellationException || failure is Error) {
+            throw failure
+        }
+        logger.warn("merge gate could not read $relativePath: ${failure.message}")
+        ""
+    }
 
 /** The head commit the API reports for the pull request, trimmed: `gh` appends a newline. */
 private fun Project.fetchHead(prNumber: String): String {
