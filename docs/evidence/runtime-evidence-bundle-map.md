@@ -97,7 +97,7 @@ Each line records a single human approval decision outcome from the approval dec
 
 Each line records a single provider route decision. The exported record includes the schema version, source component (`"provider-router"`), workflow/correlation identifiers, `sha256` digests, and safe metadata.
 
-**Producer status — no live production producer (G4, 0.7.4b6).** This file appears only when something supplies `ProviderRouteDecisionEvidenceSource` records to `ProviderRoutingRuntimeEvidenceExporter`; no production call site does that today. Records in tests, benchmarks and example bundles are synthetic or manually supplied. The file's presence proves the writer ran, not that routing was captured; **its absence does not establish that no routing, fallback or blocked decision occurred.** Semantics per decision kind: [Provider Routing Decisions](../runtime-evidence-export-model.md#c-provider-routing-decisions-exporter-implemented--no-live-production-producer).
+**Producer status — no live production producer (G4, 0.7.4b6).** This file appears only when something supplies `ProviderRouteDecisionEvidenceSource` records to `ProviderRoutingRuntimeEvidenceExporter`; no production call site does that today. Records in tests, benchmarks and example bundles are synthetic or manually supplied. The file's presence proves the writer ran, not that routing was captured; **its absence does not establish that no routing, fallback or blocked decision occurred.** Semantics per decision kind: [Provider Routing Decisions](runtime-evidence-export-model.md#c-provider-routing-decisions-exporter-implemented--no-live-production-producer).
 
 **Safe metadata examples:**
 - `requestedModelDigest`
