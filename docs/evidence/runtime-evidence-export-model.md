@@ -214,6 +214,12 @@ tracked as T1 in the 0.7.4a audit; authenticity of the workload origin is separa
 must not treat a valid identity tuple as proof of workload origin, and must not infer origin from the absence of a
 mismatch — nothing checks for one.
 
+**A v1 record's meaning is fixed by the schema version it declares.** If workload or event origin is authenticated in
+a later release, that work must not be read back into existing records: a `runtime-evidence.v1` record that carried no
+authenticity claim still carries none, and presenting a historical v1 record as origin-authenticated after the fact is
+a misreading rather than an upgrade. Changing what these records attest requires a new schema version. Frozen in
+`CHECKPOINT-0.7.4b-GOVERNANCE-EVIDENCE-SCHEMA-FREEZE.md` (disposition D1a).
+
 A declared boundary does **not** become a verified origin through this: **a producer-declared boundary identifier
 and its registered strength do not independently verify the event's origin**, and the strength is scoped to the
 declared enforcement point only — it says nothing about any other path by which the host application might reach

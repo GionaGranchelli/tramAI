@@ -1,12 +1,17 @@
 # CHECKPOINT 0.7.4b — Governance Evidence Schema Freeze (qualification)
 
-Status: **QUALIFIED — freeze recommended, conditional on disposition D1** (see [Verdict](#verdict)).
+Status: **QUALIFIED — FROZEN WITH EXPLICIT LIMITATIONS.** Disposition D1 is **ACCEPTED** by the repository owner;
+the freeze is approved for `runtime-evidence.v1` as verified below, with S18 and S19 remaining UNRESOLVED.
 Frozen artifact: `runtime-evidence.v1` **as implemented at `release/0.7.0` = `47b230b199b7c56e4a4e073cfaca6a01a31a22f5`**.
 Branch: `task/0.7.4-freeze-qualification`. Change class: `documentation` (contract statement + this record). No
 production code, schema, validator, digest, workflow or baseline is changed.
 
 This is a **qualification task with an outcome decided by evidence**, not a declaration prepared in advance. The
 verification below was executed against the pinned SHA; every claim carries its evidence class.
+
+**This freeze does not complete XR1, does not authenticate evidence origin, and does not establish a live
+`provider.route` producer.** It freezes the schema's *shape* at a known SHA together with the limitations that shape
+still carries. Nothing here may be cited as proof of any of the three.
 
 ## What is being frozen, and against what authority
 
@@ -96,13 +101,18 @@ rather than *hoped-for* channel) is satisfied. Sanctioned by the G1a task record
 
 ## Dispositions
 
-**D1 — workload identity is declared, not authenticated. REQUIRES OWNER ACCEPTANCE.**
-The contract now states that `identity.*` values are producer-supplied and syntax-validated only, are not
-authenticated against the workload registration authority, and that a record attests *declared* identity — not the
-declarer's entitlement to declare it. The schema is therefore freezable **without** claiming origin authenticity, and
-the limitation is explicit rather than implied. This disposition is a security-relevant acceptance: it is the one
-item that needs the owner's sign-off before the freeze is approved. If it is not accepted, the freeze does not
-proceed and T1 becomes a prerequisite instead.
+**D1 — workload identity is declared, not authenticated. ACCEPTED as an explicit schema limitation (owner decision).**
+The contract states that `identity.*` values are producer-supplied and syntax-validated only, are not authenticated
+against the workload registration authority, and that a record attests *declared* identity — not the declarer's
+entitlement to declare it. The owner accepted this as a limitation of the frozen schema, so the freeze proceeds
+**with** the limitation rather than by treating T1 as solved. T1 remains a **tracked security requirement: it must be
+resolved before anyone may claim authenticated workload provenance**, and it is not a property this freeze confers.
+
+**D1a — authentication work must not rewrite what a v1 record proves.** A `runtime-evidence.v1` record's meaning is
+fixed by the schema version it declares. If workload or event origin is authenticated in a later release, that work
+must not retroactively change what existing v1 records attest: a v1 record that carried no authenticity claim still
+carries none, and presenting a historical v1 record as origin-authenticated after the fact is a misreading, not an
+upgrade. Any change of that meaning requires a new schema version, not a re-interpretation of v1.
 
 **D2 — event origin is declared, not verified.** Already stated in the contract and pinned by a test that asserts the
 limitation (the test fails if the limitation is removed). Accepted as a limitation of `runtime-evidence.v1`.
@@ -112,19 +122,22 @@ completion or a returned response, and nothing in this freeze adds one.
 
 ## Verdict
 
-**QUALIFIED — freeze recommended for `runtime-evidence.v1` as implemented at `47b230b1`, conditional on D1.**
+**QUALIFIED — FROZEN WITH EXPLICIT LIMITATIONS.** `runtime-evidence.v1` as implemented at `47b230b1` is frozen, with
+D1 accepted and S18/S19 retained as UNRESOLVED.
 
 - **In the machinery: no blocking defect found.** Every schema property that can be verified was verified at this
   SHA with recorded commands; identity carriage, atomic attribution, digest participation, strength derivation,
   legacy compatibility and bundle behaviour all reproduce, and the XR1 prevention proofs are green on the real
   dispatch path.
-- **Blocking findings: none in the code.** The one outstanding item is **D1**, an explicit disposition for T1
-  (workload-identity authenticity). The freeze may be approved with D1 accepted as a stated limitation; it may not be
-  approved by treating T1 as solved.
-- **What the freeze must not be read as claiming:** that every evidence family has a live producer (`provider.route`
-  has none — S17); that identity or boundary provenance authenticates origin (S18, S19); that an `ALLOW` record
-  attests completion or success (S12); that `OBSERVED`/`INSTRUMENTED`/`IMPORTED` strengths are exercised (S11); or
-  that the XR1 checkpoint is complete (this checkpoint freezes the evidence schema, not the epic).
+- **S18 (workload authenticity) and S19 (event-origin authenticity) remain UNRESOLVED.** They are stated in the
+  contract as limitations and were **not** reclassified as VERIFIED. T1 stays open as a tracked security
+  requirement: necessary before claiming authenticated workload provenance.
+- **The freeze finalizes a shape, not an authority.** It may not be cited as completing XR1, as authenticating
+  evidence origin, or as establishing a live `provider.route` producer.
+- **What must not be read out of this freeze:** that every evidence family has a live producer (S17 UNSUPPORTED);
+  that identity or boundary provenance authenticates origin (S18, S19 UNRESOLVED); that an `ALLOW` record attests
+  completion or success (S12); that `OBSERVED`/`INSTRUMENTED`/`IMPORTED` strengths are exercised (S11); or that a
+  later authentication change reinterprets historical v1 records (D1a — it does not).
 
 ## Invocation artifacts
 
@@ -144,6 +157,9 @@ defect**; re-run sequentially and recorded as such. No gate, baseline or workflo
 
 ## Follow-ups (not part of this freeze)
 
-1. **T1 / D1** — workload-identity authentication against the registration authority, if D1 is not accepted.
+1. **T1 — workload identity authentication** against the registration authority. **Tracked security requirement**:
+   necessary before anyone may claim authenticated workload provenance. D1's acceptance means the freeze proceeds
+   *without* it, not that it is satisfied. Resolving it must not change what existing `runtime-evidence.v1` records
+   attest (D1a).
 2. **Event-origin attribution** — separate security requirement, unimplemented (S19).
 3. **Live `provider.route` producer** — `TASK-0.7.4b7-PROVIDER-ROUTE-LIVE-PRODUCER.md` (S17).
