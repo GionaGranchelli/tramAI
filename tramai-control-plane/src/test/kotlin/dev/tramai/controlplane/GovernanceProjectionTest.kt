@@ -374,6 +374,52 @@ class GovernanceProjectionTest {
             assertThat(facts.telemetryReads).isEqualTo(2)
         }
 
+    @Test
+    fun `a read with no declared identity reports the absence rather than an ungoverned run`() =
+        runBlocking<Unit> {
+            val projection = reader(registeredAuthority()).read(identity, null, "run-1")
+
+            assertThat(projection.declaredRunIdentity.value).isNull()
+            assertThat(projection.declaredRunIdentity.authority).isEqualTo(FactAuthority.NOT_PRODUCED)
+            assertThat(projection.declaredRunIdentity.freshness).isEqualTo(FactFreshness.ABSENT)
+            assertThat(projection.declaredRunIdentity.mustNotInfer)
+                .anyMatch { it.contains("not a negative governance fact") }
+        }
+
+    @Test
+    fun `a read with no run id claims no decision fact and no freshness`() =
+        runBlocking<Unit> {
+            val facts = ScriptedFacts(decisions = listOf(decision(DecisionKind.POLICY_DECISION)))
+            val projection = reader(registeredAuthority(), facts).read(identity, declared(), null)
+
+            assertThat(projection.decisions).allSatisfy { decision ->
+                assertThat(decision.latest.authority).isEqualTo(FactAuthority.NOT_PRODUCED)
+                assertThat(decision.latest.freshness).isEqualTo(FactFreshness.ABSENT)
+                assertThat(decision.completeness).isEqualTo(Completeness.UNKNOWN)
+            }
+            assertThat(projection.telemetry.freshness).isEqualTo(FactFreshness.ABSENT)
+            assertThat(projection.telemetry.mustNotInfer).isEmpty()
+            assertThat(facts.decisionReads).isZero()
+            assertThat(facts.telemetryReads).isZero()
+        }
+
+    @Test
+    fun `a wide gap between source positions is a gap, not a hang`() =
+        runBlocking<Unit> {
+            val records =
+                listOf(
+                    decision(DecisionKind.POLICY_DECISION, sequence = 1),
+                    decision(DecisionKind.POLICY_DECISION, sequence = 5_000_000_000L),
+                )
+            val projection =
+                reader(registeredAuthority(), ScriptedFacts(decisions = records))
+                    .read(identity, declared(), "run-1")
+
+            val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
+            assertThat(policy.completeness).isEqualTo(Completeness.GAPS_PRESENT)
+            assertThat(policy.latest.sourceVersion).isEqualTo(5_000_000_000L)
+        }
+
     // ---------------------------------------------------------------- the load-bearing discriminators
 
     @Test

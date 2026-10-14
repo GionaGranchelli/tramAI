@@ -54,11 +54,17 @@ internal object GovernanceFactClassification {
             "a telemetry report of a completed call is not completion evidence",
         )
 
-    /** Whether the source's own positions are contiguous, so completeness may be claimed. */
+    /**
+     * Whether the source's own positions are contiguous, so completeness may be claimed.
+     *
+     * Computed from the span of distinct positions rather than by enumerating a range: enumeration is
+     * O(max - min) and throws for a range wider than `Int.MAX_VALUE`, which a large gap between a
+     * first and last position would trigger on a governance read path.
+     */
     fun completenessOf(sequences: List<Long>): Completeness {
-        val distinct = sequences.toSet()
-        val contiguous = (sequences.min()..sequences.max()).count() == distinct.size
-        return if (contiguous) Completeness.COMPLETE else Completeness.GAPS_PRESENT
+        val positions = sequences.toSet()
+        val span = positions.max() - positions.min()
+        return if (span == (positions.size - 1).toLong()) Completeness.COMPLETE else Completeness.GAPS_PRESENT
     }
 
     /** The source positions when every record carries one, or null when the source has no basis. */
