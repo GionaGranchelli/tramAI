@@ -31,6 +31,7 @@ class GovernanceProjectionTest {
 
     private class ScriptedFacts(
         private val decisions: List<RecordedDecision> = emptyList(),
+        private val assertedRange: LongRange? = null,
         private val telemetry: List<TelemetryObservation> = emptyList(),
     ) : GovernanceDecisionFactSource {
         var decisionReads = 0
@@ -38,9 +39,9 @@ class GovernanceProjectionTest {
         var telemetryReads = 0
             private set
 
-        override suspend fun decisionsFor(workflowRunId: String): List<RecordedDecision> {
+        override suspend fun decisionsFor(workflowRunId: String): DecisionFactRead {
             decisionReads++
-            return decisions
+            return DecisionFactRead(decisions, assertedRange)
         }
 
         override suspend fun telemetryFor(workflowRunId: String): List<TelemetryObservation> {
@@ -131,8 +132,7 @@ class GovernanceProjectionTest {
 
             val fact = projection.decisions.single { it.kind == DecisionKind.TOOL_PERMISSION }.latest
             assertThat(fact.value?.decision).isEqualTo("ALLOW")
-            assertThat(fact.mustNotInfer)
-                .anyMatch { it.contains("never that the operation ran, succeeded or changed state") }
+            assertThat(fact.mustNotInfer).contains(GovernanceFactClassification.AUTHORIZATION_LIMIT)
             val completionish = Regex("(?i)complet|result|success|output|payload|arguments|content")
             assertThat(RecordedDecision::class.java.declaredFields.map { it.name })
                 .noneMatch { completionish.containsMatchIn(it) }
@@ -177,7 +177,7 @@ class GovernanceProjectionTest {
         runBlocking<Unit> {
             val record = decision(DecisionKind.POLICY_DECISION)
             val projection =
-                reader(registeredAuthority(), ScriptedFacts(decisions = listOf(record, record)))
+                reader(registeredAuthority(), ScriptedFacts(decisions = listOf(record, record), assertedRange = 1L..1L))
                     .read(identity, declared(), "run-1")
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
@@ -210,11 +210,12 @@ class GovernanceProjectionTest {
                     decision(DecisionKind.POLICY_DECISION, sequence = 3),
                 )
             val projection =
-                reader(registeredAuthority(), ScriptedFacts(decisions = records))
+                reader(registeredAuthority(), ScriptedFacts(decisions = records, assertedRange = 1L..3L))
                     .read(identity, declared(), "run-1")
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.completeness).isEqualTo(Completeness.GAPS_PRESENT)
+            assertThat(policy.coverage).isEqualTo(1L..3L)
             assertThat(policy.latest.sourceVersion).isEqualTo(3)
         }
 
@@ -285,7 +286,7 @@ class GovernanceProjectionTest {
                 GovernanceProjection::class.java to
                     setOf("registration", "declaredRunIdentity", "decisions", "telemetry"),
                 DecisionProjection::class.java to
-                    setOf("kind", "latest", "completeness", "duplicatesIgnored", "staleIgnored"),
+                    setOf("kind", "latest", "completeness", "duplicatesIgnored", "staleIgnored", "coverage"),
                 ProjectedFact::class.java to
                     setOf(
                         "value",
@@ -393,7 +394,13 @@ class GovernanceProjectionTest {
             val projection = reader(registeredAuthority(), facts).read(identity, declared(), null)
 
             assertThat(projection.decisions).allSatisfy { decision ->
-                assertThat(decision.latest.authority).isEqualTo(FactAuthority.NOT_PRODUCED)
+                val expected =
+                    if (decision.kind == DecisionKind.PROVIDER_ROUTE) {
+                        FactAuthority.NOT_PRODUCED
+                    } else {
+                        FactAuthority.NOT_OBSERVED
+                    }
+                assertThat(decision.latest.authority).isEqualTo(expected)
                 assertThat(decision.latest.freshness).isEqualTo(FactFreshness.ABSENT)
                 assertThat(decision.completeness).isEqualTo(Completeness.UNKNOWN)
             }
@@ -412,12 +419,91 @@ class GovernanceProjectionTest {
                     decision(DecisionKind.POLICY_DECISION, sequence = 5_000_000_000L),
                 )
             val projection =
-                reader(registeredAuthority(), ScriptedFacts(decisions = records))
+                reader(registeredAuthority(), ScriptedFacts(decisions = records, assertedRange = 1L..5_000_000_000L))
                     .read(identity, declared(), "run-1")
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.completeness).isEqualTo(Completeness.GAPS_PRESENT)
             assertThat(policy.latest.sourceVersion).isEqualTo(5_000_000_000L)
+        }
+
+    // ------------------------------------------------- review findings: completeness and absence
+
+    @Test
+    fun `a single observed position is not completeness without an attested source range`() =
+        runBlocking<Unit> {
+            val records = listOf(decision(DecisionKind.POLICY_DECISION, sequence = 100))
+            val projection =
+                reader(registeredAuthority(), ScriptedFacts(decisions = records))
+                    .read(identity, declared(), "run-1")
+
+            val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
+            assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
+            assertThat(policy.coverage).isNull()
+            assertThat(policy.latest.value).isNotNull()
+        }
+
+    @Test
+    fun `completeness is a stream property, so another family position is not a gap`() =
+        runBlocking<Unit> {
+            val records =
+                listOf(
+                    decision(DecisionKind.POLICY_DECISION, sequence = 1),
+                    decision(DecisionKind.TOOL_PERMISSION, sequence = 2),
+                    decision(DecisionKind.POLICY_DECISION, value = "DENY", sequence = 3),
+                )
+            val projection =
+                reader(registeredAuthority(), ScriptedFacts(decisions = records, assertedRange = 1L..3L))
+                    .read(identity, declared(), "run-1")
+
+            val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
+            val tool = projection.decisions.single { it.kind == DecisionKind.TOOL_PERMISSION }
+            assertThat(policy.completeness).isEqualTo(Completeness.COMPLETE)
+            assertThat(tool.completeness).isEqualTo(Completeness.COMPLETE)
+            assertThat(policy.coverage).isEqualTo(1L..3L)
+        }
+
+    @Test
+    fun `completeness cannot be claimed without the attested range it rests on`() {
+        assertFailsWith<IllegalArgumentException> {
+            DecisionProjection(
+                kind = DecisionKind.POLICY_DECISION,
+                latest =
+                    ProjectedFact(
+                        value = decision(DecisionKind.POLICY_DECISION),
+                        authority = FactAuthority.POLICY_AUTHORIZATION_RECORD,
+                        freshness = FactFreshness.HISTORICAL,
+                        established = "a fact whose completeness rests on nothing",
+                        mustNotInfer = listOf("authorization is not completion"),
+                        sourceVersion = 1,
+                    ),
+                completeness = Completeness.COMPLETE,
+                coverage = null,
+            )
+        }
+    }
+
+    @Test
+    fun `an empty read is not evidence that nothing was produced`() =
+        runBlocking<Unit> {
+            val projection =
+                reader(registeredAuthority(), ScriptedFacts(decisions = emptyList(), assertedRange = 1L..4L))
+                    .read(identity, declared(), "run-1")
+
+            val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
+            val routing = projection.decisions.single { it.kind == DecisionKind.PROVIDER_ROUTE }
+
+            // The read covered positions 1..4 and observed no policy decision: a gap in the read,
+            // graded as such rather than as proof that no decision was ever produced.
+            assertThat(policy.latest.authority).isEqualTo(FactAuthority.NOT_OBSERVED)
+            assertThat(policy.latest.mustNotInfer)
+                .anyMatch { it.contains("empty read does not establish that no decision was produced") }
+            // An empty read over an attested range is self-inconsistent, so the projection claims
+            // neither completeness nor a specific hole: it refuses the claim instead.
+            assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
+
+            // Only a family whose missing producer is itself established may be NOT_PRODUCED.
+            assertThat(routing.latest.authority).isEqualTo(FactAuthority.NOT_PRODUCED)
         }
 
     // ---------------------------------------------------------------- the load-bearing discriminators

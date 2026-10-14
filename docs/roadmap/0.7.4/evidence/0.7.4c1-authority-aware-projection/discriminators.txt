@@ -126,3 +126,47 @@ C1 POST-REVIEW DONE
 Note: mutation verdicts in pass 4 were recorded at content hash CLS=8aa1b5cc / PROJ=d60fd973; the subsequent
 spotlessApply pass reflowed the added tests only (formatting, no semantic change) and the control run after it is
 recorded in /tmp/c1-sp4.log: spotlessCheck clean, module 84 tests, 0 failures.
+
+=== PASS 5 (after the owner's review findings: contract changed, forced recompiles) ===
+Mutation C (COMPLETE => coverage guard removed) and mutation D (Finding A's defect reintroduced:
+an unattested contiguous window certifies itself) were each run against a fully recompiled build,
+with a control before and after each. Both verdicts are KILLED with verified application, a matched
+control, and the mechanism recorded.
+
+Tooling corrections recorded with the experiment: mutation D's first attempt was INVALID (its
+fallback was inserted after an earlier guard, so the mutated branch never executed) and one control
+reported a stale result because Gradle reused an incremental-compilation artifact for the restored
+source. Both are recorded rather than counted as contract evidence; --rerun-tasks was used for every
+verdict in this pass.
+
+pristine CLS=84fbc1efa3c321eb45edbd66edd94ee631f0bd72c781742413b8aff39766f014 PROJ=5db2b988622c172477226e6448d6f82ac7e4a2eaaf1a192464ca463ffef2a9f5
+########## CONTROL (forced recompile) ##########
+  gradle_exit=0
+  tests=27 failures=0 errors=0
+########## MUTATION C: completeness claimable without the attested range ##########
+  gradle_exit=1
+  tests=27 failures=1 errors=0
+  FAILED: completeness cannot be claimed without the attested range it rests on()
+      org.opentest4j.AssertionFailedError: Expected an exception of class java.lang.IllegalArgumentException to be thrown, but was completed succe
+  restored PROJ=5db2b988622c172477226e6448d6f82ac7e4a2eaaf1a192464ca463ffef2a9f5 pristine=5db2b988622c172477226e6448d6f82ac7e4a2eaaf1a192464ca463ffef2a9f5
+########## CONTROL after C ##########
+  gradle_exit=0
+  tests=27 failures=0 errors=0
+########## MUTATION D: an unattested contiguous window certifies itself ##########
+  gradle_exit=1
+  tests=27 failures=5 errors=0
+  FAILED: a single observed position is not completeness without an attested source range()
+      java.lang.IllegalArgumentException: completeness cannot be claimed without the source-attested range it rests on
+  FAILED: reading the projection changes no authoritative state and invokes no effect()
+      java.lang.IllegalArgumentException: completeness cannot be claimed without the source-attested range it rests on
+  FAILED: a historical decision is never restated at the current registration version()
+      java.lang.IllegalArgumentException: completeness cannot be claimed without the source-attested range it rests on
+  FAILED: a registered boundary named by a record grants no verified-origin claim()
+      java.lang.IllegalArgumentException: completeness cannot be claimed without the source-attested range it rests on
+  FAILED: an ALLOW record is authorization evidence and the read surface cannot carry completion()
+      java.lang.IllegalArgumentException: completeness cannot be claimed without the source-attested range it rests on
+  restored CLS=84fbc1efa3c321eb45edbd66edd94ee631f0bd72c781742413b8aff39766f014 pristine=84fbc1efa3c321eb45edbd66edd94ee631f0bd72c781742413b8aff39766f014
+########## CONTROL after D ##########
+  gradle_exit=0
+  tests=27 failures=0 errors=0
+C1 FINDINGS BATTERY DONE

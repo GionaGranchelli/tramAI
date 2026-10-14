@@ -4,100 +4,90 @@ package dev.tramai.controlplane
  * 0.7.4c1 — authority-aware governance projection: the read contract.
  *
  * A projection may report what an authoritative source established. It may never manufacture
- * authority that the source did not establish. These types make that rule structural rather than
- * editorial: [ProjectedFact] refuses to exist in a shape whose freshness or absence claim exceeds
- * its source authority, and [GovernanceProjection] refuses to hold a decision fact under an
- * authority its producer never had.
+ * authority that the source did not establish. That rule is enforced by the constructors below
+ * rather than by review: a fact cannot be built in a shape whose freshness, completeness or absence
+ * claim exceeds what its source authority can support.
  *
- * Reuse, not a second model: temporal classification stays [QueryConsistency] where it already
- * exists, and [FactFreshness] refines it (see [FactFreshness.from]); no parallel consistency type
- * is introduced and [WorkloadControlPlaneQueries] is unchanged. There is deliberately no generic
- * provenance ontology, no metadata map and no extension mechanism here: every field is a named,
- * typed statement with a known meaning.
- *
- * The frozen `runtime-evidence.v1` limitations (0.7.4b) are carried by these types:
- * identity is `declared`, never authenticated; a registered `boundary.id` carries its registered
- * strength and never proves origin; a recorded `tool.permission` ALLOW establishes authorization,
- * never execution; and absent `provider.route` facts mean "not produced", never "no routing".
+ * The frozen `runtime-evidence.v1` limitations travel with the facts: declared identity stays
+ * declared (T1), a registered boundary's strength never proves origin (G2), an authorization record
+ * is never completion (G3), and a family with no producer is never reported as absent-on-observation
+ * (G4).
  */
 internal enum class FactAuthority {
-    /** A persisted fact read from the store that owns it. */
+    /** Read from the store that owns the fact. */
     AUTHORITATIVE_PERSISTED,
 
-    /** A recorded policy decision. It attests authorization at a boundary, never completion. */
+    /** A recorded policy decision: attestation of authorization, never of execution. */
     POLICY_AUTHORIZATION_RECORD,
 
-    /** Identity or boundary a producer declared. Syntax and digests do not authenticate its origin. */
+    /** Declared by a producer: identity or boundary, with origin unverified. */
     PRODUCER_DECLARED,
 
-    /** A non-authoritative observation. It never establishes a governance fact. */
+    /** A non-authoritative observation. Cannot establish a governance fact. */
     TELEMETRY,
 
-    /** No producer or reader exists for this category. Absence here is not a negative fact. */
+    /**
+     * The source was read and returned nothing for this fact.
+     *
+     * An empty read is evidence about the read, not about the world: it does not establish that the
+     * fact was never produced. Emission may be optional, and the reader's coverage may be partial.
+     */
+    NOT_OBSERVED,
+
+    /**
+     * The fact family has no producer at all, so no read can cover it.
+     *
+     * Reserved for families where absence of a producer is itself established (for example
+     * `provider.route`, which has no live production producer in this repository). Distinct from
+     * [NOT_OBSERVED] precisely so that an empty query cannot be read as "no producer exists".
+     */
     NOT_PRODUCED,
 }
 
-/**
- * How a projected fact relates to time. Refines [QueryConsistency] rather than replacing it:
- * `AUTHORITATIVE` maps to [CURRENT_AT_VERSION] and `PROJECTION` to [EVENTUAL_KNOWN_LAG] when the
- * source reports a watermark, and to [STALE_OR_UNKNOWN] when it does not — an unknown lag is
- * reported as unknown, never as zero.
- */
+/** What the projection may claim about when a fact held. */
 internal enum class FactFreshness {
-    /** Current according to the owning authority, at a known version. */
+    /** Current per the authority that owns it, at [ProjectedFact.observedVersion]. */
     CURRENT_AT_VERSION,
 
-    /** A known past point, identified by a source version or watermark. */
+    /** A recorded point in the past, identified by a source position. */
     HISTORICAL,
 
     /** Derived state with a known watermark. */
     EVENTUAL_KNOWN_LAG,
 
-    /** Freshness is not established, or is known to be stale. */
+    /** Freshness is not established, or not established as current. */
     STALE_OR_UNKNOWN,
 
-    /** No fact exists to be fresh or stale. */
+    /** No fact. */
     ABSENT,
-    ;
-
-    companion object {
-        /** Maps the established read classification to a freshness, 0.7.1e -> 0.7.4c1. */
-        fun from(
-            consistency: QueryConsistency,
-            watermark: Long?,
-        ): FactFreshness =
-            when {
-                consistency == QueryConsistency.AUTHORITATIVE -> CURRENT_AT_VERSION
-                watermark != null -> EVENTUAL_KNOWN_LAG
-                else -> STALE_OR_UNKNOWN
-            }
-    }
 }
 
-/** A governance fact category this projection understands. */
+/** The decision families the projection can report. */
 internal enum class DecisionKind {
     POLICY_DECISION,
     TOOL_PERMISSION,
+
+    /** Source-declared at best: no engine producer exists for this family. */
     PROVIDER_ROUTE,
 }
 
-/** Whether a fold over source records knows it saw every contributing record. */
+/**
+ * Whether the projection may claim the read covered everything it reports.
+ *
+ * [COMPLETE] is claimable only against a source-attested range: a contiguous window of observed
+ * positions proves nothing on its own, because positions before, after or between the window may
+ * exist unobserved.
+ */
 internal enum class Completeness {
-    /** Contiguous source positions from the source's own basis: the source reports none missing. */
     COMPLETE,
-
-    /** The source's positions show a gap. A partial projection must not claim completeness. */
     GAPS_PRESENT,
-
-    /** The source reports no ordering basis at all, so completeness cannot be claimed. */
     UNKNOWN,
 }
 
 /**
- * The identity a producer declared for a run: the frozen `identity.*` tuple plus the canonical run id.
+ * The identity a producer declared for a run, as supplied to the read.
  *
- * Declaring this tuple is not authentication. A syntactically valid, digest-bound tuple is still
- * only declared: nothing ties it to a registered workload (T1, open).
+ * Not authenticated: a complete and syntactically valid tuple does not establish workload origin.
  */
 internal data class DeclaredRunIdentity(
     val workloadId: String,
@@ -108,23 +98,18 @@ internal data class DeclaredRunIdentity(
     val workflowRunId: String,
 )
 
-/**
- * The enforcement boundary a record names, with the strength its registration grants it.
- *
- * [registeredStrength] is the framework-derived strength for a declared identifier. It is not
- * evidence that this event originated at that boundary (`RuntimeBoundaryProvenance`, G2).
- */
+/** A boundary named by a producer, with the enforcement strength registered for it. */
 internal data class DeclaredBoundary(
     val id: String,
     val registeredStrength: String?,
 )
 
 /**
- * A decision record as a read source supplies it.
+ * A recorded decision, as a source supplied it.
  *
- * There is deliberately no completion, result, payload or provider-traffic field: a read surface
- * must not be able to carry a sensitive payload, and a decision record cannot attest that the
- * operation ran, succeeded, or changed external state.
+ * Deliberately narrow: no prompt, provider or model name, credential, tool argument or result
+ * payload has a field here, so none can reach a generic read surface. The absent fields are the
+ * point — this type is what an authorization record looks like at a read boundary.
  */
 internal data class RecordedDecision(
     val workflowRunId: String,
@@ -135,19 +120,30 @@ internal data class RecordedDecision(
     val sourceSequence: Long? = null,
 )
 
-/** A non-authoritative observation from telemetry. Held apart from [RecordedDecision] on purpose. */
+/** A non-authoritative observation. Never a governance fact. */
 internal data class TelemetryObservation(
     val name: String,
     val sourceSequence: Long? = null,
 )
 
 /**
- * A fact together with its authority, its temporal standing, and its claim boundary.
+ * What a source read returned, together with what the source says the read covered.
  *
- * The `init` block is the enforcement point for the whole contract: a fact whose freshness exceeds
- * its authority, that claims a current version without one, that reports a known lag without a
- * watermark, or that is declared or recorded without stating what may not be inferred, cannot be
- * constructed.
+ * [assertedRange] is the stream positions the source attests it read. Without it the projection can
+ * report observed positions but may not claim completeness.
+ */
+internal data class DecisionFactRead(
+    val records: List<RecordedDecision>,
+    val assertedRange: LongRange? = null,
+)
+
+/**
+ * One projected fact: the value, the authority behind it, and what may not be inferred from it.
+ *
+ * Construction is the guard. The invariants are the deliverable: a caller cannot label a declared
+ * identity as current at an authority's version, cannot carry a freshness claim without the version
+ * that pins it, cannot claim a known lag without a watermark, cannot dress absence as a record, and
+ * cannot state a declared or recorded fact without stating its limit.
  */
 internal data class ProjectedFact<out T>(
     val value: T?,
@@ -160,71 +156,73 @@ internal data class ProjectedFact<out T>(
     val watermark: Long? = null,
 ) {
     init {
+        require(established.isNotBlank()) { "a projected fact must state what was established" }
         require(value == null == (freshness == FactFreshness.ABSENT)) {
-            "a fact exists exactly when its freshness is not ABSENT"
+            "absence is exactly the case where no value is reported"
         }
-        require(freshness != FactFreshness.ABSENT || authority in ABSENT_AUTHORITIES) {
-            "only NOT_PRODUCED or the owning authority may report absence"
+        require(
+            freshness != FactFreshness.ABSENT ||
+                authority == FactAuthority.NOT_PRODUCED ||
+                authority == FactAuthority.NOT_OBSERVED ||
+                authority == FactAuthority.AUTHORITATIVE_PERSISTED,
+        ) {
+            "absence may be reported as no-producer, unobserved, or as the owning authority's answer"
         }
         require(authority != FactAuthority.NOT_PRODUCED || freshness == FactFreshness.ABSENT) {
-            "a category with no producer cannot carry a fresh fact"
+            "a family with no producer cannot carry a freshness claim"
         }
-        require(freshness != FactFreshness.CURRENT_AT_VERSION || authority == FactAuthority.AUTHORITATIVE_PERSISTED) {
-            "current-at-version is reserved for a fact its owning authority established"
+        require(authority != FactAuthority.NOT_OBSERVED || freshness == FactFreshness.ABSENT) {
+            "an unobserved fact cannot carry a freshness claim"
         }
-        require(freshness != FactFreshness.CURRENT_AT_VERSION || observedVersion != null) {
-            "a current fact must name the version it is current at"
+        require(
+            freshness != FactFreshness.CURRENT_AT_VERSION ||
+                (authority == FactAuthority.AUTHORITATIVE_PERSISTED && observedVersion != null),
+        ) {
+            "only the owning authority's state is current, and it must name the version"
         }
-        require(freshness != FactFreshness.HISTORICAL || observedVersion != null || sourceVersion != null) {
+        require(freshness != FactFreshness.HISTORICAL || (observedVersion != null || sourceVersion != null)) {
             "a historical fact must identify the point it reflects"
         }
         require(freshness != FactFreshness.EVENTUAL_KNOWN_LAG || watermark != null) {
-            "an eventually consistent fact must carry its watermark; unknown lag is not zero"
+            "a lag claim requires a watermark; unknown lag is not zero lag"
         }
-        require(authority !in LIMIT_STATING_AUTHORITIES || mustNotInfer.isNotEmpty()) {
+        require(!DECLARED_AUTHORITIES.contains(authority) || mustNotInfer.isNotEmpty()) {
             "a declared or recorded fact must state what may not be inferred from it"
         }
-        require(established.isNotBlank()) { "a fact must state what its source established" }
     }
 
-    internal companion object {
-        private val ABSENT_AUTHORITIES = setOf(FactAuthority.NOT_PRODUCED, FactAuthority.AUTHORITATIVE_PERSISTED)
-        private val LIMIT_STATING_AUTHORITIES =
-            setOf(FactAuthority.PRODUCER_DECLARED, FactAuthority.POLICY_AUTHORIZATION_RECORD)
+    private companion object {
+        val DECLARED_AUTHORITIES = setOf(FactAuthority.PRODUCER_DECLARED, FactAuthority.POLICY_AUTHORIZATION_RECORD)
     }
 }
 
 /**
- * One decision kind folded into a projection.
+ * One decision family as projected, with the ordering evidence it rests on.
  *
- * [latest] is the highest source position seen for the kind; a lower position arriving afterwards
- * is counted in [staleIgnored] and never replaces it. [duplicatesIgnored] counts records that
- * repeated a fact already present, so a re-delivered event does not become a second fact.
+ * [coverage] is the source-attested range this projection's completeness rests on; [Completeness]
+ * may only claim [Completeness.COMPLETE] when it is present. [duplicatesIgnored] and [staleIgnored]
+ * record position-level facts that were seen and not multiplied into the projection.
  */
 internal data class DecisionProjection(
     val kind: DecisionKind,
     val latest: ProjectedFact<RecordedDecision>,
     val completeness: Completeness,
+    val coverage: LongRange? = null,
     val duplicatesIgnored: Int = 0,
     val staleIgnored: Int = 0,
 ) {
     init {
-        require(
-            completeness != Completeness.COMPLETE ||
-                latest.value == null ||
-                latest.value.sourceSequence != null,
-        ) { "a COMPLETE fold must be based on the source's own positions" }
-        require(duplicatesIgnored >= 0 && staleIgnored >= 0) { "counters are not negative" }
+        require(completeness != Completeness.COMPLETE || coverage != null) {
+            "completeness cannot be claimed without the source-attested range it rests on"
+        }
     }
 }
 
 /**
- * The governance projection for one governed run in one registered scope.
+ * The projected view over a governed workload.
  *
- * [decisions] holds at most one entry per [DecisionKind]; the invariant below refuses the two
- * authority upgrades this task exists to prevent: routing facts presented as engine-established
- * (there is no live producer), and recorded decisions presented as authoritative runtime state
- * (a record attests authorization, not execution).
+ * Facts are never merged across authorities, and the registration read keeps its own temporal
+ * classification, so current registration state cannot be substituted for a missing decision fact.
  */
 internal data class GovernanceProjection(
     val registration: ProjectedFact<WorkloadExposure>,
@@ -234,24 +232,23 @@ internal data class GovernanceProjection(
 ) {
     init {
         require(decisions.map { it.kind }.distinct().size == decisions.size) {
-            "a decision kind may appear at most once; two entries would be two authorities for one fact"
+            "one projected fact per decision family: a duplicated kind would report two authorities for one fact"
         }
         require(decisions.none { it.routingUpgradedToEngineEstablished() }) {
             "provider.route has no live production producer: routing records are source-declared at best"
         }
-        require(decisions.none { it.kind.attestsAuthorization && it.latest.isAuthoritativeRuntimeState() }) {
+        require(decisions.none { it.authorizationUpgradedToRuntimeState() }) {
             "a recorded policy or tool decision is an authorization record, not authoritative runtime state"
         }
     }
 
-    /**
-     * A routing fact carrying a value under any authority other than source-declared is an upgrade:
-     * no engine producer exists, so routing records are source-declared or absent, never established.
-     */
     private fun DecisionProjection.routingUpgradedToEngineEstablished(): Boolean =
         kind == DecisionKind.PROVIDER_ROUTE &&
             latest.value != null &&
             latest.authority != FactAuthority.PRODUCER_DECLARED
+
+    private fun DecisionProjection.authorizationUpgradedToRuntimeState(): Boolean =
+        kind.attestsAuthorization && latest.isAuthoritativeRuntimeState()
 
     private fun ProjectedFact<RecordedDecision>.isAuthoritativeRuntimeState(): Boolean =
         authority == FactAuthority.AUTHORITATIVE_PERSISTED && value != null
