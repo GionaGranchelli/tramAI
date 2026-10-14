@@ -42,7 +42,7 @@ Each event family maps to exactly one JSONL file:
 |---|---|---|---|
 | Policy decisions | `policy.decision` | `runtime-evidence/policy-decisions.jsonl` | `PolicyDecisionRuntimeEvidenceExporter` (#184) |
 | Approval decisions | `approval.decision` | `runtime-evidence/approval-decisions.jsonl` | `ApprovalDecisionRuntimeEvidenceExporter` (#185) |
-| Provider routing | `provider.route` | `runtime-evidence/provider-routing.jsonl` | `ProviderRoutingRuntimeEvidenceExporter` (#186) |
+| Provider routing | `provider.route` | `runtime-evidence/provider-routing.jsonl` | `ProviderRoutingRuntimeEvidenceExporter` (#186) — **converter only; no live production producer** |
 | Tool permissions | `tool.permission` | `runtime-evidence/tool-permissions.jsonl` | `ToolPermissionRuntimeEvidenceExporter` (#200) |
 
 ---
@@ -96,6 +96,8 @@ Each line records a single human approval decision outcome from the approval dec
 **Expected decision kinds:** `SELECTED`, `FALLBACK`, `BLOCKED`
 
 Each line records a single provider route decision. The exported record includes the schema version, source component (`"provider-router"`), workflow/correlation identifiers, `sha256` digests, and safe metadata.
+
+**Producer status — no live production producer (G4, 0.7.4b6).** This file appears only when something supplies `ProviderRouteDecisionEvidenceSource` records to `ProviderRoutingRuntimeEvidenceExporter`; no production call site does that today. Records in tests, benchmarks and example bundles are synthetic or manually supplied. The file's presence proves the writer ran, not that routing was captured; **its absence does not establish that no routing, fallback or blocked decision occurred.** Semantics per decision kind: [Provider Routing Decisions](../runtime-evidence-export-model.md#c-provider-routing-decisions-exporter-implemented--no-live-production-producer).
 
 **Safe metadata examples:**
 - `requestedModelDigest`
@@ -205,6 +207,10 @@ A verifier that encounters raw sensitive data in a runtime evidence record must 
   the decision was correct, compliant, or sufficiently reviewed.
 - Bundle artifacts are local, reviewable evidence artifacts — not production deployments, compliance
   submissions, or certification materials.
+- The `provider.route` family has **no live production producer**: `provider.route` records exist only when
+  a caller supplies sources. `provider-routing.jsonl` in a bundle is not evidence that live routing was
+  captured, and its absence is not evidence that no routing decision occurred.
+- A `provider.route` `SELECTED` record does not attest that the provider returned a response.
 
 ---
 
