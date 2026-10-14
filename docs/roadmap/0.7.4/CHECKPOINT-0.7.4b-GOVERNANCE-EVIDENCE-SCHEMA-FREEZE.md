@@ -1,7 +1,9 @@
 # CHECKPOINT 0.7.4b — Governance Evidence Schema Freeze (qualification)
 
-Status: **QUALIFIED — FROZEN WITH EXPLICIT LIMITATIONS.** Disposition D1 is **ACCEPTED** by the repository owner;
-the freeze is approved for `runtime-evidence.v1` as verified below, with S18 and S19 remaining UNRESOLVED.
+Status: **QUALIFIED — FROZEN WITH EXPLICIT LIMITATIONS — MERGED.** Disposition D1 is **ACCEPTED** by the repository
+owner; the freeze is approved for `runtime-evidence.v1` as verified below, with S18 and S19 remaining UNRESOLVED.
+Merged as `1837a6b7191c7e68731a225025bc31cdf4fb7567` ([#528](https://github.com/GionaGranchelli/tramAI/pull/528),
+squash of `56fb85a0fb5b9e3a9748d6b70634f847622cf013`); **0.7.4b closed** — see [Closure](#closure).
 Frozen artifact: `runtime-evidence.v1` **as implemented at `release/0.7.0` = `47b230b199b7c56e4a4e073cfaca6a01a31a22f5`**.
 Branch: `task/0.7.4-freeze-qualification`. Change class: `documentation` (contract statement + this record). No
 production code, schema, validator, digest, workflow or baseline is changed.
@@ -154,6 +156,31 @@ defect**; re-run sequentially and recorded as such. No gate, baseline or workflo
   possible producer.
 - The strength vocabulary's unused values (S11) are recorded as declared; no code path exercises them, and no claim
   is made that they are reachable.
+
+## Closure
+
+**0.7.4b — Governance Evidence Schema — is closed** at `release/0.7.0` = `1837a6b7191c7e68731a225025bc31cdf4fb7567`.
+
+Delivered in this programme, each verified at the tree named in its own record:
+
+| Item | Record | State at closure |
+|---|---|---|
+| G1a — identity carriage across the external boundary | `0.7.4b1-G1A-*`, `0.7.4b2-G1B-*` | delivered; mechanism is OPTION A (reserved `identity.*` keys), ABI-justified |
+| G2 — registered enforcement-boundary provenance | `0.7.4b3-G2-*` | delivered; strength derived from registration, unregistered refused |
+| G3 — authorization vs completion contract | `0.7.4b4-G3-*` | delivered; `ALLOW` never attests completion |
+| G4 — `provider.route` producer or declaration | `0.7.4b6-G4-*` | **declared non-production**; no live producer |
+| Merge-gate RC applicability correction | `0.7.4b5-*` | delivered; filters read from the producing workflow |
+| Schema freeze qualification | this record | **QUALIFIED — FROZEN WITH EXPLICIT LIMITATIONS** |
+
+**Carried forward — these are open, not closed by the freeze:**
+
+1. **T1 — authenticated workload provenance.** Tracked security requirement; nothing may claim authenticated workload
+   provenance until it is resolved. D1 accepted its absence as an explicit limitation.
+2. **Event-origin authenticity** (S19). Separate security requirement, unimplemented.
+3. **Live `provider.route` producer** (S17). `TASK-0.7.4b7-PROVIDER-ROUTE-LIVE-PRODUCER.md`.
+
+The freeze must not be read as completing XR1, authenticating evidence origin, or establishing a live producer, and
+later authentication work must not be read back into existing `runtime-evidence.v1` records (D1a).
 
 ## Follow-ups (not part of this freeze)
 
