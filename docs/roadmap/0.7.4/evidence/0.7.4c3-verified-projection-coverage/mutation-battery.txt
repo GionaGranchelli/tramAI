@@ -77,3 +77,41 @@ SUMMARY
 7 mutations: 6 killed with proven application and a named discriminator, 1 survivor with its
 mechanism demonstrated by a purpose-built fixture. No invalid attempts in this battery. The
 `no result file` path was exercised earlier in this epic and is reported the same way when it occurs.
+
+================================================================================
+CORRECTION ROUND, after owner review round 1 on PR #534
+================================================================================
+Adapter sha256 under this round: 010df419f70f4b1470f9291ccf5e4ac010c165e0fa9c8ce04fbe98d15682abb1
+(round-0 adapter, which the seven mutations above were measured against: 289857eb...)
+Control 207 tests, 0 failures, before and after this round. Source restored byte-identically after
+every mutation and git status clean.
+
+K1  head-stability removed                                APPLIED -> KILLED
+    an append that lands after the pages were read is not miscounted as complete
+K2  no event recognised as another family's               APPLIED -> KILLED (two tests)
+K3  cross-run attribution refusal removed                 APPLIED -> KILLED
+    a foreign-run event in a run-named stream refuses the read instead of being dropped
+K4  wrong-stream refusal removed                          APPLIED -> KILLED
+    a read answered from another stream is refused, not narrowed
+K5  missing-record guard removed (isMissingRecord=false)  APPLIED -> KILLED
+    a tool enforcement event without a tool name becomes no record at all
+K6  contiguity count against the head removed             APPLIED -> SURVIVED
+    same mechanism as above: the endpoint anchor refuses that read independently, and the fixture
+    built for exactly this case still passes with the mutation applied
+K7  account off by one against the span                   APPLIED -> KILLED (four tests)
+K8  classification pass silently omits a verified position APPLIED -> KILLED
+    a mixed stream keeps its verified range and accounts for every event
+    a mixed stream reports a complete record set over its verified range
+    records stay [1, 3], the account falls to 2 of 3, and COMPLETE is withheld
+M8  the same omission, account restored to the input size  APPLIED -> SURVIVED (207/0)
+    the deliberate control: the identical classification defect is invisible under the derivation
+    the review rejected and detected under the current one
+
+INVALID ATTEMPT, recorded rather than dropped: K5's first run in this round reported `NOT APPLIED
+(0 matches)` because the anchor had been written against the pre-spotless expression. That is an
+invalid attempt, not a survivor; the anchor was corrected from the file and the mutation re-run to
+the kill above.
+
+Invalid-attempt count for the epic is therefore two, both from stale anchors after reformatting, both
+re-run. No mutation has ever been counted as a kill without proven application and a named
+discriminator, and no survivor has been counted without its mechanism.

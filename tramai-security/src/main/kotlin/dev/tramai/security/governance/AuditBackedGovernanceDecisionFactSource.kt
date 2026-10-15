@@ -165,8 +165,10 @@ internal class AuditBackedGovernanceDecisionFactSource(
         val classified = events.map { classify(it, workflowRunId) }
         return VerifiedRead(
             records = classified.mapNotNull { it.record },
-            unrecordedDecisionPositions = classified.positionsOf(EventOutcome.MISSING_RECORD),
-            unclassifiedPositions = classified.positionsOf(EventOutcome.UNCLASSIFIED),
+            unrecordedDecisionPositions =
+                classified.filter { it.outcome == EventOutcome.MISSING_RECORD }.map { it.position }.toSet(),
+            unclassifiedPositions =
+                classified.filter { it.outcome == EventOutcome.UNCLASSIFIED }.map { it.position }.toSet(),
             // Counted from the outcomes rather than from the input: an event the classification never
             // reached leaves its position unaccounted for, and this account is what the completeness
             // contract checks against the verified range.
@@ -198,9 +200,6 @@ internal class AuditBackedGovernanceDecisionFactSource(
             }
         return ClassifiedEvent(event.sequenceNumber, outcome, null)
     }
-
-    private fun List<ClassifiedEvent>.positionsOf(outcome: EventOutcome): Set<Long> =
-        filter { it.outcome == outcome }.map { it.position }.toSet()
 
     /**
      * The raw-stream range this read can attest, or `null` when it can attest none.
