@@ -73,7 +73,10 @@ class AuditBackedGovernanceProjectionIntegrationTest {
     private fun projection(
         authority: WorkloadRegistrationAuthority,
         source: GovernanceDecisionFactSource = AuditBackedGovernanceDecisionFactSource(store),
-    ): GovernanceProjection = runBlocking { GovernanceProjectionReader(authority, source).read(identity, declared(), runId) }
+    ): GovernanceProjection {
+        val reader = GovernanceProjectionReader(authority, source)
+        return runBlocking { reader.read(identity, declared(), runId) }
+    }
 
     private suspend fun emitPolicy(decision: PolicyDecision) {
         emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, context(), decision)
