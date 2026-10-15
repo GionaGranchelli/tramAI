@@ -1,0 +1,79 @@
+0.7.4c3 — adversarial mutation log (Phase 4)
+================================================================================
+Method: mutate the source in place, delete build/test-results/test, run the governance suite with
+--rerun-tasks, then git checkout the file and compare sha256 against the value recorded before the
+battery. A mutation that fails to compile yields no result file and is recorded as invalid rather
+than as a survivor.
+
+Pristine adapter sha256: 289857ebde990f7f3f5b229f632f0976cc6bbc5715f1e2722a91be3a22e58207
+(from commit bcbf68f122c05620ef1f71d0b5e53bf0e88c456e, plus the short-read fixture commit that
+followed; the adapter file itself is unchanged by that commit)
+
+CONTROL before: 201 tests, 0 failures
+CONTROL with the short-read fixture added: 202 tests, 0 failures
+CONTROL after restoration: 202 tests, 0 failures
+Every restoration matched the pristine sha256; git status clean after each chunk.
+
+--------------------------------------------------------------------------------
+K1  raw coverage / head anchoring: the stable-head condition removed
+    APPLIED -> KILLED
+    an append that lands after the pages were read is not miscounted as complete
+
+K2  the raw/projected separation: no event is recognised as another family's
+    (`isRecognisedNonDecision` returns false)
+    APPLIED -> KILLED by two tests
+    a mixed stream keeps its verified range and accounts for every event
+    a mixed stream reports a complete record set over its verified range
+
+K3  cross-run attribution refusal removed
+    APPLIED -> KILLED
+    a foreign-run event in a run-named stream refuses the read instead of being dropped
+
+K4  wrong-stream refusal removed
+    APPLIED -> KILLED
+    a read answered from another stream is refused, not narrowed
+
+K5  ambiguous-vs-hole guard: a recorded decision outcome stops being a hole
+    (`isDecisionOutcome` returns false)
+    APPLIED -> KILLED
+    an unrecognised enforcement point is not reclassified as a policy decision
+
+K6  bounded-read restriction: the contiguity count against the head removed
+    APPLIED -> SURVIVED (202 tests, 0 failures) — see below
+
+K7  the accounting partition: the source accounts for one position fewer than it read
+    APPLIED -> KILLED by four tests
+    decisions are historical records and stay independent of current registration state
+    a persisted policy DENY reaches the projection as a policy decision at its source position
+    a mixed stream keeps its verified range and accounts for every event
+    a mixed stream reports a complete record set over its verified range
+
+--------------------------------------------------------------------------------
+K6 — SURVIVOR, WITH ITS MECHANISM ESTABLISHED
+--------------------------------------------------------------------------------
+The mutation removes `events.size == headBefore.sequenceNumber` from `verifiedRange`. Every test
+still passes, which is a survivor and not a kill.
+
+Mechanism: the condition is redundant over the same read. A read that stops short of the head has
+`last.sequenceNumber != headBefore.sequenceNumber`, which the endpoint anchor already refuses; a read
+with a hole in the middle cannot be produced by a hash-chained store at all, because
+`AuditChainVerifier.verifyChainPosition` refuses the broken linkage first; and a read missing its
+first event fails the `first == FIRST_SOURCE_POSITION` condition.
+
+Evidence for that rather than an argument from the code alone: a fixture was added for the case the
+mutation targets — a coherent chain stopping one event short of the reported head, with the page after
+the drop answered empty (`a read that stops short of the head attests no range`, asserting records
+[1, 2] and no verified range). It passes **with K6 applied**, so the endpoint anchor is what refuses
+that read, and the count repeats a refusal that is already made. Recorded as a survivor with this
+mechanism; not counted as a kill, and not removed from the code, because it is the guard that states
+the contiguity requirement directly.
+
+The report also names what a kill would require: a store that can return a non-contiguous list with a
+matching endpoint and a verifying chain, which the chain verifier makes impossible for this SPI.
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+7 mutations: 6 killed with proven application and a named discriminator, 1 survivor with its
+mechanism demonstrated by a purpose-built fixture. No invalid attempts in this battery. The
+`no result file` path was exercised earlier in this epic and is reported the same way when it occurs.

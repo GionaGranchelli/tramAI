@@ -178,7 +178,11 @@ internal data class StreamCoverage(
         require(accountedPositions >= 0) { "an account cannot be negative" }
         val range = verifiedRange
         if (range == null) {
-            require(accountedPositions == 0L && unrecordedDecisionPositions.isEmpty() && unclassifiedPositions.isEmpty()) {
+            require(
+                accountedPositions == 0L &&
+                    unrecordedDecisionPositions.isEmpty() &&
+                    unclassifiedPositions.isEmpty(),
+            ) {
                 "a read that verified no range has no positions to account for"
             }
         } else {
