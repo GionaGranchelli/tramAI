@@ -53,7 +53,6 @@ class AuditBackedGovernanceDecisionFactSourceTest {
         enforcementPoint: String,
         decision: String,
         reasonCode: String? = null,
-        metadata: Map<String, String> = emptyMap(),
         workflowRunId: String? = runId,
         streamId: String = runId,
     ): AuditEvent =
@@ -68,11 +67,13 @@ class AuditBackedGovernanceDecisionFactSourceTest {
                 policyVersion = "v1",
                 workflowDigest = null,
                 reasonCode = reasonCode,
-                metadata = metadata,
+                metadata = emptyMap(),
             ),
         )
 
-    private suspend fun policyAllow() = emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, context(), PolicyDecision.Allow)
+    private suspend fun policyAllow() {
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, context(), PolicyDecision.Allow)
+    }
 
     // ---------------------------------------------------------------- range attestation
 

@@ -1,5 +1,6 @@
 package dev.tramai.security.governance
 
+import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.security.audit.AuditChainVerifier
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditStore
@@ -63,15 +64,13 @@ internal class AuditBackedGovernanceDecisionFactSource(
 
     override suspend fun decisionsFor(workflowRunId: String): DecisionFactRead {
         require(workflowRunId.isNotBlank()) { "a decision read must name the run it is about" }
-        val streamId =
-            streamAssociation.streamIdFor(workflowRunId)
-                ?: return DecisionFactRead(records = emptyList(), assertedRange = null)
-
-        // Head before: the position this read is about. An absent head is an empty read, not a
-        // complete one — nothing was observed, and nothing is asserted.
-        val headBefore =
-            auditStore.latestEvent(streamId)?.sequenceNumber
-                ?: return DecisionFactRead(records = emptyList(), assertedRange = null)
+        // Head before: the position this read is about. An absent association or an absent head is
+        // an empty read, not a complete one — nothing was observed, and nothing is asserted.
+        val streamId = streamAssociation.streamIdFor(workflowRunId)
+        val headBefore = streamId?.let { auditStore.latestEvent(it)?.sequenceNumber }
+        if (streamId == null || headBefore == null) {
+            return DecisionFactRead(records = emptyList(), assertedRange = null)
+        }
 
         val events = readFromStart(streamId, headBefore)
         val verification = AuditChainVerifier.verify(events)
@@ -135,72 +134,84 @@ internal class AuditBackedGovernanceDecisionFactSource(
     private fun recordFor(
         event: AuditEvent,
         requestedRun: String,
-    ): RecordedDecision? {
-        if (event.workflowRunId != requestedRun) return null
-        if (event.decision !in DECISION_TOKENS) return null
-        val kind =
-            when {
-                event.enforcementPoint in TOOL_ENFORCEMENT_POINTS -> {
-                    // A tool enforcement event without the tool it concerns cannot be projected as
-                    // a tool permission, and must not fall back to a policy decision instead.
-                    if (event.metadata["toolName"].isNullOrBlank()) return null
-                    DecisionKind.TOOL_PERMISSION
-                }
-
-                event.enforcementPoint in POLICY_ENFORCEMENT_POINTS -> {
-                    DecisionKind.POLICY_DECISION
-                }
-
-                else -> {
-                    return null
-                }
-            }
-        return RecordedDecision(
-            workflowRunId = requestedRun,
-            kind = kind,
-            decision = event.decision,
-            // The store guarantees no reason-code format, so the value is treated as untrusted input
-            // and dropped unless it is a bounded safe token. Dropping it never invents one.
-            reasonCode = event.reasonCode?.takeIf(SAFE_REASON_CODE::matches),
-            // The boundary an event names, at the strength registration can prove for it here:
-            // none. Audit data carries a declared label, not a registered strength.
-            boundary = DeclaredBoundary(id = event.enforcementPoint, registeredStrength = null),
-            sourceSequence = event.sequenceNumber,
-        )
-    }
-
-    private companion object {
-        const val DEFAULT_PAGE_SIZE = 256
-        const val DEFAULT_MAX_EVENTS = 8192
-        const val FIRST_SOURCE_POSITION = 1L
-
-        /** The decision tokens the emitters produce, as the exporters already define them. */
-        val DECISION_TOKENS = setOf("ALLOW", "DENY", "REQUIRE_APPROVAL")
-
-        val TOOL_ENFORCEMENT_POINTS =
-            setOf(
-                "BEFORE_TOOL_EXPOSURE",
-                "BEFORE_TOOL_EXECUTION",
-                "BEFORE_TOOL_RESULT_REINJECTION",
+    ): RecordedDecision? =
+        decisionKindOf(event, requestedRun)?.let { kind ->
+            RecordedDecision(
+                workflowRunId = requestedRun,
+                kind = kind,
+                decision = event.decision,
+                // The store guarantees no reason-code format, so the value is treated as untrusted input
+                // and dropped unless it is a bounded safe token. Dropping it never invents one.
+                reasonCode = event.reasonCode?.takeIf(SAFE_REASON_CODE::matches),
+                // The boundary an event names, at the strength registration can prove for it here:
+                // none. Audit data carries a declared label, not a registered strength.
+                boundary = DeclaredBoundary(id = event.enforcementPoint, registeredStrength = null),
+                sourceSequence = event.sequenceNumber,
             )
+        }
 
-        /**
-         * The remaining enforcement points are the recognised non-tool vocabulary, taken from the
-         * engine's own enum rather than from a string convention.
-         */
-        val POLICY_ENFORCEMENT_POINTS =
-            dev.tramai.core.policy.EnforcementPoint.entries
-                .map { it.name }
-                .toSet()
-                .minus(TOOL_ENFORCEMENT_POINTS)
+    /** The family an event belongs to, or `null` when this source cannot recognise a decision. */
+    private fun decisionKindOf(
+        event: AuditEvent,
+        requestedRun: String,
+    ): DecisionKind? =
+        when {
+            event.workflowRunId != requestedRun -> {
+                null
+            }
 
-        /**
-         * A bounded safe token for a persisted reason code. The audit store does not enforce this
-         * shape, so a value that does not match is untrusted and is dropped rather than projected.
-         */
-        val SAFE_REASON_CODE = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
-    }
+            event.decision !in DECISION_TOKENS -> {
+                null
+            }
+
+            // A tool enforcement event without the tool it concerns is not a tool permission, and
+            // must not fall back to a policy decision instead.
+            event.enforcementPoint in TOOL_ENFORCEMENT_POINTS -> {
+                DecisionKind.TOOL_PERMISSION.takeIf { !event.metadata["toolName"].isNullOrBlank() }
+            }
+
+            event.enforcementPoint in POLICY_ENFORCEMENT_POINTS -> {
+                DecisionKind.POLICY_DECISION
+            }
+
+            else -> {
+                null
+            }
+        }
 }
+
+private const val DEFAULT_PAGE_SIZE = 256
+
+private const val DEFAULT_MAX_EVENTS = 8192
+
+private const val FIRST_SOURCE_POSITION = 1L
+
+/** The decision tokens the emitters produce, as the exporters already define them. */
+private val DECISION_TOKENS = setOf("ALLOW", "DENY", "REQUIRE_APPROVAL")
+
+/** The enforcement points whose decisions belong to the tool permission family. */
+private val TOOL_ENFORCEMENT_POINTS =
+    setOf(
+        "BEFORE_TOOL_EXPOSURE",
+        "BEFORE_TOOL_EXECUTION",
+        "BEFORE_TOOL_RESULT_REINJECTION",
+    )
+
+/**
+ * The remaining enforcement points are the recognised non-tool vocabulary, taken from the engine's
+ * own enum rather than from a string convention.
+ */
+private val POLICY_ENFORCEMENT_POINTS =
+    EnforcementPoint.entries
+        .map { it.name }
+        .toSet()
+        .minus(TOOL_ENFORCEMENT_POINTS)
+
+/**
+ * A bounded safe token for a persisted reason code. The audit store does not enforce this shape, so
+ * a value that does not match is untrusted and is dropped rather than projected.
+ */
+private val SAFE_REASON_CODE = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
 /** A stream whose chain does not verify cannot produce a trustworthy projection. */
 internal class AuditDecisionIntegrityException(
