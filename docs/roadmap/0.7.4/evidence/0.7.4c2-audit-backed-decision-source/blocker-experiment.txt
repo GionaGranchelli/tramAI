@@ -156,3 +156,43 @@ Contracts that would have to be referenced by any adapter
   tramai-control-plane/src/main/kotlin/dev/tramai/controlplane/GovernanceProjection.kt
       internal DecisionKind / RecordedDecision / DecisionFactRead (assertedRange) / FactAuthority /
       FactFreshness / Completeness / DecisionProjection / GovernanceProjection
+
+OWNER REVIEW CORRECTIONS (2026-10-15)
+--------------------------------------------------------------------------------
+Finding 1 (P1) — family classification. This record's earlier draft said an unrecognised
+enforcement point belongs to neither decision family. The code says otherwise:
+PolicyDecisionRuntimeEvidenceExporter filters `filterNot { enforcementPoint in
+TOOL_ENFORCEMENT_POINTS }` and then only on the decision token, so
+
+    enforcementPoint = "UNKNOWN_BOUNDARY", decision = "ALLOW"
+
+passes the policy-family filters and would be exported as policy.decision. The correction recorded
+in the task document is: the policy family is defined by exclusion, not by a recognised-boundary
+allowlist, and the audit-backed adapter must fail closed on unsupported enforcement-point/decision
+combinations instead of inheriting that behaviour (C2.2 forbids exactly this reclassification).
+
+Finding 2 (P2) — sanitization is not a store guarantee. The store validates stream id, sequence
+contiguity, event-id uniqueness, hash chain, event-hash recomputation and schema version, and
+nothing else: no metadata allowlist, no reason-code format, no decision or enforcement-point
+vocabulary. Those protections exist in the emitters (AuditEnginePolicyDecisionAuditEmitter:
+ALLOWED_ATTRIBUTE_KEYS and the SAFE_REASON_CODE regex) and in the exporters, and a direct
+AuditStore.appendNext caller bypasses them. The document now requires the adapter to treat persisted
+metadata, reason codes, decisions and enforcement points as untrusted input with an explicit
+projection-field allowlist, and to describe boundary provenance as what the record *declares* rather
+than what the event is proven to have come from.
+
+PLACEMENT DECISION (owner, 2026-10-15): Option C refined — relocate the internal projection
+implementation into :tramai-security.
+Static legality verified at this base:
+  config/quality/module-catalog.yml
+      ":tramai-security" is layer governance-security with dependencyPolicy framework;
+      dependencyPolicies.framework.allowedLayers includes core-contracts.
+  config/quality/module-boundaries.yml
+      no forbiddenEdges row has fromLayer: governance-security (so governance-security ->
+      core-contracts is not forbidden).
+  tramai-control-plane/build.gradle.kts
+      depends on tramai-core only: no reverse edge, so no cycle is introduced.
+  precedent: tramai-persistence-jdbc already depends on both :tramai-security and
+      :tramai-control-plane.
+The architecture gate must still confirm the new edge at implementation time; that is part of the
+continuation, not an assumption.
