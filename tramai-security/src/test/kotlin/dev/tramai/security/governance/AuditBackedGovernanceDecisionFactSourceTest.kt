@@ -142,6 +142,45 @@ class AuditBackedGovernanceDecisionFactSourceTest {
         }
 
     @Test
+    fun `an append that lands after the pages were read is not miscounted as complete`() =
+        runBlocking<Unit> {
+            policyAllow()
+            policyAllow()
+            // This is the window the head re-read exists for: the pages were read and cover 1..2,
+            // so a size-only check would attest them, but the stream has already moved on to 3.
+            val lateAppend =
+                object : AuditStore {
+                    override suspend fun appendNext(
+                        auditStreamId: String,
+                        eventFactory: (latest: AuditEvent?) -> AuditEvent,
+                    ) = store.appendNext(auditStreamId, eventFactory)
+
+                    override suspend fun readStream(auditStreamId: String) = store.readStream(auditStreamId)
+
+                    override suspend fun readStreamPage(
+                        auditStreamId: String,
+                        afterSequenceNumber: Long?,
+                        limit: Int,
+                    ) = store.readStreamPage(auditStreamId, afterSequenceNumber, limit)
+
+                    private var headReads = 0
+
+                    override suspend fun latestEvent(auditStreamId: String): AuditEvent? {
+                        headReads++
+                        if (headReads == 2) {
+                            raw("BEFORE_RESPONSE_RETURN", "ALLOW")
+                        }
+                        return store.latestEvent(auditStreamId)
+                    }
+                }
+
+            val read = AuditBackedGovernanceDecisionFactSource(lateAppend).decisionsFor(runId)
+
+            assertThat(read.records.map { it.sourceSequence }).containsExactly(1L, 2L)
+            assertThat(read.assertedRange).isNull()
+        }
+
+    @Test
     fun `a bounded read returns the prefix it verified and claims no range`() =
         runBlocking<Unit> {
             policyAllow()
