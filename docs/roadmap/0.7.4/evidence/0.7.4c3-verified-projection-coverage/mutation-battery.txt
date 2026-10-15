@@ -115,3 +115,29 @@ the kill above.
 Invalid-attempt count for the epic is therefore two, both from stale anchors after reformatting, both
 re-run. No mutation has ever been counted as a kill without proven application and a named
 discriminator, and no survivor has been counted without its mechanism.
+
+================================================================================
+REQUALIFICATION AT THE FINAL HEAD
+================================================================================
+Final adapter sha256: 802b7bb8da4ccd1e99d9ace1c9ee6381d79c0aad74147c4ba84fdadc2272b761
+Change since the round above: the position helper the classification added was inlined at its two call
+sites (identical behaviour, one function fewer, to stay within the function budget), and the five
+StreamCoverage failure-path tests moved to their own class. Every mutation was therefore re-run
+against this head rather than carried over from the previous one.
+
+Control 207 tests, 0 failures, before and after; source restored byte-identically
+(802b7bb8...) after every mutation; git status clean throughout.
+
+  K1  head-stability removed                                 APPLIED -> KILLED
+  K2  no event recognised as another family's                APPLIED -> KILLED (two tests)
+  K3  cross-run attribution refusal removed                  APPLIED -> KILLED
+  K4  wrong-stream refusal removed                           APPLIED -> KILLED
+  K5  missing-record guard removed                           APPLIED -> KILLED
+  K6  contiguity count against the head removed              APPLIED -> SURVIVED
+  K7  account off by one against the span                    APPLIED -> KILLED (four tests)
+  K8  classification pass omits a verified position          APPLIED -> KILLED (two tests)
+  M8  the same omission under the input-size account         APPLIED -> SURVIVED (control)
+
+7 kills, 2 survivors. Both survivors are the ones already named and explained: K6's guard is redundant
+over a hash-chained store (endpoint anchor plus chain linkage refuse the same read), and M8 exists to
+be a survivor so that K8's kill means something.
