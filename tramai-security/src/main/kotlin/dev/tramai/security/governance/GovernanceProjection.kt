@@ -1,4 +1,6 @@
-package dev.tramai.controlplane
+package dev.tramai.security.governance
+import dev.tramai.controlplane.WorkloadExposure
+import dev.tramai.controlplane.WorkloadStateVersion
 
 /**
  * 0.7.4c1 — authority-aware governance projection: the read contract.

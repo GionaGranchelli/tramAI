@@ -1,4 +1,4 @@
-package dev.tramai.controlplane
+package dev.tramai.security.governance
 
 /**
  * 0.7.4c1 — folding source records into one projected fact per decision family.

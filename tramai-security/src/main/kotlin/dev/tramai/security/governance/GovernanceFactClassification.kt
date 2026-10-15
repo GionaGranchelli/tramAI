@@ -1,4 +1,5 @@
-package dev.tramai.controlplane
+package dev.tramai.security.governance
+import dev.tramai.controlplane.QueryConsistency
 
 /**
  * 0.7.4c1 — where a projected fact's authority, its claim boundary and its completeness come from.
