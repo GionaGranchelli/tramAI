@@ -1,5 +1,17 @@
-package dev.tramai.controlplane
+package dev.tramai.security.governance
 
+import dev.tramai.controlplane.ClassifiedRead
+import dev.tramai.controlplane.ConfigurationFingerprint
+import dev.tramai.controlplane.InMemoryWorkloadRegistrationStore
+import dev.tramai.controlplane.LifecycleTransitionOutcome
+import dev.tramai.controlplane.MetadataUpdateOutcome
+import dev.tramai.controlplane.QueryConsistency
+import dev.tramai.controlplane.RegisterOutcome
+import dev.tramai.controlplane.RegisteredWorkload
+import dev.tramai.controlplane.WorkloadControlPlaneCommands
+import dev.tramai.controlplane.WorkloadControlPlaneQueries
+import dev.tramai.controlplane.WorkloadRegistrationAuthority
+import dev.tramai.controlplane.WorkloadStateVersion
 import dev.tramai.controlplane.testing.WorkloadRegistrationFixtures
 import dev.tramai.core.identity.DeploymentId
 import dev.tramai.core.identity.EnvironmentId

@@ -1,5 +1,8 @@
-package dev.tramai.controlplane
+package dev.tramai.security.governance
 
+import dev.tramai.controlplane.QueryConsistency
+import dev.tramai.controlplane.WorkloadControlPlaneQueries
+import dev.tramai.controlplane.WorkloadExposure
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 
 /**
