@@ -1,0 +1,172 @@
+0.7.4c3 — Phase 0 baseline and contract audit
+================================================================================
+Starting SHA : b918b765b0f8c94fc2e07328c5556f0d8d10b9be (release/0.7.0, PR #533 squash)
+Branch       : task/0.7.4c3-verified-projection-coverage
+Worktree     : /home/gionag/tramai-c3
+Baseline run : ./gradlew :tramai-security:test --tests 'dev.tramai.security.governance.*'
+               tests=198 failures=0 errors=0
+
+PR #533 present at the starting SHA: adapter file sha256 = 5ece23bd152566ec56d9e4b73d9188ea0be037531d2f675e06a9d8dab0c8cfa0
+(byte-identical to the value the 0.7.4c2 mutation battery was measured against).
+
+1. THE CONTRACT AS IT EXISTS
+--------------------------------------------------------------------------------
+Source side (`DecisionFactRead`, GovernanceProjection.kt:137):
+
+    internal data class DecisionFactRead(
+        val records: List<RecordedDecision>,
+        val assertedRange: LongRange? = null,
+    )
+
+Reader (GovernanceProjectionReader.kt:47-53, 148-162):
+
+    val coverage = read?.assertedRange
+    ...
+    val completeness = GovernanceFactClassification.completenessOf(records, coverage)
+    val sourceRead = coverage != null
+    DecisionKind.entries.map { kind -> fold(...coverage, completeness) }
+
+Classification (GovernanceFactClassification.kt:60-89) compares the *projected record
+positions* against the *raw stream span*:
+
+    positions.toSet().size.toLong() == span && first == coverage.first && last == coverage.last
+        -> Completeness.COMPLETE
+    else -> Completeness.GAPS_PRESENT
+
+Source side (AuditBackedGovernanceDecisionFactSource.kt): `assertedRange` is populated only when
+the read captured positions 1..head contiguously, the chain verified over exactly those events,
+the head's position and hash are unchanged, the requested stream answered, and — added in review
+round 2 — `projectedCount == events.size`, i.e. every verified event became a fact.
+
+2. THE PRECISE SEMANTIC MISMATCH
+--------------------------------------------------------------------------------
+One field carries two different claims.
+
+  Claim A (raw stream coverage): which audit positions were verified, anchored to the observed
+  stream head, and therefore trustworthy as a *stream* statement.
+
+  Claim B (decision classification coverage): which of those verified positions produced a
+  recognised governance decision record, which were recognised as belonging to another family,
+  and which could not be classified at all.
+
+`assertedRange` is a Claim A value. `completenessOf(records, assertedRange)` reads it as a Claim B
+denominator. The two claims coincide only while every verified event becomes a record, which is
+exactly the condition review round 2 imposed (`projectedCount == events.size`) to stop filtered
+events from being read as gaps. The cost of that condition is the defect this task closes: a stream
+that carries any legitimate non-decision event loses its raw coverage as well.
+
+Consequence on the mission's mixed stream (policy ALLOW, DLP REDACTED, policy DENY):
+
+  verified raw range  : 1..3, anchored to the stream head, chain consistent
+  projected decisions : positions [1, 3]
+  assertedRange       : null        <- Claim A thrown away
+  coverage / completeness : null / UNKNOWN   <- Claim B not established either
+
+Raw evidence existed and was discarded, because the only field able to carry it was also the
+denominator of a decision-coverage calculation it cannot serve.
+
+Reachability note, verified from the code rather than assumed: with round 2 in place,
+`Completeness.GAPS_PRESENT` is currently unreachable from this source. Coverage non-null implies
+every verified event became a record, which implies the record positions cover the span. The status
+survives only for a synthetic source, so today the vocabulary cannot express "verified stream, one
+legitimate non-decision" at all — it collapses that case to UNKNOWN.
+
+3. WHY THIS IS A SECURITY/CORRECTNESS ISSUE, NOT COSMETIC
+--------------------------------------------------------------------------------
+- Understatement is a correctness defect on its own terms: a caller that cannot see the verified
+  range cannot distinguish "nothing was read" from "a complete stream was read and it contained a
+  redaction". Both report UNKNOWN, so the projection loses the ability to say what it proved.
+- The failed inference is asymmetric, which is the dangerous direction: the projection never
+  overclaims today, but any *future* attempt to restore the range by relaxing
+  `projectedCount == events.size` reintroduces exactly the 0.7.4c2 round-2 finding — a legitimate
+  non-decision position would be subtracted as a missing decision and reported as GAPS_PRESENT, i.e.
+  evidence would be manufactured from an intentional absence of a decision record.
+- Keeping one field for both claims means the next consumer (0.7.4d's materialised read model) must
+  re-derive the distinction from scratch, or inherit the confusion.
+
+4. WHAT IS ALREADY SOUND AND MUST NOT MOVE
+--------------------------------------------------------------------------------
+- Chain consistency via AuditChainVerifier, which proves internal consistency and nothing about
+  event-origin authenticity.
+- Head identity anchoring: position AND hash, re-read after the pages.
+- Run attribution failing closed, wrong-stream refusal, bounded-read and concurrent-append refusal.
+- The configured read cap, enforced per page by remaining capacity.
+- Family recognition as an allowlist in both directions, with every enforcement point and token
+  coming from the engine's own vocabulary.
+- Absence semantics: NOT_OBSERVED for decision families, NOT_PRODUCED reserved for `provider.route`.
+
+5. THE PRODUCER VOCABULARY THAT GROUNDS "RECOGNISED NON-DECISION"
+--------------------------------------------------------------------------------
+The repository defines its audit producers, so classification can be grounded in that vocabulary
+rather than guessed:
+
+  AuditEnginePolicyDecisionAuditEmitter      decision tokens ALLOW / DENY / REQUIRE_APPROVAL at
+                                             engine enforcement points            -> decisions
+  AuditEngineDlpRedactionAuditEmitter        enforcementPoint DLP_MODEL_OUTPUT / DLP_TOOL_RESULT,
+                                             decision "REDACTED", reason "dlp_redaction_applied"
+                                                                                  -> recognised
+                                                                                     non-decision
+  AuditEngineApprovalLifecycleAuditEmitter   8 named points (APPROVAL_SUSPENDED, APPROVAL_RESUMED,
+                                             APPROVAL_COMPLETED, APPROVAL_UNCERTAIN_OUTCOME,
+                                             APPROVAL_SUSPENSION_CANCELLED,
+                                             APPROVAL_STALE_CLAIM_DETECTED,
+                                             APPROVAL_FORCE_CANCELLATION_REQUESTED,
+                                             APPROVAL_FORCE_CANCELLED)             -> recognised
+                                                                                     non-decision
+  AuditEngineSovereignOpsAuditEmitter        sovereign-ops.* points, different subsystem
+                                                                                  -> recognised
+                                                                                     non-decision
+
+Anything else a verified stream carries is UNCLASSIFIED, and per the task's own rule must not be
+silently assumed irrelevant to decision completeness.
+
+6. PHASE 1 CONTRACT — SELECTED, WITH REJECTED ALTERNATIVES
+--------------------------------------------------------------------------------
+Selected (smallest internal change that separates the claims):
+
+ 1. `DecisionFactRead.verifiedStreamRange` replaces `assertedRange` — Claim A only, same anchoring
+    conditions as today, renamed so a caller cannot read it as a decision claim.
+ 2. A minimal internal `StreamCoverage` carries the classification outcome alongside it:
+    the verified range, the verified positions that were decision-shaped yet produced no record
+    (real gaps), and the verified positions that could not be classified at all.
+ 3. `completenessOf(records, coverage)` takes `coverage: StreamCoverage` and computes Claim B from
+    classification, not from the raw span:
+      no verified range                       -> UNKNOWN
+      any unclassified position in the range  -> UNKNOWN   (cannot assume irrelevant)
+      any decision-shaped position without a record -> GAPS_PRESENT
+      a record whose position is outside the range or has no position -> UNKNOWN
+      otherwise                               -> COMPLETE
+    The record-set cross-check stays in the fold, so COMPLETE still depends on observable records
+    and not only on the source's word.
+ 4. `DecisionProjection.coverage` becomes `verifiedStreamRange`, documented as the raw claim, and
+    the invariant `completeness != COMPLETE || verifiedStreamRange != null` is kept.
+ 5. Documented meanings, so the two cannot be confused by a caller:
+      COMPLETE       — every position this read was required to classify in the verified range
+                       produced a record; it is a statement about persisted records, never that a
+                       decision did not occur (emission is optional in this repository);
+      GAPS_PRESENT   — the verified range contains a position that was decision-shaped and produced
+                       no record: a hole in the record set, not a filter;
+      UNKNOWN        — either no range was verified, or the range contains an event whose
+                       classification is not established, so decision coverage is unproven.
+
+Rejected alternatives:
+ - Relax `projectedCount == events.size`: reintroduces the 0.7.4c2 round-2 defect by construction —
+   a redaction becomes a gap. Rejected.
+ - Count non-decision events and subtract them from the span: the same defect with an extra step,
+   and it silently treats *any* non-decision as known, which the unclassified rule forbids.
+ - Per-family completeness derived from each family's positions: the stream is shared and
+   interleaved, so another family's position is not a hole in this family's history. Preserved from
+   0.7.4c1, and it is the reason completeness is documented as a record-set claim.
+ - A public coverage/ontology type: forbidden by the task, and unnecessary — every type involved is
+   internal to `:tramai-security`.
+ - A separate `raw` and `decision` completeness enum: two statuses for one question invites the very
+   confusion the task warns about; the raw claim is a range with its anchoring conditions, which is
+   already a precise type, and the decision claim is the enum.
+
+7. OPEN DEPENDENCY FOR PHASE 2
+--------------------------------------------------------------------------------
+Recognising DLP and approval-lifecycle events needs their producer constants. They are currently
+`private const val` in each emitter. Referencing them from the classification means raising those
+constants to `internal` (same module, no public API change, values and behaviour unchanged); the
+alternative is duplicated literals that can drift, which is worse. If the API gate treats that as a
+public-ABI change, this becomes a stop-and-report item rather than a workaround.
