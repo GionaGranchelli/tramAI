@@ -101,7 +101,7 @@ class AuditBackedGovernanceProjectionIntegrationTest {
             assertThat(policy.latest.value?.sourceSequence).isEqualTo(2L)
             assertThat(policy.latest.authority).isEqualTo(FactAuthority.POLICY_AUTHORIZATION_RECORD)
             assertThat(policy.completeness).isEqualTo(Completeness.COMPLETE)
-            assertThat(policy.coverage).isEqualTo(1L..2L)
+            assertThat(policy.verifiedStreamRange).isEqualTo(1L..2L)
         }
 
     @Test
@@ -120,7 +120,7 @@ class AuditBackedGovernanceProjectionIntegrationTest {
                     ?.boundary
                     ?.id,
             ).isEqualTo("BEFORE_TOOL_EXECUTION")
-            assertThat(tool.coverage).isEqualTo(1L..2L)
+            assertThat(tool.verifiedStreamRange).isEqualTo(1L..2L)
 
             val policy = projected.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.latest.value?.sourceSequence).isEqualTo(1L)
@@ -201,7 +201,7 @@ class AuditBackedGovernanceProjectionIntegrationTest {
 
             val policy = bounded.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
-            assertThat(policy.coverage).isNull()
+            assertThat(policy.verifiedStreamRange).isNull()
             assertThat(policy.latest.value?.sourceSequence).isEqualTo(1L)
         }
 
@@ -230,12 +230,44 @@ class AuditBackedGovernanceProjectionIntegrationTest {
 
             val policy = projection(registeredAuthority()).decisions.single { it.kind == DecisionKind.POLICY_DECISION }
 
-            // Both decisions were read, at their own positions, and the redaction between them is
-            // not one of them. The stream has no gaps, so the projection must not invent one.
+            // Both decisions were read at their own positions, the stream's raw range is attested
+            // across the intervening event, and no gap is reported. What is withheld is the decision
+            // claim, because this event is not one a producer in this repository defines.
             assertThat(policy.latest.value?.sourceSequence).isEqualTo(3L)
+            assertThat(policy.verifiedStreamRange).isEqualTo(1L..3L)
             assertThat(policy.completeness).isNotEqualTo(Completeness.GAPS_PRESENT)
             assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
-            assertThat(policy.coverage).isNull()
+        }
+
+    @Test
+    fun `a mixed stream reports a complete record set over its verified range`() =
+        runBlocking<Unit> {
+            emitPolicy(PolicyDecision.Allow)
+            // The DLP producer's own recorded vocabulary: a redaction at DLP_TOOL_RESULT.
+            engine.emit(
+                AuditEmission(
+                    auditStreamId = runId,
+                    workflowRunId = runId,
+                    correlationId = "corr-1",
+                    actor = null,
+                    enforcementPoint = "DLP_TOOL_RESULT",
+                    decision = "REDACTED",
+                    policyVersion = null,
+                    workflowDigest = null,
+                    reasonCode = "dlp_redaction_applied",
+                    metadata = emptyMap(),
+                ),
+            )
+            emitPolicy(PolicyDecision.Deny(reason = "blocked", reasonCode = "policy_denied"))
+
+            val policy = projection(registeredAuthority()).decisions.single { it.kind == DecisionKind.POLICY_DECISION }
+
+            // Both claims, kept apart: the stream was read and anchored across the redaction, and the
+            // decision records account for every position in it. Neither is inferred from the other —
+            // before this contract the second could not be claimed without discarding the first.
+            assertThat(policy.verifiedStreamRange).isEqualTo(1L..3L)
+            assertThat(policy.completeness).isEqualTo(Completeness.COMPLETE)
+            assertThat(policy.latest.value?.sourceSequence).isEqualTo(3L)
         }
 
     @Test

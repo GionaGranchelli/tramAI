@@ -46,7 +46,10 @@ class GovernanceProjectionTest {
 
     private class ScriptedFacts(
         private val decisions: List<RecordedDecision> = emptyList(),
-        private val assertedRange: LongRange? = null,
+        private val verifiedRange: LongRange? = null,
+        private val unrecordedDecisionPositions: Set<Long> = emptySet(),
+        private val unclassifiedPositions: Set<Long> = emptySet(),
+        private val accountedPositions: Long? = null,
         private val telemetry: List<TelemetryObservation> = emptyList(),
     ) : GovernanceDecisionFactSource {
         var decisionReads = 0
@@ -56,7 +59,18 @@ class GovernanceProjectionTest {
 
         override suspend fun decisionsFor(workflowRunId: String): DecisionFactRead {
             decisionReads++
-            return DecisionFactRead(decisions, assertedRange)
+            // A scripted source accounts for its whole range unless a test says otherwise: a hole has
+            // to be declared now, because "not in the records" no longer implies one.
+            val span = verifiedRange?.let { it.last - it.first + 1 } ?: 0L
+            return DecisionFactRead(
+                decisions,
+                StreamCoverage(
+                    verifiedRange = verifiedRange,
+                    accountedPositions = accountedPositions ?: span,
+                    unrecordedDecisionPositions = unrecordedDecisionPositions,
+                    unclassifiedPositions = unclassifiedPositions,
+                ),
+            )
         }
 
         override suspend fun telemetryFor(workflowRunId: String): List<TelemetryObservation> {
@@ -215,7 +229,7 @@ class GovernanceProjectionTest {
         runBlocking<Unit> {
             val record = decision(DecisionKind.POLICY_DECISION)
             val projection =
-                reader(registeredAuthority(), ScriptedFacts(decisions = listOf(record, record), assertedRange = 1L..1L))
+                reader(registeredAuthority(), ScriptedFacts(decisions = listOf(record, record), verifiedRange = 1L..1L))
                     .read(identity, declared(), "run-1")
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
@@ -248,13 +262,48 @@ class GovernanceProjectionTest {
                     decision(DecisionKind.POLICY_DECISION, sequence = 3),
                 )
             val projection =
-                reader(registeredAuthority(), ScriptedFacts(decisions = records, assertedRange = 1L..3L))
-                    .read(identity, declared(), "run-1")
+                reader(
+                    registeredAuthority(),
+                    // Position 2 recorded a decision outcome and produced no record, and the source says
+                    // so. That declaration is now the only way a hole can be told apart from an event of
+                    // another family, which produces no record either and is not a hole.
+                    ScriptedFacts(
+                        decisions = records,
+                        verifiedRange = 1L..3L,
+                        unrecordedDecisionPositions = setOf(2L),
+                    ),
+                ).read(identity, declared(), "run-1")
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.completeness).isEqualTo(Completeness.GAPS_PRESENT)
-            assertThat(policy.coverage).isEqualTo(1L..3L)
+            assertThat(policy.verifiedStreamRange).isEqualTo(1L..3L)
             assertThat(policy.latest.sourceVersion).isEqualTo(3)
+        }
+
+    @Test
+    fun `a range the source did not account for cannot complete`() =
+        runBlocking<Unit> {
+            val records =
+                listOf(
+                    decision(DecisionKind.POLICY_DECISION, sequence = 1),
+                    decision(DecisionKind.POLICY_DECISION, sequence = 3),
+                )
+            val projection =
+                reader(
+                    registeredAuthority(),
+                    // Three positions verified, two accounted for: the source dropped one without
+                    // calling it a hole or an unknown, so the record set cannot be called complete. The
+                    // raw range still stands, because reading the stream is a different question.
+                    ScriptedFacts(
+                        decisions = records,
+                        verifiedRange = 1L..3L,
+                        accountedPositions = 2L,
+                    ),
+                ).read(identity, declared(), "run-1")
+
+            val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
+            assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
+            assertThat(policy.verifiedStreamRange).isEqualTo(1L..3L)
         }
 
     @Test
@@ -324,7 +373,7 @@ class GovernanceProjectionTest {
                 GovernanceProjection::class.java to
                     setOf("registration", "declaredRunIdentity", "decisions", "telemetry"),
                 DecisionProjection::class.java to
-                    setOf("kind", "latest", "completeness", "duplicatesIgnored", "staleIgnored", "coverage"),
+                    setOf("kind", "latest", "completeness", "duplicatesIgnored", "staleIgnored", "verifiedStreamRange"),
                 ProjectedFact::class.java to
                     setOf(
                         "value",
@@ -457,8 +506,14 @@ class GovernanceProjectionTest {
                     decision(DecisionKind.POLICY_DECISION, sequence = 5_000_000_000L),
                 )
             val projection =
-                reader(registeredAuthority(), ScriptedFacts(decisions = records, assertedRange = 1L..5_000_000_000L))
-                    .read(identity, declared(), "run-1")
+                reader(
+                    registeredAuthority(),
+                    ScriptedFacts(
+                        decisions = records,
+                        verifiedRange = 1L..5_000_000_000L,
+                        unrecordedDecisionPositions = setOf(2L),
+                    ),
+                ).read(identity, declared(), "run-1")
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.completeness).isEqualTo(Completeness.GAPS_PRESENT)
@@ -512,7 +567,7 @@ class GovernanceProjectionTest {
                 assertFailsWith<IllegalArgumentException> {
                     reader(
                         registeredAuthority(),
-                        ScriptedFacts(decisions = listOf(foreign), assertedRange = 1L..1L),
+                        ScriptedFacts(decisions = listOf(foreign), verifiedRange = 1L..1L),
                     ).read(identity, declared(), "run-1")
                 }
             assertThat(refusal.message).contains("another run")
@@ -530,7 +585,7 @@ class GovernanceProjectionTest {
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
-            assertThat(policy.coverage).isNull()
+            assertThat(policy.verifiedStreamRange).isNull()
             assertThat(policy.latest.value).isNotNull()
         }
 
@@ -544,14 +599,14 @@ class GovernanceProjectionTest {
                     decision(DecisionKind.POLICY_DECISION, value = "DENY", sequence = 3),
                 )
             val projection =
-                reader(registeredAuthority(), ScriptedFacts(decisions = records, assertedRange = 1L..3L))
+                reader(registeredAuthority(), ScriptedFacts(decisions = records, verifiedRange = 1L..3L))
                     .read(identity, declared(), "run-1")
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             val tool = projection.decisions.single { it.kind == DecisionKind.TOOL_PERMISSION }
             assertThat(policy.completeness).isEqualTo(Completeness.COMPLETE)
             assertThat(tool.completeness).isEqualTo(Completeness.COMPLETE)
-            assertThat(policy.coverage).isEqualTo(1L..3L)
+            assertThat(policy.verifiedStreamRange).isEqualTo(1L..3L)
         }
 
     @Test
@@ -569,7 +624,7 @@ class GovernanceProjectionTest {
                         sourceVersion = 1,
                     ),
                 completeness = Completeness.COMPLETE,
-                coverage = null,
+                verifiedStreamRange = null,
             )
         }
     }
@@ -578,7 +633,7 @@ class GovernanceProjectionTest {
     fun `an empty read is not evidence that nothing was produced`() =
         runBlocking<Unit> {
             val projection =
-                reader(registeredAuthority(), ScriptedFacts(decisions = emptyList(), assertedRange = 1L..4L))
+                reader(registeredAuthority(), ScriptedFacts(decisions = emptyList(), verifiedRange = 1L..4L))
                     .read(identity, declared(), "run-1")
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }

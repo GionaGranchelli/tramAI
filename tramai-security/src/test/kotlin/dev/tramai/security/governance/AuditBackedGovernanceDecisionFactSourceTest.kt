@@ -108,7 +108,7 @@ class AuditBackedGovernanceDecisionFactSourceTest {
                     DecisionKind.TOOL_PERMISSION,
                 )
             assertThat(read.records.map { it.decision }).containsExactly("DENY", "ALLOW", "ALLOW")
-            assertThat(read.assertedRange).isEqualTo(1L..3L)
+            assertThat(read.coverage.verifiedRange).isEqualTo(1L..3L)
         }
 
     @Test
@@ -145,7 +145,7 @@ class AuditBackedGovernanceDecisionFactSourceTest {
             val read = AuditBackedGovernanceDecisionFactSource(racing).decisionsFor(runId)
 
             assertThat(read.records).isNotEmpty()
-            assertThat(read.assertedRange).isNull()
+            assertThat(read.coverage.verifiedRange).isNull()
         }
 
     @Test
@@ -184,7 +184,7 @@ class AuditBackedGovernanceDecisionFactSourceTest {
             val read = AuditBackedGovernanceDecisionFactSource(lateAppend).decisionsFor(runId)
 
             assertThat(read.records.map { it.sourceSequence }).containsExactly(1L, 2L)
-            assertThat(read.assertedRange).isNull()
+            assertThat(read.coverage.verifiedRange).isNull()
         }
 
     @Test
@@ -199,7 +199,7 @@ class AuditBackedGovernanceDecisionFactSourceTest {
                     .decisionsFor(runId)
 
             assertThat(read.records.map { it.sourceSequence }).containsExactly(1L, 2L)
-            assertThat(read.assertedRange).isNull()
+            assertThat(read.coverage.verifiedRange).isNull()
         }
 
     @Test
@@ -310,11 +310,35 @@ class AuditBackedGovernanceDecisionFactSourceTest {
 
             val read = AuditBackedGovernanceDecisionFactSource(store).decisionsFor(runId)
 
-            // The two decisions are a strict subset of a three-event stream that verified in full.
-            // Attesting 1..3 would make the projection read the redaction as a missing decision, so
-            // the source reports no range at all and the coverage stays unknown instead.
+            // The two decisions are a strict subset of a three-event stream that verified in full, and
+            // the raw range survives that: the stream was read and anchored. What the read cannot say
+            // is that position 2 was irrelevant — "REDACTED" at a tool boundary is not a producer this
+            // repository defines — so the decision claim stays unproven rather than becoming COMPLETE.
             assertThat(read.records.map { it.sourceSequence }).containsExactly(1L, 3L)
-            assertThat(read.assertedRange).isNull()
+            assertThat(read.coverage.verifiedRange).isEqualTo(1L..3L)
+            assertThat(read.coverage.unclassifiedPositions).containsExactly(2L)
+            assertThat(read.coverage.unrecordedDecisionPositions).isEmpty()
+        }
+
+    @Test
+    fun `a mixed stream keeps its verified range and accounts for every event`() =
+        runBlocking<Unit> {
+            policyAllow()
+            // The enforcement point and decision token AuditEngineDlpRedactionAuditEmitter records: a
+            // producer this repository defines, and not a decision family's.
+            raw("DLP_TOOL_RESULT", "REDACTED")
+            policyDeny()
+
+            val read = AuditBackedGovernanceDecisionFactSource(store).decisionsFor(runId)
+
+            // The redaction is a real event of another family, so it is neither a hole nor an unknown,
+            // the raw range covers the stream that was read, and the account shows every position was
+            // classified rather than dropped.
+            assertThat(read.records.map { it.sourceSequence }).containsExactly(1L, 3L)
+            assertThat(read.coverage.verifiedRange).isEqualTo(1L..3L)
+            assertThat(read.coverage.accountedPositions).isEqualTo(3L)
+            assertThat(read.coverage.unrecordedDecisionPositions).isEmpty()
+            assertThat(read.coverage.unclassifiedPositions).isEmpty()
         }
 
     @Test
@@ -329,7 +353,7 @@ class AuditBackedGovernanceDecisionFactSourceTest {
             val read = capped.decisionsFor(runId)
 
             assertThat(read.records.map { it.sourceSequence }).containsExactly(1L, 2L, 3L)
-            assertThat(read.assertedRange).isNull()
+            assertThat(read.coverage.verifiedRange).isNull()
         }
 
     @Test
@@ -361,7 +385,7 @@ class AuditBackedGovernanceDecisionFactSourceTest {
             val read = AuditBackedGovernanceDecisionFactSource(mismatchedHead).decisionsFor(runId)
 
             assertThat(read.records).hasSize(2)
-            assertThat(read.assertedRange).isNull()
+            assertThat(read.coverage.verifiedRange).isNull()
         }
 
     @Test
@@ -378,11 +402,12 @@ class AuditBackedGovernanceDecisionFactSourceTest {
             val read = AuditBackedGovernanceDecisionFactSource(store).decisionsFor(runId)
 
             assertThat(read.records).isEmpty()
-            // The run's only event was filtered, so the projected set is a strict subset of the
-            // verified stream. Attesting 1..1 here would claim complete coverage of decisions the
-            // source deliberately did not project; the stream was read, it carried no decision, and
-            // the range therefore says nothing.
-            assertThat(read.assertedRange).isNull()
+            // The event recorded a decision outcome at a boundary this source does not recognise as a
+            // decision family, so it produced no record. That is a hole in the record set and is
+            // reported as one, while the raw stream it came from is still covered and attested.
+            assertThat(read.coverage.verifiedRange).isEqualTo(1L..1L)
+            assertThat(read.coverage.unrecordedDecisionPositions).containsExactly(1L)
+            assertThat(read.coverage.unclassifiedPositions).isEmpty()
         }
 
     @Test
@@ -456,7 +481,7 @@ class AuditBackedGovernanceDecisionFactSourceTest {
             val read = AuditBackedGovernanceDecisionFactSource(store).decisionsFor(runId)
 
             assertThat(read.records).isEmpty()
-            assertThat(read.assertedRange).isNull()
+            assertThat(read.coverage.verifiedRange).isNull()
         }
 
     @Test
@@ -471,7 +496,7 @@ class AuditBackedGovernanceDecisionFactSourceTest {
             val read = AuditBackedGovernanceDecisionFactSource(store, noAssociation).decisionsFor(runId)
 
             assertThat(read.records).isEmpty()
-            assertThat(read.assertedRange).isNull()
+            assertThat(read.coverage.verifiedRange).isNull()
         }
 
     @Test

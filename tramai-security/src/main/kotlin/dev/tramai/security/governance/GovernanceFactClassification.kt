@@ -49,24 +49,26 @@ internal object GovernanceFactClassification {
         }
 
     /**
-     * Whether the projection may claim it covered everything it reports.
+     * What the read may claim about the decision records it returned, given what it verified.
      *
-     * Rests on the source-attested range, never on the observed positions alone: a single observed
-     * position is contiguous with itself, and a contiguous window says nothing about the positions
-     * outside it. Positions are compared as a set so that two records sharing a position are not
-     * misread as a hole, and contiguity is a span comparison rather than a range walk, which is
-     * O(max - min) and throws for a range wider than `Int.MAX_VALUE`.
+     * This is not the raw-stream question. The verified range says which audit positions were read and
+     * anchored; this says whether the records the read recognised account for the positions that were
+     * supposed to produce one. A legitimate non-decision event is not a hole, and an event nobody
+     * could classify is not assumed irrelevant — it is the difference between reporting a gap and
+     * reporting that the source does not know.
+     *
+     * A record without an ordering basis, or a record outside the verified range, breaks the claim the
+     * same way: the records are the observable half of it, so they are checked rather than trusted.
      */
     fun completenessOf(
         records: List<RecordedDecision>,
-        coverage: LongRange?,
+        coverage: StreamCoverage,
     ): Completeness {
+        val range = coverage.verifiedRange ?: return Completeness.UNKNOWN
         val positions = records.mapNotNull { it.sourceSequence }
-        val first = positions.minOrNull()
-        val last = positions.maxOrNull()
-        val span = if (coverage == null) null else coverage.last - coverage.first + 1
+        val span = range.last - range.first + 1
         return when {
-            coverage == null || span == null || span <= 0 -> {
+            coverage.unclassifiedPositions.isNotEmpty() -> {
                 Completeness.UNKNOWN
             }
 
@@ -74,16 +76,29 @@ internal object GovernanceFactClassification {
                 Completeness.UNKNOWN
             }
 
-            first == null || last == null -> {
+            positions.any { it !in range } -> {
                 Completeness.UNKNOWN
             }
 
-            positions.toSet().size.toLong() == span && first == coverage.first && last == coverage.last -> {
+            coverage.unrecordedDecisionPositions.isNotEmpty() -> {
+                Completeness.GAPS_PRESENT
+            }
+
+            // An empty record set completes nothing: the raw range still tells the caller the stream
+            // was read, while a record claim with no records would say only that none was required.
+            records.isEmpty() -> {
+                Completeness.UNKNOWN
+            }
+
+            // The partition is the proof: records plus the recognised non-decisions the source counted
+            // account for every verified position. Without it the completion would rest on the buckets
+            // being exhaustive, which is exactly the silent drop this contract exists to prevent.
+            coverage.accountedPositions == span -> {
                 Completeness.COMPLETE
             }
 
             else -> {
-                Completeness.GAPS_PRESENT
+                Completeness.UNKNOWN
             }
         }
     }

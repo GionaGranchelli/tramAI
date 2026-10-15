@@ -7,28 +7,29 @@ package dev.tramai.security.governance
  * budget, and because this is where the ordering rules live: dedupe by identity, elect the highest
  * source position regardless of delivery order, never elect one without an ordering basis, and carry
  * completeness through from the read rather than deriving it per family — the audit stream's
- * positions are per stream, so another family's position is not a hole in this family's history.
+ * positions are per stream, so another family's position is not a hole in this family's history, and
+ * the decision-record claim belongs to the read that verified the stream rather than to this fold.
  */
 internal object GovernanceDecisionFold {
     fun project(
         kind: DecisionKind,
         records: List<RecordedDecision>,
-        coverage: LongRange?,
+        verifiedStreamRange: LongRange?,
         completeness: Completeness,
     ): DecisionProjection {
         val distinct = records.distinct()
         val duplicates = records.size - distinct.size
         return when {
             records.isEmpty() -> {
-                absent(kind, coverage, completeness)
+                absent(kind, verifiedStreamRange, completeness)
             }
 
             distinct.all { it.sourceSequence != null } -> {
-                orderedFold(kind, distinct, duplicates, coverage, completeness)
+                orderedFold(kind, distinct, duplicates, verifiedStreamRange, completeness)
             }
 
             else -> {
-                unorderedFold(kind, distinct, duplicates, coverage)
+                unorderedFold(kind, distinct, duplicates, verifiedStreamRange)
             }
         }
     }
@@ -37,7 +38,7 @@ internal object GovernanceDecisionFold {
         kind: DecisionKind,
         distinct: List<RecordedDecision>,
         duplicates: Int,
-        coverage: LongRange?,
+        verifiedStreamRange: LongRange?,
         completeness: Completeness,
     ): DecisionProjection {
         val latest =
@@ -48,7 +49,7 @@ internal object GovernanceDecisionFold {
             kind = kind,
             latest = recordFact(kind, latest, FactFreshness.HISTORICAL),
             completeness = completeness,
-            coverage = coverage,
+            verifiedStreamRange = verifiedStreamRange,
             duplicatesIgnored = duplicates,
             staleIgnored = distinct.size - 1,
         )
@@ -64,7 +65,7 @@ internal object GovernanceDecisionFold {
         kind: DecisionKind,
         distinct: List<RecordedDecision>,
         duplicates: Int,
-        coverage: LongRange?,
+        verifiedStreamRange: LongRange?,
     ): DecisionProjection =
         DecisionProjection(
             kind = kind,
@@ -75,14 +76,14 @@ internal object GovernanceDecisionFold {
                             "the newest is not established by this read",
                 ),
             completeness = Completeness.UNKNOWN,
-            coverage = coverage,
+            verifiedStreamRange = verifiedStreamRange,
             duplicatesIgnored = duplicates,
         )
 
     /** A family that reports nothing: absence classified by why it is absent, not by the empty list. */
     fun absent(
         kind: DecisionKind,
-        coverage: LongRange? = null,
+        verifiedStreamRange: LongRange? = null,
         completeness: Completeness = Completeness.UNKNOWN,
     ): DecisionProjection {
         val authority = GovernanceFactClassification.absenceAuthorityFor(kind)
@@ -102,7 +103,7 @@ internal object GovernanceDecisionFold {
                     mustNotInfer = GovernanceFactClassification.absenceLimitationsFor(kind),
                 ),
             completeness = completeness,
-            coverage = coverage,
+            verifiedStreamRange = verifiedStreamRange,
         )
     }
 
