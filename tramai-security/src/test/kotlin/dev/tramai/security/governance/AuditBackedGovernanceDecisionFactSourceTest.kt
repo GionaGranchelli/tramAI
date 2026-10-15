@@ -261,10 +261,10 @@ class AuditBackedGovernanceDecisionFactSourceTest {
         runBlocking<Unit> {
             policyAllow()
             policyAllow()
-            // A second, genuinely coherent chain: real decides, contiguous positions from 1, the
-            // requested run, internally consistent hashes — but belonging to a different stream.
-            // Length and positions agree with the head that was read, so internal consistency alone
-            // would have been enough to attest it.
+            // A second, genuinely coherent chain lives in "run-2", and this store answers *every*
+            // read from it — pages and head alike. Positions, length and the last event's hash
+            // therefore all agree with the head that was read, so only the events' stream identity
+            // can refuse the range.
             raw("BEFORE_PROVIDER_INVOCATION", "ALLOW", streamId = "run-2")
             raw("BEFORE_PROVIDER_INVOCATION", "ALLOW", streamId = "run-2")
             val crossedStreams =
@@ -276,7 +276,7 @@ class AuditBackedGovernanceDecisionFactSourceTest {
 
                     override suspend fun readStream(auditStreamId: String) = store.readStream(auditStreamId)
 
-                    override suspend fun latestEvent(auditStreamId: String) = store.latestEvent(auditStreamId)
+                    override suspend fun latestEvent(auditStreamId: String) = store.latestEvent("run-2")
 
                     override suspend fun readStreamPage(
                         auditStreamId: String,
