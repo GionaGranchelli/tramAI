@@ -76,6 +76,11 @@ class AuditBackedGovernanceDecisionFactSourceTest {
         emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, context(), PolicyDecision.Allow)
     }
 
+    private suspend fun policyDeny() {
+        val deny = PolicyDecision.Deny(reason = "blocked", reasonCode = "policy_denied")
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, context(), deny)
+    }
+
     // ---------------------------------------------------------------- range attestation
 
     @Test
@@ -257,14 +262,13 @@ class AuditBackedGovernanceDecisionFactSourceTest {
         }
 
     @Test
-    fun `an internally valid chain from another stream is not attested as this stream's range`() =
+    fun `a read answered from another stream is refused, not narrowed`() =
         runBlocking<Unit> {
             policyAllow()
             policyAllow()
             // A second, genuinely coherent chain lives in "run-2", and this store answers *every*
-            // read from it — pages and head alike. Positions, length and the last event's hash
-            // therefore all agree with the head that was read, so only the events' stream identity
-            // can refuse the range.
+            // read from it — pages and head alike. Positions, length and the internal hashes all
+            // agree, so nothing about the chain's own consistency gives it away.
             raw("BEFORE_PROVIDER_INVOCATION", "ALLOW", streamId = "run-2")
             raw("BEFORE_PROVIDER_INVOCATION", "ALLOW", streamId = "run-2")
             val crossedStreams =
@@ -285,9 +289,46 @@ class AuditBackedGovernanceDecisionFactSourceTest {
                     ) = store.readStreamPage("run-2", afterSequenceNumber, limit)
                 }
 
-            val read = AuditBackedGovernanceDecisionFactSource(crossedStreams).decisionsFor(runId)
+            val refusal =
+                assertFailsWith<AuditDecisionStreamMismatchException> {
+                    AuditBackedGovernanceDecisionFactSource(crossedStreams).decisionsFor(runId)
+                }
 
-            assertThat(read.records).hasSize(2)
+            // Refused, not narrowed to an unknown-completeness read: those events belong to another
+            // stream and must not enter the projection as this run's decisions. An unknown range is
+            // not enough, because the records themselves would still be facts.
+            assertThat(refusal.requestedAuditStreamId).isEqualTo(runId)
+            assertThat(refusal.message).contains("run-2")
+        }
+
+    @Test
+    fun `a verified stream with non-decision events does not manufacture gaps`() =
+        runBlocking<Unit> {
+            policyAllow()
+            raw("BEFORE_TOOL_RESULT_REINJECTION", "REDACTED")
+            policyDeny()
+
+            val read = AuditBackedGovernanceDecisionFactSource(store).decisionsFor(runId)
+
+            // The two decisions are a strict subset of a three-event stream that verified in full.
+            // Attesting 1..3 would make the projection read the redaction as a missing decision, so
+            // the source reports no range at all and the coverage stays unknown instead.
+            assertThat(read.records.map { it.sourceSequence }).containsExactly(1L, 3L)
+            assertThat(read.assertedRange).isNull()
+        }
+
+    @Test
+    fun `a bounded read never exceeds maxEventsPerRead`() =
+        runBlocking<Unit> {
+            repeat(4) { policyAllow() }
+
+            // A page size that does not divide the cap: two events per page, cap three. Asking for a
+            // full page while only one slot remains would read four events and could then attest a
+            // range wider than the configured cap.
+            val capped = AuditBackedGovernanceDecisionFactSource(store, pageSize = 2, maxEventsPerRead = 3)
+            val read = capped.decisionsFor(runId)
+
+            assertThat(read.records.map { it.sourceSequence }).containsExactly(1L, 2L, 3L)
             assertThat(read.assertedRange).isNull()
         }
 
@@ -337,7 +378,11 @@ class AuditBackedGovernanceDecisionFactSourceTest {
             val read = AuditBackedGovernanceDecisionFactSource(store).decisionsFor(runId)
 
             assertThat(read.records).isEmpty()
-            assertThat(read.assertedRange).isEqualTo(1L..1L)
+            // The run's only event was filtered, so the projected set is a strict subset of the
+            // verified stream. Attesting 1..1 here would claim complete coverage of decisions the
+            // source deliberately did not project; the stream was read, it carried no decision, and
+            // the range therefore says nothing.
+            assertThat(read.assertedRange).isNull()
         }
 
     @Test

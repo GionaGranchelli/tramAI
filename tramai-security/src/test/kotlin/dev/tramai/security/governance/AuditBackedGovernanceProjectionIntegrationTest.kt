@@ -8,6 +8,7 @@ import dev.tramai.core.identity.WorkloadMetadata
 import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
+import dev.tramai.security.audit.AuditEmission
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.AuditEnginePolicyDecisionAuditEmitter
 import dev.tramai.security.audit.InMemoryAuditStore
@@ -202,6 +203,39 @@ class AuditBackedGovernanceProjectionIntegrationTest {
             assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
             assertThat(policy.coverage).isNull()
             assertThat(policy.latest.value?.sourceSequence).isEqualTo(1L)
+        }
+
+    @Test
+    fun `an interleaved non-decision event does not report a gap`() =
+        runBlocking<Unit> {
+            emitPolicy(PolicyDecision.Allow)
+            // An audit stream carries events that are not decisions: a redaction records its own
+            // outcome at a tool enforcement point. It is a real event in the stream, and not a
+            // member of any decision family.
+            engine.emit(
+                AuditEmission(
+                    auditStreamId = runId,
+                    workflowRunId = runId,
+                    correlationId = "corr-1",
+                    actor = null,
+                    enforcementPoint = "BEFORE_TOOL_RESULT_REINJECTION",
+                    decision = "REDACTED",
+                    policyVersion = "v17",
+                    workflowDigest = null,
+                    reasonCode = "dlp_redacted",
+                    metadata = emptyMap(),
+                ),
+            )
+            emitPolicy(PolicyDecision.Deny(reason = "blocked", reasonCode = "policy_denied"))
+
+            val policy = projection(registeredAuthority()).decisions.single { it.kind == DecisionKind.POLICY_DECISION }
+
+            // Both decisions were read, at their own positions, and the redaction between them is
+            // not one of them. The stream has no gaps, so the projection must not invent one.
+            assertThat(policy.latest.value?.sourceSequence).isEqualTo(3L)
+            assertThat(policy.completeness).isNotEqualTo(Completeness.GAPS_PRESENT)
+            assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
+            assertThat(policy.coverage).isNull()
         }
 
     @Test

@@ -88,28 +88,41 @@ internal class AuditBackedGovernanceDecisionFactSource(
             throw AuditDecisionAttributionException(streamId, workflowRunId, foreign)
         }
 
+        // A source answering from a different stream is an integrity failure, not an
+        // unknown-completeness condition: those events belong to somebody else's run, and range
+        // attestation cannot police it because a foreign chain can be perfectly coherent on its own.
+        // The read is refused rather than narrowed.
+        events.firstOrNull { it.auditStreamId != streamId }?.let { elsewhere ->
+            throw AuditDecisionStreamMismatchException(streamId, elsewhere)
+        }
+
         val records = events.mapNotNull { recordFor(it, workflowRunId) }
         return DecisionFactRead(
             records = records,
-            assertedRange = attestedRange(streamId, headBefore, auditStore.latestEvent(streamId), events),
+            assertedRange =
+                attestedRange(
+                    headBefore = headBefore,
+                    headAfter = auditStore.latestEvent(streamId),
+                    events = events,
+                    projectedCount = records.size,
+                ),
         )
     }
 
     /**
      * The range this read can attest, or `null` when it can attest none.
      *
-     * Positions alone are not enough: [AuditChainVerifier] proves only that the returned list is
-     * internally consistent, so a source answering with a different — but equally coherent — chain
-     * of the same length would otherwise earn an attested range. The range therefore requires the
-     * events to carry the requested stream id, the last event's position **and** hash to be the
-     * observed head's, the head to be unchanged either side of the read, and the positions to begin
-     * at 1 and be contiguous up to that head.
+     * Positions alone are not enough. [AuditChainVerifier] proves only that the returned list is
+     * internally consistent and a foreign chain is refused before reaching here, so the range
+     * requires the last event's position **and** hash to be the observed head's, the head to be
+     * unchanged either side of the read, the positions to begin at 1 and be contiguous up to that
+     * head, and every verified event to have become a fact.
      */
     private fun attestedRange(
-        streamId: String,
         headBefore: AuditEvent,
         headAfter: AuditEvent?,
         events: List<AuditEvent>,
+        projectedCount: Int,
     ): LongRange? {
         val last = events.lastOrNull()
         val headUnchanged =
@@ -119,7 +132,12 @@ internal class AuditBackedGovernanceDecisionFactSource(
         val anchored =
             last != null &&
                 events.first().sequenceNumber == FIRST_SOURCE_POSITION &&
-                events.all { it.auditStreamId == streamId } &&
+                // Every verified event must have become a fact. An audit stream also carries events
+                // that are not decision records — a redaction, for instance — while the completeness
+                // contract reads projected positions against this range. Attesting a range over a
+                // filtered read would turn those events into missing decisions and report a gap the
+                // stream does not have, so filtering costs the range rather than the truth.
+                projectedCount == events.size &&
                 last.sequenceNumber == headBefore.sequenceNumber &&
                 last.eventHash == headBefore.eventHash &&
                 events.size.toLong() == headBefore.sequenceNumber &&
@@ -131,7 +149,8 @@ internal class AuditBackedGovernanceDecisionFactSource(
     override suspend fun telemetryFor(workflowRunId: String): List<TelemetryObservation> = emptyList()
 
     /**
-     * Reads positions 1..[head] contiguously, or as much of that prefix as the bound allows.
+     * Reads positions 1..[head] contiguously, without ever reading more than [maxEventsPerRead]
+     * events, or as much of that prefix as the bound allows.
      *
      * A bounded read returns the prefix it did verify, with no attested range; it never returns a
      * range it did not read.
@@ -145,11 +164,15 @@ internal class AuditBackedGovernanceDecisionFactSource(
         var events: List<AuditEvent> = emptyList()
         var cursor: Long? = null
         while (events.size.toLong() < head && events.size < maxEventsPerRead) {
+            // The remaining capacity is the limit, not the page size: requesting a full page when
+            // fewer slots remain reads past the cap, and the range could then attest more events
+            // than the configured bound allows.
+            val remaining = maxEventsPerRead - events.size
             val page =
                 auditStore.readStreamPage(
                     auditStreamId = streamId,
                     afterSequenceNumber = cursor,
-                    limit = pageSize,
+                    limit = minOf(pageSize, remaining),
                 )
             if (page.isEmpty()) break
             events = events + page
@@ -258,6 +281,18 @@ internal class AuditDecisionIntegrityException(
                 .firstOrNull()
                 ?.message
                 .orEmpty(),
+    )
+
+/**
+ * The store answered a read for one stream with another stream's event. A foreign chain can be
+ * internally coherent, so this cannot be left to range attestation: the read is refused.
+ */
+internal class AuditDecisionStreamMismatchException(
+    val requestedAuditStreamId: String,
+    offending: AuditEvent,
+) : IllegalStateException(
+        "audit store answered a read for stream '$requestedAuditStreamId' with an event from " +
+            "stream '${offending.auditStreamId}' at position ${offending.sequenceNumber}",
     )
 
 /**
