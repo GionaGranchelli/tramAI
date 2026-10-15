@@ -64,32 +64,67 @@ internal class AuditBackedGovernanceDecisionFactSource(
 
     override suspend fun decisionsFor(workflowRunId: String): DecisionFactRead {
         require(workflowRunId.isNotBlank()) { "a decision read must name the run it is about" }
-        // Head before: the position this read is about. An absent association or an absent head is
-        // an empty read, not a complete one — nothing was observed, and nothing is asserted.
+        // Head before: the event this read is about, not merely its position. An absent association
+        // or an absent head is an empty read, not a complete one — nothing was observed, and nothing
+        // is asserted.
         val streamId = streamAssociation.streamIdFor(workflowRunId)
-        val headBefore = streamId?.let { auditStore.latestEvent(it)?.sequenceNumber }
+        val headBefore = streamId?.let { auditStore.latestEvent(it) }
         if (streamId == null || headBefore == null) {
             return DecisionFactRead(records = emptyList(), assertedRange = null)
         }
 
-        val events = readFromStart(streamId, headBefore)
+        val events = readFromStart(streamId, headBefore.sequenceNumber)
         val verification = AuditChainVerifier.verify(events)
         if (!verification.isValid) {
             throw AuditDecisionIntegrityException(streamId, verification)
         }
+        // Attribution fails closed rather than filtering. A run-named stream carrying another run's
+        // event is not this run's stream, so dropping the event would leave a shorter, confident read
+        // — possibly over an attested range — where the honest answer is that the stream cannot be
+        // read as this run's evidence at all. Multi-run streams are therefore not supported by this
+        // source; supporting them would be a separate mode with its own attribution and completeness
+        // semantics, not a silent filter here.
+        events.firstOrNull { it.workflowRunId != workflowRunId }?.let { foreign ->
+            throw AuditDecisionAttributionException(streamId, workflowRunId, foreign)
+        }
 
-        val headAfter = auditStore.latestEvent(streamId)?.sequenceNumber
         val records = events.mapNotNull { recordFor(it, workflowRunId) }
-        val attested =
-            headAfter == headBefore &&
-                events.size.toLong() == headBefore &&
-                events.first().sequenceNumber == FIRST_SOURCE_POSITION
         return DecisionFactRead(
             records = records,
-            // Completeness is a stream property, not a per-family one: the range covers stream
-            // positions 1..head, and the family partition is reported through the records.
-            assertedRange = if (attested) FIRST_SOURCE_POSITION..headBefore else null,
+            assertedRange = attestedRange(streamId, headBefore, auditStore.latestEvent(streamId), events),
         )
+    }
+
+    /**
+     * The range this read can attest, or `null` when it can attest none.
+     *
+     * Positions alone are not enough: [AuditChainVerifier] proves only that the returned list is
+     * internally consistent, so a source answering with a different — but equally coherent — chain
+     * of the same length would otherwise earn an attested range. The range therefore requires the
+     * events to carry the requested stream id, the last event's position **and** hash to be the
+     * observed head's, the head to be unchanged either side of the read, and the positions to begin
+     * at 1 and be contiguous up to that head.
+     */
+    private fun attestedRange(
+        streamId: String,
+        headBefore: AuditEvent,
+        headAfter: AuditEvent?,
+        events: List<AuditEvent>,
+    ): LongRange? {
+        val last = events.lastOrNull()
+        val headUnchanged =
+            headAfter != null &&
+                headAfter.sequenceNumber == headBefore.sequenceNumber &&
+                headAfter.eventHash == headBefore.eventHash
+        val anchored =
+            last != null &&
+                events.first().sequenceNumber == FIRST_SOURCE_POSITION &&
+                events.all { it.auditStreamId == streamId } &&
+                last.sequenceNumber == headBefore.sequenceNumber &&
+                last.eventHash == headBefore.eventHash &&
+                events.size.toLong() == headBefore.sequenceNumber &&
+                headUnchanged
+        return if (anchored) FIRST_SOURCE_POSITION..headBefore.sequenceNumber else null
     }
 
     /** An audit stream is evidence, not telemetry. Nothing read here becomes an observation. */
@@ -137,7 +172,7 @@ internal class AuditBackedGovernanceDecisionFactSource(
         event: AuditEvent,
         requestedRun: String,
     ): RecordedDecision? =
-        decisionKindOf(event, requestedRun)?.let { kind ->
+        decisionKindOf(event)?.let { kind ->
             RecordedDecision(
                 workflowRunId = requestedRun,
                 kind = kind,
@@ -152,16 +187,14 @@ internal class AuditBackedGovernanceDecisionFactSource(
             )
         }
 
-    /** The family an event belongs to, or `null` when this source cannot recognise a decision. */
-    private fun decisionKindOf(
-        event: AuditEvent,
-        requestedRun: String,
-    ): DecisionKind? =
+    /**
+     * The family an event belongs to, or `null` when this source cannot recognise a decision.
+     *
+     * Run attribution is not checked here: it is enforced over the whole read, failing closed, so a
+     * record reaching this point is already known to belong to the requested run.
+     */
+    private fun decisionKindOf(event: AuditEvent): DecisionKind? =
         when {
-            event.workflowRunId != requestedRun -> {
-                null
-            }
-
             event.decision !in DECISION_TOKENS -> {
                 null
             }
@@ -225,4 +258,17 @@ internal class AuditDecisionIntegrityException(
                 .firstOrNull()
                 ?.message
                 .orEmpty(),
+    )
+
+/**
+ * A stream carrying another run's event cannot be read as this run's evidence, so the read is
+ * refused rather than silently narrowed to the events this run happens to own.
+ */
+internal class AuditDecisionAttributionException(
+    val auditStreamId: String,
+    val requestedWorkflowRunId: String,
+    offending: AuditEvent,
+) : IllegalStateException(
+        "audit stream '$auditStreamId' cannot be read as run '$requestedWorkflowRunId': " +
+            "event at position ${offending.sequenceNumber} belongs to run '${offending.workflowRunId}'",
     )

@@ -23,9 +23,10 @@ import kotlin.test.assertFailsWith
  *
  * The store, the append path and the emitter are the real ones: decisions are persisted with
  * [AuditEngine] (the same writer every emitter uses) through [InMemoryAuditStore], which is a real
- * implementation of the production [AuditStore] SPI. Only the two adversarial stores below are
- * wrappers, and each exists to inject one specific broken behaviour — a racing append and a
- * tampered event — that a correct store cannot produce on demand.
+ * implementation of the production [AuditStore] SPI. Only the adversarial stores below are
+ * wrappers, and each exists to inject one specific broken behaviour that a correct store cannot
+ * produce on demand: a racing append, a tampered event, a page read answered from another stream,
+ * and a head that is not the event that was read.
  */
 class AuditBackedGovernanceDecisionFactSourceTest {
     private val runId = "run-1"
@@ -235,15 +236,91 @@ class AuditBackedGovernanceDecisionFactSourceTest {
     // ---------------------------------------------------------------- attribution and family
 
     @Test
-    fun `a record attributed to another run is not projected`() =
+    fun `a foreign-run event in a run-named stream refuses the read instead of being dropped`() =
         runBlocking<Unit> {
             policyAllow()
-            raw("BEFORE_PROVIDER_INVOCATION", "DENY", workflowRunId = "run-2")
+            raw("BEFORE_PROVIDER_INVOCATION", "ALLOW", workflowRunId = "run-2")
+            policyAllow()
 
-            val read = AuditBackedGovernanceDecisionFactSource(store).decisionsFor(runId)
+            val refusal =
+                assertFailsWith<AuditDecisionAttributionException> {
+                    AuditBackedGovernanceDecisionFactSource(store).decisionsFor(runId)
+                }
 
-            assertThat(read.records.map { it.workflowRunId }).containsExactly(runId)
-            assertThat(read.records.map { it.sourceSequence }).containsExactly(1L)
+            // Refused, not narrowed. This run's own two decisions are present in the stream and the
+            // read still fails: a stream that mixes runs cannot be read as this run's evidence, and
+            // returning the two facts it happens to own would present the stream as a clean read.
+            assertThat(store.readStream(runId)).hasSize(3)
+            assertThat(refusal.auditStreamId).isEqualTo(runId)
+            assertThat(refusal.requestedWorkflowRunId).isEqualTo(runId)
+            assertThat(refusal.message).contains("run-2").contains("position 2")
+        }
+
+    @Test
+    fun `an internally valid chain from another stream is not attested as this stream's range`() =
+        runBlocking<Unit> {
+            policyAllow()
+            policyAllow()
+            // A second, genuinely coherent chain: real decides, contiguous positions from 1, the
+            // requested run, internally consistent hashes — but belonging to a different stream.
+            // Length and positions agree with the head that was read, so internal consistency alone
+            // would have been enough to attest it.
+            raw("BEFORE_PROVIDER_INVOCATION", "ALLOW", streamId = "run-2")
+            raw("BEFORE_PROVIDER_INVOCATION", "ALLOW", streamId = "run-2")
+            val crossedStreams =
+                object : AuditStore {
+                    override suspend fun appendNext(
+                        auditStreamId: String,
+                        eventFactory: (latest: AuditEvent?) -> AuditEvent,
+                    ) = store.appendNext(auditStreamId, eventFactory)
+
+                    override suspend fun readStream(auditStreamId: String) = store.readStream(auditStreamId)
+
+                    override suspend fun latestEvent(auditStreamId: String) = store.latestEvent(auditStreamId)
+
+                    override suspend fun readStreamPage(
+                        auditStreamId: String,
+                        afterSequenceNumber: Long?,
+                        limit: Int,
+                    ) = store.readStreamPage("run-2", afterSequenceNumber, limit)
+                }
+
+            val read = AuditBackedGovernanceDecisionFactSource(crossedStreams).decisionsFor(runId)
+
+            assertThat(read.records).hasSize(2)
+            assertThat(read.assertedRange).isNull()
+        }
+
+    @Test
+    fun `a head that is not the event last read does not attest the range`() =
+        runBlocking<Unit> {
+            policyAllow()
+            policyAllow()
+            // Same stream, same positions, same length: the only disagreement is that the head the
+            // store reports is not the event that was read, which position alone cannot detect.
+            val mismatchedHead =
+                object : AuditStore {
+                    override suspend fun appendNext(
+                        auditStreamId: String,
+                        eventFactory: (latest: AuditEvent?) -> AuditEvent,
+                    ) = store.appendNext(auditStreamId, eventFactory)
+
+                    override suspend fun readStream(auditStreamId: String) = store.readStream(auditStreamId)
+
+                    override suspend fun latestEvent(auditStreamId: String) =
+                        store.latestEvent(auditStreamId)?.copy(eventHash = "not-the-event-that-was-read")
+
+                    override suspend fun readStreamPage(
+                        auditStreamId: String,
+                        afterSequenceNumber: Long?,
+                        limit: Int,
+                    ) = store.readStreamPage(auditStreamId, afterSequenceNumber, limit)
+                }
+
+            val read = AuditBackedGovernanceDecisionFactSource(mismatchedHead).decisionsFor(runId)
+
+            assertThat(read.records).hasSize(2)
+            assertThat(read.assertedRange).isNull()
         }
 
     @Test
