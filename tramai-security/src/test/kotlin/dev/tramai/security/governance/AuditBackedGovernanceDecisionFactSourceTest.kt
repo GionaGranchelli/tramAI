@@ -342,6 +342,42 @@ class AuditBackedGovernanceDecisionFactSourceTest {
         }
 
     @Test
+    fun `a read that stops short of the head attests no range`() =
+        runBlocking<Unit> {
+            policyAllow()
+            policyAllow()
+            policyAllow()
+            // A coherent chain that stops one event short of the head the store reports. The pages are
+            // internally consistent, so the count against the head is what shows the read was partial —
+            // this is the case the contiguity condition exists for, and it is the case the mutation run
+            // left standing, so the fixture is here to pin which guard actually refuses it.
+            val shortRead =
+                object : AuditStore {
+                    override suspend fun appendNext(
+                        auditStreamId: String,
+                        eventFactory: (latest: AuditEvent?) -> AuditEvent,
+                    ) = store.appendNext(auditStreamId, eventFactory)
+
+                    override suspend fun readStream(auditStreamId: String) = store.readStream(auditStreamId)
+
+                    override suspend fun latestEvent(auditStreamId: String) = store.latestEvent(auditStreamId)
+
+                    override suspend fun readStreamPage(
+                        auditStreamId: String,
+                        afterSequenceNumber: Long?,
+                        limit: Int,
+                    ) = store
+                        .readStreamPage(auditStreamId, afterSequenceNumber, limit)
+                        .filterNot { it.sequenceNumber == 3L }
+                }
+
+            val read = AuditBackedGovernanceDecisionFactSource(shortRead).decisionsFor(runId)
+
+            assertThat(read.records.map { it.sourceSequence }).containsExactly(1L, 2L)
+            assertThat(read.coverage.verifiedRange).isNull()
+        }
+
+    @Test
     fun `a bounded read never exceeds maxEventsPerRead`() =
         runBlocking<Unit> {
             repeat(4) { policyAllow() }
