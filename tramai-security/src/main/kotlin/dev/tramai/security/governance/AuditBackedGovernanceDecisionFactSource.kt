@@ -132,34 +132,75 @@ internal class AuditBackedGovernanceDecisionFactSource(
         val accountedPositions: Long,
     )
 
+    /**
+     * What this read made of one verified event.
+     *
+     * Exhaustive by construction: the classification below assigns exactly one outcome to every
+     * verified event, and the read's records, its gaps, its unknowns and its account are all derived
+     * from those outcomes. That is the point of the type — an account reported beside the
+     * classification would restate the size of the input list, which the attested range already
+     * implies, and would prove nothing about what the classification actually did with it.
+     */
+    private enum class EventOutcome {
+        DECISION_RECORD,
+        RECOGNISED_NON_DECISION,
+        MISSING_RECORD,
+        UNCLASSIFIED,
+    }
+
+    /** A verified event, the outcome this read assigned it, and the record when it has one. */
+    private class ClassifiedEvent(
+        val position: Long,
+        val outcome: EventOutcome,
+        val record: RecordedDecision?,
+    )
+
     private fun verifyEvents(
         events: List<AuditEvent>,
         workflowRunId: String,
     ): VerifiedRead {
-        var records: List<RecordedDecision> = emptyList()
-        var unrecorded: Set<Long> = emptySet()
-        var unclassified: Set<Long> = emptySet()
-        for (event in events) {
-            val record = recordFor(event, workflowRunId)
-            when {
-                record != null -> records = records + record
+        // One linear pass producing one entry per verified event, then linear projections of it, so a
+        // bounded read costs O(n) rather than rebuilding the record list and both position sets once
+        // per event.
+        val classified = events.map { classify(it, workflowRunId) }
+        return VerifiedRead(
+            records = classified.mapNotNull { it.record },
+            unrecordedDecisionPositions = classified.positionsOf(EventOutcome.MISSING_RECORD),
+            unclassifiedPositions = classified.positionsOf(EventOutcome.UNCLASSIFIED),
+            // Counted from the outcomes rather than from the input: an event the classification never
+            // reached leaves its position unaccounted for, and this account is what the completeness
+            // contract checks against the verified range.
+            accountedPositions = classified.count { it.outcome != EventOutcome.UNCLASSIFIED }.toLong(),
+        )
+    }
 
+    private fun classify(
+        event: AuditEvent,
+        workflowRunId: String,
+    ): ClassifiedEvent {
+        recordFor(event, workflowRunId)?.let {
+            return ClassifiedEvent(event.sequenceNumber, EventOutcome.DECISION_RECORD, it)
+        }
+        val outcome =
+            when {
                 // A producer in this repository defines it as another family's event: not a gap and
                 // not an unknown, because the source knows exactly what it is.
-                isRecognisedNonDecision(event) -> Unit
+                isRecognisedNonDecision(event) -> EventOutcome.RECOGNISED_NON_DECISION
 
-                // It recorded a decision outcome and produced no record: a real hole.
-                isDecisionOutcome(event) -> unrecorded = unrecorded + event.sequenceNumber
+                // A boundary one of this repository's decision families owns recorded an outcome and
+                // produced no record: a real hole in the record set.
+                isMissingRecord(event) -> EventOutcome.MISSING_RECORD
 
-                // Nobody can say what it is, so decision coverage is not established.
-                else -> unclassified = unclassified + event.sequenceNumber
+                // Nobody can say what it is, so decision coverage is not established. An unrecognised
+                // boundary carrying a decision token lands here: that an event looks decision-shaped is
+                // not evidence that a record was required of it.
+                else -> EventOutcome.UNCLASSIFIED
             }
-        }
-        // Every verified event was classified into exactly one bucket, so the account is the size of
-        // the read: records, recognised non-decisions, decision outcomes without a record, and unknown
-        // events are mutually exclusive and cover the list.
-        return VerifiedRead(records, unrecorded, unclassified, events.size.toLong())
+        return ClassifiedEvent(event.sequenceNumber, outcome, null)
     }
+
+    private fun List<ClassifiedEvent>.positionsOf(outcome: EventOutcome): Set<Long> =
+        filter { it.outcome == outcome }.map { it.position }.toSet()
 
     /**
      * The raw-stream range this read can attest, or `null` when it can attest none.
@@ -197,16 +238,34 @@ internal class AuditBackedGovernanceDecisionFactSource(
     /**
      * Whether a producer in this repository records this event as belonging to another family.
      *
-     * Recognition is a value match against the producers' own vocabulary rather than a guess, and it
-     * fails safe: an emitter that changes its vocabulary stops being recognised, the event becomes
-     * unclassified, and completeness is withheld instead of claimed. The binding is by discriminator —
-     * tests drive the real emitters through this classification — so the table cannot rot silently.
+     * Recognition is a value match against the values the producers record, and it fails safe: an
+     * emitter that changes its vocabulary stops being recognised, the event becomes unclassified, and
+     * the decision claim is withheld rather than granted.
+     *
+     * The limitation is stated rather than implied: the emitters are not driven through this
+     * classification by a test, so a vocabulary change has to update both the emitter and this table.
+     * Until it does, the effect is a withheld claim, never a false one, and the record in
+     * docs/roadmap/0.7.4/0.7.4c3-VERIFIED-PROJECTION-COVERAGE.md carries it as a limitation.
      */
     private fun isRecognisedNonDecision(event: AuditEvent): Boolean =
         event.enforcementPoint to event.decision in NON_DECISION_PRODUCER_EVENTS
 
-    /** Whether the event recorded a decision outcome, which should have produced a record. */
-    private fun isDecisionOutcome(event: AuditEvent): Boolean = event.decision in DECISION_TOKENS
+    /**
+     * Whether the event recorded a decision outcome at a boundary one of this repository's decision
+     * families owns, which should therefore have produced a record.
+     *
+     * Both parts are required. A decision token alone is not enough: an enforcement point this source
+     * does not recognise carrying `ALLOW` is not evidence that a policy or tool-permission record was
+     * required of it, and reporting it as a hole would turn an unsupported event into a proven missing
+     * record. Reserving `GAPS_PRESENT` for recognised decision-producing boundaries is what keeps it
+     * meaning "a record that should exist does not" rather than "something decision-shaped went past".
+     */
+    private fun isMissingRecord(event: AuditEvent): Boolean =
+        event.decision in DECISION_TOKENS &&
+            (
+                event.enforcementPoint in POLICY_ENFORCEMENT_POINTS ||
+                    event.enforcementPoint in TOOL_ENFORCEMENT_POINTS
+            )
 
     /** An audit stream is evidence, not telemetry. Nothing read here becomes an observation. */
     override suspend fun telemetryFor(workflowRunId: String): List<TelemetryObservation> = emptyList()

@@ -307,6 +307,41 @@ class GovernanceProjectionTest {
         }
 
     @Test
+    fun `coverage that classifies a position outside its verified range is refused`() {
+        assertFailsWith<IllegalArgumentException> {
+            StreamCoverage(verifiedRange = 1L..3L, unrecordedDecisionPositions = setOf(4L))
+        }
+    }
+
+    @Test
+    fun `coverage that classifies a position without a verified range is refused`() {
+        assertFailsWith<IllegalArgumentException> {
+            StreamCoverage(unclassifiedPositions = setOf(1L))
+        }
+    }
+
+    @Test
+    fun `coverage that accounts for a position without a verified range is refused`() {
+        assertFailsWith<IllegalArgumentException> {
+            StreamCoverage(accountedPositions = 1L)
+        }
+    }
+
+    @Test
+    fun `coverage that accounts for more positions than it verified is refused`() {
+        assertFailsWith<IllegalArgumentException> {
+            StreamCoverage(verifiedRange = 1L..3L, accountedPositions = 4L)
+        }
+    }
+
+    @Test
+    fun `coverage with a negative account is refused`() {
+        assertFailsWith<IllegalArgumentException> {
+            StreamCoverage(verifiedRange = 1L..3L, accountedPositions = -1L)
+        }
+    }
+
+    @Test
     fun `freshness is not invented when the source reports no watermark`() =
         runBlocking<Unit> {
             val facts =

@@ -438,12 +438,13 @@ class AuditBackedGovernanceDecisionFactSourceTest {
             val read = AuditBackedGovernanceDecisionFactSource(store).decisionsFor(runId)
 
             assertThat(read.records).isEmpty()
-            // The event recorded a decision outcome at a boundary this source does not recognise as a
-            // decision family, so it produced no record. That is a hole in the record set and is
-            // reported as one, while the raw stream it came from is still covered and attested.
+            // An unrecognised boundary carrying a decision token is not proof that a record was
+            // required of it, so it is unclassified rather than a proven missing record: the raw stream
+            // is still covered and attested, and what is withheld is the decision claim. Reserving
+            // GAPS_PRESENT for boundaries the decision families own is what keeps it meaningful.
             assertThat(read.coverage.verifiedRange).isEqualTo(1L..1L)
-            assertThat(read.coverage.unrecordedDecisionPositions).containsExactly(1L)
-            assertThat(read.coverage.unclassifiedPositions).isEmpty()
+            assertThat(read.coverage.unclassifiedPositions).containsExactly(1L)
+            assertThat(read.coverage.unrecordedDecisionPositions).isEmpty()
         }
 
     @Test
@@ -454,6 +455,12 @@ class AuditBackedGovernanceDecisionFactSourceTest {
             val read = AuditBackedGovernanceDecisionFactSource(store).decisionsFor(runId)
 
             assertThat(read.records).isEmpty()
+            // A recognised tool boundary recorded an outcome and no record could be built from it
+            // (the tool it concerns is missing). This is the hole GAPS_PRESENT is reserved for, and it
+            // is a bounded, attributable one rather than an event nobody can classify.
+            assertThat(read.coverage.verifiedRange).isEqualTo(1L..1L)
+            assertThat(read.coverage.unrecordedDecisionPositions).containsExactly(1L)
+            assertThat(read.coverage.unclassifiedPositions).isEmpty()
         }
 
     @Test
