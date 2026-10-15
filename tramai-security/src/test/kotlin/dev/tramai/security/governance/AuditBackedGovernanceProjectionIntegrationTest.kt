@@ -75,8 +75,9 @@ class AuditBackedGovernanceProjectionIntegrationTest {
         source: GovernanceDecisionFactSource = AuditBackedGovernanceDecisionFactSource(store),
     ): GovernanceProjection = runBlocking { GovernanceProjectionReader(authority, source).read(identity, declared(), runId) }
 
-    private suspend fun emitPolicy(decision: PolicyDecision) =
+    private suspend fun emitPolicy(decision: PolicyDecision) {
         emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, context(), decision)
+    }
 
     private suspend fun emitTool(
         toolName: String,
