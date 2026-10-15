@@ -105,7 +105,9 @@ internal class AuditBackedGovernanceDecisionFactSource(
         streamId: String,
         head: Long,
     ): List<AuditEvent> {
-        val events = mutableListOf<AuditEvent>()
+        // A new list per page rather than a mutable accumulator: the loop is bounded by
+        // maxEventsPerRead, so the copies are bounded too, and nothing here is process-global state.
+        var events: List<AuditEvent> = emptyList()
         var cursor: Long? = null
         while (events.size.toLong() < head && events.size < maxEventsPerRead) {
             val page =
@@ -115,7 +117,7 @@ internal class AuditBackedGovernanceDecisionFactSource(
                     limit = pageSize,
                 )
             if (page.isEmpty()) break
-            events += page
+            events = events + page
             cursor = page.last().sequenceNumber
         }
         return events

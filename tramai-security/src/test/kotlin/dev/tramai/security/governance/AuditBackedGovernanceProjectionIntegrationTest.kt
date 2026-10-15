@@ -190,8 +190,9 @@ class AuditBackedGovernanceProjectionIntegrationTest {
             emitPolicy(PolicyDecision.Allow)
 
             // A bounded read verifies a prefix and attests nothing about the rest.
-            val bounded =
-                projection(registeredAuthority(), AuditBackedGovernanceDecisionFactSource(store, pageSize = 1, maxEventsPerRead = 1))
+            val boundedSource =
+                AuditBackedGovernanceDecisionFactSource(store, pageSize = 1, maxEventsPerRead = 1)
+            val bounded = projection(registeredAuthority(), boundedSource)
 
             val policy = bounded.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
