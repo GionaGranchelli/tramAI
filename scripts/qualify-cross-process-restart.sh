@@ -7,12 +7,16 @@
 # and publishes nothing.
 #
 # This harness owns everything it touches, and fails closed on everything it does not:
-#   - the database is created for this run, on a loopback port Docker chooses, in a container named for
-#     this process, so a database this script did not start can never be reached or modified;
-#   - a container or database that already exists is refused rather than removed, because ownership is
-#     not established by a name;
-#   - startup, readiness and both phases are all required, and the script exits nonzero unless both
-#     phases report the expected result, so a failed run cannot end green;
+#   - the database is created for this run, on a loopback port Docker chooses, in a container whose ID
+#     this execution captures from `docker run`, so a database this script did not start can never be
+#     reached or modified;
+#   - cleanup addresses that captured ID and nothing else. A container that existed before this run, or
+#     one this run refused to touch, is never removed, because ownership is not established by a name;
+#   - startup, readiness and both phases are each required, and the script exits nonzero unless both
+#     phases report the expected result;
+#   - each phase is checked for the outcome that phase must produce: the reader run must pass the reader
+#     test and skip the writer test, and the writer run the reverse, which the second phase proves by
+#     requiring the test that passed in the first phase to be the one skipped now;
 #   - cleanup runs from an EXIT trap, so a failure still removes what this run created;
 #   - the configuration reaches both JVMs through environment variables only. Nothing secret goes into
 #     JAVA_TOOL_OPTIONS or any other JVM argument, because the JVM echoes those into its own output.
@@ -24,31 +28,37 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 IMAGE=${GOV_RESTART_IMAGE:-postgres:17-alpine}
-CONTAINER="tramai-gov-restart-$$"
+NAME="tramai-gov-restart-$$"
 DB="gov_restart_$$"
 DBUSER=postgres
 DBPASS="$(openssl rand -hex 16)"
 WORK="$(mktemp -d)"
 HANDOFF="$WORK/handoff.properties"
+RESULTS="$ROOT/tramai-security/build/test-results/test"
 EVIDENCE="$ROOT/docs/roadmap/0.7.4/evidence/0.7.4d-materialized-read-model/cross-process-restart.txt"
 
+CONTAINER_ID=""
 cleanup() {
   status=$?
-  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  # Exactly the container this execution created, addressed by the ID docker returned. An empty ID means
+  # this run created nothing, so there is nothing of ours to remove.
+  if [ -n "$CONTAINER_ID" ]; then
+    docker rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true
+  fi
   rm -rf "$WORK"
   exit "$status"
 }
 trap cleanup EXIT
 
 # Ownership, before anything else: never remove a container this run did not create.
-if docker inspect "$CONTAINER" >/dev/null 2>&1; then
-  echo "refusing to run: container $CONTAINER already exists and is not mine to remove" >&2
+if docker inspect "$NAME" >/dev/null 2>&1; then
+  echo "refusing to run: container $NAME already exists and is not mine to remove" >&2
   exit 1
 fi
 
-docker run -d --name "$CONTAINER" -e POSTGRES_PASSWORD="$DBPASS" -e POSTGRES_DB="$DB" \
-  -p 127.0.0.1::5432 "$IMAGE" >/dev/null
-PORT="$(docker port "$CONTAINER" 5432/tcp | head -1 | sed 's/.*://')"
+CONTAINER_ID="$(docker run -d --name "$NAME" -e POSTGRES_PASSWORD="$DBPASS" -e POSTGRES_DB="$DB" \
+  -p 127.0.0.1::5432 "$IMAGE")"
+PORT="$(docker port "$CONTAINER_ID" 5432/tcp | head -1 | sed 's/.*://')"
 if [ -z "$PORT" ]; then
   echo "refusing to run: the database did not publish a port" >&2
   exit 1
@@ -56,12 +66,12 @@ fi
 
 ready=0
 for _ in $(seq 1 60); do
-  if docker exec "$CONTAINER" pg_isready -U "$DBUSER" >/dev/null 2>&1; then ready=1; break; fi
+  if docker exec "$CONTAINER_ID" pg_isready -U "$DBUSER" >/dev/null 2>&1; then ready=1; break; fi
   sleep 2
 done
 if [ "$ready" != 1 ]; then
   echo "refusing to run: the database never became ready" >&2
-  docker logs "$CONTAINER" 2>&1 | tail -20 >&2
+  docker logs "$CONTAINER_ID" 2>&1 | tail -20 >&2
   exit 1
 fi
 
@@ -74,11 +84,46 @@ run_phase() {
     --tests '*GovernanceProjectionRestartQualificationTest*' --console=plain > "$log" 2>&1
 }
 
+# The outcome a phase must produce, read from this checkout's own results directory: no other path, and
+# no other combination of pass and skip is accepted. Given the previous phase's passing test, it must now
+# be the skipped one - that is what makes the roles swap rather than merely "some test passed".
+check_outcome() {
+  python3 - "$RESULTS" "$1" "$2" <<'PY'
+import glob, os, sys, xml.etree.ElementTree as ET
+
+results, previous, current = sys.argv[1], sys.argv[2], sys.argv[3]
+files = sorted(glob.glob(os.path.join(results, '*RestartQualification*.xml')))
+if len(files) != 1:
+    sys.exit(f'expected exactly one restart qualification result in {results}, found {len(files)}')
+states = {}
+for case in ET.parse(files[0]).getroot().iter('testcase'):
+    state = 'PASSED'
+    for child in case:
+        if child.tag == 'skipped':
+            state = 'SKIPPED'
+        elif child.tag in ('failure', 'error'):
+            state = 'FAILED'
+    states[case.get('name')] = state
+passed = sorted(n for n, s in states.items() if s == 'PASSED')
+print('  results: ' + '  '.join(f'{n}={states[n]}' for n in sorted(states)))
+if len(states) != 2 or len(passed) != 1:
+    sys.exit(f'expected two tests with exactly one passing, got {states}')
+if previous and os.path.exists(previous):
+    before = open(previous).read().strip()
+    if states.get(before) != 'SKIPPED':
+        sys.exit(f'{before} passed in the previous phase and must be skipped now, was {states.get(before)}')
+    if passed[0] == before:
+        sys.exit(f'the same test passed twice ({before}): the phases did not change roles')
+open(current, 'w').write(passed[0])
+PY
+}
+
 : > "$EVIDENCE"
 {
-  echo "database identity : $(docker exec "$CONTAINER" psql -U "$DBUSER" -d "$DB" -tAc 'select version()')"
-  echo "container id      : $(docker inspect -f '{{.Id}}' "$CONTAINER")  image=$IMAGE  status=$(docker inspect -f '{{.State.Status}}' "$CONTAINER")"
+  echo "database identity : $(docker exec "$CONTAINER_ID" psql -U "$DBUSER" -d "$DB" -tAc 'select version()')"
+  echo "container         : id=$CONTAINER_ID  name=$NAME  image=$IMAGE  status=$(docker inspect -f '{{.State.Status}}' "$CONTAINER_ID")"
   echo "database          : $DB (created for this run, on loopback port $PORT chosen by docker)"
+  echo "cleanup           : by container id only; a container not created by this run is never removed"
   echo "configuration     : environment variables (GOV_RESTART_PHASE, _URL, _USER, _PASSWORD, _HANDOFF); no credential in any JVM argument"
   echo ""
   echo "=== JVM 1: writer ==="
@@ -94,6 +139,11 @@ else
   exit 1
 fi
 grep -aE "BUILD (SUCCESSFUL|FAILED)" "$WORK/jvm1.log" | tail -1 >> "$EVIDENCE" || true
+echo "writer outcome    :" >> "$EVIDENCE"
+if ! check_outcome "" "$WORK/writer-passed" >> "$EVIDENCE"; then
+  echo "the writer phase did not produce the required outcome" >&2
+  exit 1
+fi
 echo "--- handoff the writer left for the reader (no credentials) ---" >> "$EVIDENCE"
 cat "$HANDOFF" >> "$EVIDENCE" 2>/dev/null || { echo "the writer left no handoff" >> "$EVIDENCE"; exit 1; }
 
@@ -112,38 +162,13 @@ else
   exit 1
 fi
 grep -aE "BUILD (SUCCESSFUL|FAILED)" "$WORK/jvm2.log" | tail -1 >> "$EVIDENCE" || true
+echo "reader outcome    :" >> "$EVIDENCE"
+if ! check_outcome "$WORK/writer-passed" "$WORK/reader-passed" >> "$EVIDENCE"; then
+  echo "the reader phase did not produce the required outcome" >&2
+  exit 1
+fi
 
-# Success means the reader passed and the writer-only test was skipped: anything else is a failure.
 echo "" >> "$EVIDENCE"
-echo "=== outcomes ===" >> "$EVIDENCE"
-python3 - "$EVIDENCE" <<'PY'
-import glob, sys, xml.etree.ElementTree as ET
-target = sys.argv[1]
-lines = []
-ok = False
-for p in sorted(glob.glob('/home/gionag/tramai-d1/tramai-security/build/test-results/test/*RestartQualification*.xml')) + \
-         sorted(glob.glob('tramai-security/build/test-results/test/*RestartQualification*.xml')):
-    x = ET.parse(p).getroot()
-    passed, skipped, failed = [], [], []
-    for tc in x.iter('testcase'):
-        state = 'PASSED'
-        for c in tc:
-            if c.tag == 'skipped': state = 'SKIPPED'
-            if c.tag in ('failure', 'error'):
-                state = 'FAILED: ' + (c.get('message') or '')[:240]
-                failed.append(tc.get('name'))
-        (passed if state == 'PASSED' else skipped if state == 'SKIPPED' else failed).append(tc.get('name'))
-        lines.append(f"  {state}  {tc.get('name')}")
-    lines.insert(0, f"result: tests={x.get('tests')} failures={x.get('failures')} errors={x.get('errors')} skipped={x.get('skipped')}")
-    if len(passed) == 1 and len(skipped) == 1 and not failed:
-        ok = True
-    break
-with open(target, 'a') as f:
-    f.write("\n".join(lines) + "\n")
-if not ok:
-    print("the reader phase did not report exactly one pass and one skip", file=sys.stderr)
-    sys.exit(1)
-PY
-
-echo "QUALIFICATION PASSED: writer published, a separate process read the same row" >> "$EVIDENCE"
+echo "QUALIFICATION PASSED: the writer published, a separate process read the same row, and the two phases" >> "$EVIDENCE"
+echo "produced opposite outcomes - $(cat "$WORK/writer-passed") in the writer phase, $(cat "$WORK/reader-passed") in the reader phase." >> "$EVIDENCE"
 cat "$EVIDENCE"
