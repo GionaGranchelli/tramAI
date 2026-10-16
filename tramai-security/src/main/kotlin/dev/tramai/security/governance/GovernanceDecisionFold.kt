@@ -14,22 +14,22 @@ internal object GovernanceDecisionFold {
     fun project(
         kind: DecisionKind,
         records: List<RecordedDecision>,
-        verifiedStreamRange: LongRange?,
+        coverage: StreamCoverage,
         completeness: Completeness,
     ): DecisionProjection {
         val distinct = records.distinct()
         val duplicates = records.size - distinct.size
         return when {
             records.isEmpty() -> {
-                absent(kind, verifiedStreamRange, completeness)
+                absent(kind, coverage, completeness)
             }
 
             distinct.all { it.sourceSequence != null } -> {
-                orderedFold(kind, distinct, duplicates, verifiedStreamRange, completeness)
+                orderedFold(kind, distinct, duplicates, coverage, completeness)
             }
 
             else -> {
-                unorderedFold(kind, distinct, duplicates, verifiedStreamRange)
+                unorderedFold(kind, distinct, duplicates, coverage)
             }
         }
     }
@@ -38,7 +38,7 @@ internal object GovernanceDecisionFold {
         kind: DecisionKind,
         distinct: List<RecordedDecision>,
         duplicates: Int,
-        verifiedStreamRange: LongRange?,
+        coverage: StreamCoverage,
         completeness: Completeness,
     ): DecisionProjection {
         val latest =
@@ -49,7 +49,7 @@ internal object GovernanceDecisionFold {
             kind = kind,
             latest = recordFact(kind, latest, FactFreshness.HISTORICAL),
             completeness = completeness,
-            verifiedStreamRange = verifiedStreamRange,
+            coverage = coverage,
             duplicatesIgnored = duplicates,
             staleIgnored = distinct.size - 1,
         )
@@ -65,7 +65,7 @@ internal object GovernanceDecisionFold {
         kind: DecisionKind,
         distinct: List<RecordedDecision>,
         duplicates: Int,
-        verifiedStreamRange: LongRange?,
+        coverage: StreamCoverage,
     ): DecisionProjection =
         DecisionProjection(
             kind = kind,
@@ -76,14 +76,14 @@ internal object GovernanceDecisionFold {
                             "the newest is not established by this read",
                 ),
             completeness = Completeness.UNKNOWN,
-            verifiedStreamRange = verifiedStreamRange,
+            coverage = coverage,
             duplicatesIgnored = duplicates,
         )
 
     /** A family that reports nothing: absence classified by why it is absent, not by the empty list. */
     fun absent(
         kind: DecisionKind,
-        verifiedStreamRange: LongRange? = null,
+        coverage: StreamCoverage = StreamCoverage(),
         completeness: Completeness = Completeness.UNKNOWN,
     ): DecisionProjection {
         val authority = GovernanceFactClassification.absenceAuthorityFor(kind)
@@ -103,7 +103,7 @@ internal object GovernanceDecisionFold {
                     mustNotInfer = GovernanceFactClassification.absenceLimitationsFor(kind),
                 ),
             completeness = completeness,
-            verifiedStreamRange = verifiedStreamRange,
+            coverage = coverage,
         )
     }
 

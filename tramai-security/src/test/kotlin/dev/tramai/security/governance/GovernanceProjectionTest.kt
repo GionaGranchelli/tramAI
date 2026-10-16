@@ -30,7 +30,11 @@ import kotlin.test.assertFailsWith
  * stub port: the registration half of every projection below is produced by the authority that
  * owns it. Decision and telemetry records are scripted, because no engine producer exists for
  * them yet — that wiring is the next slice, and these tests must not imply otherwise.
+ *
+ * This class audits the read contract from every side, and it grows with each contract refinement.
+ * The size is the audit surface, not a failure to split it: the cases are one contract's cases.
  */
+@Suppress("LargeClass")
 class GovernanceProjectionTest {
     private val identity = WorkloadRegistrationFixtures.identity()
 
@@ -373,7 +377,16 @@ class GovernanceProjectionTest {
                 GovernanceProjection::class.java to
                     setOf("registration", "declaredRunIdentity", "decisions", "telemetry"),
                 DecisionProjection::class.java to
-                    setOf("kind", "latest", "completeness", "duplicatesIgnored", "staleIgnored", "verifiedStreamRange"),
+                    setOf("kind", "latest", "completeness", "coverage", "duplicatesIgnored", "staleIgnored"),
+                StreamCoverage::class.java to
+                    setOf(
+                        "verifiedRange",
+                        "accountedPositions",
+                        "unrecordedDecisionPositions",
+                        "unclassifiedPositions",
+                        "observedHeadHash",
+                        "classificationRevision",
+                    ),
                 ProjectedFact::class.java to
                     setOf(
                         "value",
@@ -624,7 +637,6 @@ class GovernanceProjectionTest {
                         sourceVersion = 1,
                     ),
                 completeness = Completeness.COMPLETE,
-                verifiedStreamRange = null,
             )
         }
     }

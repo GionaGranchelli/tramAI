@@ -1,0 +1,26 @@
+database identity : PostgreSQL 17.10 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+container         : id=7e44b8963ee3eb2fc35232d3a1334b48d916af0dd245b28c93ed83fb17688e60  name=tramai-gov-restart-1574092  image=postgres:17-alpine  status=running
+database          : gov_restart_1574092 (created for this run, on loopback port 32769 chosen by docker)
+cleanup           : by container id only; a container not created by this run is never removed
+configuration     : environment variables (GOV_RESTART_PHASE, _URL, _USER, _PASSWORD, _HANDOFF); no credential in any JVM argument
+
+=== JVM 1: writer ===
+GOV_RESTART_PHASE=publish ./gradlew --no-daemon --no-build-cache :tramai-security:cleanTest :tramai-security:test --tests '*GovernanceProjectionRestartQualificationTest*'
+jvm1_exit=0
+BUILD SUCCESSFUL in 13s
+writer outcome    :
+  results: load phase rebuilds the row another process wrote, without writing anything()=SKIPPED  publish phase records the snapshot a later process must find()=PASSED
+--- handoff the writer left for the reader (no credentials) ---
+pid=1575224
+digest=1e45e5847b2f141e1b473537d65dd944a7cdf6fe2fcdff38c59830b5c8ecdf82
+materializedAt=2026-10-16T13:25:33.014485Z
+
+=== JVM 2: reader, a separate process ===
+GOV_RESTART_PHASE=load ./gradlew --no-daemon --no-build-cache :tramai-security:cleanTest :tramai-security:test --tests '*GovernanceProjectionRestartQualificationTest*'
+jvm2_exit=0
+BUILD SUCCESSFUL in 12s
+reader outcome    :
+  results: load phase rebuilds the row another process wrote, without writing anything()=PASSED  publish phase records the snapshot a later process must find()=SKIPPED
+
+QUALIFICATION PASSED: the writer published, a separate process read the same row, and the two phases
+produced opposite outcomes - publish phase records the snapshot a later process must find() in the writer phase, load phase rebuilds the row another process wrote, without writing anything() in the reader phase.
