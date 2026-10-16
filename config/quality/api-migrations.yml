@@ -110,7 +110,7 @@ migrations:
 
   - module: ":tramai-security"
     fromSha256: "3c8c378d46640e2ee840bb6690d9a2686a0d536ba024c723a72d5b604d479ecc"
-    toSha256: "a385f1db125cebea0a60a3a75480489bda40a5a889b2c9d29066121a5539e420"
+    toSha256: "6fe604576d12b6aec316b1bced8fcf22cc7c772fa6f49dd27706daf6d029865d"
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.2 classification/trust-zone resolution boundary: tramai-security gains the workload governance resolution surface (WorkloadClassificationSignal, WorkloadGovernanceResolver, WorkloadGovernanceResolution, WorkloadGovernanceFailure), and tramai-core publishes the DataClassification/ClassificationSource ranking that moved out of tramai-engine so both modules agree on one ordering. Both changes are additive."
     migration: "No consumer action required: the governance resolution surface is new, and no existing signature changed. Recompile only if you place the moved ranking extensions in scope."
@@ -195,9 +195,7 @@ migrations:
 
   - module: ":tramai-security"
     fromSha256: "613e667332b2e7beb2d661b3573ac9ee2677266328ab867afd86646262d5cbdb"
-    toSha256: "c79245ce62421a2f38eb89c74d7d43cf7358fbfcb40ae30ca0347bde3ad41b9a"
+    toSha256: "a385f1db125cebea0a60a3a75480489bda40a5a889b2c9d29066121a5539e420"
     targetVersion: "0.7.0"
-    rationale: "Epic 0.7.4e public governance query API: tramai-security gains package dev.tramai.security.governance.query (GovernanceQueryService and its GovernanceQueryService.jdbc(...) public factory over DataSource and optional WorkloadControlPlaneQueries/AuditStore observation ports, GovernanceQueryRequest, GovernanceQueryResult, GovernanceProjectionView, GovernanceProjectionIdentity, GovernanceSourceProvenance, GovernanceCurrencyAssessment, GovernanceFactSummary, GovernanceDecisionFact, RawStreamCoverage, DecisionRecordCoverage, VerifiedStreamRange, FactAuthority, FactFreshness, DecisionKind, Completeness, SourceCurrency, ReadConsistency). Purely additive public read-only query contract over the durable governance projection read model; all internal projection, materializer and storage types remain internal and no existing public signature changed."
-    migration: "none; additive"
-
-
+    rationale: "Epic 0.7.4e headless governance query API: tramai-security publishes the read-only query contract over the durable governance projection (GovernanceQueryService with its jdbc factory, GovernanceQueryRequest, GovernanceQueryResult, GovernanceProjectionView and the fact, coverage, currency and exposure types they carry). Additive only: no existing signature changed."
+    migration: "No consumer action required: the query surface is new. Recompile only if you intend to read governance projections through it."
