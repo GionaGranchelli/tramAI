@@ -190,7 +190,10 @@ The in-suite durability test loads a snapshot through a store instance that did 
 JVM. That is not the claim the task makes, so the claim is qualified by running it:
 `scripts/qualify-cross-process-restart.sh` starts PostgreSQL outside Gradle, runs
 `GovernanceProjectionRestartQualificationTest` once per phase in two separate JVMs, and forwards the phase
-and the database through `JAVA_TOOL_OPTIONS`. It reads nothing from a file the reader could have
+Both JVMs are configured through environment variables (`GOV_RESTART_PHASE`, `_URL`, `_USER`,
+`_PASSWORD`, `_HANDOFF`). No credential is passed as a JVM argument, because the JVM echoes those
+into its own output. Each phase is checked for the outcome that phase must produce: the test that
+passes in the writer phase must be the one skipped in the reader phase.
 reconstructed, and the reader performs no migration, no clear and no publish.
 
 Evidence (`docs/roadmap/0.7.4/evidence/0.7.4d-materialized-read-model/cross-process-restart.txt`):

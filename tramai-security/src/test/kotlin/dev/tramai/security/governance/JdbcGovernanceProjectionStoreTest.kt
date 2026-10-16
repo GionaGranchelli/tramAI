@@ -300,6 +300,27 @@ class JdbcGovernanceProjectionStoreTest {
         }
 
     @Test
+    fun `a newer publish does not replace a stored format this build refuses to read`() =
+        runBlocking<Unit> {
+            val store = freshStore()
+            store.publish(snapshot())
+            mutateStored("UPDATE governance_projection_snapshot SET format_version = 'governance-read-model.v99'")
+
+            // The candidate is newer, so ordering alone would let it replace this row. The format boundary
+            // is what must stop it, and the refusal has to name the format: storage did what it was told,
+            // and the stored row is simply not one this build writes.
+            assertThatThrownBy {
+                runBlocking { store.publish(snapshot(headPosition = 6L, headHash = "hash-6")) }
+            }.isInstanceOf(UnsupportedProjectionFormatException::class.java)
+
+            // The row it would have replaced is untouched, not merely still present.
+            val (format, headPosition) = storedHeader()
+            assertThat(format).isEqualTo("governance-read-model.v99")
+            assertThat(headPosition).isEqualTo(5L)
+            assertThat(rowCount("governance_projection_snapshot")).isEqualTo(1L)
+        }
+
+    @Test
     fun `stored content that contradicts its own digest is refused`() =
         runBlocking<Unit> {
             val store = freshStore()
@@ -355,6 +376,18 @@ class JdbcGovernanceProjectionStoreTest {
                     rows.next()
                     rows.getLong(1)
                 }
+            }
+        }
+
+    private fun storedHeader(): Pair<String, Long> =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement
+                    .executeQuery("SELECT format_version, audit_head_position FROM governance_projection_snapshot")
+                    .use { rows ->
+                        rows.next()
+                        rows.getString(1) to rows.getLong(2)
+                    }
             }
         }
 

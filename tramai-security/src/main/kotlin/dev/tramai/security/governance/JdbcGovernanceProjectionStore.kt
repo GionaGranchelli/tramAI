@@ -110,12 +110,7 @@ internal class JdbcGovernanceProjectionStore(
     ): StoredGovernanceProjection? =
         try {
             val header = selectHeader(connection, identity.key) ?: return null
-            if (header.formatVersion != GOVERNANCE_READ_MODEL_FORMAT_VERSION) {
-                throw UnsupportedProjectionFormatException(
-                    "stored projection format ${header.formatVersion} is not " +
-                        "$GOVERNANCE_READ_MODEL_FORMAT_VERSION",
-                )
-            }
+            requireSupportedFormat(header.formatVersion)
             val snapshot =
                 rebuildSnapshot(
                     identity,
@@ -179,6 +174,10 @@ internal class JdbcGovernanceProjectionStore(
             selectHeader(connection, key)
                 ?: throw ProjectionCorruptionException("a stored projection vanished during publish")
 
+        // The staged row is not a format this build writes, so the conditional update above refused to
+        // replace it. Reporting that as corruption would blame storage for doing what it was told.
+        requireSupportedFormat(stored.formatVersion)
+
         val comparison = compareOrdering(snapshot.ordering, stored.ordering)
         return when {
             comparison > 0L -> {
@@ -204,10 +203,26 @@ internal class JdbcGovernanceProjectionStore(
     }
 
     /**
+     * The stored format must be one this build writes. Both readers of a stored row call this: a load
+     * refuses to read an unsupported format, and a publish refuses to replace one, which the conditional
+     * update enforces atomically before this is ever reached. One rule, so the two paths cannot drift.
+     */
+    private fun requireSupportedFormat(formatVersion: String) {
+        if (formatVersion != GOVERNANCE_READ_MODEL_FORMAT_VERSION) {
+            throw UnsupportedProjectionFormatException(
+                "stored projection format $formatVersion is not $GOVERNANCE_READ_MODEL_FORMAT_VERSION",
+            )
+        }
+    }
+
+    /**
      * The conditional upsert that decides whether this candidate may replace what is stored.
      *
      * Returns whether a row was written. The row comparison is the whole concurrency contract: equal
-     * ordering with equal content is a no-op, and anything older never applies.
+     * ordering with equal content is a no-op, and anything older never applies. The format boundary is
+     * part of the same conditional statement, so a row whose stored format is not the one this build
+     * writes is never replaced by a newer candidate - refused atomically, in the statement that would
+     * otherwise have replaced it, rather than checked and then acted on.
      */
     private fun upsertHeader(
         connection: Connection,
@@ -561,7 +576,8 @@ internal class JdbcGovernanceProjectionStore(
                 audit_head_hash = EXCLUDED.audit_head_hash,
                 semantic_digest = EXCLUDED.semantic_digest,
                 materialized_at = now()
-            WHERE (
+            WHERE governance_projection_snapshot.format_version = EXCLUDED.format_version
+              AND (
                 EXCLUDED.audit_head_position,
                 EXCLUDED.registration_version
             ) > (
