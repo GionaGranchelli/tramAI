@@ -428,7 +428,10 @@ internal class GovernanceProjectionSnapshot(
             return lines.joinToString(separator = LINE_SEPARATOR)
         }
 
-        fun decodeLines(encoded: String): List<String> = if (encoded.isEmpty()) emptyList() else encoded.split(LINE_SEPARATOR)
+        fun decodeLines(encoded: String): List<String> {
+            if (encoded.isEmpty()) return emptyList()
+            return encoded.split(LINE_SEPARATOR)
+        }
     }
 }
 
