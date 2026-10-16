@@ -85,7 +85,7 @@ class GovernanceQueryGuardTest {
 
     @Test
     fun `a fact summary refuses a blank description and blank inference boundaries`() {
-        assertThatThrownBy { factSummary(established = " ") }
+        assertThatThrownBy { factSummary().copy(established = " ") }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("established")
         assertThatThrownBy {
@@ -117,7 +117,6 @@ class GovernanceQueryGuardTest {
                 authority = FactAuthority.NOT_PRODUCED,
                 freshness = FactFreshness.HISTORICAL,
                 valuePresent = true,
-                sourceVersion = 1L,
             )
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("no producer cannot carry a freshness claim")
@@ -127,7 +126,6 @@ class GovernanceQueryGuardTest {
                 authority = FactAuthority.NOT_OBSERVED,
                 freshness = FactFreshness.HISTORICAL,
                 valuePresent = true,
-                sourceVersion = 1L,
             )
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("unobserved fact cannot carry a freshness claim")
@@ -155,7 +153,6 @@ class GovernanceQueryGuardTest {
                 authority = FactAuthority.AUTHORITATIVE_PERSISTED,
                 freshness = FactFreshness.HISTORICAL,
                 observedVersion = null,
-                sourceVersion = null,
             )
         }.isInstanceOf(IllegalArgumentException::class.java).hasMessageContaining("HISTORICAL")
 
@@ -225,38 +222,41 @@ class GovernanceQueryGuardTest {
 
     @Test
     fun `a decision fact refuses negative ignore counts and a decision token that contradicts valuePresent`() {
-        assertThatThrownBy { decisionFact(duplicatesIgnored = -1) }
+        assertThatThrownBy { decisionFact().copy(duplicatesIgnored = -1) }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("cannot be negative")
-        assertThatThrownBy { decisionFact(staleIgnored = -1) }
+        assertThatThrownBy { decisionFact().copy(staleIgnored = -1) }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("cannot be negative")
         assertThatThrownBy {
-            decisionFact(
+            decisionFact().copy(
                 decision = "ALLOW",
-                valuePresent = false,
-                authority = FactAuthority.NOT_OBSERVED,
-                freshness = FactFreshness.ABSENT,
+                fact =
+                    factSummary(
+                        authority = FactAuthority.NOT_OBSERVED,
+                        freshness = FactFreshness.ABSENT,
+                        valuePresent = false,
+                    ),
             )
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("valuePresent")
-        assertThatThrownBy { decisionFact(decision = null, valuePresent = true) }
+        assertThatThrownBy { decisionFact().copy(decision = null) }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("valuePresent")
     }
 
     @Test
     fun `a decision fact refuses an unsafe token in any exposed identifier`() {
-        assertThatThrownBy { decisionFact(decision = "not a token") }
+        assertThatThrownBy { decisionFact().copy(decision = "not a token") }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("decision")
-        assertThatThrownBy { decisionFact(reasonCode = "not a token") }
+        assertThatThrownBy { decisionFact().copy(reasonCode = "not a token") }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("reasonCode")
-        assertThatThrownBy { decisionFact(boundaryId = "not a token") }
+        assertThatThrownBy { decisionFact().copy(boundaryId = "not a token") }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("boundaryId")
-        assertThatThrownBy { decisionFact(boundaryStrength = "not a token") }
+        assertThatThrownBy { decisionFact().copy(boundaryStrength = "not a token") }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("boundaryStrength")
     }
@@ -338,8 +338,10 @@ class GovernanceQueryGuardTest {
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("formatVersion")
         assertThatThrownBy {
-            view(decisions = listOf(decisionFact(kind = DecisionKind.POLICY_DECISION), decisionFact(kind = DecisionKind.POLICY_DECISION)))
-        }.isInstanceOf(IllegalArgumentException::class.java).hasMessageContaining("at most once")
+            val policy = decisionFact(kind = DecisionKind.POLICY_DECISION)
+            view(decisions = listOf(policy, policy))
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("at most once")
     }
 
     @Test
@@ -376,22 +378,19 @@ class GovernanceQueryGuardTest {
     private fun factSummary(
         authority: FactAuthority = FactAuthority.AUTHORITATIVE_PERSISTED,
         freshness: FactFreshness = FactFreshness.HISTORICAL,
-        established: String = "established",
         mustNotInfer: List<String> = emptyList(),
         valuePresent: Boolean = true,
         observedVersion: Long? = 1L,
-        sourceVersion: Long? = null,
-        watermark: Long? = null,
     ): GovernanceFactSummary =
         GovernanceFactSummary(
             authority = authority,
             freshness = freshness,
-            established = established,
+            established = "established",
             mustNotInfer = mustNotInfer,
             valuePresent = valuePresent,
             observedVersion = observedVersion,
-            sourceVersion = sourceVersion,
-            watermark = watermark,
+            sourceVersion = null,
+            watermark = null,
         )
 
     private fun recordCoverage(
@@ -414,32 +413,13 @@ class GovernanceQueryGuardTest {
         authority: FactAuthority = FactAuthority.POLICY_AUTHORIZATION_RECORD,
         raw: RawStreamCoverage = RawStreamCoverage(VerifiedStreamRange(1L, 2L), "hash-2"),
         coverage: DecisionRecordCoverage = recordCoverage(),
-        decision: String? = "ALLOW",
-        valuePresent: Boolean = true,
-        reasonCode: String? = null,
-        boundaryId: String? = null,
-        boundaryStrength: String? = null,
-        duplicatesIgnored: Int = 0,
-        staleIgnored: Int = 0,
-        freshness: FactFreshness = FactFreshness.HISTORICAL,
     ): GovernanceDecisionFact =
         GovernanceDecisionFact(
             kind = kind,
-            fact =
-                factSummary(
-                    authority = authority,
-                    freshness = freshness,
-                    mustNotInfer = listOf("execution"),
-                    valuePresent = valuePresent,
-                ),
+            fact = factSummary(authority = authority, mustNotInfer = listOf("execution")),
             rawCoverage = raw,
             recordCoverage = coverage,
-            decision = decision,
-            reasonCode = reasonCode,
-            boundaryId = boundaryId,
-            boundaryStrength = boundaryStrength,
-            duplicatesIgnored = duplicatesIgnored,
-            staleIgnored = staleIgnored,
+            decision = "ALLOW",
         )
 
     private fun view(
