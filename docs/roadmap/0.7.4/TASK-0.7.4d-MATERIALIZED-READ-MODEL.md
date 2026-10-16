@@ -174,22 +174,13 @@ and the two coverage claims reported independently.
 - [x] Phase 5 — adversarial mutation battery (7 killed, 0 survivors, 4 invalid attempts requalified)
 - [x] Phase 6 — gate run (green except the inherited api-architecture) and evidence completion
 
-## 10. Phases
-
-- [x] Phase 0 — baseline and storage-boundary decision (§1–§2)
-- [x] Phase 1 — materialization contract (internal snapshot, read model, outcomes, per-source currency)
-- [x] Phase 2 — durable storage (three-table schema, transactional publish, ordering, refusals)
-- [x] Phase 3 — deterministic materialization and rebuild
-- [x] Phase 4 — real durable-backend qualification (§6)
-- [x] Phase 5 — adversarial mutation battery (7 killed, 0 survivors, 4 invalid attempts requalified)
-- [x] Phase 6 — gate run (green except the inherited api-architecture) and evidence completion
-
 ## 11. Cross-process restart qualification
 
 The in-suite durability test loads a snapshot through a store instance that did not write it, in the same
 JVM. That is not the claim the task makes, so the claim is qualified by running it:
 `scripts/qualify-cross-process-restart.sh` starts PostgreSQL outside Gradle, runs
-`GovernanceProjectionRestartQualificationTest` once per phase in two separate JVMs, and forwards the phase, the database and the handoff path to both JVMs through environment variables
+`GovernanceProjectionRestartQualificationTest` once per phase in two separate JVMs, and forwards the
+phase, the database and the handoff path to both JVMs through environment variables
 (`GOV_RESTART_PHASE`, `_URL`, `_USER`, `_PASSWORD`, `_HANDOFF`). No credential is passed as a JVM
 argument, because the JVM echoes those into its own output, and the run reads nothing from a file the
 reader could have reconstructed. Each phase is checked for the outcome that phase must produce: the test
