@@ -1,29 +1,14 @@
 # TASK-0.7.4d — Durable, rebuildable governance read model
 
-## 12. Cross-process restart qualification
+Status: **PHASES 0-5 IMPLEMENTED AND QUALIFIED, GATES GREEN, PR OPEN.** Durable storage, the internal
+read contract, deterministic rebuild, idempotent reapplication, ordering under concurrent writers and
+recovery from an interrupted publish are qualified against a real PostgreSQL instance. Cross-process
+restart is qualified by execution for the tested snapshot (section 11).
 
-The in-suite durability test loads a snapshot through a store instance that did not write it, in the same
-JVM. That is not the claim the task makes, so the claim is qualified by running it:
-`scripts/qualify-cross-process-restart.sh` starts PostgreSQL outside Gradle, runs
-`GovernanceProjectionRestartQualificationTest` once per phase in two separate JVMs, and forwards the phase
-and the database through `JAVA_TOOL_OPTIONS`. It reads nothing from a file the reader could have
-reconstructed, and the reader performs no migration, no clear and no publish.
-
-Evidence (`docs/roadmap/0.7.4/evidence/0.7.4d-materialized-read-model/cross-process-restart.txt`):
-PostgreSQL 17.10 on a standalone container; the writer published and recorded its own process id, the
-semantic digest and the timestamp of that write; a later JVM read the row the writer left, asserted the
-writer's process id differed from its own, and matched digest, write timestamp, identity, provenance
-(head position and hash, registration version) and both coverage claims independently - the raw verified
-range and the decision-record claim, with the unclassified and unrecorded positions preserved. Both
-phases exited 0 and the second passed.
-
-The tests are skipped when the properties are absent, which is what happens in CI: an opt-in
-qualification that reports a skip rather than silently qualifying nothing. An automated cross-process CI
-gate is recorded as the follow-up for hardening.
-
-Status: **PHASES 0–5 IMPLEMENTED AND QUALIFIED, GATES GREEN, PR OPEN.** Verdict **PARTIAL** on one
-named item: the restart qualification is at component level (a fresh store instance with its own
-connection), not across JVMs — see §6 and §8.
+What remains unproven, stated as scope rather than as a verdict: recovery after abrupt process
+termination (a crash mid-publish is covered by the interrupted-publish test, not by killing a process),
+identity authentication (T1), event-origin authenticity (S19), the live `provider.route` producer, and
+the automated cross-process CI gate recorded in section 9.
 
 - Base commit: `052cc27fb9979a4b5fb467d06c6eed3ba87176d3` (`release/0.7.0` tip, the 0.7.4c3 squash of PR #534)
 - Task branch: `task/0.7.4d-materialized-governance-read-model`, worktree `/home/gionag/tramai-d1`
@@ -100,9 +85,9 @@ A publish is one transaction. The header, its facts and its decisions commit tog
 write leaves the previous snapshot whole — verified by fault injection between the header write and the
 child rows. PostgreSQL's default READ COMMITTED is sufficient for the conditional upsert; nothing here
 needs or claims SERIALIZABLE. **Not available and not claimed**: an atomic cross-store snapshot of
-registration and audit together. The sources are read independently, and the format says so: `read_consistency`
-is not a stored column - a load reconstructs it as `INDEPENDENT_SOURCES`
-says exactly that (`INDEPENDENT_SOURCES`).
+registration and audit together. The sources are read independently, and the format says so rather than
+storing it: `read_consistency` is not a column in v1, and a load reconstructs it as
+`INDEPENDENT_SOURCES`.
 
 ## 6. Real durable-backend qualification
 
@@ -148,7 +133,8 @@ protection is structural, and the shape test pins the read surface's field set i
 ## 8. Limitations and non-claims
 
 - **The restart qualification is at component level.** A store instance with its own connection, which
-  never saw the write, loads the snapshot — but the same JVM. A cross-JVM restart is UNPROVEN, and the
+  never saw the write, loads the snapshot — but the same JVM. A cross-JVM restart was unproven when this was measured and is now qualified for the tested
+  snapshot (section 11); what it does not establish is crash recovery under abrupt termination. It was
   reason is environmental rather than architectural: the test PostgreSQL container's lifetime is bound to
   the test JVM, so proving it needs a shared external instance (or a container started outside Gradle).
   That is the next experiment for this item, not a redesign.
@@ -187,3 +173,36 @@ and the two coverage claims reported independently.
 - [x] Phase 4 — real durable-backend qualification (§6)
 - [x] Phase 5 — adversarial mutation battery (7 killed, 0 survivors, 4 invalid attempts requalified)
 - [x] Phase 6 — gate run (green except the inherited api-architecture) and evidence completion
+
+## 10. Phases
+
+- [x] Phase 0 — baseline and storage-boundary decision (§1–§2)
+- [x] Phase 1 — materialization contract (internal snapshot, read model, outcomes, per-source currency)
+- [x] Phase 2 — durable storage (three-table schema, transactional publish, ordering, refusals)
+- [x] Phase 3 — deterministic materialization and rebuild
+- [x] Phase 4 — real durable-backend qualification (§6)
+- [x] Phase 5 — adversarial mutation battery (7 killed, 0 survivors, 4 invalid attempts requalified)
+- [x] Phase 6 — gate run (green except the inherited api-architecture) and evidence completion
+
+## 11. Cross-process restart qualification
+
+The in-suite durability test loads a snapshot through a store instance that did not write it, in the same
+JVM. That is not the claim the task makes, so the claim is qualified by running it:
+`scripts/qualify-cross-process-restart.sh` starts PostgreSQL outside Gradle, runs
+`GovernanceProjectionRestartQualificationTest` once per phase in two separate JVMs, and forwards the phase
+and the database through `JAVA_TOOL_OPTIONS`. It reads nothing from a file the reader could have
+reconstructed, and the reader performs no migration, no clear and no publish.
+
+Evidence (`docs/roadmap/0.7.4/evidence/0.7.4d-materialized-read-model/cross-process-restart.txt`):
+PostgreSQL 17.10 on a standalone container; the writer published and recorded its own process id, the
+semantic digest and the timestamp of that write; a later JVM read the row the writer left, asserted the
+writer's process id differed from its own, and matched digest, write timestamp, identity, provenance
+(head position and hash, registration version) and both coverage claims independently - the raw verified
+range and the decision-record claim, with the unclassified and unrecorded positions preserved. Both
+phases exited 0 and the second passed.
+
+The tests are skipped when the properties are absent, which is what happens in CI: an opt-in
+qualification that reports a skip rather than silently qualifying nothing. An automated cross-process CI
+gate is recorded as the follow-up for hardening.
+
+
