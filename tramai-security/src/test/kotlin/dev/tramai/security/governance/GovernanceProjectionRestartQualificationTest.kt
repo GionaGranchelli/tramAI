@@ -47,7 +47,7 @@ class GovernanceProjectionRestartQualificationTest {
                 listOf(
                     "pid=${ProcessHandle.current().pid()}",
                     "digest=${snapshot.semanticDigest}",
-                    "materializedAt=${stored?.materializedAt}",
+                    "materializedAt=${committed.materializedAt}",
                 ).joinToString("\n") + "\n",
             )
         }
@@ -61,16 +61,15 @@ class GovernanceProjectionRestartQualificationTest {
 
             // No migration, no clear, no publish: this process only reads what is already there.
             val store = JdbcGovernanceProjectionStore(dataSource())
-            val stored = store.load(identity())
-            assertThat(stored).describedAs("a snapshot published by another process").isNotNull()
-            val snapshot = (stored ?: error("no snapshot: the publish phase left nothing to read")).snapshot
+            val stored = store.load(identity()) ?: error("no snapshot: the publish phase left nothing to read")
+            val snapshot = stored.snapshot
 
             // Separate processes: the writer's id is not this JVM's, and the row is the writer's row.
             val writer = written["pid"]?.toLongOrNull()
             assertThat(writer).describedAs("the writer recorded its own process id").isNotNull()
             assertThat(writer).isNotEqualTo(ProcessHandle.current().pid())
             assertThat(snapshot.semanticDigest).isEqualTo(written["digest"])
-            assertThat(stored?.materializedAt?.toString()).isEqualTo(written["materializedAt"])
+            assertThat(stored.materializedAt.toString()).isEqualTo(written["materializedAt"])
 
             // Identity and provenance survive the process boundary.
             assertThat(snapshot.identity.key).isEqualTo(identity().key)
