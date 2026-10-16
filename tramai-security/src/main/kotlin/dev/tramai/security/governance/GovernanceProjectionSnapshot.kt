@@ -2,7 +2,7 @@ package dev.tramai.security.governance
 
 import java.security.MessageDigest
 
-/**
+/*
  * 0.7.4d — the materialization contract.
  *
  * A materialized projection preserves what authoritative sources established. It creates no
@@ -44,10 +44,8 @@ internal class ProjectionIdentity(
         }
     }
 
-    /**
-     * Deterministic and unambiguous: every component is length-prefixed, so no two distinct
-     * identities can produce the same key, and absent components are marked rather than blank.
-     */
+    // Deterministic and unambiguous: every component is length-prefixed, so no two distinct
+    // identities can produce the same key, and absent components are marked rather than blank.
     val key: String
         get() =
             listOf(workloadId, environmentId, deploymentId, workflowRunId ?: ABSENT, auditStreamId ?: ABSENT)
@@ -84,7 +82,7 @@ internal data class SnapshotFact(
     val sourceVersion: Long? = null,
     val watermark: Long? = null,
 ) {
-    /**
+    /*
      * The authority model, applied to stored content as well as to fresh reads.
      *
      * These are the same rules [ProjectedFact] enforces, expressed over "was a value reported" instead
@@ -160,7 +158,7 @@ internal data class SnapshotCoverage(
     val unclassifiedPositions: Set<Long>,
     val classificationRevision: String,
 ) {
-    /**
+    /*
      * The same guards [StreamCoverage] applies to a fresh read, applied again to stored content.
      *
      * A row that names positions outside the range it claims to have verified, or accounts for
@@ -204,6 +202,7 @@ internal data class SnapshotCoverage(
 }
 
 /** One decision family: its fact, and the two coverage claims that qualify it. */
+@Suppress("LongParameterList")
 internal data class SnapshotDecision(
     val kind: DecisionKind,
     val completeness: Completeness,
@@ -231,8 +230,14 @@ internal data class SnapshotDecision(
                 latest = SnapshotFact.of(projection.latest),
                 latestDecision = projection.latest.value?.decision,
                 latestReasonCode = projection.latest.value?.reasonCode,
-                latestBoundaryId = projection.latest.value?.boundary?.id,
-                latestBoundaryStrength = projection.latest.value?.boundary?.registeredStrength,
+                latestBoundaryId =
+                    projection.latest.value
+                        ?.boundary
+                        ?.id,
+                latestBoundaryStrength =
+                    projection.latest.value
+                        ?.boundary
+                        ?.registeredStrength,
                 duplicatesIgnored = projection.duplicatesIgnored,
                 staleIgnored = projection.staleIgnored,
             )
@@ -282,6 +287,7 @@ internal enum class ReadConsistency {
  * It is re-derived on construction, so a snapshot whose stated digest does not match its content
  * cannot exist.
  */
+@Suppress("LongParameterList")
 internal class GovernanceProjectionSnapshot(
     val formatVersion: String,
     val identity: ProjectionIdentity,
@@ -353,8 +359,12 @@ internal class GovernanceProjectionSnapshot(
         listOf(
             decision.kind.name,
             decision.completeness.name,
-            decision.coverage.verifiedRange?.first?.toString() ?: "",
-            decision.coverage.verifiedRange?.last?.toString() ?: "",
+            decision.coverage.verifiedRange
+                ?.first
+                ?.toString() ?: "",
+            decision.coverage.verifiedRange
+                ?.last
+                ?.toString() ?: "",
             decision.coverage.observedHeadHash ?: "",
             decision.coverage.accountedPositions.toString(),
             encodePositions(decision.coverage.unrecordedDecisionPositions),
@@ -404,10 +414,12 @@ internal class GovernanceProjectionSnapshot(
         /** Strict: a malformed list is a corrupt row, not an empty set. */
         fun decodePositions(encoded: String): Set<Long> {
             if (encoded.isEmpty()) return emptySet()
-            return encoded.split(',').map { token ->
-                token.toLongOrNull()
-                    ?: throw ProjectionCorruptionException("stored positions are malformed")
-            }.toSet()
+            return encoded
+                .split(',')
+                .map { token ->
+                    token.toLongOrNull()
+                        ?: throw ProjectionCorruptionException("stored positions are malformed")
+                }.toSet()
         }
 
         /** One statement per line, order preserved; entries may not contain the separator. */

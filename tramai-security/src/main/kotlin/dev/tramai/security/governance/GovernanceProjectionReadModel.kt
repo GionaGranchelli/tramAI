@@ -2,7 +2,7 @@ package dev.tramai.security.governance
 
 import java.time.Instant
 
-/**
+/*
  * 0.7.4d — the durable read-model contract.
  *
  * The store holds a derived view. It answers "what did the authoritative sources establish, as of the
@@ -117,21 +117,38 @@ internal class StoredGovernanceProjection(
 
         val audit =
             when {
-                auditHead == null || provenance.auditHeadPosition == NOT_ESTABLISHED -> SourceCurrency.UNKNOWN
-                auditHead.position != provenance.auditHeadPosition -> SourceCurrency.STALE
-                auditHead.hash != null && provenance.auditHeadHash != null ->
+                auditHead == null || provenance.auditHeadPosition == NOT_ESTABLISHED -> {
+                    SourceCurrency.UNKNOWN
+                }
+
+                auditHead.position != provenance.auditHeadPosition -> {
+                    SourceCurrency.STALE
+                }
+
+                auditHead.hash != null && provenance.auditHeadHash != null -> {
                     if (auditHead.hash == provenance.auditHeadHash) SourceCurrency.CURRENT else SourceCurrency.STALE
+                }
+
                 // Same position, but one side has no hash to compare: agreement on a position is not
                 // agreement on the stream, so currency is not established.
-                else -> SourceCurrency.UNKNOWN
+                else -> {
+                    SourceCurrency.UNKNOWN
+                }
             }
 
         val registration =
             when {
-                registrationVersion == null || provenance.registrationVersion == NOT_ESTABLISHED ->
+                registrationVersion == null || provenance.registrationVersion == NOT_ESTABLISHED -> {
                     SourceCurrency.UNKNOWN
-                registrationVersion == provenance.registrationVersion -> SourceCurrency.CURRENT
-                else -> SourceCurrency.STALE
+                }
+
+                registrationVersion == provenance.registrationVersion -> {
+                    SourceCurrency.CURRENT
+                }
+
+                else -> {
+                    SourceCurrency.STALE
+                }
             }
 
         return ProjectionFreshnessAssessment(
@@ -189,5 +206,4 @@ internal class ReadOnlyGovernanceProjections(
     override suspend fun load(identity: ProjectionIdentity): StoredGovernanceProjection? = store.load(identity)
 }
 
-internal fun GovernanceProjectionStore.readOnly(): GovernanceProjectionReadModel =
-    ReadOnlyGovernanceProjections(this)
+internal fun GovernanceProjectionStore.readOnly(): GovernanceProjectionReadModel = ReadOnlyGovernanceProjections(this)

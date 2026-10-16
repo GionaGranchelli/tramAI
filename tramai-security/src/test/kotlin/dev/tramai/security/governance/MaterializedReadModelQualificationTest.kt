@@ -88,7 +88,7 @@ class MaterializedReadModelQualificationTest {
             this::class.java.classLoader
                 .getResource("tramai/security/governance/postgres/$migration")
                 ?.readText()
-                ?: throw IllegalStateException("Migration not found: $migration")
+                ?: error("Migration not found: $migration")
         setupConnection.createStatement().use { it.execute(sql) }
     }
 

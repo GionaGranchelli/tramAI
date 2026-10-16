@@ -49,7 +49,7 @@ class GovernanceProjectionMaterializerTest {
             this::class.java.classLoader
                 .getResource("tramai/security/governance/postgres/$migration")
                 ?.readText()
-                ?: throw IllegalStateException("Migration not found: $migration")
+                ?: error("Migration not found: $migration")
         setupConnection.createStatement().use { it.execute(sql) }
     }
 
@@ -106,7 +106,14 @@ class GovernanceProjectionMaterializerTest {
         runBlocking<Unit> {
             val store = freshStore()
             val materializer =
-                materializerFor(store, ScriptedFacts(records = listOf(decision(1), decision(5)), range = 1L..5L, accounted = 5L))
+                materializerFor(
+                    store,
+                    ScriptedFacts(
+                        records = listOf(decision(1), decision(5)),
+                        range = 1L..5L,
+                        accounted = 5L,
+                    ),
+                )
             materializer.materialize(identity(), WorkloadRegistrationFixtures.identity())
 
             val before = store.load(identity())!!.snapshot.semanticDigest
@@ -121,13 +128,23 @@ class GovernanceProjectionMaterializerTest {
     fun `a read that verified no range cannot replace an established snapshot`() =
         runBlocking<Unit> {
             val store = freshStore()
-            materializerFor(store, ScriptedFacts(records = listOf(decision(1), decision(5)), range = 1L..5L, accounted = 5L))
-                .materialize(identity(), WorkloadRegistrationFixtures.identity())
+            materializerFor(
+                store,
+                ScriptedFacts(
+                    records = listOf(decision(1), decision(5)),
+                    range = 1L..5L,
+                    accounted = 5L,
+                ),
+            ).materialize(identity(), WorkloadRegistrationFixtures.identity())
 
             // A bounded or interrupted read: it saw records, but established no range, so it has no
             // coverage to report and no head to name.
             val partial = ScriptedFacts(records = listOf(decision(1)), range = null, accounted = 0L)
-            val outcome = materializerFor(store, partial).materialize(identity(), WorkloadRegistrationFixtures.identity())
+            val outcome =
+                materializerFor(store, partial).materialize(
+                    identity(),
+                    WorkloadRegistrationFixtures.identity(),
+                )
 
             assertThat(outcome).isEqualTo(MaterializationOutcome.REJECTED_STALE)
             val stored = store.load(identity())!!
@@ -227,6 +244,7 @@ class GovernanceProjectionMaterializerTest {
      * The coverage it reports is exactly what a caller supplies, which is how a bounded read and an
      * unclassifiable position are reproduced without contorting the audit store.
      */
+    @Suppress("LongParameterList") // explicit named fixture parameters, each defaulted
     private class ScriptedFacts(
         private val records: List<RecordedDecision> = emptyList(),
         private val range: LongRange? = null,

@@ -1,3 +1,12 @@
+@file:Suppress("TooGenericExceptionCaught", "InstanceOfCheckForException", "SwallowedException")
+
+/*
+ * Rationale for the three suppressions above, mirroring tramai-persistence-jdbc's JdbcSafeOperation.kt:
+ * a JDBC boundary has to catch broadly and rethrow sanitized, and it has to attach rollback and
+ * autoCommit-restore failures as suppressed so the primary failure is not lost. Neither is fail-open —
+ * it is the opposite: no SQL, schema or vendor detail leaves this file, and no failure is swallowed.
+ */
+
 package dev.tramai.security.governance
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
@@ -19,7 +28,15 @@ import javax.sql.DataSource
  * derive from the audit stream, so a candidate built from an older head is weaker evidence even when
  * registration has moved on. The pair orders snapshots for one key; it is not a claim that the two
  * sources were read at one instant, and [ReadConsistency] records that distinction in the row itself.
+ *
+ * A JDBC store is a mapping surface: SQL, row mapping and the transactional publish belong in one
+ * readable unit, because the atomicity the publish guarantees spans them. The equivalent stores in
+ * this repository carry baselined findings of the same shape; this one is new, so the choice is
+ * stated rather than hidden behind a baseline entry. Splitting the file would separate the SQL from
+ * the mapping that uses it, which is the defect this suppression avoids rather than the one it hides.
+ * uppress
  */
+@Suppress("TooManyFunctions", "LongParameterList")
 internal class JdbcGovernanceProjectionStore(
     private val dataSource: DataSource,
 ) : GovernanceProjectionStore {
@@ -49,7 +66,15 @@ internal class JdbcGovernanceProjectionStore(
                 )
             }
             val snapshot =
-                rebuildSnapshot(identity, header, selectFacts(connection, identity.key), selectDecisions(connection, identity.key))
+                rebuildSnapshot(
+                    identity,
+                    header,
+                    selectFacts(connection, identity.key),
+                    selectDecisions(
+                        connection,
+                        identity.key,
+                    ),
+                )
             if (snapshot.semanticDigest != header.semanticDigest) {
                 // The row disagrees with itself. Refusing is the only safe answer: repairing it would
                 // be inventing content, and trusting it would be trusting a contradiction.
@@ -138,18 +163,19 @@ internal class JdbcGovernanceProjectionStore(
             .prepareStatement(UPSERT_HEADER)
             .use { statement ->
                 val provenance = snapshot.provenance
-                statement.setString(1, snapshot.identity.key)
-                statement.setString(2, snapshot.formatVersion)
-                statement.setString(3, provenance.classificationRevision)
-                statement.setString(4, snapshot.identity.workloadId)
-                statement.setString(5, snapshot.identity.environmentId)
-                statement.setString(6, snapshot.identity.deploymentId)
-                statement.setString(7, snapshot.identity.workflowRunId)
-                statement.setString(8, snapshot.identity.auditStreamId)
-                statement.setLong(9, provenance.registrationVersion)
-                statement.setLong(10, provenance.auditHeadPosition)
-                statement.setString(11, provenance.auditHeadHash)
-                statement.setString(12, snapshot.semanticDigest)
+                var index = 1
+                statement.setString(index++, snapshot.identity.key)
+                statement.setString(index++, snapshot.formatVersion)
+                statement.setString(index++, provenance.classificationRevision)
+                statement.setString(index++, snapshot.identity.workloadId)
+                statement.setString(index++, snapshot.identity.environmentId)
+                statement.setString(index++, snapshot.identity.deploymentId)
+                statement.setString(index++, snapshot.identity.workflowRunId)
+                statement.setString(index++, snapshot.identity.auditStreamId)
+                statement.setLong(index++, provenance.registrationVersion)
+                statement.setLong(index++, provenance.auditHeadPosition)
+                statement.setString(index++, provenance.auditHeadHash)
+                statement.setString(index++, snapshot.semanticDigest)
                 statement.executeQuery().use { rows -> return rows.next() }
             }
 
@@ -173,16 +199,17 @@ internal class JdbcGovernanceProjectionStore(
     ) {
         connection.prepareStatement(INSERT_FACT).use { statement ->
             factsOf(snapshot).forEach { (name, fact) ->
-                statement.setString(1, snapshot.identity.key)
-                statement.setString(2, name)
-                statement.setString(3, fact.authority.name)
-                statement.setString(4, fact.freshness.name)
-                statement.setString(5, fact.established)
-                statement.setString(6, GovernanceProjectionSnapshot.encodeLines(fact.mustNotInfer))
-                statement.setBoolean(7, fact.valuePresent)
-                statement.setNullableLong(8, fact.observedVersion)
-                statement.setNullableLong(9, fact.sourceVersion)
-                statement.setNullableLong(10, fact.watermark)
+                var index = 1
+                statement.setString(index++, snapshot.identity.key)
+                statement.setString(index++, name)
+                statement.setString(index++, fact.authority.name)
+                statement.setString(index++, fact.freshness.name)
+                statement.setString(index++, fact.established)
+                statement.setString(index++, GovernanceProjectionSnapshot.encodeLines(fact.mustNotInfer))
+                statement.setBoolean(index++, fact.valuePresent)
+                statement.setNullableLong(index++, fact.observedVersion)
+                statement.setNullableLong(index++, fact.sourceVersion)
+                statement.setNullableLong(index++, fact.watermark)
                 statement.addBatch()
             }
             statement.executeBatch()
@@ -195,29 +222,36 @@ internal class JdbcGovernanceProjectionStore(
     ) {
         connection.prepareStatement(INSERT_DECISION).use { statement ->
             snapshot.decisions.sortedBy { it.kind.name }.forEach { decision ->
-                statement.setString(1, snapshot.identity.key)
-                statement.setString(2, decision.kind.name)
-                statement.setNullableLong(3, decision.coverage.verifiedRange?.first)
-                statement.setNullableLong(4, decision.coverage.verifiedRange?.last)
-                statement.setString(5, decision.coverage.observedHeadHash)
-                statement.setLong(6, decision.coverage.accountedPositions)
-                statement.setString(7, GovernanceProjectionSnapshot.encodePositions(decision.coverage.unrecordedDecisionPositions))
-                statement.setString(8, GovernanceProjectionSnapshot.encodePositions(decision.coverage.unclassifiedPositions))
-                statement.setString(9, decision.coverage.classificationRevision)
-                statement.setString(10, decision.completeness.name)
-                statement.setInt(11, decision.duplicatesIgnored)
-                statement.setInt(12, decision.staleIgnored)
-                statement.setString(13, decision.latestDecision)
-                statement.setString(14, decision.latestReasonCode)
-                statement.setString(15, decision.latestBoundaryId)
-                statement.setString(16, decision.latestBoundaryStrength)
-                statement.setString(17, decision.latest.authority.name)
-                statement.setString(18, decision.latest.freshness.name)
-                statement.setString(19, decision.latest.established)
-                statement.setString(20, GovernanceProjectionSnapshot.encodeLines(decision.latest.mustNotInfer))
-                statement.setNullableLong(21, decision.latest.observedVersion)
-                statement.setNullableLong(22, decision.latest.sourceVersion)
-                statement.setNullableLong(23, decision.latest.watermark)
+                var index = 1
+                statement.setString(index++, snapshot.identity.key)
+                statement.setString(index++, decision.kind.name)
+                statement.setNullableLong(index++, decision.coverage.verifiedRange?.first)
+                statement.setNullableLong(index++, decision.coverage.verifiedRange?.last)
+                statement.setString(index++, decision.coverage.observedHeadHash)
+                statement.setLong(index++, decision.coverage.accountedPositions)
+                statement.setString(
+                    index++,
+                    GovernanceProjectionSnapshot.encodePositions(decision.coverage.unrecordedDecisionPositions),
+                )
+                statement.setString(
+                    index++,
+                    GovernanceProjectionSnapshot.encodePositions(decision.coverage.unclassifiedPositions),
+                )
+                statement.setString(index++, decision.coverage.classificationRevision)
+                statement.setString(index++, decision.completeness.name)
+                statement.setInt(index++, decision.duplicatesIgnored)
+                statement.setInt(index++, decision.staleIgnored)
+                statement.setString(index++, decision.latestDecision)
+                statement.setString(index++, decision.latestReasonCode)
+                statement.setString(index++, decision.latestBoundaryId)
+                statement.setString(index++, decision.latestBoundaryStrength)
+                statement.setString(index++, decision.latest.authority.name)
+                statement.setString(index++, decision.latest.freshness.name)
+                statement.setString(index++, decision.latest.established)
+                statement.setString(index++, GovernanceProjectionSnapshot.encodeLines(decision.latest.mustNotInfer))
+                statement.setNullableLong(index++, decision.latest.observedVersion)
+                statement.setNullableLong(index++, decision.latest.sourceVersion)
+                statement.setNullableLong(index++, decision.latest.watermark)
                 statement.addBatch()
             }
             statement.executeBatch()
@@ -235,7 +269,8 @@ internal class JdbcGovernanceProjectionStore(
         val declared = facts[FACT_DECLARED_IDENTITY] ?: corrupt("the declared identity fact row is missing")
         val telemetry = facts[FACT_TELEMETRY] ?: corrupt("the telemetry fact row is missing")
         val revision =
-            header.classificationRevision.takeIf { it.isNotBlank() } ?: corrupt("the classification revision is missing")
+            header.classificationRevision.takeIf { it.isNotBlank() }
+                ?: corrupt("the classification revision is missing")
         return try {
             GovernanceProjectionSnapshot(
                 formatVersion = header.formatVersion,

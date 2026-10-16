@@ -284,7 +284,8 @@ internal data class ProjectedFact<out T>(
  * buckets that did not become records — and [completeness] is the decision-record claim: neither
  * implies the other, and [Completeness.COMPLETE] may only be claimed when a verified range is present.
  * Both travel to a materialized snapshot, because a persisted read model that keeps only one of them
- * has already lost the distinction this contract exists to preserve. [duplicatesIgnored] and [staleIgnored] record position-level
+ * has already lost the distinction this contract exists to preserve. [duplicatesIgnored] and [staleIgnored] record
+ * position-level
  * facts that were seen and not multiplied into the projection.
  */
 internal data class DecisionProjection(

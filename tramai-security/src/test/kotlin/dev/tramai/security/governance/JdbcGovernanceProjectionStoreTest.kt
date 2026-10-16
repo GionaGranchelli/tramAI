@@ -50,7 +50,7 @@ class JdbcGovernanceProjectionStoreTest {
             this::class.java.classLoader
                 .getResource("tramai/security/governance/postgres/$migration")
                 ?.readText()
-                ?: throw IllegalStateException("Migration not found: $migration")
+                ?: error("Migration not found: $migration")
         setupConnection.createStatement().use { it.execute(sql) }
     }
 
@@ -97,7 +97,8 @@ class JdbcGovernanceProjectionStoreTest {
             val store = freshStore()
             store.publish(snapshot())
 
-            val policy = JdbcGovernanceProjectionStore(dataSource).load(identity())!!.decision(DecisionKind.POLICY_DECISION)!!
+            val reloaded = JdbcGovernanceProjectionStore(dataSource).load(identity())!!
+            val policy = reloaded.decision(DecisionKind.POLICY_DECISION)!!
 
             assertThat(policy.coverage.verifiedRange).isEqualTo(1L..5L)
             assertThat(policy.coverage.observedHeadHash).isEqualTo("hash-5")
@@ -365,6 +366,7 @@ class JdbcGovernanceProjectionStoreTest {
 
     private fun identity() = ProjectionIdentity("wl-1", "env-1", "dep-1", "run-1", "stream-1")
 
+    @Suppress("LongParameterList") // explicit named fixture parameters, each defaulted
     private fun snapshot(
         headPosition: Long = 5L,
         headHash: String = "hash-5",
