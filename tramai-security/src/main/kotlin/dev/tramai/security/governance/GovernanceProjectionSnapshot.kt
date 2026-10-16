@@ -219,6 +219,7 @@ internal data class SnapshotDecision(
         require(completeness != Completeness.COMPLETE || coverage.verifiedRange != null) {
             "decision completeness cannot be stored without the verified range it rests on"
         }
+        GovernanceFactClassification.requireAuthorityUpgradeAllowed(kind, latest.authority, latestDecision != null)
     }
 
     companion object {

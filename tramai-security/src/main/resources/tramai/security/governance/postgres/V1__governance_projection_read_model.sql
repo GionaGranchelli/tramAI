@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS governance_projection_snapshot (
         registration_version >= 0 AND audit_head_position >= 0
     ),
     CONSTRAINT governance_projection_head_hash_requires_position CHECK (
-        audit_head_hash IS NULL OR audit_head_position IS NOT NULL
+        audit_head_hash IS NULL OR audit_head_position > 0
     )
 );
 

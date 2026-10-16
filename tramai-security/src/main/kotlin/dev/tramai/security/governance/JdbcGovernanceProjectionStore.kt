@@ -34,7 +34,6 @@ import javax.sql.DataSource
  * this repository carry baselined findings of the same shape; this one is new, so the choice is
  * stated rather than hidden behind a baseline entry. Splitting the file would separate the SQL from
  * the mapping that uses it, which is the defect this suppression avoids rather than the one it hides.
- * uppress
  */
 @Suppress("TooManyFunctions", "LongParameterList")
 internal class JdbcGovernanceProjectionStore(
@@ -42,8 +41,58 @@ internal class JdbcGovernanceProjectionStore(
 ) : GovernanceProjectionStore {
     override suspend fun load(identity: ProjectionIdentity): StoredGovernanceProjection? =
         withSafeJdbc {
-            dataSource.connection.use { connection -> loadWithin(connection, identity) }
+            dataSource.connection.use { connection -> loadConsistently(connection, identity) }
         }
+
+    /**
+     * One load, one committed version.
+     *
+     * The header, the facts and the decisions are three statements, and under READ COMMITTED each would
+     * observe whatever was committed when it ran. A publish landing between them would hand back a
+     * mixture of two snapshots: individually well-formed rows that fail the digest and get reported as
+     * corruption the store did not have. An atomic publish does not make independent reads a snapshot;
+     * only the transaction does, and REPEATABLE READ pins all three to the version this load began at,
+     * which is what the digest is a claim about.
+     */
+    private fun loadConsistently(
+        connection: Connection,
+        identity: ProjectionIdentity,
+    ): StoredGovernanceProjection? {
+        val previous =
+            ReadState(connection.autoCommit, connection.transactionIsolation, connection.isReadOnly)
+        connection.autoCommit = false
+        connection.transactionIsolation = Connection.TRANSACTION_REPEATABLE_READ
+        connection.isReadOnly = true
+        var primary: Exception? = null
+        return try {
+            val loaded = loadWithin(connection, identity)
+            connection.commit()
+            loaded
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            primary = e
+            rollbackSuppressing(connection, e)
+            throw e
+        } finally {
+            previous.restore(connection, primary)
+        }
+    }
+
+    /** The connection properties a read temporarily owns, restored whatever happened. */
+    private inner class ReadState(
+        private val autoCommit: Boolean,
+        private val isolation: Int,
+        private val readOnly: Boolean,
+    ) {
+        fun restore(
+            connection: Connection,
+            primary: Exception?,
+        ) {
+            restoreSuppressing(connection, primary) { it.autoCommit = autoCommit }
+            restoreSuppressing(connection, primary) { it.transactionIsolation = isolation }
+            restoreSuppressing(connection, primary) { it.isReadOnly = readOnly }
+        }
+    }
 
     /**
      * Reading, with stored content mapped to a refusal.
@@ -98,14 +147,13 @@ internal class JdbcGovernanceProjectionStore(
                     connection.commit()
                     outcome
                 } catch (e: Exception) {
-                    // Preserve cancellation before the rollback work below: a catch-all on a path a
-                    // caller may cancel must not turn cancellation into an ordinary failure.
+                    // Preserve cancellation before the rollback work below.
                     e.rethrowIfCancellation()
                     primary = e
                     rollbackSuppressing(connection, e)
                     throw e
                 } finally {
-                    restoreAutoCommitSuppressing(connection, previousAutoCommit, primary)
+                    restoreSuppressing(connection, primary) { it.autoCommit = previousAutoCommit }
                 }
             }
         }
@@ -116,8 +164,9 @@ internal class JdbcGovernanceProjectionStore(
     ): MaterializationOutcome {
         val key = snapshot.identity.key
         if (upsertHeader(connection, snapshot)) {
-            // Replacement is whole-row: the children of the previous snapshot are removed in the same
-            // transaction, so no reader can observe a mixture of two snapshots.
+            // Replacement is whole-row: the children go in the same transaction, so no committed version
+            // holds a mixture of two snapshots. A reader taking its three statements without its own
+            // snapshot can still straddle two versions, which is why load() pins one.
             deleteChildren(connection, key)
             insertFacts(connection, snapshot)
             insertDecisions(connection, snapshot)
@@ -433,13 +482,20 @@ internal class JdbcGovernanceProjectionStore(
         }
     }
 
-    private fun restoreAutoCommitSuppressing(
+    /**
+     * Restores a connection property without losing the failure that made restoration necessary.
+     *
+     * A read owns isolation and read-only state for its duration and a write owns autoCommit; both must
+     * hand the connection back as they found it, and a failure to restore must not replace the original
+     * failure.
+     */
+    private fun restoreSuppressing(
         connection: Connection,
-        previousAutoCommit: Boolean,
         primary: Exception?,
+        restore: (Connection) -> Unit,
     ) {
         try {
-            connection.autoCommit = previousAutoCommit
+            restore(connection)
         } catch (restoreFailure: Exception) {
             if (primary != null) primary.addSuppressed(restoreFailure) else throw restoreFailure
         }

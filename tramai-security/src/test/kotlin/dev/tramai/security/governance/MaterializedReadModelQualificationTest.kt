@@ -115,7 +115,7 @@ class MaterializedReadModelQualificationTest {
         return authority
     }
 
-    private fun identity() = ProjectionIdentity("claims", "production", "eu-west-amsterdam-01", runId, runId)
+    private fun identity() = ProjectionIdentity("claims", "production", "eu-west-amsterdam-01", runId)
 
     private fun context() =
         PolicyContext(

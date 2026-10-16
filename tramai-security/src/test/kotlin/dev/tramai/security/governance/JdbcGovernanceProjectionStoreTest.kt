@@ -454,6 +454,102 @@ class JdbcGovernanceProjectionStoreTest {
             valuePresent = true,
             sourceVersion = 5L,
         )
+
+    // ------------------------------------------------ owner review round 1: read consistency, authority
+
+    @Test
+    fun `a publish landing during a read does not make that read look corrupt`() =
+        runBlocking<Unit> {
+            val store = freshStore()
+            assertThat(store.publish(snapshot())).isEqualTo(MaterializationOutcome.PUBLISHED)
+
+            // The reader takes its header, then this publish lands, then it takes its children: the
+            // interleaving a reader without its own snapshot cannot survive, because the rows it ends up
+            // with never existed together in any committed version.
+            var landed = false
+            val interleaved =
+                PublishBeforeSecondStatementDataSource(dataSource) {
+                    if (!landed) {
+                        landed = true
+                        runBlocking {
+                            JdbcGovernanceProjectionStore(dataSource)
+                                .publish(snapshot(headPosition = 6L, headHash = "hash-6"))
+                        }
+                    }
+                }
+
+            val loaded = JdbcGovernanceProjectionStore(interleaved).load(identity())
+
+            assertThat(landed).isTrue()
+            assertThat(loaded).isNotNull()
+            // One version, and the one the read started at: the newer snapshot is not half-applied, and
+            // the snapshot that was there when the read began is still readable.
+            assertThat(loaded!!.snapshot.provenance.auditHeadPosition).isEqualTo(5L)
+        }
+
+    @Test
+    fun `a stored decision may not carry an authority upgrade the registered contract refuses`() {
+        assertThatThrownBy {
+            SnapshotDecision(
+                kind = DecisionKind.PROVIDER_ROUTE,
+                completeness = Completeness.GAPS_PRESENT,
+                coverage =
+                    SnapshotCoverage(
+                        verifiedRange = 1L..5L,
+                        accountedPositions = 5L,
+                        unrecordedDecisionPositions = emptySet(),
+                        unclassifiedPositions = emptySet(),
+                        observedHeadHash = "hash-5",
+                        classificationRevision = GOVERNANCE_CLASSIFICATION_REVISION,
+                    ),
+                latest =
+                    SnapshotFact(
+                        authority = FactAuthority.AUTHORITATIVE_PERSISTED,
+                        freshness = FactFreshness.CURRENT_AT_VERSION,
+                        established = "a provider route the engine established",
+                        mustNotInfer = listOf("routing is not an authorization"),
+                        valuePresent = true,
+                        observedVersion = 5L,
+                    ),
+                latestDecision = "REJECTED",
+                latestReasonCode = "provider_rejected",
+                latestBoundaryId = null,
+                latestBoundaryStrength = null,
+                duplicatesIgnored = 0,
+                staleIgnored = 0,
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("source-declared at best")
+    }
+
+    @Test
+    fun `a stored decision carrying an authority upgrade is refused on load, not reported as a fact`() =
+        runBlocking<Unit> {
+            val store = freshStore()
+            assertThat(store.publish(snapshot())).isEqualTo(MaterializationOutcome.PUBLISHED)
+
+            // A row rewritten in the database to claim an upgrade the contract refuses. The digest would
+            // also notice, so the assertion names the guard: a refusal for the right reason, not any
+            // refusal at all.
+            mutateStored("UPDATE governance_projection_decision SET kind = 'PROVIDER_ROUTE'")
+
+            assertThatThrownBy { runBlocking { store.load(identity()) } }
+                .isInstanceOf(ProjectionCorruptionException::class.java)
+                .hasMessageContaining("source-declared at best")
+        }
+
+    @Test
+    fun `the schema refuses a recorded head hash without a recorded position`() {
+        assertThatThrownBy {
+            mutateStored(
+                "INSERT INTO governance_projection_snapshot (projection_key, format_version, " +
+                    "classification_revision, workload_id, environment_id, deployment_id, registration_version, " +
+                    "audit_head_position, audit_head_hash, semantic_digest) " +
+                    "VALUES ('no-position', 'v1', 'rev', 'wl', 'env', 'dep', 0, 0, 'hash', 'digest')",
+            )
+        }.isInstanceOf(java.sql.SQLException::class.java)
+            .hasMessageContaining("governance_projection_head_hash_requires_position")
+    }
 }
 
 /**
@@ -507,4 +603,59 @@ private class FailingAfterStatementsDataSource(
     override fun <T : Any?> unwrap(iface: Class<T>): T = delegate.unwrap(iface)
 
     override fun isWrapperFor(iface: Class<*>): Boolean = delegate.isWrapperFor(iface)
+}
+
+/**
+ * A datasource that runs a hook before a connection's second statement.
+ *
+ * The second statement is where a reader that has already taken its header goes on to take its children,
+ * so a publish landing here is the interleaving that separates an atomic publish from a consistent read.
+ */
+private class PublishBeforeSecondStatementDataSource(
+    private val delegate: DataSource,
+    private val beforeSecondStatement: () -> Unit,
+) : DataSource {
+    override fun getConnection(): Connection = wrap(delegate.connection)
+
+    override fun getConnection(
+        username: String,
+        password: String,
+    ): Connection = wrap(delegate.getConnection(username, password))
+
+    private fun wrap(connection: Connection): Connection {
+        val statements = intArrayOf(0)
+        return Proxy.newProxyInstance(
+            Connection::class.java.classLoader,
+            arrayOf(Connection::class.java),
+            InvocationHandler { _, method, args ->
+                if (method.name == "prepareStatement" || method.name == "createStatement") {
+                    statements[0]++
+                    if (statements[0] == SECOND_STATEMENT) beforeSecondStatement()
+                }
+                try {
+                    method.invoke(connection, *(args ?: emptyArray()))
+                } catch (e: java.lang.reflect.InvocationTargetException) {
+                    throw e.targetException
+                }
+            },
+        ) as Connection
+    }
+
+    override fun getLogWriter() = delegate.logWriter
+
+    override fun setLogWriter(out: java.io.PrintWriter) = delegate.setLogWriter(out)
+
+    override fun setLoginTimeout(seconds: Int) = delegate.setLoginTimeout(seconds)
+
+    override fun getLoginTimeout() = delegate.loginTimeout
+
+    override fun getParentLogger() = delegate.parentLogger
+
+    override fun <T : Any?> unwrap(iface: Class<T>): T = delegate.unwrap(iface)
+
+    override fun isWrapperFor(iface: Class<*>): Boolean = delegate.isWrapperFor(iface)
+
+    private companion object {
+        const val SECOND_STATEMENT = 2
+    }
 }

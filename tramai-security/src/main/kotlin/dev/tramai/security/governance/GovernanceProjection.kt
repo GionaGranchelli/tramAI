@@ -327,25 +327,12 @@ internal data class GovernanceProjection(
         require(decisions.map { it.kind }.distinct().size == decisions.size) {
             "one projected fact per decision family: a duplicated kind would report two authorities for one fact"
         }
-        require(decisions.none { it.routingUpgradedToEngineEstablished() }) {
-            "provider.route has no live production producer: routing records are source-declared at best"
-        }
-        require(decisions.none { it.authorizationUpgradedToRuntimeState() }) {
-            "a recorded policy or tool decision is an authorization record, not authoritative runtime state"
+        decisions.forEach { decision ->
+            GovernanceFactClassification.requireAuthorityUpgradeAllowed(
+                decision.kind,
+                decision.latest.authority,
+                decision.latest.value != null,
+            )
         }
     }
-
-    private fun DecisionProjection.routingUpgradedToEngineEstablished(): Boolean =
-        kind == DecisionKind.PROVIDER_ROUTE &&
-            latest.value != null &&
-            latest.authority != FactAuthority.PRODUCER_DECLARED
-
-    private fun DecisionProjection.authorizationUpgradedToRuntimeState(): Boolean =
-        kind.attestsAuthorization && latest.isAuthoritativeRuntimeState()
-
-    private fun ProjectedFact<RecordedDecision>.isAuthoritativeRuntimeState(): Boolean =
-        authority == FactAuthority.AUTHORITATIVE_PERSISTED && value != null
-
-    private val DecisionKind.attestsAuthorization: Boolean
-        get() = this == DecisionKind.POLICY_DECISION || this == DecisionKind.TOOL_PERMISSION
 }

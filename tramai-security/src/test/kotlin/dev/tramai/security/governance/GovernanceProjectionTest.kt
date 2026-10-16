@@ -33,7 +33,6 @@ import kotlin.test.assertFailsWith
  *
  * This class audits the read contract from every side, and it grows with each contract refinement.
  * The size is the audit surface, not a failure to split it: the cases are one contract's cases.
- * uppress
  */
 @Suppress("LargeClass")
 class GovernanceProjectionTest {

@@ -30,10 +30,39 @@ internal class GovernanceProjectionMaterializer(
         scope: WorkloadDeploymentIdentity,
         declaredRunIdentity: DeclaredRunIdentity? = null,
     ): MaterializationOutcome {
+        requireIdentityDescribes(identity, scope)
         val projection = reader.read(scope, declaredRunIdentity, identity.workflowRunId)
         return store.publish(
             GovernanceProjectionSnapshot.of(identity, projection, provenanceOf(projection)),
         )
+    }
+
+    /**
+     * The identity must describe the scope that was actually read.
+     *
+     * The persisted key is what a later read addresses, so associating authoritative facts with an
+     * identity they do not describe would make a caller typo look like governance history. The scope
+     * components are therefore checked against the authoritative scope rather than trusted, and a named
+     * audit stream is refused: the stream a run's decisions live in is resolved by the decision source
+     * from the run association, so a name supplied here is a label this boundary cannot confirm. The
+     * snapshot records the stream state it observed - verified range, head position, head hash - which is
+     * verifiable evidence rather than a name.
+     */
+    private fun requireIdentityDescribes(
+        identity: ProjectionIdentity,
+        scope: WorkloadDeploymentIdentity,
+    ) {
+        require(
+            identity.workloadId == scope.workloadId.value &&
+                identity.environmentId == scope.environmentId.value &&
+                identity.deploymentId == scope.deploymentId.value,
+        ) {
+            "the projection identity does not describe the scope that was read"
+        }
+        require(identity.auditStreamId == null) {
+            "a named audit stream is a caller label this boundary cannot confirm; the snapshot records " +
+                "the stream state it observed instead"
+        }
     }
 
     /**

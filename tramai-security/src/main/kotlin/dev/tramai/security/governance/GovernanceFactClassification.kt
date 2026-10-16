@@ -27,6 +27,36 @@ internal object GovernanceFactClassification {
             else -> FactFreshness.STALE_OR_UNKNOWN
         }
 
+    /**
+     * The authority upgrade rules, applied by the registered and the persisted contracts alike.
+     *
+     * A provider-route record has no live production producer, so it is source-declared at best, and a
+     * policy or tool decision is an authorization record rather than authoritative runtime state. Both
+     * forms of a projection must refuse the same upgrades: the persisted form is rebuilt from stored
+     * content, and a digest proves that content is internally consistent, not that it is a claim the
+     * governance family permits. Keeping the rule here is what stops the two contracts drifting.
+     */
+    fun requireAuthorityUpgradeAllowed(
+        kind: DecisionKind,
+        authority: FactAuthority,
+        hasRecordedValue: Boolean,
+    ) {
+        require(
+            kind != DecisionKind.PROVIDER_ROUTE ||
+                !(hasRecordedValue && authority != FactAuthority.PRODUCER_DECLARED),
+        ) {
+            "provider.route has no live production producer: routing records are source-declared at best"
+        }
+        require(
+            !(kind.attestsAuthorization && hasRecordedValue && authority == FactAuthority.AUTHORITATIVE_PERSISTED),
+        ) {
+            "a recorded policy or tool decision is an authorization record, not authoritative runtime state"
+        }
+    }
+
+    val DecisionKind.attestsAuthorization: Boolean
+        get() = this == DecisionKind.POLICY_DECISION || this == DecisionKind.TOOL_PERMISSION
+
     fun authorityFor(kind: DecisionKind): FactAuthority =
         when (kind) {
             DecisionKind.POLICY_DECISION, DecisionKind.TOOL_PERMISSION -> FactAuthority.POLICY_AUTHORIZATION_RECORD

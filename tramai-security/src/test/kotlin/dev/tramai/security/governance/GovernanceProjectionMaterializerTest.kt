@@ -6,6 +6,7 @@ import dev.tramai.controlplane.testing.WorkloadRegistrationFixtures
 import dev.tramai.core.identity.WorkloadMetadata
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.TestInstance
@@ -75,7 +76,7 @@ class GovernanceProjectionMaterializerTest {
             store,
         )
 
-    private fun identity() = ProjectionIdentity("claims", "production", "eu-west-amsterdam-01", "run-1", "run-1")
+    private fun identity() = ProjectionIdentity("claims", "production", "eu-west-amsterdam-01", "run-1")
 
     // ------------------------------------------------------------------ determinism and idempotence
 
@@ -276,5 +277,36 @@ class GovernanceProjectionMaterializerTest {
         }
 
         override suspend fun telemetryFor(workflowRunId: String): List<TelemetryObservation> = emptyList()
+    }
+    // ------------------------------------------------ owner review round 1: identity binding
+
+    @Test
+    fun `an identity that does not describe the scope that was read is refused`() {
+        runBlocking<Unit> {
+            assertThatThrownBy {
+                runBlocking {
+                    materializerFor(freshStore(), ScriptedFacts()).materialize(
+                        ProjectionIdentity("other-workload", "production", "eu-west-amsterdam-01", "run-1"),
+                        WorkloadRegistrationFixtures.identity(),
+                    )
+                }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("does not describe the scope that was read")
+        }
+    }
+
+    @Test
+    fun `an identity naming an audit stream the boundary cannot confirm is refused`() {
+        runBlocking<Unit> {
+            assertThatThrownBy {
+                runBlocking {
+                    materializerFor(freshStore(), ScriptedFacts()).materialize(
+                        ProjectionIdentity("claims", "production", "eu-west-amsterdam-01", "run-1", "run-1"),
+                        WorkloadRegistrationFixtures.identity(),
+                    )
+                }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("caller label this boundary cannot confirm")
+        }
     }
 }
