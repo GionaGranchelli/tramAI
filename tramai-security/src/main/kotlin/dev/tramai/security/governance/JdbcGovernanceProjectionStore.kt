@@ -27,7 +27,9 @@ import javax.sql.DataSource
  * pair is (audit head position, registration version), compared lexicographically: decision records
  * derive from the audit stream, so a candidate built from an older head is weaker evidence even when
  * registration has moved on. The pair orders snapshots for one key; it is not a claim that the two
- * sources were read at one instant, and [ReadConsistency] records that distinction in the row itself.
+ * sources were read at one instant. [ReadConsistency] is a property of this format rather than a stored
+ * column: nothing carries it in the row, and a load reconstructs it as
+ * [ReadConsistency.INDEPENDENT_SOURCES].
  *
  * A JDBC store is a mapping surface: SQL, row mapping and the transactional publish belong in one
  * readable unit, because the atomicity the publish guarantees spans them. The equivalent stores in

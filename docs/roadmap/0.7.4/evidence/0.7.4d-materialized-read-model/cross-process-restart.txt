@@ -1,0 +1,27 @@
+database identity : PostgreSQL 17.10 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+container id      : 0d141fca16db1c1eb783f6e00722a2d84e9db47c02744e04ef86794a90c35e7d  image=postgres:17-alpine
+port              : 55432
+
+=== JVM 1: writer ===
+JAVA_TOOL_OPTIONS='-Dgov.restart.phase=publish -Dgov.restart.url=<db url> -Dgov.restart.user=<user> -Dgov.restart.password=<redacted>' \
+  ./gradlew --no-daemon --no-build-cache :tramai-security:cleanTest :tramai-security:test --tests '*GovernanceProjectionRestartQualificationTest*'
+jvm1_exit=0
+jvm1 executor args : 
+BUILD SUCCESSFUL in 12s
+--- handoff the writer left for the reader (no credentials) ---
+pid=1422062
+digest=1e45e5847b2f141e1b473537d65dd944a7cdf6fe2fcdff38c59830b5c8ecdf82
+materializedAt=2026-10-16T11:16:27.568116Z
+
+=== JVM 2: reader, a separate process ===
+JAVA_TOOL_OPTIONS='-Dgov.restart.phase=load -Dgov.restart.url=<db url> -Dgov.restart.user=<user> -Dgov.restart.password=<redacted>' \
+  ./gradlew --no-daemon --no-build-cache :tramai-security:cleanTest :tramai-security:test --tests '*GovernanceProjectionRestartQualificationTest*'
+jvm2_exit=0
+jvm2 executor args : 
+BUILD SUCCESSFUL in 12s
+
+=== outcomes ===
+result: tests=2 failures=0 errors=0 skipped=1
+  SKIPPED  publish phase records the snapshot a later process must find()
+  PASSED  load phase rebuilds the row another process wrote, without writing anything()
+container removed

@@ -1,5 +1,26 @@
 # TASK-0.7.4d — Durable, rebuildable governance read model
 
+## 12. Cross-process restart qualification
+
+The in-suite durability test loads a snapshot through a store instance that did not write it, in the same
+JVM. That is not the claim the task makes, so the claim is qualified by running it:
+`scripts/qualify-cross-process-restart.sh` starts PostgreSQL outside Gradle, runs
+`GovernanceProjectionRestartQualificationTest` once per phase in two separate JVMs, and forwards the phase
+and the database through `JAVA_TOOL_OPTIONS`. It reads nothing from a file the reader could have
+reconstructed, and the reader performs no migration, no clear and no publish.
+
+Evidence (`docs/roadmap/0.7.4/evidence/0.7.4d-materialized-read-model/cross-process-restart.txt`):
+PostgreSQL 17.10 on a standalone container; the writer published and recorded its own process id, the
+semantic digest and the timestamp of that write; a later JVM read the row the writer left, asserted the
+writer's process id differed from its own, and matched digest, write timestamp, identity, provenance
+(head position and hash, registration version) and both coverage claims independently - the raw verified
+range and the decision-record claim, with the unclassified and unrecorded positions preserved. Both
+phases exited 0 and the second passed.
+
+The tests are skipped when the properties are absent, which is what happens in CI: an opt-in
+qualification that reports a skip rather than silently qualifying nothing. An automated cross-process CI
+gate is recorded as the follow-up for hardening.
+
 Status: **PHASES 0–5 IMPLEMENTED AND QUALIFIED, GATES GREEN, PR OPEN.** Verdict **PARTIAL** on one
 named item: the restart qualification is at component level (a fresh store instance with its own
 connection), not across JVMs — see §6 and §8.
@@ -79,7 +100,8 @@ A publish is one transaction. The header, its facts and its decisions commit tog
 write leaves the previous snapshot whole — verified by fault injection between the header write and the
 child rows. PostgreSQL's default READ COMMITTED is sufficient for the conditional upsert; nothing here
 needs or claims SERIALIZABLE. **Not available and not claimed**: an atomic cross-store snapshot of
-registration and audit together. The sources are read independently and `read_consistency` in the row
+registration and audit together. The sources are read independently, and the format says so: `read_consistency`
+is not a stored column - a load reconstructs it as `INDEPENDENT_SOURCES`
 says exactly that (`INDEPENDENT_SOURCES`).
 
 ## 6. Real durable-backend qualification
