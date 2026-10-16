@@ -98,6 +98,9 @@ internal class JdbcGovernanceProjectionStore(
                     connection.commit()
                     outcome
                 } catch (e: Exception) {
+                    // Preserve cancellation before the rollback work below: a catch-all on a path a
+                    // caller may cancel must not turn cancellation into an ordinary failure.
+                    e.rethrowIfCancellation()
                     primary = e
                     rollbackSuppressing(connection, e)
                     throw e

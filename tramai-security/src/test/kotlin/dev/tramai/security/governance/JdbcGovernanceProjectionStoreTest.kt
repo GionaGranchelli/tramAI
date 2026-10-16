@@ -7,7 +7,7 @@ import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.TestInstance
 import org.postgresql.ds.PGSimpleDataSource
-import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.postgresql.PostgreSQLContainer
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 import java.sql.Connection
@@ -26,7 +26,7 @@ import kotlin.test.Test
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JdbcGovernanceProjectionStoreTest {
-    private lateinit var postgres: PostgreSQLContainer<*>
+    private lateinit var postgres: PostgreSQLContainer
     private lateinit var dataSource: DataSource
     private lateinit var setupConnection: Connection
 
