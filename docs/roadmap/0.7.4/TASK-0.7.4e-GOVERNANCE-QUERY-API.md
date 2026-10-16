@@ -123,7 +123,7 @@ against the dumps themselves rather than trusted:
 | Value | Independent measurement |
 |---|---|
 | `fromSha256` = `613e6673…` | `git show 3bc94891:tramai-security/api/tramai-security.api \| sha256sum` — identical |
-| `toSha256` = `9f401168…` | `sha256sum tramai-security/api/tramai-security.api` — identical |
+| `toSha256` = `a385f1db125cebea0a60a3a75480489bda40a5a889b2c9d29066121a5539e420…` | `sha256sum tramai-security/api/tramai-security.api` — identical |
 | `targetVersion` | `"0.7.0"`, matching every other entry in the registry |
 
 The dump diff contains additions only — no removed line — and the only pre-existing files this change
@@ -161,7 +161,7 @@ is deliberately not part of this slice.
 
 ```kotlin
 // Obtain the service from public API only (the factory is the entry point; the adapter stays internal).
-val service: GovernanceQueryService = governanceQueryService(dataSource, controlPlaneQueries, auditStore)
+val service: GovernanceQueryService = GovernanceQueryService.jdbc(dataSource, controlPlaneQueries, auditStore)
 
 when (val result = service.query(GovernanceQueryRequest("wl-1", "env-1", "dep-1", workflowRunId = "run-1"))) {
     is GovernanceQueryResult.Found -> {

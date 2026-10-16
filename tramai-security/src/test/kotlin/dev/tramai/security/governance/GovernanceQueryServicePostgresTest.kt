@@ -20,6 +20,7 @@ import dev.tramai.security.governance.query.GovernanceQueryRequest
 import dev.tramai.security.governance.query.GovernanceQueryResult
 import dev.tramai.security.governance.query.GovernanceQueryService
 import dev.tramai.security.governance.query.ReadConsistency
+import dev.tramai.security.governance.query.ReasonCodeExposure
 import dev.tramai.security.governance.query.SourceCurrency
 import dev.tramai.security.governance.query.VerifiedStreamRange
 import kotlinx.coroutines.runBlocking
@@ -152,6 +153,111 @@ class GovernanceQueryServicePostgresTest {
         GovernanceProjectionReader(authority, AuditBackedGovernanceDecisionFactSource(auditStore)),
         store,
     )
+
+    // ------------------------------------------- 16. reason-code exposure policy (owner review round 2)
+
+    @Test
+    fun `16 a credential-shaped reason code is withheld and never exported`() =
+        runBlocking<Unit> {
+            val authority = registeredAuthority()
+            // Shaped like a live provider key. It satisfies every charset and length rule a token check can
+            // apply, which is why exposure runs through an approved vocabulary instead.
+            val credentialShaped = "sk-live-example123"
+            emitPolicy(PolicyDecision.Deny(reason = "blocked", reasonCode = credentialShaped))
+            val store = freshStore()
+            assertThat(materializer(authority, store).materialize(identity(), scope, declaredIdentity()))
+                .isEqualTo(MaterializationOutcome.PUBLISHED)
+
+            val service: GovernanceQueryService = GovernanceQueryService.jdbc(dataSource = dataSource)
+            val result = service.query(request())
+            assertThat(result).isInstanceOf(GovernanceQueryResult.Found::class.java)
+            val view = (result as GovernanceQueryResult.Found).view
+            val policy = requireNotNull(view.decisionFor(DecisionKind.POLICY_DECISION))
+
+            // The stored value is not exported, and its withholding is stated rather than rendered as
+            // "no reason was recorded".
+            assertThat(policy.reasonCode).isNull()
+            assertThat(policy.reasonExposure).isEqualTo(ReasonCodeExposure.WITHHELD)
+            assertThat(view.toString()).doesNotContain(credentialShaped)
+            assertThat(policy.toString()).doesNotContain(credentialShaped)
+        }
+
+    // ------------------------------------------- 17. missing family is not a synthetic absence
+
+    @Test
+    fun `17 a decision family the projection does not contain is absent from the list`() =
+        runBlocking<Unit> {
+            val authority = registeredAuthority()
+            emitPolicy(PolicyDecision.Allow)
+            val store = freshStore()
+            assertThat(materializer(authority, store).materialize(identity(), scope, declaredIdentity()))
+                .isEqualTo(MaterializationOutcome.PUBLISHED)
+
+            val service: GovernanceQueryService = GovernanceQueryService.jdbc(dataSource = dataSource)
+            val view = (service.query(request()) as GovernanceQueryResult.Found).view
+
+            // The projection reports one entry per family it recorded, and a family this deployment has no
+            // producer for is reported as NOT_PRODUCED with what may not be inferred from it. That is a
+            // statement about the producer set, not a claim that nothing occurred, and the API never
+            // strengthens it into one.
+            val tool = requireNotNull(view.decisionFor(DecisionKind.TOOL_PERMISSION))
+            assertThat(tool.fact.authority).isEqualTo(FactAuthority.NOT_OBSERVED)
+            assertThat(tool.fact.valuePresent).isFalse()
+            assertThat(tool.fact.mustNotInfer).isNotEmpty()
+
+            // A family the stored snapshot does not contain at all is never synthesized into a recorded
+            // absence. Deleting the row leaves the digest disagreeing with the content, and the query
+            // refuses the projection instead of fabricating a family from it.
+            mutateStored(
+                "DELETE FROM governance_projection_decision WHERE projection_key = '${identity().key}'",
+            )
+            assertThat(service.query(request()))
+                .isInstanceOf(GovernanceQueryResult.InvalidStoredProjection::class.java)
+        }
+
+    // ------------------------------------------- 18. stored identity must match the projection key
+
+    @Test
+    fun `18 stored identity columns that disagree with the projection key are refused`() =
+        runBlocking<Unit> {
+            val authority = registeredAuthority()
+            emitPolicy(PolicyDecision.Allow)
+            val store = freshStore()
+            assertThat(materializer(authority, store).materialize(identity(), scope, declaredIdentity()))
+                .isEqualTo(MaterializationOutcome.PUBLISHED)
+
+            val service: GovernanceQueryService = GovernanceQueryService.jdbc(dataSource = dataSource)
+            assertThat(service.query(request())).isInstanceOf(GovernanceQueryResult.Found::class.java)
+
+            // Rewrite the row's own identity columns, leaving the key and the digest untouched. Rebuilding
+            // the identity from the request instead of comparing it would report this row under the
+            // caller's scope; the digest cannot catch it because it covers the snapshot content, not the
+            // identity stored beside it.
+            mutateStored(
+                "UPDATE governance_projection_snapshot SET workload_id = 'another-workload' " +
+                    "WHERE projection_key = '${identity().key}'",
+            )
+
+            // The public result is a typed refusal whose reason is generic on purpose: the public surface
+            // does not narrate internal storage detail. The discriminator that names the rule is the
+            // store's own refusal, and it is asserted here rather than assumed.
+            val refused = service.query(request())
+            assertThat(refused).isInstanceOf(GovernanceQueryResult.InvalidStoredProjection::class.java)
+
+            val storeRefusal = runCatching { store.load(identity()) }.exceptionOrNull()
+            assertThat(storeRefusal).isInstanceOf(ProjectionCorruptionException::class.java)
+            assertThat(storeRefusal?.message).contains("identity")
+        }
+
+    private fun declaredIdentity(): DeclaredRunIdentity =
+        DeclaredRunIdentity(
+            workloadId = "claims",
+            configurationId = "cfg-1",
+            configurationVersion = "v1",
+            environmentId = "production",
+            deploymentId = "eu-west-amsterdam-01",
+            workflowRunId = runId,
+        )
 
     private fun mutateStored(sql: String) {
         dataSource.connection.use { connection ->

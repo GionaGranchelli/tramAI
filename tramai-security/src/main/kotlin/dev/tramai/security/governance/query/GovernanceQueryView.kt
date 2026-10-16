@@ -211,6 +211,25 @@ public data class DecisionRecordCoverage(
 }
 
 /**
+ * Whether the stored reason code of a decision was exposed through this API.
+ *
+ * A reason code is exported only when it belongs to the approved public vocabulary. Nothing recorded and
+ * something withheld are deliberately distinct states: collapsing them would let a consumer read a
+ * withheld value as "no reason was recorded". A credential-shaped or free-text reason is therefore never
+ * exported, and never silently reported as an absence.
+ */
+public enum class ReasonCodeExposure {
+    /** The projection carried an approved reason code, and [GovernanceDecisionFact.reasonCode] holds it. */
+    EXPOSED,
+
+    /** The projection carried no reason code. */
+    NOT_RECORDED,
+
+    /** The projection carried a reason code that is not approved for public exposure. It is withheld. */
+    WITHHELD,
+}
+
+/**
  * One decision family's projected governance state, carrying both [rawCoverage] (raw audit-stream
  * coverage) and [recordCoverage] (decision-record completeness and position accounting) as separate
  * structures.
@@ -228,6 +247,7 @@ public data class GovernanceDecisionFact
         public val boundaryStrength: String? = null,
         public val duplicatesIgnored: Int = 0,
         public val staleIgnored: Int = 0,
+        public val reasonExposure: ReasonCodeExposure = ReasonCodeExposure.NOT_RECORDED,
     ) {
         init {
             require(duplicatesIgnored >= 0 && staleIgnored >= 0) {
@@ -238,6 +258,9 @@ public data class GovernanceDecisionFact
             }
             requireOptionalSafeToken(decision, "decision")
             requireOptionalSafeToken(reasonCode, "reasonCode")
+            require((reasonCode != null) == (reasonExposure == ReasonCodeExposure.EXPOSED)) {
+                "a reason code is present exactly when its exposure is EXPOSED"
+            }
             requireOptionalSafeToken(boundaryId, "boundaryId")
             requireOptionalSafeToken(boundaryStrength, "boundaryStrength")
             validateCoverageConsistency(rawCoverage, recordCoverage)

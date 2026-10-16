@@ -13,6 +13,7 @@ import dev.tramai.security.governance.query.GovernanceDecisionFact;
 import dev.tramai.security.governance.query.GovernanceFactSummary;
 import dev.tramai.security.governance.query.GovernanceProjectionIdentity;
 import dev.tramai.security.governance.query.GovernanceProjectionView;
+import dev.tramai.security.governance.query.ReasonCodeExposure;
 import dev.tramai.security.governance.query.GovernanceQueryRequest;
 import dev.tramai.security.governance.query.GovernanceQueryResult;
 import dev.tramai.security.governance.query.GovernanceQueryService;
@@ -225,7 +226,8 @@ class JavaGovernanceQueryConsumerTest {
                         "BEFORE_PROVIDER_INVOCATION",
                         null,
                         0,
-                        0);
+                        0,
+                        ReasonCodeExposure.EXPOSED);
         GovernanceFactSummary telemetryFact =
                 new GovernanceFactSummary(
                         FactAuthority.TELEMETRY,

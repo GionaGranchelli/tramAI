@@ -17,6 +17,7 @@ import dev.tramai.security.governance.query.GovernanceQueryResult
 import dev.tramai.security.governance.query.GovernanceQueryService
 import dev.tramai.security.governance.query.GovernanceSourceProvenance
 import dev.tramai.security.governance.query.RawStreamCoverage
+import dev.tramai.security.governance.query.ReasonCodeExposure
 import dev.tramai.security.governance.query.VerifiedStreamRange
 import kotlinx.coroutines.runBlocking
 import dev.tramai.security.governance.query.Completeness as PublicCompleteness
@@ -169,7 +170,10 @@ private object GovernanceProjectionViewMapper {
                 ),
             registration = toFactSummary(snapshot.registration),
             declaredRunIdentity = toFactSummary(snapshot.declaredRunIdentity),
-            decisions = DecisionKind.entries.map { kind -> toDecisionFact(stored, kind) },
+            decisions =
+                DecisionKind.entries
+                    .filter { kind -> stored.decision(kind) != null }
+                    .map { kind -> toDecisionFact(stored, kind) },
             telemetry = toFactSummary(snapshot.telemetry),
         )
     }
@@ -186,21 +190,56 @@ private object GovernanceProjectionViewMapper {
                 },
         )
 
+    /**
+     * The public-exposure policy for decision reason codes.
+     *
+     * Syntactic validation is not a disclosure policy. A stored value such as a provider key satisfies any
+     * charset and length rule, so a shape test cannot separate an approved governance reason from a secret.
+     * Only codes from the vocabulary this projection documents are exported. Every other stored value is
+     * withheld, and the withholding is reported as such instead of being rendered as an absence, so a
+     * consumer can never read a withheld value as "no reason was recorded".
+     *
+     * The vocabulary is deliberately conservative: a legitimate code that is missing from it is withheld
+     * rather than leaked. Extending it is a deliberate, reviewable policy change.
+     */
+    internal object PublicReasonCodePolicy {
+        private val approved =
+            setOf(
+                "classification-fallback-blocked",
+                "classification-routing-blocked",
+                "approval_pending",
+                "approval_authorized",
+                "approval_completed",
+                "approval_stale_detected",
+                "approval_force_cancel_requested",
+                "approval_force_cancelled",
+                "sovereign-ops-admin-denial",
+            )
+
+        fun exposureOf(stored: String?): Pair<String?, ReasonCodeExposure> =
+            when {
+                stored == null -> null to ReasonCodeExposure.NOT_RECORDED
+                stored in approved -> stored to ReasonCodeExposure.EXPOSED
+                else -> null to ReasonCodeExposure.WITHHELD
+            }
+    }
+
     private fun toDecisionFact(
         stored: StoredGovernanceProjection,
         kind: DecisionKind,
     ): GovernanceDecisionFact {
+        // Reached only for a family the projection genuinely contains. A family it does not contain is
+        // absent from the decision list rather than reported as a synthetic absence: the projection
+        // records what its sources established, and a missing family is not a recorded observation that
+        // nothing occurred. Confusing the two would make the API assert a source fact it never had.
         val decision =
-            stored.decision(kind)
-                ?: SnapshotDecision.of(GovernanceDecisionFold.absent(kind))
-        val effectiveCompleteness =
-            if (stored.decision(kind) != null) {
-                stored.completenessFor(kind)
-            } else {
-                Completeness.UNKNOWN
+            requireNotNull(stored.decision(kind)) {
+                "toDecisionFact was called for a family this projection does not contain: $kind"
             }
+        val effectiveCompleteness = stored.completenessFor(kind)
         val coverage = decision.coverage
         val range = coverage.verifiedRange
+        val (reasonCode, reasonExposure) = PublicReasonCodePolicy.exposureOf(decision.latestReasonCode)
         return GovernanceDecisionFact(
             kind = toPublicDecisionKind(kind),
             fact = toFactSummary(decision.latest),
@@ -223,7 +262,8 @@ private object GovernanceProjectionViewMapper {
                     classificationRevision = coverage.classificationRevision,
                 ),
             decision = decision.latestDecision,
-            reasonCode = decision.latestReasonCode,
+            reasonCode = reasonCode,
+            reasonExposure = reasonExposure,
             boundaryId = decision.latestBoundaryId,
             boundaryStrength = decision.latestBoundaryStrength,
             duplicatesIgnored = decision.duplicatesIgnored,

@@ -109,7 +109,7 @@ internal class JdbcGovernanceProjectionStore(
         identity: ProjectionIdentity,
     ): StoredGovernanceProjection? =
         try {
-            val header = selectHeader(connection, identity.key) ?: return null
+            val header = selectHeader(connection, identity) ?: return null
             requireSupportedFormat(header.formatVersion)
             val snapshot =
                 rebuildSnapshot(
@@ -170,8 +170,11 @@ internal class JdbcGovernanceProjectionStore(
             return MaterializationOutcome.PUBLISHED
         }
 
+        // Publish verifies the same invariant as load: the row's identity columns must agree with the
+        // identity this snapshot was built for, so a row rewritten under a different scope cannot be
+        // treated as this scope's stored state.
         val stored =
-            selectHeader(connection, key)
+            selectHeader(connection, snapshot.identity)
                 ?: throw ProjectionCorruptionException("a stored projection vanished during publish")
 
         // The staged row is not a format this build writes, so the conditional update above refused to
@@ -364,14 +367,15 @@ internal class JdbcGovernanceProjectionStore(
 
     private fun selectHeader(
         connection: Connection,
-        key: String,
+        identity: ProjectionIdentity,
     ): HeaderRow? =
         connection.prepareStatement(SELECT_HEADER).use { statement ->
-            statement.setString(1, key)
+            statement.setString(1, identity.key)
             statement.executeQuery().use { rows ->
                 if (!rows.next()) {
                     null
                 } else {
+                    requireStoredIdentity(rows, identity)
                     HeaderRow(
                         formatVersion = rows.getString("format_version"),
                         classificationRevision = rows.getString("classification_revision"),
@@ -384,6 +388,33 @@ internal class JdbcGovernanceProjectionStore(
                 }
             }
         }
+
+    /**
+     * The row's own identity columns must agree with the key it was read under.
+     *
+     * The projection key is derived from the identity, so a row reached by that key is the row for this
+     * scope. Reconstructing the identity from the request without this check would report whatever the row
+     * holds under the caller's scope, and a row whose columns were corrupted or rewritten would be
+     * indistinguishable from a correct one. The digest cannot catch it: it covers the snapshot the
+     * materializer built, not the identity stored beside it.
+     */
+    private fun requireStoredIdentity(
+        rows: ResultSet,
+        identity: ProjectionIdentity,
+    ) {
+        val stored =
+            listOf(
+                rows.getString("workload_id"),
+                rows.getString("environment_id"),
+                rows.getString("deployment_id"),
+            )
+        val requested = listOf(identity.workloadId, identity.environmentId, identity.deploymentId)
+        if (stored != requested || rows.getString("workflow_run_id") != identity.workflowRunId) {
+            throw ProjectionCorruptionException(
+                "stored projection identity columns disagree with the projection key",
+            )
+        }
+    }
 
     private fun selectFacts(
         connection: Connection,
@@ -590,7 +621,8 @@ internal class JdbcGovernanceProjectionStore(
         const val SELECT_HEADER =
             """
             SELECT format_version, classification_revision, registration_version, audit_head_position,
-                   audit_head_hash, semantic_digest, materialized_at
+                   audit_head_hash, semantic_digest, materialized_at, workload_id, environment_id,
+                   deployment_id, workflow_run_id
             FROM governance_projection_snapshot
             WHERE projection_key = ?
             """

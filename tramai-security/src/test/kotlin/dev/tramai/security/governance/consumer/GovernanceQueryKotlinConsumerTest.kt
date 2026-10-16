@@ -16,6 +16,7 @@ import dev.tramai.security.governance.query.GovernanceQueryService
 import dev.tramai.security.governance.query.GovernanceSourceProvenance
 import dev.tramai.security.governance.query.RawStreamCoverage
 import dev.tramai.security.governance.query.ReadConsistency
+import dev.tramai.security.governance.query.ReasonCodeExposure
 import dev.tramai.security.governance.query.SourceCurrency
 import dev.tramai.security.governance.query.VerifiedStreamRange
 import org.assertj.core.api.Assertions.assertThat
@@ -246,6 +247,7 @@ class GovernanceQueryKotlinConsumerTest {
                 ),
             decision = "ALLOW",
             reasonCode = "policy_allowed",
+            reasonExposure = ReasonCodeExposure.EXPOSED,
             boundaryId = "BEFORE_PROVIDER_INVOCATION",
         )
 
