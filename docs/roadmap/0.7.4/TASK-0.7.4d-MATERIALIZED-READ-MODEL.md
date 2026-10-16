@@ -1,152 +1,138 @@
 # TASK-0.7.4d — Durable, rebuildable governance read model
 
-Status: **PHASE 0 COMPLETE — baseline and storage-boundary decision recorded.** Implementation not started.
+Status: **PHASES 0–4 IMPLEMENTED AND QUALIFIED. Phase 5 (adversarial battery) and Phase 6 (gate run)
+PENDING.** Not merged.
 
 - Base commit: `052cc27fb9979a4b5fb467d06c6eed3ba87176d3` (`release/0.7.0` tip, the 0.7.4c3 squash of PR #534)
 - Task branch: `task/0.7.4d-materialized-governance-read-model`, worktree `/home/gionag/tramai-d1`
 - Change class: `runtime-behaviour`
 - Predecessor: PR #534 — 0.7.4c3, **QUALIFIED — VERIFIED COVERAGE SEMANTICS**
+- Baseline evidence: `evidence/0.7.4d-materialized-read-model/baseline.txt`
 
 ## 1. Baseline, measured at the base commit
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Release containment | `git merge-base --is-ancestor 052cc27f origin/release/0.7.0` | VERIFIED: the tip *is* `052cc27f`, so PR #534 is the head of the release line |
-| Governance projection suite | `:tramai-security:test --tests 'dev.tramai.security.governance.*'` | VERIFIED: **207 tests, 0 failures** (14 result files) |
-| Durable audit store, real backend | `:tramai-persistence-jdbc:test --tests '*JdbcAuditStoreTckTest*'` | VERIFIED: **43 tests, 0 failures**, 31s wall, real PostgreSQL through Testcontainers |
+| Release containment | `git merge-base --is-ancestor 052cc27f origin/release/0.7.0` | VERIFIED: the tip *is* `052cc27f` |
+| Governance projection suite | `:tramai-security:test --tests 'dev.tramai.security.governance.*'` | VERIFIED: **207 tests, 0 failures** |
+| Durable audit store, real backend | `:tramai-persistence-jdbc:test --tests '*JdbcAuditStoreTckTest*'` | VERIFIED: **43 tests, 0 failures**, real PostgreSQL via Testcontainers |
 
-That second row is the environment probe for this task and not a formality: it establishes that a real
-JDBC backend is available here, so "durable" is testable rather than assertable. Docker is present
-(`docker ps` returns), and `tramai-memory-store` already declares Testcontainers in test scope — a
-non-persistence module running real JDBC tests is established practice in this repository.
+The second row is the environment probe for this task: it establishes that a real JDBC backend exists
+here, so "durable" is testable rather than assertable.
 
-## 2. Existing projection semantics (what may be materialized)
+## 2. Where durable storage legally lives, and why
 
-All of the following are `internal` to `:tramai-security`, package `dev.tramai.security.governance`:
-
-- `GovernanceProjection` — `registration: ProjectedFact<WorkloadExposure>`,
-  `declaredRunIdentity: ProjectedFact<DeclaredRunIdentity>`, `decisions: List<DecisionProjection>`,
-  `telemetry: ProjectedFact<List<TelemetryObservation>>`. Its constructor refuses a duplicated decision
-  family, a `provider.route` record promoted above source-declared, and an authorization record
-  promoted to authoritative runtime state.
-- `DecisionProjection` — one family: `latest: ProjectedFact<RecordedDecision>`, `completeness`,
-  `verifiedStreamRange`, `duplicatesIgnored`, `staleIgnored`. `COMPLETE` requires the range.
-- `ProjectedFact<T>` — `value`, `authority`, `freshness`, `established`, `mustNotInfer`,
-  `observedVersion: WorkloadStateVersion?`, `sourceVersion: Long?`, `watermark: Long?`. Its constructor
-  is the authority model: absence only as no-producer/unobserved/owning-authority; currency only at
-  the owning authority's version; a lag claim requires a watermark; a declared or recorded fact must
-  state what may not be inferred.
-- `StreamCoverage` — `verifiedRange`, `accountedPositions`, `unrecordedDecisionPositions`,
-  `unclassifiedPositions`. The raw-stream claim.
-- `RecordedDecision` — deliberately narrow: run id, kind, decision, safe reason code, declared
-  boundary, source position. **No prompt, provider, model, credential, tool argument or result field
-  exists**, so none can reach a persisted or queried surface.
-- `Completeness`, `FactAuthority`, `FactFreshness`, `DecisionKind`.
-
-Two gaps against the materialization requirement, established by reading the types rather than assumed:
-
-1. **`observedHeadHash` is not in the contract.** The adapter anchors the range to the observed head's
-   position *and* hash, then discards the hash. A persisted snapshot that must detect "different hash
-   at the same purported source position" needs it carried out of the read.
-2. **The raw coverage buckets do not reach the projection.** `DecisionProjection` exposes
-   `verifiedStreamRange` (raw) and `completeness` (decision) but not `accountedPositions`,
-   `unrecordedDecisionPositions` or `unclassifiedPositions`, and there is no
-   classification-contract revision anywhere.
-
-Both are additive refinements of internal types, and Phase 1 must make them before anything is
-persisted — a snapshot cannot preserve what the read never carried.
-
-## 3. Source and storage ownership
-
-- **Registration authority**: `WorkloadRegistrationAuthority` + `WorkloadControlPlaneQueries`
-  (`:tramai-control-plane`), whose durable form is `JdbcWorkloadRegistrationStore` (migration
-  `V8__control_plane_workload_registration.sql`). Facts read from it are
-  `AUTHORITATIVE_PERSISTED` and carry `WorkloadStateVersion`.
-- **Audit evidence**: `AuditStore` (SPI in `:tramai-security`, public) with
-  `InMemoryAuditStore`, file-backed and `JdbcAuditStore` implementations, hash-chained, positions from
-  1, `latestEvent` for the head. Migrations `V1`, `V3` under
-  `tramai-persistence-jdbc/src/main/resources/tramai/persistence/jdbc/postgres/`.
-- **The projection** (`GovernanceProjectionReader` + `GovernanceDecisionFold` +
-  `AuditBackedGovernanceDecisionFactSource`) reads both and is read-only: it can state what a source
-  established and nothing more.
-- **Migration mechanism**: Flyway, with versioned `V<n>__*.sql`. Two precedents exist for *where* the
-  SQL lives: the persistence modules' own resource dirs, and `tramai-platform`'s
-  `src/main/resources/db/migration/V1__platform.sql` — a non-persistence module shipping its own
-  migration directory.
-
-## 4. Chosen storage boundary, and why the alternatives are illegal
-
-**Chosen: the durable read model lives in `:tramai-security`, internal, JDBC through the JDK
-(`java.sql` / `javax.sql.DataSource` supplied by the caller), with its own migration resource and its
-own real-PostgreSQL tests.**
-
-Dependency legality, from the catalog and the boundary rules rather than from intuition:
+**The store, its codec and its migration live in `:tramai-security`, internal.** The alternatives are
+not preferences, they are illegal:
 
 | Candidate | Verdict | The rule that decides it |
 | --- | --- | --- |
-| Durable store in `:tramai-persistence-jdbc` | **ILLEGAL as designed** | It cannot see the projection: the types are `internal` to `:tramai-security`. Making them public is a published-module API change — the task forbids making internals public to solve dependency access, and `tramai-security/api/tramai-security.api` would change, which the stop-and-report list calls an unapproved ABI change. |
-| `:tramai-security` depends on `:tramai-persistence-jdbc` | **ILLEGAL** | Cycle. `tramai-persistence-jdbc/build.gradle.kts:13` already declares `api(project(":tramai-security"))`; `module-boundaries.yml` states cycles are detected programmatically by the verifier. |
-| New module in the persistence layer | **ILLEGAL for the same reason as row 1** | It would have to name `internal` projection types. |
-| Coverage semantics redefined in `:tramai-control-plane` so persistence can see them | **REJECTED** | `core-contracts → governance-security` is a forbidden edge, and 0.7.4c3 already settled this: a second model of the same governance decision is the thing the epic forbids. |
-| Store in `:tramai-security` speaking JDBC | **LEGAL** | No new module edge (the JDK types it needs are not module dependencies), no cycle, no public API change, and `adding-a-store.md` allows implementations in "the module that will own the new backend". |
+| Store in `:tramai-persistence-jdbc` | ILLEGAL | It cannot see the projection: those types are `internal` to `:tramai-security`. Making them public changes a published module's API dump — the workaround the task forbids. |
+| `:tramai-security` depends on `:tramai-persistence-jdbc` | ILLEGAL | Cycle: `tramai-persistence-jdbc/build.gradle.kts:13` already declares `api(project(":tramai-security"))`, and `module-boundaries.yml` states cycles are detected by the verifier. |
+| New module in the persistence layer | ILLEGAL | Same visibility wall as row 1. |
+| Coverage semantics redefined in `:tramai-control-plane` | REJECTED | `core-contracts → governance-security` is a forbidden edge, and a second model of one governance decision is what the epic forbids. |
+| Store in `:tramai-security` speaking JDBC | **CHOSEN** | No new module edge, no cycle, no public API change. `adding-a-store.md`: implementations live in the owning persistence module *or the module that will own the new backend* — the shape `tramai-memory-store`, `tramai-scheduler` and `tramai-platform` already use, the last of those shipping its own `db/migration/`. |
 
-Precedent for the chosen boundary, verified in the tree: `tramai-memory-store` ships
-`JdbcChatMemoryStore.kt` in main sources implementing an SPI owned elsewhere;
-`tramai-scheduler` ships `JdbcWorkflowSchedulerStore.kt` and `JdbcGovernedScheduleBindingStore.kt`;
-`tramai-platform` ships `JdbcRepositories.kt` plus its own `db/migration/`. All are outside the
-persistence layer, and none required a public API change to do it.
+**Consequence, stated rather than implied:** the materialized read model is not reachable from
+`:tramai-persistence-jdbc` consumers. It is an internal, composition-wired capability of the governance
+module, which is what 0.7.4e's query API will surface. §8 records what that boundaries off.
 
-**Consequence, stated plainly:** the materialized read model is not reachable by
-`:tramai-persistence-jdbc` consumers. It is an internal, composition-wired capability of the
-governance module, which is what 0.7.4e's headless query API will surface. This is the narrow boundary
-the task asks for, not a compromise.
+## 3. What is durable, versioned, stale, rebuildable, unknown
+
+- **Durable**: the identity, the two coverage claims, the facts with their authority and freshness, and
+  the per-source provenance. Three tables, typed columns, no serialized blob, so a field that should
+  not be stored has nowhere to go: there is no column for a prompt, an argument, a result, a credential,
+  or arbitrary audit metadata. Registration *content* is deliberately not duplicated — the
+  authoritative registration record remains the only place registration state is read from.
+- **Versioned**: `format_version` (a stored row carrying anything else is refused, not upgraded), the
+  `classification_revision` the decision coverage was made under, and per-source versions.
+- **Stale**: exactly what a fresh authoritative observation disagrees with, per source. A snapshot may
+  be current for registration and behind for audit; there is no overall freshness flag, because there
+  is no single source.
+- **Rebuildable**: a rebuild is the same materialization. Equal source facts produce an equal semantic
+  digest, and the store reports `ALREADY_CURRENT` instead of writing an equal row.
+- **Unknown**: everything a fresh observation did not establish. Currency is `UNKNOWN`, never `CURRENT`,
+  when nothing was observed.
+- **Cannot be inferred from a stored snapshot**: that a decision did not occur (emission is optional);
+  that a verified range proves event origin; that an `ALLOW` is completion; that registration content is
+  current; that the two sources were read at one instant.
+
+## 4. Schema and ordering contract
+
+`governance_projection_snapshot` (identity + provenance + `semantic_digest` + `materialized_at`),
+`governance_projection_fact` (one row per non-decision fact: authority, freshness, established,
+must-not-infer, version, watermark), `governance_projection_decision` (one row per family: raw coverage
+and decision coverage side by side, plus the narrow decision record).
+
+Ordering is the pair **(audit head position, registration version)**, compared lexicographically, in
+SQL. Audit first because the decision records derive from the audit stream: a candidate built from an
+older head is weaker evidence even when registration has moved on. Equal pair with equal content is a
+no-op; equal pair with different content — including a different head hash at the same purported
+position — is a conflict, refused rather than resolved by arrival order. Zero in either column means
+"not established": authoritative versions and audit positions both start at one, so zero is not a value
+either source can produce.
 
 ## 5. Transaction and concurrency guarantees actually available
 
-- **Atomic publish**: a single `INSERT ... ON CONFLICT ... DO UPDATE` statement. One statement is
-  atomic without an explicit transaction, so an interrupted write leaves the previous snapshot intact
-  rather than a half-written one. This is the crash-safety mechanism; no separate recovery log is
-  needed.
-- **Monotonicity**: the update is conditional on the candidate's watermark being strictly greater than
-  the stored one (`WHERE excluded.watermark > t.watermark`). A stale candidate that finishes later
-  therefore cannot overwrite a newer snapshot — the rejection is in the storage contract, not in the
-  caller's ordering.
-- **Position/hash conflict**: a candidate at the same source position with a different head hash is a
-  conflict, refused explicitly rather than resolved by arrival order. Divergent evidence at one
-  position is not something a read model may paper over.
-- **Concurrent writers**: safe by the same conditional update; the loser observes zero rows affected
-  and re-reads to report the winner. No lock, no advisory lock, no background refresher.
-- **Isolation**: PostgreSQL's default READ COMMITTED is sufficient for a single-statement conditional
-  upsert. Nothing here needs SERIALIZABLE, and claiming a stronger guarantee than the statement
-  provides would be exactly the kind of unsupported authority claim this epic exists to prevent.
-- **Not available, and therefore not claimed**: an atomic cross-store snapshot of registration *and*
-  audit together. The sources are read independently, so the snapshot records their versions
-  separately and never asserts a globally consistent point.
+A publish is one transaction. The header, its facts and its decisions commit together, so an interrupted
+write leaves the previous snapshot whole — verified by fault injection between the header write and the
+child rows. PostgreSQL's default READ COMMITTED is sufficient for the conditional upsert; nothing here
+needs or claims SERIALIZABLE. **Not available and not claimed**: an atomic cross-store snapshot of
+registration and audit together. The sources are read independently and `read_consistency` in the row
+says exactly that (`INDEPENDENT_SOURCES`).
 
-## 6. Missing prerequisites, and how each is resolved
+## 6. Real durable-backend qualification
 
-| Prerequisite | State | Resolution |
-| --- | --- | --- |
-| `observedHeadHash` in the projection | missing | Phase 1 adds it to the internal coverage type |
-| Raw coverage buckets on `DecisionProjection` | missing | Phase 1 exposes the coverage alongside completeness |
-| Classification-contract revision | missing | Phase 1 introduces a revision constant carried in the snapshot; a mismatch invalidates the decision-coverage claim only |
-| Durable-backend tests in `:tramai-security` | none today | test-scope Testcontainers + PostgreSQL driver, as `tramai-memory-store` already does |
-| A JDBC environment | available | verified by the 43/0 `JdbcAuditStore` TCK run above |
+Against real PostgreSQL 17 (Testcontainers), through the production path with no stub between the
+decision and the persisted view: emitter → `AuditStore.appendNext` →
+`AuditBackedGovernanceDecisionFactSource` → `GovernanceProjectionReader` → materializer → store →
+load. Verified: the snapshot outlives the session that wrote it and matches the source-recomputed
+reference field by field; an advanced audit stream makes it stale per source without unmaking the
+historical range it verified; currency is never claimed without a fresh observation; a rebuild after an
+append covers what it now observed and a further rebuild is `ALREADY_CURRENT`.
 
-## 7. Phases
+Counts at the head: store tests **18/18**, materializer tests **6/6**, qualification tests **4/4**, full
+governance suite recorded in §7.
 
-- [x] Phase 0 — baseline and storage-boundary decision (this section)
-- [ ] Phase 1 — materialization contract
-- [ ] Phase 2 — durable storage
-- [ ] Phase 3 — deterministic materialization and rebuild
-- [ ] Phase 4 — real durable-backend qualification
-- [ ] Phase 5 — adversarial battery
-- [ ] Phase 6 — verification and evidence
+## 7. Verification
 
-## 8. Non-claims carried from earlier slices
+- `:tramai-security:test --tests 'dev.tramai.security.governance.*'` — recorded below once the phase-6 run completes
+- gate run: **PENDING** (Phase 6)
 
-Unchanged and still unresolved: T1 workload-origin authentication; event-origin authenticity (S19);
-live `provider.route` production (`TASK-0.7.4b7`); bundle-backed decision reads; non-decision
-recognition by producer vocabulary rather than an authenticated family marker; `JdbcAuditStore`
-end-to-end coverage in the governance path. No baseline regeneration, suppression, deviation increase,
-API workaround or architecture-rule weakening is part of this task.
+## 8. Limitations and non-claims
+
+- **The audit half of the qualification is an in-memory store.** A test using `JdbcAuditStore` would have
+  to live in `:tramai-persistence-jdbc`, which cannot see the read model — the visibility wall from §2
+  cuts both ways. The durable audit store has its own real-PostgreSQL TCK (43 tests, §1); the two halves
+  are qualified separately because no single module may hold both.
+- **No incremental refresh**, deliberately: an incremental path would have to assume delivery order, and
+  the storage contract rejects regressions rather than promising order. A rebuild is bounded by the
+  audit read, which is capped by the source's configured maximum.
+- **Registration content is not materialized** — by design, so the read model cannot become a second
+  answer to an authoritative question. A consumer needing registration content reads the authority.
+- **Non-decision recognition remains by producer vocabulary**, not an authenticated family marker;
+  `classification_revision` makes a vocabulary change visible rather than silent.
+- **No freshness daemon, no background refresh, no cache invalidation.** Currency is a caller-supplied
+  observation, never a self-declared state.
+- Unchanged from earlier slices: T1 workload-origin authentication, event-origin authenticity (S19), live
+  `provider.route` production, bundle-backed decision reads. No baseline regeneration, suppression,
+  deviation increase or architecture-rule change is part of this task, and none was needed.
+
+## 9. What remains for 0.7.4e
+
+The read model is internal, so the query API cannot be built by widening `:tramai-persistence-jdbc`: it
+needs a deliberate public seam. 0.7.4e should decide the shape (a typed query port in `:tramai-security`
+with the projection exposed through it, or a dedicated module in a layer allowed to see governance) and
+must not resolve it by making these internal types public as a side effect. The storage contract is
+already the right shape for it: identity-keyed reads, per-source currency against a fresh observation,
+and the two coverage claims reported independently.
+
+## 10. Phases
+
+- [x] Phase 0 — baseline and storage-boundary decision (§1–§2)
+- [x] Phase 1 — materialization contract (internal snapshot, read model, outcomes, per-source currency)
+- [x] Phase 2 — durable storage (three-table schema, transactional publish, ordering, refusals)
+- [x] Phase 3 — deterministic materialization and rebuild
+- [x] Phase 4 — real durable-backend qualification (§6)
+- [ ] Phase 5 — adversarial mutation battery
+- [ ] Phase 6 — gate run and evidence completion
