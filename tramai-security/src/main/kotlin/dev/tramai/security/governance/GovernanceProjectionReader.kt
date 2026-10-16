@@ -20,7 +20,7 @@ import dev.tramai.core.identity.WorkloadDeploymentIdentity
  * decision fact.
  */
 internal interface GovernanceDecisionFactSource {
-    /** The decision records for a run, with the stream range the source attests it read. */
+    /** The decision records for a run, with the verified stream coverage the read established. */
     suspend fun decisionsFor(workflowRunId: String): DecisionFactRead
 
     /** Non-authoritative observations for a run. Never produced by a decision read. */
@@ -46,7 +46,7 @@ internal class GovernanceProjectionReader(
     ): GovernanceProjection {
         val read = decisionRead(workflowRunId)
         val records = read?.records.orEmpty()
-        val coverage = read?.assertedRange
+        val coverage = read?.coverage ?: StreamCoverage()
         return GovernanceProjection(
             registration = registrationFact(scope),
             declaredRunIdentity = declaredRunIdentityFact(declaredRunIdentity),
@@ -147,16 +147,16 @@ internal class GovernanceProjectionReader(
 
     private fun decisions(
         records: List<RecordedDecision>,
-        coverage: LongRange?,
+        coverage: StreamCoverage,
     ): List<DecisionProjection> {
         val completeness = GovernanceFactClassification.completenessOf(records, coverage)
-        val sourceRead = coverage != null
+        val sourceRead = coverage.verifiedRange != null
         return DecisionKind.entries.map { kind ->
             val forKind = records.filter { it.kind == kind }
             if (!sourceRead && forKind.isEmpty()) {
                 GovernanceDecisionFold.absent(kind)
             } else {
-                GovernanceDecisionFold.project(kind, forKind, coverage, completeness)
+                GovernanceDecisionFold.project(kind, forKind, coverage.verifiedRange, completeness)
             }
         }
     }

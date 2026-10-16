@@ -74,11 +74,22 @@ internal enum class DecisionKind {
 }
 
 /**
- * Whether the projection may claim the read covered everything it reports.
+ * What the projection may claim about the *decision records* it reports, within the range the source
+ * verified. It answers a different question from [StreamCoverage], which carries the raw-stream
+ * claim, and it is never a claim that a decision did not occur: emission of these records is optional
+ * in this repository, so a complete record set says nothing about what the runtime did.
  *
- * [COMPLETE] is claimable only against a source-attested range: a contiguous window of observed
- * positions proves nothing on its own, because positions before, after or between the window may
- * exist unobserved.
+ * [COMPLETE] — every position in the verified range that this read was required to classify produced
+ * a record. Positions the repository's own producers define as belonging to another family do not
+ * count, and one position whose classification is not established prevents this status. Claimable
+ * only against a verified range: observed positions alone prove nothing, because positions before,
+ * after or between them may exist unobserved.
+ *
+ * [GAPS_PRESENT] — the verified range contains a position that recorded a decision outcome yet
+ * produced no record. That is a hole in the record set, not a filter.
+ *
+ * [UNKNOWN] — no range was verified, the range holds an event whose classification is not
+ * established, a record carries no position, or a record lies outside the verified range.
  */
 internal enum class Completeness {
     COMPLETE,
@@ -129,15 +140,65 @@ internal data class TelemetryObservation(
 )
 
 /**
- * What a source read returned, together with what the source says the read covered.
+ * A source read: the records it recognised, and the verified stream coverage it established while
+ * recognising them.
  *
- * [assertedRange] is the stream positions the source attests it read. Without it the projection can
- * report observed positions but may not claim completeness.
+ * The two are separate fields because they are separate claims — a verified stream does not mean every
+ * event in it was a governance decision, and a recognised decision does not mean the read covered the
+ * stream. Construction is the guard: coverage that names classified positions without the range they
+ * were classified in is refused.
  */
 internal data class DecisionFactRead(
     val records: List<RecordedDecision>,
-    val assertedRange: LongRange? = null,
+    val coverage: StreamCoverage = StreamCoverage(),
 )
+
+/**
+ * What a read established about the audit stream itself, separately from what it classified.
+ *
+ * [verifiedRange] is the raw-stream claim: the positions the source read, verified for chain
+ * consistency and anchored to the identity of the head it observed. It is not a decision claim, and a
+ * read that was bounded, raced by an append, answered from another stream, or unanchored carries no
+ * range.
+ *
+ * The two position sets are the classification outcome, and they are deliberately *not* the
+ * complement of the records: an event a producer defines as belonging to another family — a
+ * redaction, an approval lifecycle step — is neither a gap nor an unknown, so it appears in neither
+ * set and cannot manufacture a gap in the raw stream. An event whose classification is not
+ * established must appear in [unclassifiedPositions], because assuming it is irrelevant would claim
+ * completeness the source has not proven.
+ */
+internal data class StreamCoverage(
+    val verifiedRange: LongRange? = null,
+    val accountedPositions: Long = 0,
+    val unrecordedDecisionPositions: Set<Long> = emptySet(),
+    val unclassifiedPositions: Set<Long> = emptySet(),
+) {
+    init {
+        require(accountedPositions >= 0) { "an account cannot be negative" }
+        val range = verifiedRange
+        if (range == null) {
+            require(
+                accountedPositions == 0L &&
+                    unrecordedDecisionPositions.isEmpty() &&
+                    unclassifiedPositions.isEmpty(),
+            ) {
+                "a read that verified no range has no positions to account for"
+            }
+        } else {
+            require(range.first >= FIRST_AUDIT_POSITION) { "audit stream positions begin at $FIRST_AUDIT_POSITION" }
+            require((unrecordedDecisionPositions + unclassifiedPositions).all { it in range }) {
+                "a classified position must lie inside the verified range"
+            }
+            require(accountedPositions <= range.last - range.first + 1) {
+                "a read cannot account for more positions than it verified"
+            }
+        }
+    }
+}
+
+/** The first position an audit stream can have, per the store's own contract. */
+private const val FIRST_AUDIT_POSITION = 1L
 
 /**
  * One projected fact: the value, the authority behind it, and what may not be inferred from it.
@@ -201,21 +262,22 @@ internal data class ProjectedFact<out T>(
 /**
  * One decision family as projected, with the ordering evidence it rests on.
  *
- * [coverage] is the source-attested range this projection's completeness rests on; [Completeness]
- * may only claim [Completeness.COMPLETE] when it is present. [duplicatesIgnored] and [staleIgnored]
- * record position-level facts that were seen and not multiplied into the projection.
+ * [verifiedStreamRange] is the raw-stream coverage the read established and [completeness] is the
+ * decision-record claim: neither implies the other, and [Completeness.COMPLETE] may only be claimed
+ * when [verifiedStreamRange] is present. [duplicatesIgnored] and [staleIgnored] record position-level
+ * facts that were seen and not multiplied into the projection.
  */
 internal data class DecisionProjection(
     val kind: DecisionKind,
     val latest: ProjectedFact<RecordedDecision>,
     val completeness: Completeness,
-    val coverage: LongRange? = null,
+    val verifiedStreamRange: LongRange? = null,
     val duplicatesIgnored: Int = 0,
     val staleIgnored: Int = 0,
 ) {
     init {
-        require(completeness != Completeness.COMPLETE || coverage != null) {
-            "completeness cannot be claimed without the source-attested range it rests on"
+        require(completeness != Completeness.COMPLETE || verifiedStreamRange != null) {
+            "decision completeness cannot be claimed without the verified stream range it rests on"
         }
     }
 }

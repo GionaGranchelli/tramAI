@@ -70,7 +70,7 @@ internal class AuditBackedGovernanceDecisionFactSource(
         val streamId = streamAssociation.streamIdFor(workflowRunId)
         val headBefore = streamId?.let { auditStore.latestEvent(it) }
         if (streamId == null || headBefore == null) {
-            return DecisionFactRead(records = emptyList(), assertedRange = null)
+            return DecisionFactRead(records = emptyList(), coverage = StreamCoverage())
         }
 
         val events = readFromStart(streamId, headBefore.sequenceNumber)
@@ -96,33 +96,128 @@ internal class AuditBackedGovernanceDecisionFactSource(
             throw AuditDecisionStreamMismatchException(streamId, elsewhere)
         }
 
-        val records = events.mapNotNull { recordFor(it, workflowRunId) }
+        val verified = verifyEvents(events, workflowRunId)
+        val range = verifiedRange(headBefore, auditStore.latestEvent(streamId), events)
         return DecisionFactRead(
-            records = records,
-            assertedRange =
-                attestedRange(
-                    headBefore = headBefore,
-                    headAfter = auditStore.latestEvent(streamId),
-                    events = events,
-                    projectedCount = records.size,
-                ),
+            records = verified.records,
+            // A read that verified no range has no stream claim to qualify, so it reports no
+            // classification against one: the buckets describe positions inside a range that was
+            // anchored, and outside one they would be claims about a stream nobody verified.
+            coverage =
+                if (range == null) {
+                    StreamCoverage()
+                } else {
+                    StreamCoverage(
+                        verifiedRange = range,
+                        accountedPositions = verified.accountedPositions,
+                        unrecordedDecisionPositions = verified.unrecordedDecisionPositions,
+                        unclassifiedPositions = verified.unclassifiedPositions,
+                    )
+                },
         )
     }
 
     /**
-     * The range this read can attest, or `null` when it can attest none.
+     * What one verified read turned out to contain.
      *
-     * Positions alone are not enough. [AuditChainVerifier] proves only that the returned list is
-     * internally consistent and a foreign chain is refused before reaching here, so the range
-     * requires the last event's position **and** hash to be the observed head's, the head to be
-     * unchanged either side of the read, the positions to begin at 1 and be contiguous up to that
-     * head, and every verified event to have become a fact.
+     * The records are one half of it; the other half is the positions that produced no record, split
+     * into the ones that were supposed to produce one and the ones this source could not classify at
+     * all. Collapsing those two into "everything else" is what lets a run of legitimate non-decision
+     * events look like a hole, or lets an unrecognised event pass as irrelevant.
      */
-    private fun attestedRange(
+    private data class VerifiedRead(
+        val records: List<RecordedDecision>,
+        val unrecordedDecisionPositions: Set<Long>,
+        val unclassifiedPositions: Set<Long>,
+        val accountedPositions: Long,
+    )
+
+    /**
+     * What this read made of one verified event.
+     *
+     * Exhaustive by construction: the classification below assigns exactly one outcome to every
+     * verified event, and the read's records, its gaps, its unknowns and its account are all derived
+     * from those outcomes. That is the point of the type — an account reported beside the
+     * classification would restate the size of the input list, which the attested range already
+     * implies, and would prove nothing about what the classification actually did with it.
+     */
+    private enum class EventOutcome {
+        DECISION_RECORD,
+        RECOGNISED_NON_DECISION,
+        MISSING_RECORD,
+        UNCLASSIFIED,
+    }
+
+    /** A verified event, the outcome this read assigned it, and the record when it has one. */
+    private class ClassifiedEvent(
+        val position: Long,
+        val outcome: EventOutcome,
+        val record: RecordedDecision?,
+    )
+
+    private fun verifyEvents(
+        events: List<AuditEvent>,
+        workflowRunId: String,
+    ): VerifiedRead {
+        // One linear pass producing one entry per verified event, then linear projections of it, so a
+        // bounded read costs O(n) rather than rebuilding the record list and both position sets once
+        // per event.
+        val classified = events.map { classify(it, workflowRunId) }
+        return VerifiedRead(
+            records = classified.mapNotNull { it.record },
+            unrecordedDecisionPositions =
+                classified.filter { it.outcome == EventOutcome.MISSING_RECORD }.map { it.position }.toSet(),
+            unclassifiedPositions =
+                classified.filter { it.outcome == EventOutcome.UNCLASSIFIED }.map { it.position }.toSet(),
+            // Counted from the outcomes rather than from the input: an event the classification never
+            // reached leaves its position unaccounted for, and this account is what the completeness
+            // contract checks against the verified range.
+            accountedPositions = classified.count { it.outcome != EventOutcome.UNCLASSIFIED }.toLong(),
+        )
+    }
+
+    private fun classify(
+        event: AuditEvent,
+        workflowRunId: String,
+    ): ClassifiedEvent {
+        recordFor(event, workflowRunId)?.let {
+            return ClassifiedEvent(event.sequenceNumber, EventOutcome.DECISION_RECORD, it)
+        }
+        val outcome =
+            when {
+                // A producer in this repository defines it as another family's event: not a gap and
+                // not an unknown, because the source knows exactly what it is.
+                isRecognisedNonDecision(event) -> EventOutcome.RECOGNISED_NON_DECISION
+
+                // A boundary one of this repository's decision families owns recorded an outcome and
+                // produced no record: a real hole in the record set.
+                isMissingRecord(event) -> EventOutcome.MISSING_RECORD
+
+                // Nobody can say what it is, so decision coverage is not established. An unrecognised
+                // boundary carrying a decision token lands here: that an event looks decision-shaped is
+                // not evidence that a record was required of it.
+                else -> EventOutcome.UNCLASSIFIED
+            }
+        return ClassifiedEvent(event.sequenceNumber, outcome, null)
+    }
+
+    /**
+     * The raw-stream range this read can attest, or `null` when it can attest none.
+     *
+     * This is the stream claim and nothing else: which positions were read, verified against the
+     * chain, and anchored to the identity of the head that was observed. Positions alone are not
+     * enough — [AuditChainVerifier] proves only that the returned list is internally consistent, and a
+     * foreign chain is refused before reaching here — so the range additionally requires the last
+     * event's position **and** hash to be the observed head's, the head's identity to be unchanged
+     * either side of the read, and the positions to begin at 1 and be contiguous up to that head.
+     *
+     * Whether the events in that range became decision records is a different question, answered by
+     * the classification the caller receives alongside it.
+     */
+    private fun verifiedRange(
         headBefore: AuditEvent,
         headAfter: AuditEvent?,
         events: List<AuditEvent>,
-        projectedCount: Int,
     ): LongRange? {
         val last = events.lastOrNull()
         val headUnchanged =
@@ -132,18 +227,44 @@ internal class AuditBackedGovernanceDecisionFactSource(
         val anchored =
             last != null &&
                 events.first().sequenceNumber == FIRST_SOURCE_POSITION &&
-                // Every verified event must have become a fact. An audit stream also carries events
-                // that are not decision records — a redaction, for instance — while the completeness
-                // contract reads projected positions against this range. Attesting a range over a
-                // filtered read would turn those events into missing decisions and report a gap the
-                // stream does not have, so filtering costs the range rather than the truth.
-                projectedCount == events.size &&
                 last.sequenceNumber == headBefore.sequenceNumber &&
                 last.eventHash == headBefore.eventHash &&
                 events.size.toLong() == headBefore.sequenceNumber &&
                 headUnchanged
         return if (anchored) FIRST_SOURCE_POSITION..headBefore.sequenceNumber else null
     }
+
+    /**
+     * Whether a producer in this repository records this event as belonging to another family.
+     *
+     * Recognition is a value match against the values the producers record, and it fails safe: an
+     * emitter that changes its vocabulary stops being recognised, the event becomes unclassified, and
+     * the decision claim is withheld rather than granted.
+     *
+     * The limitation is stated rather than implied: the emitters are not driven through this
+     * classification by a test, so a vocabulary change has to update both the emitter and this table.
+     * Until it does, the effect is a withheld claim, never a false one, and the record in
+     * docs/roadmap/0.7.4/0.7.4c3-VERIFIED-PROJECTION-COVERAGE.md carries it as a limitation.
+     */
+    private fun isRecognisedNonDecision(event: AuditEvent): Boolean =
+        event.enforcementPoint to event.decision in NON_DECISION_PRODUCER_EVENTS
+
+    /**
+     * Whether the event recorded a decision outcome at a boundary one of this repository's decision
+     * families owns, which should therefore have produced a record.
+     *
+     * Both parts are required. A decision token alone is not enough: an enforcement point this source
+     * does not recognise carrying `ALLOW` is not evidence that a policy or tool-permission record was
+     * required of it, and reporting it as a hole would turn an unsupported event into a proven missing
+     * record. Reserving `GAPS_PRESENT` for recognised decision-producing boundaries is what keeps it
+     * meaning "a record that should exist does not" rather than "something decision-shaped went past".
+     */
+    private fun isMissingRecord(event: AuditEvent): Boolean =
+        event.decision in DECISION_TOKENS &&
+            (
+                event.enforcementPoint in POLICY_ENFORCEMENT_POINTS ||
+                    event.enforcementPoint in TOOL_ENFORCEMENT_POINTS
+            )
 
     /** An audit stream is evidence, not telemetry. Nothing read here becomes an observation. */
     override suspend fun telemetryFor(workflowRunId: String): List<TelemetryObservation> = emptyList()
@@ -246,6 +367,29 @@ private const val FIRST_SOURCE_POSITION = 1L
 
 /** The decision tokens the emitters produce, as the exporters already define them. */
 private val DECISION_TOKENS = setOf("ALLOW", "DENY", "REQUIRE_APPROVAL")
+
+/**
+ * The (enforcement point, decision) pairs this repository's non-decision audit producers record.
+ *
+ * Taken from the emitters themselves: AuditEngineDlpRedactionAuditEmitter records redactions at
+ * DLP_MODEL_OUTPUT and DLP_TOOL_RESULT with decision REDACTED, and
+ * AuditEngineApprovalLifecycleAuditEmitter records its eight lifecycle points and their outcomes.
+ * Those are real audit events and not governance decisions, which is the whole reason a verified
+ * stream may contain positions that produce no record without being incomplete.
+ */
+private val NON_DECISION_PRODUCER_EVENTS: Set<Pair<String, String>> =
+    setOf(
+        "DLP_MODEL_OUTPUT" to "REDACTED",
+        "DLP_TOOL_RESULT" to "REDACTED",
+        "APPROVAL_SUSPENDED" to "PENDING",
+        "APPROVAL_RESUMED" to "AUTHORIZED",
+        "APPROVAL_COMPLETED" to "SUCCESS",
+        "APPROVAL_UNCERTAIN_OUTCOME" to "CANCELLED_UNCERTAIN",
+        "APPROVAL_SUSPENSION_CANCELLED" to "CANCELLED",
+        "APPROVAL_STALE_CLAIM_DETECTED" to "STALE",
+        "APPROVAL_FORCE_CANCELLATION_REQUESTED" to "FORCE_CANCEL",
+        "APPROVAL_FORCE_CANCELLED" to "FORCE_CANCELLED",
+    )
 
 /** The enforcement points whose decisions belong to the tool permission family. */
 private val TOOL_ENFORCEMENT_POINTS =
