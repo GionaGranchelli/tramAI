@@ -173,6 +173,23 @@ internal data class StreamCoverage(
     val accountedPositions: Long = 0,
     val unrecordedDecisionPositions: Set<Long> = emptySet(),
     val unclassifiedPositions: Set<Long> = emptySet(),
+    /**
+     * The hash of the head the range was anchored to, when the source observed one.
+     *
+     * The range's last position says *where* the read ended; this says *which* stream state it ended
+     * at. A persisted snapshot needs both: a different hash at the same purported position is a
+     * different stream, and no amount of position arithmetic tells them apart.
+     */
+    val observedHeadHash: String? = null,
+    /**
+     * The recognition contract this classification was made under.
+     *
+     * Positions that became records are a claim about a vocabulary. When that vocabulary changes, the
+     * raw range stays true — it is a fact about the stream — but the decision-coverage claim derived
+     * from it does not survive, so a persisted snapshot carries this revision to be compared, not
+     * assumed.
+     */
+    val classificationRevision: String = GOVERNANCE_CLASSIFICATION_REVISION,
 ) {
     init {
         require(accountedPositions >= 0) { "an account cannot be negative" }
@@ -181,9 +198,10 @@ internal data class StreamCoverage(
             require(
                 accountedPositions == 0L &&
                     unrecordedDecisionPositions.isEmpty() &&
-                    unclassifiedPositions.isEmpty(),
+                    unclassifiedPositions.isEmpty() &&
+                    observedHeadHash == null,
             ) {
-                "a read that verified no range has no positions to account for"
+                "a read that verified no range has no positions to account for, and no head to name"
             }
         } else {
             require(range.first >= FIRST_AUDIT_POSITION) { "audit stream positions begin at $FIRST_AUDIT_POSITION" }
@@ -262,21 +280,31 @@ internal data class ProjectedFact<out T>(
 /**
  * One decision family as projected, with the ordering evidence it rests on.
  *
- * [verifiedStreamRange] is the raw-stream coverage the read established and [completeness] is the
- * decision-record claim: neither implies the other, and [Completeness.COMPLETE] may only be claimed
- * when [verifiedStreamRange] is present. [duplicatesIgnored] and [staleIgnored] record position-level
+ * [coverage] is the raw-stream claim the read established — range, head identity, account and the
+ * buckets that did not become records — and [completeness] is the decision-record claim: neither
+ * implies the other, and [Completeness.COMPLETE] may only be claimed when a verified range is present.
+ * Both travel to a materialized snapshot, because a persisted read model that keeps only one of them
+ * has already lost the distinction this contract exists to preserve. [duplicatesIgnored] and [staleIgnored] record position-level
  * facts that were seen and not multiplied into the projection.
  */
 internal data class DecisionProjection(
     val kind: DecisionKind,
     val latest: ProjectedFact<RecordedDecision>,
     val completeness: Completeness,
-    val verifiedStreamRange: LongRange? = null,
+    val coverage: StreamCoverage = StreamCoverage(),
     val duplicatesIgnored: Int = 0,
     val staleIgnored: Int = 0,
 ) {
+    /**
+     * The raw-stream range, as a caller of 0.7.4c3 would have read it.
+     *
+     * Kept as a view rather than a second field: the range and the classification buckets are two
+     * halves of one verified read, and letting them be set independently is how they drift apart.
+     */
+    val verifiedStreamRange: LongRange? get() = coverage.verifiedRange
+
     init {
-        require(completeness != Completeness.COMPLETE || verifiedStreamRange != null) {
+        require(completeness != Completeness.COMPLETE || coverage.verifiedRange != null) {
             "decision completeness cannot be claimed without the verified stream range it rests on"
         }
     }

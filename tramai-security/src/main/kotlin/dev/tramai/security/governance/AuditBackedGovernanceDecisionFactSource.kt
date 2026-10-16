@@ -109,6 +109,7 @@ internal class AuditBackedGovernanceDecisionFactSource(
                 } else {
                     StreamCoverage(
                         verifiedRange = range,
+                        observedHeadHash = headBefore.eventHash,
                         accountedPositions = verified.accountedPositions,
                         unrecordedDecisionPositions = verified.unrecordedDecisionPositions,
                         unclassifiedPositions = verified.unclassifiedPositions,
@@ -358,6 +359,16 @@ internal class AuditBackedGovernanceDecisionFactSource(
             }
         }
 }
+
+/**
+ * The revision of the decision-recognition contract this source classifies under.
+ *
+ * Bump this whenever the producer vocabulary or the family mapping changes, in the same change that
+ * makes the new vocabulary recognizable. A persisted snapshot carries the revision it was built
+ * under, so a bump invalidates the *decision-coverage* claim of older snapshots — while leaving their
+ * verified raw ranges, which are facts about the stream and not about this vocabulary, intact.
+ */
+internal const val GOVERNANCE_CLASSIFICATION_REVISION = "governance-classification.v1"
 
 private const val DEFAULT_PAGE_SIZE = 256
 

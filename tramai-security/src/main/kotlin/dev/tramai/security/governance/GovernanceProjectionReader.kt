@@ -156,7 +156,7 @@ internal class GovernanceProjectionReader(
             if (!sourceRead && forKind.isEmpty()) {
                 GovernanceDecisionFold.absent(kind)
             } else {
-                GovernanceDecisionFold.project(kind, forKind, coverage.verifiedRange, completeness)
+                GovernanceDecisionFold.project(kind, forKind, coverage, completeness)
             }
         }
     }

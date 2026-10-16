@@ -373,7 +373,16 @@ class GovernanceProjectionTest {
                 GovernanceProjection::class.java to
                     setOf("registration", "declaredRunIdentity", "decisions", "telemetry"),
                 DecisionProjection::class.java to
-                    setOf("kind", "latest", "completeness", "duplicatesIgnored", "staleIgnored", "verifiedStreamRange"),
+                    setOf("kind", "latest", "completeness", "coverage", "duplicatesIgnored", "staleIgnored"),
+                StreamCoverage::class.java to
+                    setOf(
+                        "verifiedRange",
+                        "accountedPositions",
+                        "unrecordedDecisionPositions",
+                        "unclassifiedPositions",
+                        "observedHeadHash",
+                        "classificationRevision",
+                    ),
                 ProjectedFact::class.java to
                     setOf(
                         "value",
@@ -624,7 +633,6 @@ class GovernanceProjectionTest {
                         sourceVersion = 1,
                     ),
                 completeness = Completeness.COMPLETE,
-                verifiedStreamRange = null,
             )
         }
     }
