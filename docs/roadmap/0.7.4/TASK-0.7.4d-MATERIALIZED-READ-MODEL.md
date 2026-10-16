@@ -1,7 +1,8 @@
 # TASK-0.7.4d — Durable, rebuildable governance read model
 
-Status: **PHASES 0–4 IMPLEMENTED AND QUALIFIED. Phase 5 (adversarial battery) and Phase 6 (gate run)
-PENDING.** Not merged.
+Status: **PHASES 0–5 IMPLEMENTED AND QUALIFIED, GATES GREEN, PR OPEN.** Verdict **PARTIAL** on one
+named item: the restart qualification is at component level (a fresh store instance with its own
+connection), not across JVMs — see §6 and §8.
 
 - Base commit: `052cc27fb9979a4b5fb467d06c6eed3ba87176d3` (`release/0.7.0` tip, the 0.7.4c3 squash of PR #534)
 - Task branch: `task/0.7.4d-materialized-governance-read-model`, worktree `/home/gionag/tramai-d1`
@@ -96,11 +97,39 @@ governance suite recorded in §7.
 
 ## 7. Verification
 
-- `:tramai-security:test --tests 'dev.tramai.security.governance.*'` — recorded below once the phase-6 run completes
-- gate run: **PENDING** (Phase 6)
+- `:tramai-security:test --tests 'dev.tramai.security.governance.*'` — VERIFIED: **235 tests, 0 failures**
+- `./gradlew spotlessCheck` — VERIFIED: clean
+- `./gradlew verifyStaticAnalysis` — VERIFIED: **0 new findings**, baseline 4792 → 4792, no baseline entry
+- `./gradlew verifyChangePolicy -PchangeClass=runtime-behaviour -PchangePolicyBase=052cc27f…` — VERIFIED: PASSED
+- `./gradlew verify060Architecture` — VERIFIED: fails **only** `api-architecture`, with a diagnostic
+  identity set identical to the 0.7.4c3 base tree (base 10 = head 10, no difference): inherited, not
+  introduced. Reported as failed, not relabelled.
+- `:tramai-security:test`, `:tramai-control-plane:test`, `:tramai-persistence-jdbc:test` — VERIFIED:
+  1176 / 61 / 484 tests, 0 failures each
+- CI on the PR — **not observed** at this head
+
+### Phase 5 — adversarial battery
+
+Seven mutations, each applied to the committed tree, compiled, measured against the discriminator that
+owns its invariant, then restored and byte-verified. Control run green across the three
+PostgreSQL-backed classes first, so a mutant failure is attributable to the mutation.
+
+**7 killed, 0 survivors.** Four anchors failed on the first pass and are recorded as INVALID — not kills,
+not survivors — with the requalification beneath them in the evidence file, so the harness defect that
+produced them stays visible.
+
+Two honest notes on the kills: M1 and M6 each killed broadly (17 failures), so their *specificity* is
+weaker than M2/M3/M5/M7, which each failed exactly one named discriminator. And no mutation here tests a
+dropped protected field, because the schema has no column a protected payload could occupy — the
+protection is structural, and the shape test pins the read surface's field set instead.
 
 ## 8. Limitations and non-claims
 
+- **The restart qualification is at component level.** A store instance with its own connection, which
+  never saw the write, loads the snapshot — but the same JVM. A cross-JVM restart is UNPROVEN, and the
+  reason is environmental rather than architectural: the test PostgreSQL container's lifetime is bound to
+  the test JVM, so proving it needs a shared external instance (or a container started outside Gradle).
+  That is the next experiment for this item, not a redesign.
 - **The audit half of the qualification is an in-memory store.** A test using `JdbcAuditStore` would have
   to live in `:tramai-persistence-jdbc`, which cannot see the read model — the visibility wall from §2
   cuts both ways. The durable audit store has its own real-PostgreSQL TCK (43 tests, §1); the two halves
@@ -134,5 +163,5 @@ and the two coverage claims reported independently.
 - [x] Phase 2 — durable storage (three-table schema, transactional publish, ordering, refusals)
 - [x] Phase 3 — deterministic materialization and rebuild
 - [x] Phase 4 — real durable-backend qualification (§6)
-- [ ] Phase 5 — adversarial mutation battery
-- [ ] Phase 6 — gate run and evidence completion
+- [x] Phase 5 — adversarial mutation battery (7 killed, 0 survivors, 4 invalid attempts requalified)
+- [x] Phase 6 — gate run (green except the inherited api-architecture) and evidence completion
