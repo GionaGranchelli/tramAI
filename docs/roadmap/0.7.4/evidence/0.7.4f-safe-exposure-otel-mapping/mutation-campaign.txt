@@ -1,0 +1,34 @@
+0.7.4f mutation campaign - governance safe-exposure and OTEL mapping
+
+Detector: :tramai-observability:test --tests dev.tramai.observability.governance.*
+Control before mutating: exit 0, 9 tests, 0 failures.
+Control after strengthening (see M5): exit 0, 10 tests, 0 failures.
+
+Every mutation was applied by exact anchor, proven applied, and the source was restored from git and
+verified byte-identically by sha256 after each run.
+
+M1  completeness forced to COMPLETE                 KILLED   (assertion failure in the suite)
+M2  reason exposure forced to EXPOSED               KILLED   (assertion failure in the suite)
+M3  not-materialized result becomes available       KILLED   (assertion failure in the suite)
+M4  verified range PRESENT/ABSENT inverted          KILLED   (assertion failure in the suite)
+M5  authority attribute forced to AUTHORITATIVE     SURVIVED then KILLED after strengthening (below)
+M6  arbitrary metadata merged into the event        SURVIVED - benign, see note
+
+Invalid (not kills): the first M3 attempt did not apply (anchor formatting after spotless), and the first
+M5 attempt used an unimported type so it did not compile. Both were re-run in a compiling, applying form.
+
+M5 finding. Forcing the authority attribute to AUTHORITATIVE_PERSISTED went undetected, because the only
+export fixture already carried that value, so the mutant was invisible. This survivor could upgrade the
+authority of any evidence class, which blocks completion under the task's rules until the test is
+strengthened. Added 'a non-authoritative classification is exported as itself and never upgraded', which
+asserts a NOT_PRODUCED decision renders NOT_PRODUCED and never the authoritative value. Re-running the
+mutant then failed that test by name, so the mutation is now killed.
+
+M6 note. Merging exposure.toString() into an extra attribute survived because GovernanceExposure carries
+no reason-code text, identifiers, free text or payloads: the rendering of a value that cannot hold
+protected data cannot expose any. The survivor cannot expose sensitive data or upgrade authority, so it
+is recorded rather than treated as a blocker. A metadata merge that could carry a payload is prevented
+by the exposure type, not by the test.
+
+Not established here: whether the wider repository mutation population is unaffected. This campaign is
+scoped to the two production files this slice adds.
