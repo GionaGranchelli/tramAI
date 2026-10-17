@@ -60,7 +60,7 @@ public data class GovernanceExposure(
          */
         public fun from(result: GovernanceQueryResult): GovernanceExposure =
             when (result) {
-                is GovernanceQueryResult.Found ->
+                is GovernanceQueryResult.Found -> {
                     GovernanceExposure(
                         state = GovernanceExposureState.EVIDENCE_AVAILABLE,
                         decisions =
@@ -75,12 +75,19 @@ public data class GovernanceExposure(
                                 )
                             },
                     )
-                is GovernanceQueryResult.NotMaterialized ->
+                }
+
+                is GovernanceQueryResult.NotMaterialized -> {
                     GovernanceExposure(GovernanceExposureState.NOT_MATERIALIZED, emptyList())
-                is GovernanceQueryResult.UnsupportedFormat ->
+                }
+
+                is GovernanceQueryResult.UnsupportedFormat -> {
                     GovernanceExposure(GovernanceExposureState.UNSUPPORTED_FORMAT, emptyList())
-                is GovernanceQueryResult.InvalidStoredProjection ->
+                }
+
+                is GovernanceQueryResult.InvalidStoredProjection -> {
                     GovernanceExposure(GovernanceExposureState.INVALID_STORED_PROJECTION, emptyList())
+                }
             }
     }
 }

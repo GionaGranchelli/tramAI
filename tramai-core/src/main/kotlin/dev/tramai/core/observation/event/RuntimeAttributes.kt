@@ -43,6 +43,19 @@ object RuntimeAttributes {
 
     // Operation / provider
     val GEN_AI_SYSTEM = RuntimeAttributeKey<String>("gen_ai.system", String::class)
+
+    // Governance evidence (0.7.4f). Every key is categorical: a fixed vocabulary value, never a payload,
+    // identifier, hash or free text. See GovernanceExposure for the allowlist these keys represent.
+    val GOVERNANCE_EXPOSURE_STATE = RuntimeAttributeKey<String>("tramai.governance.exposure_state", String::class)
+    val GOVERNANCE_DECISION_KIND = RuntimeAttributeKey<String>("tramai.governance.decision.kind", String::class)
+    val GOVERNANCE_DECISION_AUTHORITY = RuntimeAttributeKey<String>("tramai.governance.decision.authority", String::class)
+    val GOVERNANCE_DECISION_FRESHNESS = RuntimeAttributeKey<String>("tramai.governance.decision.freshness", String::class)
+    val GOVERNANCE_DECISION_VERIFIED_RANGE =
+        RuntimeAttributeKey<String>("tramai.governance.decision.verified_stream_range", String::class)
+    val GOVERNANCE_DECISION_COMPLETENESS =
+        RuntimeAttributeKey<String>("tramai.governance.decision.record_completeness", String::class)
+    val GOVERNANCE_DECISION_REASON_EXPOSURE =
+        RuntimeAttributeKey<String>("tramai.governance.decision.reason_code_exposure", String::class)
     val GEN_AI_REQUEST_MODEL = RuntimeAttributeKey<String>("gen_ai.request.model", String::class)
     val GEN_AI_RESPONSE_MODEL = RuntimeAttributeKey<String>("gen_ai.response.model", String::class)
     val OPERATION_INTERFACE = RuntimeAttributeKey<String>("tramai.operation.interface", String::class)
