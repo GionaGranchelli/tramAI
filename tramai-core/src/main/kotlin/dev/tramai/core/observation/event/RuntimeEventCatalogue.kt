@@ -1064,25 +1064,7 @@ object RuntimeEventCatalogue {
             // static baseline's line-keyed suppressions for unrelated declarations.
             // Reports what a governance query read. Deliberately not audit- or evidence-eligible: telemetry is a
             // representation of evidence, never evidence of enforcement, and exporting it must not create either.
-            RuntimeEventDefinition(
-                name = "tramai.governance.evidence.exported",
-                domain = RuntimeEventDomain.EVIDENCE,
-                allowedAttributes =
-                    setOf(
-                        RuntimeAttributes.GOVERNANCE_EXPOSURE_STATE,
-                        RuntimeAttributes.GOVERNANCE_DECISION_KIND,
-                        RuntimeAttributes.GOVERNANCE_DECISION_AUTHORITY,
-                        RuntimeAttributes.GOVERNANCE_DECISION_FRESHNESS,
-                        RuntimeAttributes.GOVERNANCE_DECISION_VERIFIED_RANGE,
-                        RuntimeAttributes.GOVERNANCE_DECISION_COMPLETENESS,
-                        RuntimeAttributes.GOVERNANCE_DECISION_REASON_EXPOSURE,
-                    ),
-                requiredAttributes = setOf(RuntimeAttributes.GOVERNANCE_EXPOSURE_STATE),
-                sensitivity = RuntimeEventSensitivity.INTERNAL,
-                auditEligible = false,
-                evidenceEligible = false,
-                metricMapping = null,
-            ),
+
         )
 
     val byName: Map<String, RuntimeEventDefinition> = allEvents.associateBy { it.name }
