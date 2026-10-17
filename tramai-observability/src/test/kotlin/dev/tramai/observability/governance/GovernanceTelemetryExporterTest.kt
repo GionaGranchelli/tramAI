@@ -84,6 +84,20 @@ class GovernanceTelemetryExporterTest {
     }
 
     @Test
+    fun `a non-authoritative classification is exported as itself and never upgraded`() {
+        // Found by the mutation campaign: forcing the authority attribute would have gone unnoticed because the
+        // other fixtures already carry the authoritative value. Evidence of any weaker class must render as
+        // itself, so an upgrade is impossible to smuggle in.
+        telemetry.export(exposureWith(authoritativePolicyDecision().copy(authority = FactAuthority.NOT_PRODUCED)))
+
+        val rendered = render(exporter.finishedSpanItems.single())
+
+        assertThat(rendered).contains(RuntimeAttributes.GOVERNANCE_DECISION_AUTHORITY.name)
+        assertThat(rendered).contains(FactAuthority.NOT_PRODUCED.name)
+        assertThat(rendered).doesNotContain(FactAuthority.AUTHORITATIVE_PERSISTED.name)
+    }
+
+    @Test
     fun `an unread projection emits the state and no decision evidence`() {
         telemetry.export(GovernanceExposure(GovernanceExposureState.NOT_MATERIALIZED, emptyList()))
 

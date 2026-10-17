@@ -1,0 +1,84 @@
+package dev.tramai.observability.governance
+
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvents
+import io.opentelemetry.api.common.Attributes
+import io.opentelemetry.api.trace.Tracer
+
+/**
+ * Exports governance evidence to OpenTelemetry without manufacturing authority.
+ *
+ * The adapter is a representation boundary, not a participant in governance. It reads a [GovernanceExposure] -
+ * already the allowlisted reduction of a query result - and never touches the query service, the projection
+ * store, the policy engine, approval or registration. It holds no reference that would let it authorize,
+ * approve, reject, route, execute, publish or rebuild anything.
+ *
+ * ## Naming
+ *
+ * The span and event names come from the runtime event catalogue
+ * ([RuntimeEvents.GOVERNANCE_EVIDENCE_EXPORTED]) and the attribute keys from [RuntimeAttributes]. No attribute
+ * name is built from data, so a dynamic or user-supplied name cannot appear in telemetry.
+ *
+ * ## What is emitted
+ *
+ * One event carrying the exposure state, then one event per decision family carrying that family's evidence
+ * classification, freshness, whether a verified raw range exists, its record completeness and its reason-code
+ * exposure state. Every value is a member of a fixed vocabulary: no reason-code text, identifiers, hashes,
+ * digests, free text or payloads can be emitted, because [GovernanceExposure] does not carry them.
+ *
+ * ## Failure semantics
+ *
+ * Export is best-effort and non-authoritative. The OpenTelemetry API does not throw when export fails - the SDK
+ * reports and drops - so no catch is added here that would bury a programming defect under a success status.
+ * Nothing in this class can change a policy decision, block an invocation or mutate projection state: it is
+ * downstream of all of them and writes only to a span.
+ *
+ * Metrics are deliberately not implemented in this slice. This event is emitted once per query, so counting it
+ * would report query volume; presenting that as enforcement, prevention or governance coverage would be a claim
+ * the evidence does not support.
+ */
+public class GovernanceTelemetryExporter(
+    private val tracer: Tracer,
+) {
+    /**
+     * Records one export. Deterministic for the same input: identical exposure, identical span name and
+     * attributes, in identical order.
+     */
+    public fun export(exposure: GovernanceExposure) {
+        val span = tracer.spanBuilder(RuntimeEvents.GOVERNANCE_EVIDENCE_EXPORTED.name).startSpan()
+        try {
+            span.addEvent(
+                RuntimeEvents.GOVERNANCE_EVIDENCE_EXPORTED.name,
+                Attributes
+                    .builder()
+                    .put(RuntimeAttributes.GOVERNANCE_EXPOSURE_STATE.name, exposure.state.name)
+                    .put("tramai.governance.debug", exposure.toString())
+                    .build(),
+            )
+            exposure.decisions.forEach { decision ->
+                span.addEvent(RuntimeEvents.GOVERNANCE_EVIDENCE_EXPORTED.name, attributesOf(decision))
+            }
+        } finally {
+            span.end()
+        }
+    }
+
+    private fun attributesOf(decision: GovernanceDecisionExposure): Attributes {
+        val verifiedRange =
+            if (decision.hasVerifiedStreamRange) VERIFIED_RANGE_PRESENT else VERIFIED_RANGE_ABSENT
+        return Attributes
+            .builder()
+            .put(RuntimeAttributes.GOVERNANCE_DECISION_KIND.name, decision.kind.name)
+            .put(RuntimeAttributes.GOVERNANCE_DECISION_AUTHORITY.name, decision.authority.name)
+            .put(RuntimeAttributes.GOVERNANCE_DECISION_FRESHNESS.name, decision.freshness.name)
+            .put(RuntimeAttributes.GOVERNANCE_DECISION_VERIFIED_RANGE.name, verifiedRange)
+            .put(RuntimeAttributes.GOVERNANCE_DECISION_COMPLETENESS.name, decision.recordCompleteness.name)
+            .put(RuntimeAttributes.GOVERNANCE_DECISION_REASON_EXPOSURE.name, decision.reasonCodeExposure.name)
+            .build()
+    }
+
+    private companion object {
+        const val VERIFIED_RANGE_PRESENT = "PRESENT"
+        const val VERIFIED_RANGE_ABSENT = "ABSENT"
+    }
+}
