@@ -45,7 +45,7 @@ public data class GovernanceExposure(
     public val decisions: List<GovernanceDecisionExposure>,
 ) {
     init {
-        require(decisions.isEmpty() == (state != GovernanceExposureState.EVIDENCE_AVAILABLE)) {
+        require(state == GovernanceExposureState.EVIDENCE_AVAILABLE || decisions.isEmpty()) {
             "decision facts are exportable only when a projection was actually readable"
         }
     }
