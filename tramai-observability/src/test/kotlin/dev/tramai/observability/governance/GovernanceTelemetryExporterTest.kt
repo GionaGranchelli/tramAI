@@ -98,6 +98,32 @@ class GovernanceTelemetryExporterTest {
     }
 
     @Test
+    fun `spring ai boundary evidence is exported without an enforcement claim`() {
+        // XR1 at the export boundary. The evidence is what the Spring AI reference path can actually establish:
+        // a policy authorization record from the registered boundary, not proof that TramAI ran the workflow or
+        // that the call passed through the boundary. Nothing rendered may read as enforcement.
+        telemetry.export(
+            exposureWith(
+                GovernanceDecisionExposure(
+                    kind = DecisionKind.TOOL_PERMISSION,
+                    authority = FactAuthority.POLICY_AUTHORIZATION_RECORD,
+                    freshness = FactFreshness.HISTORICAL,
+                    hasVerifiedStreamRange = false,
+                    recordCompleteness = Completeness.GAPS_PRESENT,
+                    reasonCodeExposure = ReasonCodeExposure.NOT_RECORDED,
+                ),
+            ),
+        )
+
+        val rendered = render(exporter.finishedSpanItems.single())
+
+        assertThat(rendered).contains(FactAuthority.POLICY_AUTHORIZATION_RECORD.name)
+        assertThat(rendered).doesNotContain(FactAuthority.AUTHORITATIVE_PERSISTED.name)
+        assertThat(rendered).contains("ABSENT")
+        assertThat(rendered).contains(Completeness.GAPS_PRESENT.name)
+    }
+
+    @Test
     fun `an unread projection emits the state and no decision evidence`() {
         telemetry.export(GovernanceExposure(GovernanceExposureState.NOT_MATERIALIZED, emptyList()))
 

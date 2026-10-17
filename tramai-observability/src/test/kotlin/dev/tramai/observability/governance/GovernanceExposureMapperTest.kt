@@ -138,6 +138,52 @@ class GovernanceExposureMapperTest {
         }.hasMessageContaining("only when a projection was actually readable")
     }
 
+    @Test
+    fun `spring ai boundary evidence maps without claiming authorship or enforcement`() {
+        // XR1. The evidence comes from the existing Spring AI external-runtime reference path: the
+        // GovernedToolCallback declared the registered boundary "spring-ai-tool-callback" and the policy engine
+        // produced an authorization record. TramAI did not author the application workflow, and the declared
+        // boundary strength is not evidence that this call passed through it, so neither may be exported as one.
+        val springAiDecision =
+            GovernanceDecisionFact(
+                kind = DecisionKind.TOOL_PERMISSION,
+                fact =
+                    GovernanceFactSummary(
+                        authority = FactAuthority.POLICY_AUTHORIZATION_RECORD,
+                        freshness = FactFreshness.HISTORICAL,
+                        established = "the spring-ai tool callback consulted the engine before delegating",
+                        mustNotInfer =
+                            listOf("must not infer that TramAI authored the application workflow"),
+                        valuePresent = true,
+                        sourceVersion = 12,
+                    ),
+                rawCoverage = RawStreamCoverage(verifiedRange = null),
+                recordCoverage =
+                    DecisionRecordCoverage(
+                        completeness = Completeness.GAPS_PRESENT,
+                        accountedPositions = 0,
+                        unrecordedDecisionPositions = emptySet(),
+                        unclassifiedPositions = emptySet(),
+                        classificationRevision = "rev-7",
+                    ),
+                decision = "DENY",
+                boundaryId = "spring-ai-tool-callback",
+                boundaryStrength = "AUTHORITATIVE",
+                reasonExposure = ReasonCodeExposure.NOT_RECORDED,
+            )
+
+        val mapped = GovernanceExposure.from(GovernanceQueryResult.Found(viewOf(springAiDecision))).decisions.single()
+
+        // The authority is an authorization record, never persisted runtime authority: TramAI did not run this.
+        assertThat(mapped.authority).isEqualTo(FactAuthority.POLICY_AUTHORIZATION_RECORD)
+        assertThat(mapped.authority).isNotEqualTo(FactAuthority.AUTHORITATIVE_PERSISTED)
+        // The registered strength and the declared boundary id are not exported at all: strength is not origin.
+        assertThat(mapped.hasVerifiedStreamRange).isFalse()
+        assertThat(mapped.recordCompleteness).isEqualTo(Completeness.GAPS_PRESENT)
+        assertThat(mapped.toString()).doesNotContain("AUTHORITATIVE")
+        assertThat(mapped.toString()).doesNotContain("spring-ai-tool-callback")
+    }
+
     private fun viewOf(vararg decisions: GovernanceDecisionFact) =
         GovernanceProjectionView(
             identity = GovernanceProjectionIdentity("claims", "production", "eu-west-amsterdam-01", "run-1"),

@@ -124,3 +124,37 @@ anything else.
 
 No coverage threshold, mutation baseline, static-analysis baseline, gate definition or CI workflow will be
 changed to obtain a green result.
+
+## XR1 - Spring AI external-runtime evidence mapping
+
+The declared boundary already exists: `RuntimeBoundaryProvenance.SPRING_AI_TOOL_CALLBACK` is documented in code as
+"the declared XR1 boundary: the Spring AI callback, consumed by `GovernedToolCallback`", with the closed strength
+vocabulary `AUTHORITATIVE`, `INSTRUMENTED`, `OBSERVED`, `IMPORTED` and the reserved metadata keys `boundary.id` and
+`boundary.enforcementStrength`.
+
+That object's own contract states the limit this mapping must respect: resolving a registered boundary's strength
+does **not** authenticate the origin of the event naming that boundary, and a producer that names a registered
+identifier obtains that registration's strength without having gone through the boundary. `GovernanceDecisionFact`
+carries `boundaryId` and `boundaryStrength` for exactly that reason - they are *declared*, not verified.
+
+**What this slice does with that evidence.** Two things, both mapped through existing typed fields, no new
+integration and no production code:
+
+- The decision's evidence classification is exported as `POLICY_AUTHORIZATION_RECORD`, never
+  `AUTHORITATIVE_PERSISTED`. A policy authorization record is a decision, not proof that the operation executed or
+  was prevented, and it is not proof that TramAI authored the application workflow.
+- `boundaryId` and `boundaryStrength` are **excluded** from the exposure entirely. A registered strength is not
+  evidence that the call passed through the boundary, so exporting it as an attribute would present a declaration
+  as a classification. The declared origin stays unexported rather than being exported as a weaker label.
+
+Coverage gaps stay visible: the XR1 projection reports `GAPS_PRESENT` with no verified raw range, so
+`verified_range = ABSENT` is exported and completeness is not upgraded.
+
+Pinned by two tests: `GovernanceExposureMapperTest.spring ai boundary evidence maps without claiming authorship or
+enforcement` (real query DTOs through the validating constructors) and
+`GovernanceTelemetryExporterTest.spring ai boundary evidence is exported without an enforcement claim` (the rendered
+span records). Neither asserts that TramAI controlled execution paths outside its registered boundary, because it
+does not.
+
+**Not claimed.** That the Spring AI callback prevented an action in any particular deployment: prevention is the
+registration's declared strength plus its prevention tests, not something an exported attribute establishes.
