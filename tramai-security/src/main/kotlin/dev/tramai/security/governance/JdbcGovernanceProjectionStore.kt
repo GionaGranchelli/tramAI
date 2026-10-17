@@ -409,7 +409,9 @@ internal class JdbcGovernanceProjectionStore(
                 rows.getString("deployment_id"),
             )
         val requested = listOf(identity.workloadId, identity.environmentId, identity.deploymentId)
-        if (stored != requested || rows.getString("workflow_run_id") != identity.workflowRunId) {
+        if (stored != requested || rows.getString("workflow_run_id") != identity.workflowRunId ||
+            rows.getString("audit_stream_id") != identity.auditStreamId
+        ) {
             throw ProjectionCorruptionException(
                 "stored projection identity columns disagree with the projection key",
             )
@@ -608,6 +610,11 @@ internal class JdbcGovernanceProjectionStore(
                 semantic_digest = EXCLUDED.semantic_digest,
                 materialized_at = now()
             WHERE governance_projection_snapshot.format_version = EXCLUDED.format_version
+              AND governance_projection_snapshot.workload_id = EXCLUDED.workload_id
+              AND governance_projection_snapshot.environment_id = EXCLUDED.environment_id
+              AND governance_projection_snapshot.deployment_id = EXCLUDED.deployment_id
+              AND governance_projection_snapshot.workflow_run_id IS NOT DISTINCT FROM EXCLUDED.workflow_run_id
+              AND governance_projection_snapshot.audit_stream_id IS NOT DISTINCT FROM EXCLUDED.audit_stream_id
               AND (
                 EXCLUDED.audit_head_position,
                 EXCLUDED.registration_version
@@ -622,7 +629,7 @@ internal class JdbcGovernanceProjectionStore(
             """
             SELECT format_version, classification_revision, registration_version, audit_head_position,
                    audit_head_hash, semantic_digest, materialized_at, workload_id, environment_id,
-                   deployment_id, workflow_run_id
+                   deployment_id, workflow_run_id, audit_stream_id
             FROM governance_projection_snapshot
             WHERE projection_key = ?
             """
