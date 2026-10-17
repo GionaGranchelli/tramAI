@@ -1945,13 +1945,16 @@ public final class dev/tramai/core/observation/event/RuntimeAttributes {
 	public final fun getGEN_AI_SYSTEM ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGEN_AI_USAGE_INPUT_TOKENS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGEN_AI_USAGE_OUTPUT_TOKENS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGOVERNANCE_AUDIT_CURRENCY ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGOVERNANCE_DECISION_AUTHORITY ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGOVERNANCE_DECISION_COMPLETENESS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGOVERNANCE_DECISION_FRESHNESS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGOVERNANCE_DECISION_KIND ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGOVERNANCE_DECISION_REASON_EXPOSURE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGOVERNANCE_DECISION_RECORDED ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGOVERNANCE_DECISION_VERIFIED_RANGE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGOVERNANCE_EXPOSURE_STATE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGOVERNANCE_REGISTRATION_CURRENCY ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getHAS_LAST_COMPLETED_STEP ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getHTTP_METHOD ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getINSTRUCTION_DEFENSE_ACTIVE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;

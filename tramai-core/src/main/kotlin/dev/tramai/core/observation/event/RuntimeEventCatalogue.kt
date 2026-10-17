@@ -31,6 +31,9 @@ object RuntimeEventCatalogue {
                         RuntimeAttributes.GOVERNANCE_DECISION_VERIFIED_RANGE,
                         RuntimeAttributes.GOVERNANCE_DECISION_COMPLETENESS,
                         RuntimeAttributes.GOVERNANCE_DECISION_REASON_EXPOSURE,
+                        RuntimeAttributes.GOVERNANCE_REGISTRATION_CURRENCY,
+                        RuntimeAttributes.GOVERNANCE_AUDIT_CURRENCY,
+                        RuntimeAttributes.GOVERNANCE_DECISION_RECORDED,
                     ),
                 requiredAttributes = setOf(RuntimeAttributes.GOVERNANCE_EXPOSURE_STATE),
                 sensitivity = RuntimeEventSensitivity.INTERNAL,
@@ -1059,11 +1062,6 @@ object RuntimeEventCatalogue {
                 evidenceEligible = false,
                 metricMapping = RuntimeMetrics.OPERATION_PARSE_FAILURES,
             ),
-            // ── Governance evidence ─────────────────────────────────────────────
-            // Appended at the end deliberately: inserting this earlier shifted pre-existing lines and broke the
-            // static baseline's line-keyed suppressions for unrelated declarations.
-            // Reports what a governance query read. Deliberately not audit- or evidence-eligible: telemetry is a
-            // representation of evidence, never evidence of enforcement, and exporting it must not create either.
         )
 
     val byName: Map<String, RuntimeEventDefinition> = allEvents.associateBy { it.name }

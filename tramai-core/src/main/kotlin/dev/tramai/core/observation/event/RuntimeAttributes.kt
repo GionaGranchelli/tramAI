@@ -56,6 +56,11 @@ object RuntimeAttributes {
         RuntimeAttributeKey<String>("tramai.governance.completeness", String::class)
     val GOVERNANCE_DECISION_REASON_EXPOSURE =
         RuntimeAttributeKey<String>("tramai.governance.reason_exposure", String::class)
+    val GOVERNANCE_REGISTRATION_CURRENCY =
+        RuntimeAttributeKey<String>("tramai.governance.registration_currency", String::class)
+    val GOVERNANCE_AUDIT_CURRENCY = RuntimeAttributeKey<String>("tramai.governance.audit_currency", String::class)
+    val GOVERNANCE_DECISION_RECORDED =
+        RuntimeAttributeKey<String>("tramai.governance.recorded_decision", String::class)
     val GEN_AI_REQUEST_MODEL = RuntimeAttributeKey<String>("gen_ai.request.model", String::class)
     val GEN_AI_RESPONSE_MODEL = RuntimeAttributeKey<String>("gen_ai.response.model", String::class)
     val OPERATION_INTERFACE = RuntimeAttributeKey<String>("tramai.operation.interface", String::class)

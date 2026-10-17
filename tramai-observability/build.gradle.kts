@@ -23,6 +23,15 @@ dependencies {
     testImplementation(libs.opentelemetry.sdk.metrics)
     testImplementation(libs.opentelemetry.sdk.trace)
     testImplementation(libs.opentelemetry.sdk.testing)
+
+    // 0.7.4f: end-to-end proof that a persisted projection reaches an exported span through the public query
+    // port. The seeder is test-only because the projection writer is internal to :tramai-security, and the
+    // reverse edge (:tramai-security -> :tramai-observability) would be a cycle. Test scope only.
+    testImplementation(testFixtures(project(":tramai-security")))
+    testImplementation(platform(libs.testcontainers.bom))
+    testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.testcontainers.junit.jupiter)
+    testImplementation(libs.postgresql)
             }
 
 tasks.test {

@@ -62,9 +62,9 @@ class GovernanceExposureMapperTest {
         assertThat(authoritative.reasonCodeExposure).isEqualTo(ReasonCodeExposure.WITHHELD)
 
         // The withheld code is not merely unexported by the adapter: it is absent from the exposure entirely,
-        // so no rendering of it - including a diagnostic toString - can leak it.
-        assertThat(exposure.toString()).doesNotContain(credentialShapedReasonCode)
-        assertThat(exposure.decisions.toString()).doesNotContain(credentialShapedReasonCode)
+        // so no String-valued accessor of the exposure or of its decisions can return it.
+        assertThat(stringValuesOf(exposure)).doesNotContain(credentialShapedReasonCode)
+        assertThat(exposure.decisions.flatMap { stringValuesOf(it) }).doesNotContain(credentialShapedReasonCode)
     }
 
     @Test
@@ -122,18 +122,11 @@ class GovernanceExposureMapperTest {
     @Test
     fun `an unavailable state cannot carry decision evidence`() {
         assertThatThrownBy {
-            GovernanceExposure(
-                GovernanceExposureState.NOT_MATERIALIZED,
-                listOf(
-                    GovernanceDecisionExposure(
-                        kind = DecisionKind.POLICY_DECISION,
-                        authority = FactAuthority.AUTHORITATIVE_PERSISTED,
-                        freshness = FactFreshness.HISTORICAL,
-                        hasVerifiedStreamRange = true,
-                        recordCompleteness = Completeness.COMPLETE,
-                        reasonCodeExposure = ReasonCodeExposure.EXPOSED,
-                    ),
-                ),
+            GovernanceExposure.of(
+                state = GovernanceExposureState.NOT_MATERIALIZED,
+                registrationCurrency = SourceCurrency.UNKNOWN,
+                auditCurrency = SourceCurrency.UNKNOWN,
+                decisions = listOf(GovernanceDecisionExposure.of(GovernanceQueryFixtures.decision())),
             )
         }.hasMessageContaining("only when a projection was actually readable")
     }
@@ -180,9 +173,28 @@ class GovernanceExposureMapperTest {
         // The registered strength and the declared boundary id are not exported at all: strength is not origin.
         assertThat(mapped.hasVerifiedStreamRange).isFalse()
         assertThat(mapped.recordCompleteness).isEqualTo(Completeness.GAPS_PRESENT)
-        assertThat(mapped.toString()).doesNotContain("AUTHORITATIVE")
-        assertThat(mapped.toString()).doesNotContain("spring-ai-tool-callback")
+        // The recorded decision category is exported; the declared boundary and its strength are not.
+        assertThat(mapped.recordedDecision).isEqualTo("DENY")
+        assertThat(stringValuesOf(mapped)).doesNotContain("AUTHORITATIVE")
+        assertThat(stringValuesOf(mapped)).doesNotContain("spring-ai-tool-callback")
     }
+
+    @Test
+    fun `registration and audit currency map through independently`() {
+        // The fixture records a current registration and an unobserved audit head. Two sources, two answers,
+        // and no combined freshness flag exists to flatten them into one.
+        val exposure = GovernanceExposure.from(GovernanceQueryResult.Found(viewOf()))
+
+        assertThat(exposure.state).isEqualTo(GovernanceExposureState.EVIDENCE_AVAILABLE)
+        assertThat(exposure.registrationCurrency).isEqualTo(SourceCurrency.CURRENT)
+        assertThat(exposure.auditCurrency).isEqualTo(SourceCurrency.UNKNOWN)
+    }
+
+    /** Every String-valued, no-argument accessor of a value: what a consumer could read out of it. */
+    private fun stringValuesOf(value: Any): List<String?> =
+        value.javaClass.methods
+            .filter { it.parameterCount == 0 && it.returnType == String::class.java }
+            .mapNotNull { method -> runCatching { method.invoke(value) as String? }.getOrNull() }
 
     private fun viewOf(vararg decisions: GovernanceDecisionFact) =
         GovernanceProjectionView(
