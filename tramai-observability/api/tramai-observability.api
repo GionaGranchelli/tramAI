@@ -51,3 +51,59 @@ public final class dev/tramai/observability/OpenTelemetryWorkflowObserver : dev/
 	public fun onWorkflowStarted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
 }
 
+public final class dev/tramai/observability/governance/GovernanceDecisionExposure {
+	public fun <init> (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/FactAuthority;Ldev/tramai/security/governance/query/FactFreshness;ZLdev/tramai/security/governance/query/Completeness;Ldev/tramai/security/governance/query/ReasonCodeExposure;)V
+	public final fun component1 ()Ldev/tramai/security/governance/query/DecisionKind;
+	public final fun component2 ()Ldev/tramai/security/governance/query/FactAuthority;
+	public final fun component3 ()Ldev/tramai/security/governance/query/FactFreshness;
+	public final fun component4 ()Z
+	public final fun component5 ()Ldev/tramai/security/governance/query/Completeness;
+	public final fun component6 ()Ldev/tramai/security/governance/query/ReasonCodeExposure;
+	public final fun copy (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/FactAuthority;Ldev/tramai/security/governance/query/FactFreshness;ZLdev/tramai/security/governance/query/Completeness;Ldev/tramai/security/governance/query/ReasonCodeExposure;)Ldev/tramai/observability/governance/GovernanceDecisionExposure;
+	public static synthetic fun copy$default (Ldev/tramai/observability/governance/GovernanceDecisionExposure;Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/FactAuthority;Ldev/tramai/security/governance/query/FactFreshness;ZLdev/tramai/security/governance/query/Completeness;Ldev/tramai/security/governance/query/ReasonCodeExposure;ILjava/lang/Object;)Ldev/tramai/observability/governance/GovernanceDecisionExposure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAuthority ()Ldev/tramai/security/governance/query/FactAuthority;
+	public final fun getFreshness ()Ldev/tramai/security/governance/query/FactFreshness;
+	public final fun getHasVerifiedStreamRange ()Z
+	public final fun getKind ()Ldev/tramai/security/governance/query/DecisionKind;
+	public final fun getReasonCodeExposure ()Ldev/tramai/security/governance/query/ReasonCodeExposure;
+	public final fun getRecordCompleteness ()Ldev/tramai/security/governance/query/Completeness;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/observability/governance/GovernanceExposure {
+	public static final field Companion Ldev/tramai/observability/governance/GovernanceExposure$Companion;
+	public fun <init> (Ldev/tramai/observability/governance/GovernanceExposureState;Ljava/util/List;)V
+	public final fun component1 ()Ldev/tramai/observability/governance/GovernanceExposureState;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ldev/tramai/observability/governance/GovernanceExposureState;Ljava/util/List;)Ldev/tramai/observability/governance/GovernanceExposure;
+	public static synthetic fun copy$default (Ldev/tramai/observability/governance/GovernanceExposure;Ldev/tramai/observability/governance/GovernanceExposureState;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/observability/governance/GovernanceExposure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDecisions ()Ljava/util/List;
+	public final fun getState ()Ldev/tramai/observability/governance/GovernanceExposureState;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/observability/governance/GovernanceExposure$Companion {
+	public final fun from (Ldev/tramai/security/governance/query/GovernanceQueryResult;)Ldev/tramai/observability/governance/GovernanceExposure;
+}
+
+public final class dev/tramai/observability/governance/GovernanceExposureState : java/lang/Enum {
+	public static final field EVIDENCE_AVAILABLE Ldev/tramai/observability/governance/GovernanceExposureState;
+	public static final field INVALID_STORED_PROJECTION Ldev/tramai/observability/governance/GovernanceExposureState;
+	public static final field NOT_MATERIALIZED Ldev/tramai/observability/governance/GovernanceExposureState;
+	public static final field UNSUPPORTED_FORMAT Ldev/tramai/observability/governance/GovernanceExposureState;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/observability/governance/GovernanceExposureState;
+	public static fun values ()[Ldev/tramai/observability/governance/GovernanceExposureState;
+}
+
+public final class dev/tramai/observability/governance/GovernanceTelemetryExporter {
+	public static final field VERIFIED_RANGE_ABSENT Ljava/lang/String;
+	public static final field VERIFIED_RANGE_PRESENT Ljava/lang/String;
+	public fun <init> (Lio/opentelemetry/api/trace/Tracer;)V
+	public final fun export (Ldev/tramai/observability/governance/GovernanceExposure;)V
+}
+

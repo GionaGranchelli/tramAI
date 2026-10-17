@@ -1945,6 +1945,13 @@ public final class dev/tramai/core/observation/event/RuntimeAttributes {
 	public final fun getGEN_AI_SYSTEM ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGEN_AI_USAGE_INPUT_TOKENS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGEN_AI_USAGE_OUTPUT_TOKENS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGOVERNANCE_DECISION_AUTHORITY ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGOVERNANCE_DECISION_COMPLETENESS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGOVERNANCE_DECISION_FRESHNESS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGOVERNANCE_DECISION_KIND ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGOVERNANCE_DECISION_REASON_EXPOSURE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGOVERNANCE_DECISION_VERIFIED_RANGE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGOVERNANCE_EXPOSURE_STATE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getHAS_LAST_COMPLETED_STEP ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getHTTP_METHOD ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getINSTRUCTION_DEFENSE_ACTIVE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
@@ -2138,6 +2145,7 @@ public final class dev/tramai/core/observation/event/RuntimeEvents {
 	public final fun getCIRCUIT_OPENED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
 	public final fun getDLP_INSPECTION_FAILED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
 	public final fun getDLP_TOOL_RESULT_REJECTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getGOVERNANCE_EVIDENCE_EXPORTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
 	public final fun getPARSE_FAILURE ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
 	public final fun getRETRY_SCHEDULED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
 	public final fun getROUTE_SELECTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;

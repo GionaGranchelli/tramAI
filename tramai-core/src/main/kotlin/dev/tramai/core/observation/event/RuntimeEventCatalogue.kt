@@ -513,7 +513,12 @@ object RuntimeEventCatalogue {
             RuntimeEventDefinition(
                 name = "tramai.workflow.security.output_rejected",
                 domain = RuntimeEventDomain.WORKFLOW,
-                allowedAttributes = setOf(RuntimeAttributes.STEP_NAME, RuntimeAttributes.REASON, RuntimeAttributes.RULE_ID),
+                allowedAttributes =
+                    setOf(
+                        RuntimeAttributes.STEP_NAME,
+                        RuntimeAttributes.REASON,
+                        RuntimeAttributes.RULE_ID,
+                    ),
                 requiredAttributes = setOf(RuntimeAttributes.STEP_NAME),
                 sensitivity = RuntimeEventSensitivity.INTERNAL,
                 auditEligible = true,
@@ -1053,6 +1058,30 @@ object RuntimeEventCatalogue {
                 auditEligible = false,
                 evidenceEligible = false,
                 metricMapping = RuntimeMetrics.OPERATION_PARSE_FAILURES,
+            ),
+            // ── Governance evidence ─────────────────────────────────────────────
+            // Appended at the end deliberately: inserting this earlier shifted pre-existing lines and broke the
+            // static baseline's line-keyed suppressions for unrelated declarations.
+            // Reports what a governance query read. Deliberately not audit- or evidence-eligible: telemetry is a
+            // representation of evidence, never evidence of enforcement, and exporting it must not create either.
+            RuntimeEventDefinition(
+                name = "tramai.governance.evidence.exported",
+                domain = RuntimeEventDomain.EVIDENCE,
+                allowedAttributes =
+                    setOf(
+                        RuntimeAttributes.GOVERNANCE_EXPOSURE_STATE,
+                        RuntimeAttributes.GOVERNANCE_DECISION_KIND,
+                        RuntimeAttributes.GOVERNANCE_DECISION_AUTHORITY,
+                        RuntimeAttributes.GOVERNANCE_DECISION_FRESHNESS,
+                        RuntimeAttributes.GOVERNANCE_DECISION_VERIFIED_RANGE,
+                        RuntimeAttributes.GOVERNANCE_DECISION_COMPLETENESS,
+                        RuntimeAttributes.GOVERNANCE_DECISION_REASON_EXPOSURE,
+                    ),
+                requiredAttributes = setOf(RuntimeAttributes.GOVERNANCE_EXPOSURE_STATE),
+                sensitivity = RuntimeEventSensitivity.INTERNAL,
+                auditEligible = false,
+                evidenceEligible = false,
+                metricMapping = null,
             ),
         )
 

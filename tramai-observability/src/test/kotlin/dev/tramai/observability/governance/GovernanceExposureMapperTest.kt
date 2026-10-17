@@ -39,18 +39,15 @@ class GovernanceExposureMapperTest {
                     freshness = FactFreshness.HISTORICAL,
                     verifiedRange = VerifiedStreamRange(firstPosition = 1, lastPosition = 3),
                     completeness = Completeness.COMPLETE,
-                    reasonCode = null,
                     reasonExposure = ReasonCodeExposure.WITHHELD,
                 ),
                 policyDecision(
-                    kind = DecisionKind.PROVIDER_ROUTE,
                     authority = FactAuthority.NOT_PRODUCED,
                     freshness = FactFreshness.ABSENT,
                     verifiedRange = null,
                     completeness = Completeness.UNKNOWN,
-                    reasonCode = null,
                     reasonExposure = ReasonCodeExposure.NOT_RECORDED,
-                ),
+                ).copy(kind = DecisionKind.PROVIDER_ROUTE),
             )
 
         val exposure = GovernanceExposure.from(GovernanceQueryResult.Found(view))
@@ -79,7 +76,6 @@ class GovernanceExposureMapperTest {
                     freshness = FactFreshness.HISTORICAL,
                     verifiedRange = VerifiedStreamRange(firstPosition = 1, lastPosition = 3),
                     completeness = Completeness.UNKNOWN,
-                    reasonCode = null,
                     reasonExposure = ReasonCodeExposure.NOT_RECORDED,
                 ),
             )
@@ -179,15 +175,13 @@ class GovernanceExposureMapperTest {
     )
 
     private fun policyDecision(
-        kind: DecisionKind = DecisionKind.POLICY_DECISION,
         authority: FactAuthority,
         freshness: FactFreshness,
         verifiedRange: VerifiedStreamRange?,
         completeness: Completeness,
-        reasonCode: String?,
         reasonExposure: ReasonCodeExposure,
     ) = GovernanceDecisionFact(
-        kind = kind,
+        kind = DecisionKind.POLICY_DECISION,
         fact =
             GovernanceFactSummary(
                 authority = authority,
@@ -208,7 +202,6 @@ class GovernanceExposureMapperTest {
                 classificationRevision = "rev-7",
             ),
         decision = if (freshness == FactFreshness.ABSENT) null else "DENY",
-        reasonCode = reasonCode,
         reasonExposure = reasonExposure,
     )
 }
