@@ -192,3 +192,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.3h explicit routing topology: ProviderRoutingConfiguration gains workloadZones (keyed by the exact WorkloadDeploymentIdentity), providerDeployments (the authoritative ProviderDeployment per registered provider id) and allowedZonePairs (the workload-zone to provider-zone relation that feeds TrustZonePolicy). These are the facts the 0.7.3 authority chain requires and that no existing surface carried: the legacy providerZones map states a zone per provider name but cannot prove deployment identity, so it cannot distinguish two deployments of one brand and is deliberately NOT used to construct a ProviderDeployment. Construction validates that a deployment is registered under its own providerId. Every new field is additive with an empty default, and an absent entry fails closed at execution rather than widening: a workload deployment with no configured zone, or a provider with no configured deployment, has no authority."
     migration: "No consumer action required for existing configuration: all three fields default to empty and no existing member changed. To make the governed provider path usable, supply the workload deployment zones, the provider deployments and the permitted zone pairs; until then execution fails closed rather than falling back to configured routing."
+
+  - module: ":tramai-security"
+    fromSha256: "613e667332b2e7beb2d661b3573ac9ee2677266328ab867afd86646262d5cbdb"
+    toSha256: "a385f1db125cebea0a60a3a75480489bda40a5a889b2c9d29066121a5539e420"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.4e headless governance query API: tramai-security publishes the read-only query contract over the durable governance projection (GovernanceQueryService with its jdbc factory, GovernanceQueryRequest, GovernanceQueryResult, GovernanceProjectionView and the fact, coverage, currency and exposure types they carry). Additive only: no existing signature changed."
+    migration: "No consumer action required: the query surface is new. Recompile only if you intend to read governance projections through it."

@@ -961,6 +961,350 @@ public final class dev/tramai/security/governance/WorkloadGovernanceResolver {
 	public final fun resolve (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ljava/util/List;Ldev/tramai/security/ProviderTrustZone;Ljava/util/Map;)Ldev/tramai/security/governance/WorkloadGovernanceResolution;
 }
 
+public final class dev/tramai/security/governance/query/Completeness : java/lang/Enum {
+	public static final field COMPLETE Ldev/tramai/security/governance/query/Completeness;
+	public static final field GAPS_PRESENT Ldev/tramai/security/governance/query/Completeness;
+	public static final field UNKNOWN Ldev/tramai/security/governance/query/Completeness;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/query/Completeness;
+	public static fun values ()[Ldev/tramai/security/governance/query/Completeness;
+}
+
+public final class dev/tramai/security/governance/query/DecisionKind : java/lang/Enum {
+	public static final field POLICY_DECISION Ldev/tramai/security/governance/query/DecisionKind;
+	public static final field PROVIDER_ROUTE Ldev/tramai/security/governance/query/DecisionKind;
+	public static final field TOOL_PERMISSION Ldev/tramai/security/governance/query/DecisionKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/query/DecisionKind;
+	public static fun values ()[Ldev/tramai/security/governance/query/DecisionKind;
+}
+
+public final class dev/tramai/security/governance/query/DecisionRecordCoverage {
+	public fun <init> (Ldev/tramai/security/governance/query/Completeness;JLjava/util/Set;Ljava/util/Set;Ljava/lang/String;)V
+	public final fun component1 ()Ldev/tramai/security/governance/query/Completeness;
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/util/Set;
+	public final fun component4 ()Ljava/util/Set;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy (Ldev/tramai/security/governance/query/Completeness;JLjava/util/Set;Ljava/util/Set;Ljava/lang/String;)Ldev/tramai/security/governance/query/DecisionRecordCoverage;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ldev/tramai/security/governance/query/Completeness;JLjava/util/Set;Ljava/util/Set;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/governance/query/DecisionRecordCoverage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAccountedPositions ()J
+	public final fun getClassificationRevision ()Ljava/lang/String;
+	public final fun getCompleteness ()Ldev/tramai/security/governance/query/Completeness;
+	public final fun getUnclassifiedPositions ()Ljava/util/Set;
+	public final fun getUnrecordedDecisionPositions ()Ljava/util/Set;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/FactAuthority : java/lang/Enum {
+	public static final field AUTHORITATIVE_PERSISTED Ldev/tramai/security/governance/query/FactAuthority;
+	public static final field NOT_OBSERVED Ldev/tramai/security/governance/query/FactAuthority;
+	public static final field NOT_PRODUCED Ldev/tramai/security/governance/query/FactAuthority;
+	public static final field POLICY_AUTHORIZATION_RECORD Ldev/tramai/security/governance/query/FactAuthority;
+	public static final field PRODUCER_DECLARED Ldev/tramai/security/governance/query/FactAuthority;
+	public static final field TELEMETRY Ldev/tramai/security/governance/query/FactAuthority;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/query/FactAuthority;
+	public static fun values ()[Ldev/tramai/security/governance/query/FactAuthority;
+}
+
+public final class dev/tramai/security/governance/query/FactFreshness : java/lang/Enum {
+	public static final field ABSENT Ldev/tramai/security/governance/query/FactFreshness;
+	public static final field CURRENT_AT_VERSION Ldev/tramai/security/governance/query/FactFreshness;
+	public static final field EVENTUAL_KNOWN_LAG Ldev/tramai/security/governance/query/FactFreshness;
+	public static final field HISTORICAL Ldev/tramai/security/governance/query/FactFreshness;
+	public static final field STALE_OR_UNKNOWN Ldev/tramai/security/governance/query/FactFreshness;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/query/FactFreshness;
+	public static fun values ()[Ldev/tramai/security/governance/query/FactFreshness;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceCurrencyAssessment {
+	public fun <init> (Ldev/tramai/security/governance/query/SourceCurrency;Ldev/tramai/security/governance/query/SourceCurrency;Ljava/lang/String;)V
+	public final fun component1 ()Ldev/tramai/security/governance/query/SourceCurrency;
+	public final fun component2 ()Ldev/tramai/security/governance/query/SourceCurrency;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ldev/tramai/security/governance/query/SourceCurrency;Ldev/tramai/security/governance/query/SourceCurrency;Ljava/lang/String;)Ldev/tramai/security/governance/query/GovernanceCurrencyAssessment;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/GovernanceCurrencyAssessment;Ldev/tramai/security/governance/query/SourceCurrency;Ldev/tramai/security/governance/query/SourceCurrency;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceCurrencyAssessment;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAudit ()Ldev/tramai/security/governance/query/SourceCurrency;
+	public final fun getNote ()Ljava/lang/String;
+	public final fun getRegistration ()Ldev/tramai/security/governance/query/SourceCurrency;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceDecisionFact {
+	public fun <init> (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;)V
+	public fun <init> (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V
+	public fun <init> (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;II)V
+	public fun <init> (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IILdev/tramai/security/governance/query/ReasonCodeExposure;)V
+	public synthetic fun <init> (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IILdev/tramai/security/governance/query/ReasonCodeExposure;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/security/governance/query/DecisionKind;
+	public final fun component10 ()I
+	public final fun component11 ()Ldev/tramai/security/governance/query/ReasonCodeExposure;
+	public final fun component2 ()Ldev/tramai/security/governance/query/GovernanceFactSummary;
+	public final fun component3 ()Ldev/tramai/security/governance/query/RawStreamCoverage;
+	public final fun component4 ()Ldev/tramai/security/governance/query/DecisionRecordCoverage;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()I
+	public final fun copy (Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IILdev/tramai/security/governance/query/ReasonCodeExposure;)Ldev/tramai/security/governance/query/GovernanceDecisionFact;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/GovernanceDecisionFact;Ldev/tramai/security/governance/query/DecisionKind;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/DecisionRecordCoverage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IILdev/tramai/security/governance/query/ReasonCodeExposure;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceDecisionFact;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBoundaryId ()Ljava/lang/String;
+	public final fun getBoundaryStrength ()Ljava/lang/String;
+	public final fun getDecision ()Ljava/lang/String;
+	public final fun getDuplicatesIgnored ()I
+	public final fun getFact ()Ldev/tramai/security/governance/query/GovernanceFactSummary;
+	public final fun getKind ()Ldev/tramai/security/governance/query/DecisionKind;
+	public final fun getRawCoverage ()Ldev/tramai/security/governance/query/RawStreamCoverage;
+	public final fun getReasonCode ()Ljava/lang/String;
+	public final fun getReasonExposure ()Ldev/tramai/security/governance/query/ReasonCodeExposure;
+	public final fun getRecordCoverage ()Ldev/tramai/security/governance/query/DecisionRecordCoverage;
+	public final fun getStaleIgnored ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceFactSummary {
+	public fun <init> (Ldev/tramai/security/governance/query/FactAuthority;Ldev/tramai/security/governance/query/FactFreshness;Ljava/lang/String;Ljava/util/List;Z)V
+	public fun <init> (Ldev/tramai/security/governance/query/FactAuthority;Ldev/tramai/security/governance/query/FactFreshness;Ljava/lang/String;Ljava/util/List;ZLjava/lang/Long;)V
+	public fun <init> (Ldev/tramai/security/governance/query/FactAuthority;Ldev/tramai/security/governance/query/FactFreshness;Ljava/lang/String;Ljava/util/List;ZLjava/lang/Long;Ljava/lang/Long;)V
+	public fun <init> (Ldev/tramai/security/governance/query/FactAuthority;Ldev/tramai/security/governance/query/FactFreshness;Ljava/lang/String;Ljava/util/List;ZLjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)V
+	public synthetic fun <init> (Ldev/tramai/security/governance/query/FactAuthority;Ldev/tramai/security/governance/query/FactFreshness;Ljava/lang/String;Ljava/util/List;ZLjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/security/governance/query/FactAuthority;
+	public final fun component2 ()Ldev/tramai/security/governance/query/FactFreshness;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Z
+	public final fun component6 ()Ljava/lang/Long;
+	public final fun component7 ()Ljava/lang/Long;
+	public final fun component8 ()Ljava/lang/Long;
+	public final fun copy (Ldev/tramai/security/governance/query/FactAuthority;Ldev/tramai/security/governance/query/FactFreshness;Ljava/lang/String;Ljava/util/List;ZLjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)Ldev/tramai/security/governance/query/GovernanceFactSummary;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/FactAuthority;Ldev/tramai/security/governance/query/FactFreshness;Ljava/lang/String;Ljava/util/List;ZLjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceFactSummary;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAuthority ()Ldev/tramai/security/governance/query/FactAuthority;
+	public final fun getEstablished ()Ljava/lang/String;
+	public final fun getFreshness ()Ldev/tramai/security/governance/query/FactFreshness;
+	public final fun getMustNotInfer ()Ljava/util/List;
+	public final fun getObservedVersion ()Ljava/lang/Long;
+	public final fun getSourceVersion ()Ljava/lang/Long;
+	public final fun getValuePresent ()Z
+	public final fun getWatermark ()Ljava/lang/Long;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceProjectionIdentity {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/security/governance/query/GovernanceProjectionIdentity;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/GovernanceProjectionIdentity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceProjectionIdentity;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeploymentId ()Ljava/lang/String;
+	public final fun getEnvironmentId ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public final fun getWorkloadId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceProjectionView {
+	public fun <init> (Ldev/tramai/security/governance/query/GovernanceProjectionIdentity;Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/security/governance/query/GovernanceSourceProvenance;Ldev/tramai/security/governance/query/GovernanceCurrencyAssessment;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ljava/util/List;Ldev/tramai/security/governance/query/GovernanceFactSummary;)V
+	public final fun component1 ()Ldev/tramai/security/governance/query/GovernanceProjectionIdentity;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/time/Instant;
+	public final fun component4 ()Ldev/tramai/security/governance/query/GovernanceSourceProvenance;
+	public final fun component5 ()Ldev/tramai/security/governance/query/GovernanceCurrencyAssessment;
+	public final fun component6 ()Ldev/tramai/security/governance/query/GovernanceFactSummary;
+	public final fun component7 ()Ldev/tramai/security/governance/query/GovernanceFactSummary;
+	public final fun component8 ()Ljava/util/List;
+	public final fun component9 ()Ldev/tramai/security/governance/query/GovernanceFactSummary;
+	public final fun copy (Ldev/tramai/security/governance/query/GovernanceProjectionIdentity;Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/security/governance/query/GovernanceSourceProvenance;Ldev/tramai/security/governance/query/GovernanceCurrencyAssessment;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ljava/util/List;Ldev/tramai/security/governance/query/GovernanceFactSummary;)Ldev/tramai/security/governance/query/GovernanceProjectionView;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/GovernanceProjectionView;Ldev/tramai/security/governance/query/GovernanceProjectionIdentity;Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/security/governance/query/GovernanceSourceProvenance;Ldev/tramai/security/governance/query/GovernanceCurrencyAssessment;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ldev/tramai/security/governance/query/GovernanceFactSummary;Ljava/util/List;Ldev/tramai/security/governance/query/GovernanceFactSummary;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceProjectionView;
+	public final fun decisionFor (Ldev/tramai/security/governance/query/DecisionKind;)Ldev/tramai/security/governance/query/GovernanceDecisionFact;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrency ()Ldev/tramai/security/governance/query/GovernanceCurrencyAssessment;
+	public final fun getDecisions ()Ljava/util/List;
+	public final fun getDeclaredRunIdentity ()Ldev/tramai/security/governance/query/GovernanceFactSummary;
+	public final fun getFormatVersion ()Ljava/lang/String;
+	public final fun getIdentity ()Ldev/tramai/security/governance/query/GovernanceProjectionIdentity;
+	public final fun getMaterializedAt ()Ljava/time/Instant;
+	public final fun getProvenance ()Ldev/tramai/security/governance/query/GovernanceSourceProvenance;
+	public final fun getRegistration ()Ldev/tramai/security/governance/query/GovernanceFactSummary;
+	public final fun getTelemetry ()Ldev/tramai/security/governance/query/GovernanceFactSummary;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceQueryRequest {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/security/governance/query/GovernanceQueryRequest;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/GovernanceQueryRequest;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceQueryRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeploymentId ()Ljava/lang/String;
+	public final fun getEnvironmentId ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public final fun getWorkloadId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/security/governance/query/GovernanceQueryResult {
+}
+
+public final class dev/tramai/security/governance/query/GovernanceQueryResult$Found : dev/tramai/security/governance/query/GovernanceQueryResult {
+	public fun <init> (Ldev/tramai/security/governance/query/GovernanceProjectionView;)V
+	public final fun component1 ()Ldev/tramai/security/governance/query/GovernanceProjectionView;
+	public final fun copy (Ldev/tramai/security/governance/query/GovernanceProjectionView;)Ldev/tramai/security/governance/query/GovernanceQueryResult$Found;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/GovernanceQueryResult$Found;Ldev/tramai/security/governance/query/GovernanceProjectionView;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceQueryResult$Found;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getView ()Ldev/tramai/security/governance/query/GovernanceProjectionView;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceQueryResult$InvalidStoredProjection : dev/tramai/security/governance/query/GovernanceQueryResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/security/governance/query/GovernanceQueryResult$InvalidStoredProjection;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/GovernanceQueryResult$InvalidStoredProjection;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceQueryResult$InvalidStoredProjection;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceQueryResult$NotMaterialized : dev/tramai/security/governance/query/GovernanceQueryResult {
+	public static final field INSTANCE Ldev/tramai/security/governance/query/GovernanceQueryResult$NotMaterialized;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceQueryResult$UnsupportedFormat : dev/tramai/security/governance/query/GovernanceQueryResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/security/governance/query/GovernanceQueryResult$UnsupportedFormat;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/GovernanceQueryResult$UnsupportedFormat;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceQueryResult$UnsupportedFormat;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/security/governance/query/GovernanceQueryService {
+	public static final field Companion Ldev/tramai/security/governance/query/GovernanceQueryService$Companion;
+	public static fun jdbc (Ljavax/sql/DataSource;)Ldev/tramai/security/governance/query/GovernanceQueryService;
+	public static fun jdbc (Ljavax/sql/DataSource;Ldev/tramai/controlplane/WorkloadControlPlaneQueries;)Ldev/tramai/security/governance/query/GovernanceQueryService;
+	public static fun jdbc (Ljavax/sql/DataSource;Ldev/tramai/controlplane/WorkloadControlPlaneQueries;Ldev/tramai/security/audit/AuditStore;)Ldev/tramai/security/governance/query/GovernanceQueryService;
+	public abstract fun query (Ldev/tramai/security/governance/query/GovernanceQueryRequest;)Ldev/tramai/security/governance/query/GovernanceQueryResult;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceQueryService$Companion {
+	public final fun jdbc (Ljavax/sql/DataSource;)Ldev/tramai/security/governance/query/GovernanceQueryService;
+	public final fun jdbc (Ljavax/sql/DataSource;Ldev/tramai/controlplane/WorkloadControlPlaneQueries;)Ldev/tramai/security/governance/query/GovernanceQueryService;
+	public final fun jdbc (Ljavax/sql/DataSource;Ldev/tramai/controlplane/WorkloadControlPlaneQueries;Ldev/tramai/security/audit/AuditStore;)Ldev/tramai/security/governance/query/GovernanceQueryService;
+	public static synthetic fun jdbc$default (Ldev/tramai/security/governance/query/GovernanceQueryService$Companion;Ljavax/sql/DataSource;Ldev/tramai/controlplane/WorkloadControlPlaneQueries;Ldev/tramai/security/audit/AuditStore;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceQueryService;
+}
+
+public final class dev/tramai/security/governance/query/GovernanceSourceProvenance {
+	public fun <init> (JJLjava/lang/String;Ljava/lang/String;)V
+	public fun <init> (JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/query/ReadConsistency;)V
+	public synthetic fun <init> (JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/query/ReadConsistency;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ldev/tramai/security/governance/query/ReadConsistency;
+	public final fun copy (JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/query/ReadConsistency;)Ldev/tramai/security/governance/query/GovernanceSourceProvenance;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/GovernanceSourceProvenance;JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/query/ReadConsistency;ILjava/lang/Object;)Ldev/tramai/security/governance/query/GovernanceSourceProvenance;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAuditHeadHash ()Ljava/lang/String;
+	public final fun getAuditHeadPosition ()J
+	public final fun getClassificationRevision ()Ljava/lang/String;
+	public final fun getReadConsistency ()Ldev/tramai/security/governance/query/ReadConsistency;
+	public final fun getRegistrationVersion ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/RawStreamCoverage {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/security/governance/query/VerifiedStreamRange;)V
+	public fun <init> (Ldev/tramai/security/governance/query/VerifiedStreamRange;Ljava/lang/String;)V
+	public synthetic fun <init> (Ldev/tramai/security/governance/query/VerifiedStreamRange;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/security/governance/query/VerifiedStreamRange;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ldev/tramai/security/governance/query/VerifiedStreamRange;Ljava/lang/String;)Ldev/tramai/security/governance/query/RawStreamCoverage;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/RawStreamCoverage;Ldev/tramai/security/governance/query/VerifiedStreamRange;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/governance/query/RawStreamCoverage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getObservedHeadHash ()Ljava/lang/String;
+	public final fun getVerifiedRange ()Ldev/tramai/security/governance/query/VerifiedStreamRange;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/query/ReadConsistency : java/lang/Enum {
+	public static final field INDEPENDENT_SOURCES Ldev/tramai/security/governance/query/ReadConsistency;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/query/ReadConsistency;
+	public static fun values ()[Ldev/tramai/security/governance/query/ReadConsistency;
+}
+
+public final class dev/tramai/security/governance/query/ReasonCodeExposure : java/lang/Enum {
+	public static final field EXPOSED Ldev/tramai/security/governance/query/ReasonCodeExposure;
+	public static final field NOT_RECORDED Ldev/tramai/security/governance/query/ReasonCodeExposure;
+	public static final field WITHHELD Ldev/tramai/security/governance/query/ReasonCodeExposure;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/query/ReasonCodeExposure;
+	public static fun values ()[Ldev/tramai/security/governance/query/ReasonCodeExposure;
+}
+
+public final class dev/tramai/security/governance/query/SourceCurrency : java/lang/Enum {
+	public static final field CURRENT Ldev/tramai/security/governance/query/SourceCurrency;
+	public static final field STALE Ldev/tramai/security/governance/query/SourceCurrency;
+	public static final field UNKNOWN Ldev/tramai/security/governance/query/SourceCurrency;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/query/SourceCurrency;
+	public static fun values ()[Ldev/tramai/security/governance/query/SourceCurrency;
+}
+
+public final class dev/tramai/security/governance/query/VerifiedStreamRange {
+	public fun <init> (JJ)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun contains (J)Z
+	public final fun copy (JJ)Ldev/tramai/security/governance/query/VerifiedStreamRange;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/query/VerifiedStreamRange;JJILjava/lang/Object;)Ldev/tramai/security/governance/query/VerifiedStreamRange;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFirstPosition ()J
+	public final fun getLastPosition ()J
+	public final fun getSpan ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class dev/tramai/security/model/InMemoryModelRegistry : dev/tramai/core/model/ModelRegistry {
 	public static final field Companion Ldev/tramai/security/model/InMemoryModelRegistry$Companion;
 	public synthetic fun <init> (Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V

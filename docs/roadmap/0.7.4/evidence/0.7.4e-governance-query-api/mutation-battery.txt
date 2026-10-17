@@ -1,0 +1,86 @@
+0.7.4e — adversarial mutation battery on the public governance query surface
+
+Harness: /tmp/074e-battery.py (NotYetCommitted; the run is reproducible from this transcript)
+Head under test: 3bc94891 + the 0.7.4e working tree (8 changed/added files)
+Control: unmutated tree, `:tramai-security:test --tests dev.tramai.security.governance.*`
+         exit=0, tests=265, failures=0, errors=0 — green before any mutation.
+
+Method: each mutation is applied by exact text anchor (one occurrence required), the suite is run,
+the verdict is taken from the JUnit XML of that run, and the mutated file is restored by copying a
+pre-run backup back and re-hashing it (cmp-level byte identity). Verified pre/post sha256:
+
+  pre  StoreBackedGovernanceQueryService.kt 42e01b430f8264da64e2488fb69a14e103730faa55f8b89113565feeec2b4d41
+  pre  GovernanceQueryContract.kt           fa1b03c18fe2fea3e7632ae05d909fb4984219b7b9299a091d98ba53d1345c02
+  pre  GovernanceQueryView.kt               eac2b053b2e94ad9e107e42d4b1d9ab116dfaf1fdf7aed2350864978ffc74b26
+  post (all three) identical
+
+RESULT: 7 mutations, 5 killed, 1 survived, 1 invalid, 0 undetermined.
+
+M1 UNKNOWN currency upgraded to CURRENT
+    mutation: StoreBackedGovernanceQueryService.toPublicCurrency,
+              `SourceCurrency.UNKNOWN -> PublicSourceCurrency.UNKNOWN` becomes `-> CURRENT`
+    verdict : KILLED
+    detected by: test 4 (currency UNKNOWN for both sources when no fresh observation),
+                 test 8 (same position, no comparable head hash -> UNKNOWN, never CURRENT),
+                 plus the public-factory test
+    note    : the same mutation also breaks the factory path, so the rule is enforced on the real
+              consumer path and not only in the hand-built fixtures.
+
+M2 classification-revision mismatch ignored
+    mutation: the adapter answers Completeness.COMPLETE instead of the classification-revision-aware
+              `stored.completenessFor(kind)`
+    verdict : KILLED
+    detected by: test 9 (revision mismatch -> completeness UNKNOWN while raw coverage survives),
+                 test 10 (missing decision evidence)
+
+M3 completeness derived from the raw verified range
+    mutation: `accountedPositions = coverage.accountedPositions` becomes the verified range span
+              (`range.last - range.first + 1`)
+    verdict : SURVIVED — NO DISCRIMINATOR FAILED
+    mechanism: every fixture asserts observed accountings where the recorded count happens to equal the
+              range span (test 9 uses VerifiedStreamRange(1L, 3L) with accountedPositions = 3L), so a
+              span-derived value is indistinguishable from the recorded one.
+    this is a real gap, not a pass: the decision-record coverage claim exists precisely to not be the
+    raw range claim, and no test separates the two. A discriminating fixture needs positions inside the
+    verified range that are not accounted for as decision records
+    (accountedPositions < range.span). Correction dispatched as fix round 3.
+
+M4 authorization record allowed as execution authority
+    mutation: the view guard `validateDecisionAuthority` never fires
+              (`require(!(attestsAuthorization && hasDecision && false))`)
+    verdict : KILLED
+    detected by: test 13, whose body also asserts the authority boundary — a `policy.copy(fact =
+                 fact.copy(authority = AUTHORITATIVE_PERSISTED, freshness = CURRENT_AT_VERSION,
+                 observedVersion = 1L))` must throw IllegalArgumentException naming
+                 POLICY_AUTHORIZATION_RECORD. The mutation makes that construction succeed.
+    note    : recorded as killed by the correct semantic discriminator. The test's *name* is about the
+              query port surface; the discriminating assertion is the authority one inside it.
+
+M5 unsupported/corrupt converted to a successful response
+    mutation (first form): returning InvalidStoredProjection from inside the UnsupportedFormat catch
+    verdict : INVALID — did not compile (the mutated catch body does not satisfy the function's return
+              type). Not a survivor and not a kill: no evidence either way from this form.
+    requalified below with a form that compiles.
+
+M6 cross-scope identity check removed
+    mutation: `stored.workloadId == requested.workloadId && ...` becomes `true && ...`
+    verdict : KILLED
+    detected by: test 11 (corrupt digest, malformed coverage and mismatched identity return
+                 InvalidStoredProjection)
+
+M7 internal payload text leaked into a public token
+    mutation: `reasonCode = decision.latestReasonCode` becomes
+              `reasonCode = decision.latestReasonCode ?: decision.latestDecision`, so decision text
+              appears in a field that should have been absent
+    verdict : KILLED
+    detected by: test 14 (protected-data sentinels in audit metadata and reason fields never appear in
+                 the public query response)
+
+Harness defects found and corrected during this battery (recorded, not hidden):
+  1. First run: the control was reported red because the harness passed a stripped environment (no
+     HOME) to Gradle. The control gate refused to mutate — correct behaviour. Fixed by inheriting the
+     caller's environment and pinning only JAVA_HOME.
+  2. Second run: `compiled` was inferred from a substring match on Gradle output and produced a false
+     negative on a green tree (exit=0, tests=265, failures=0). Replaced with "tests actually ran",
+     which is sound because cleanTest empties the results directory before each run.
+  Both defects were in the harness, not in the implementation; neither mutated a green tree.
