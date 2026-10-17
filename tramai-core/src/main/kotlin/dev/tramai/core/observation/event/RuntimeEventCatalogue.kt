@@ -1064,7 +1064,6 @@ object RuntimeEventCatalogue {
             // static baseline's line-keyed suppressions for unrelated declarations.
             // Reports what a governance query read. Deliberately not audit- or evidence-eligible: telemetry is a
             // representation of evidence, never evidence of enforcement, and exporting it must not create either.
-
         )
 
     val byName: Map<String, RuntimeEventDefinition> = allEvents.associateBy { it.name }
