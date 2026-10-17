@@ -41,10 +41,19 @@ The starting point was verified against the live branch, not assumed.
   so the pair is **published → published** and the rule does not apply.
 - No cycle is introduced: `:tramai-security` has no dependency on `:tramai-observability`.
 
-**Decision: the OTEL adapter lives in `:tramai-observability`, which gains
-`implementation(project(":tramai-security"))`.** `implementation`, not `api`, so no governance type
-enters `tramai-observability`'s published surface through this edge. The mapping from governance query
-result to the safe representation is `internal` for the same reason.
+**Decision: the OTEL adapter lives in `:tramai-observability`, which gains an
+`api(project(":tramai-security"))` edge.**
+
+The edge is `api`, not `implementation`, and this is a deliberate amendment to the first version of this
+record. The public safe-exposure type has to carry the authority vocabulary (`FactAuthority`, `FactFreshness`,
+`DecisionKind`, `Completeness`, `ReasonCodeExposure`) because "reuse the repository's existing
+classifications" forbids mirroring them, and a mirrored copy would drift from the source of truth the whole
+slice exists to preserve. An `implementation` edge cannot expose those types publicly, so the weaker edge
+would force the duplication rather than avoid it. Both modules are `published`/`preview`, so this is a
+published → published edge with no forbidden layer transition.
+
+The governance projection, persistence and authority machinery remain unaware of OpenTelemetry: nothing in
+`:tramai-security` imports anything from this module.
 
 Rejected alternatives: placing the adapter in `:tramai-security` (would make governance depend on
 OpenTelemetry, which the task forbids); a new module (not the smallest legal arrangement, and it would add a

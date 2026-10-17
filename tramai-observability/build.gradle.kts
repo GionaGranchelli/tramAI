@@ -10,6 +10,7 @@ plugins {
 
 dependencies {
     api(project(":tramai-core"))
+    api(project(":tramai-security"))
     implementation(project(":tramai-orchestration"))
 
     implementation(libs.opentelemetry.api)

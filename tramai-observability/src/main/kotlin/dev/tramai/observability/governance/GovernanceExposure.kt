@@ -1,0 +1,121 @@
+package dev.tramai.observability.governance
+
+import dev.tramai.security.governance.query.Completeness
+import dev.tramai.security.governance.query.DecisionKind
+import dev.tramai.security.governance.query.FactAuthority
+import dev.tramai.security.governance.query.FactFreshness
+import dev.tramai.security.governance.query.GovernanceQueryResult
+import dev.tramai.security.governance.query.ReasonCodeExposure
+
+/**
+ * What a governance query read, reduced to the information that may leave the governance boundary.
+ *
+ * This type is the exposure policy, not a convenience view. It is built by reading named properties of a
+ * [GovernanceQueryResult] and nothing else: no `toString()`, no reflection, no object serialization and no
+ * `Map<String, Any?>` forwarding, so a field that is not named here cannot reach telemetry by accident.
+ *
+ * ## Included, and why
+ *
+ * - [GovernanceDecisionExposure.kind] — a fixed enum identifying the decision family.
+ * - [GovernanceDecisionExposure.authority] — the evidence classification the repository already uses
+ *   ([FactAuthority]). This is the classification the whole slice exists to preserve.
+ * - [GovernanceDecisionExposure.freshness] — categorical freshness, per fact.
+ * - [GovernanceDecisionExposure.hasVerifiedStreamRange] — whether a verified raw range exists. The bound
+ *   values themselves are deliberately reduced to this boolean: positions and hashes are identifiers.
+ * - [GovernanceDecisionExposure.recordCompleteness] — decision-record completeness, kept independent of
+ *   [GovernanceDecisionExposure.hasVerifiedStreamRange]. A verified range never implies complete recognition.
+ * - [GovernanceDecisionExposure.reasonCodeExposure] — whether a reason code was exposed, withheld or not
+ *   recorded. The code text itself is never carried, so a withheld value cannot be re-opened here.
+ *
+ * ## Excluded, and why
+ *
+ * - Reason code text, prompts, completions, tool arguments and results, document content, credentials,
+ *   tokens, raw provider responses and raw exception text: protected payloads.
+ * - `established`, `mustNotInfer` and any currency note: free-text strings authored for humans, unbounded in
+ *   length and content.
+ * - Workload, environment, deployment, run and stream identifiers, and hashes and digests: identifiers are
+ *   not automatically safe — they are correlatable and high-cardinality, and no consumer need was established.
+ * - The stored boundary strength. `RuntimeBoundaryProvenance` documents that resolving a registered
+ *   boundary's strength does not authenticate the origin of the event naming it, so exporting that strength
+ *   alongside telemetry would invite exactly the promotion this task forbids. The evidence classification in
+ *   [GovernanceDecisionExposure.authority] is exported instead, and only where the source establishes it.
+ */
+public data class GovernanceExposure(
+    public val state: GovernanceExposureState,
+    public val decisions: List<GovernanceDecisionExposure>,
+) {
+    init {
+        require(decisions.isEmpty() == (state != GovernanceExposureState.EVIDENCE_AVAILABLE)) {
+            "decision facts are exportable only when a projection was actually readable"
+        }
+    }
+
+    public companion object {
+        /**
+         * Maps a query result to its exposure, preserving which result state was returned.
+         *
+         * A missing, unsupported or corrupt projection never becomes an available, current or complete
+         * signal: each maps to its own state with no decision facts. Infrastructure failure is not a state
+         * here - a backend failure is an exception from the query, and it must not be dressed up as evidence.
+         */
+        public fun from(result: GovernanceQueryResult): GovernanceExposure =
+            when (result) {
+                is GovernanceQueryResult.Found ->
+                    GovernanceExposure(
+                        state = GovernanceExposureState.EVIDENCE_AVAILABLE,
+                        decisions =
+                            result.view.decisions.map { decision ->
+                                GovernanceDecisionExposure(
+                                    kind = decision.kind,
+                                    authority = decision.fact.authority,
+                                    freshness = decision.fact.freshness,
+                                    hasVerifiedStreamRange = decision.rawCoverage.verifiedRange != null,
+                                    recordCompleteness = decision.recordCoverage.completeness,
+                                    reasonCodeExposure = decision.reasonExposure,
+                                )
+                            },
+                    )
+                is GovernanceQueryResult.NotMaterialized ->
+                    GovernanceExposure(GovernanceExposureState.NOT_MATERIALIZED, emptyList())
+                is GovernanceQueryResult.UnsupportedFormat ->
+                    GovernanceExposure(GovernanceExposureState.UNSUPPORTED_FORMAT, emptyList())
+                is GovernanceQueryResult.InvalidStoredProjection ->
+                    GovernanceExposure(GovernanceExposureState.INVALID_STORED_PROJECTION, emptyList())
+            }
+    }
+}
+
+/**
+ * Which result a query produced, stated as telemetry-visible evidence.
+ *
+ * The four cases are distinct on purpose. Collapsing them into "queried successfully" would let a missing or
+ * corrupt projection read as a healthy governance observation.
+ */
+public enum class GovernanceExposureState {
+    /** A stored projection was read and its decision facts are reported. */
+    EVIDENCE_AVAILABLE,
+
+    /** No projection was materialized for this scope. Nothing is claimed about what happened. */
+    NOT_MATERIALIZED,
+
+    /** A projection exists but its storage format is not one this build reads. */
+    UNSUPPORTED_FORMAT,
+
+    /** A projected row failed digest or contract verification and was refused. */
+    INVALID_STORED_PROJECTION,
+}
+
+/**
+ * One decision family, reduced to exportable evidence.
+ *
+ * Both coverage claims are kept as separate properties: a verified raw stream range and complete decision
+ * recognition are different facts, and neither may stand in for the other.
+ */
+public data class GovernanceDecisionExposure(
+    public val kind: DecisionKind,
+    public val authority: FactAuthority,
+    public val freshness: FactFreshness,
+    public val hasVerifiedStreamRange: Boolean,
+    public val recordCompleteness: Completeness,
+    public val reasonCodeExposure: ReasonCodeExposure,
+)
