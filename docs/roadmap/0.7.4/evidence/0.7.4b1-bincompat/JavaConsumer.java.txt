@@ -1,0 +1,92 @@
+package bincompat;
+
+import dev.tramai.core.policy.EnforcementPoint;
+import dev.tramai.core.policy.PolicyContext;
+
+/**
+ * A Java consumer, compiled against the BASE artifact, exercising the Java-facing surface:
+ * the published constructors and getters. Java interop is a separate compatibility category from
+ * Kotlin, so its outcome is recorded separately.
+ */
+public final class JavaConsumer {
+
+    private static void report(String category, Runnable body) {
+        try {
+            body.run();
+            System.out.println("OK    " + category);
+        } catch (Throwable failure) {
+            System.out.println("FAIL  " + category + " -> " + failure.getClass().getName() + ": " + failure.getMessage());
+        }
+    }
+
+    public static void main(String[] args) {
+        report("java/constructor-4-args", () -> {
+            PolicyContext context =
+                    new PolicyContext(
+                            EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                            "corr-java",
+                            "actor-java",
+                            "policy-java-v1");
+            if (!"corr-java".equals(context.getCorrelationId())) {
+                throw new IllegalStateException("correlation mismatch");
+            }
+        });
+
+        report("java/constructor-16-args", () -> {
+            PolicyContext context =
+                    new PolicyContext(
+                            EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                            null,
+                            null,
+                            "corr-java",
+                            "actor-java",
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            "policy-java-v1",
+                            null,
+                            java.util.Collections.emptyMap());
+            if (!"actor-java".equals(context.getActorId())) {
+                throw new IllegalStateException("actor mismatch");
+            }
+        });
+
+        report("java/getters", () -> {
+            PolicyContext context =
+                    new PolicyContext(
+                            EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                            "corr-java",
+                            "actor-java",
+                            "policy-java-v1");
+            if (context.getEnforcementPoint() != EnforcementPoint.BEFORE_TOOL_EXECUTION) {
+                throw new IllegalStateException("enforcement point mismatch");
+            }
+            if (!"policy-java-v1".equals(context.getPolicyVersion())) {
+                throw new IllegalStateException("policy version mismatch");
+            }
+        });
+
+        report("java/data-class-methods", () -> {
+            PolicyContext a =
+                    new PolicyContext(
+                            EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                            "corr-java",
+                            "actor-java",
+                            "policy-java-v1");
+            PolicyContext b =
+                    new PolicyContext(
+                            EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                            "corr-java",
+                            "actor-java",
+                            "policy-java-v1");
+            if (!a.equals(b) || a.hashCode() != b.hashCode()) {
+                throw new IllegalStateException("equality mismatch");
+            }
+        });
+    }
+}

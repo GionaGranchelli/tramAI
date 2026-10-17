@@ -66,6 +66,7 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
         registerVerifyAuditClosure(project)
         registerVerify060ZeroEgress(project)
         registerVerify060MaintainabilityRelease(project)
+        project.registerVerifyMergeGate()
     }
 
     private fun registerRootApiCheckAggregator(project: Project) {

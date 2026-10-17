@@ -7,6 +7,7 @@ include(
     "tramai-azure-openai",
     "tramai-bedrock",
     "tramai-bom",
+    "tramai-control-plane",
     "tramai-core",
     "tramai-deepseek",
     "tramai-embedding",
@@ -61,6 +62,7 @@ include(
     "examples:governed-workflow",
     "examples:approval-resume",
     "examples:tool-governance",
+    "examples:spring-ai-authority-boundary",
     "examples:java-consumer-smoke",
     "examples:kotlin-consumer-smoke",
 )

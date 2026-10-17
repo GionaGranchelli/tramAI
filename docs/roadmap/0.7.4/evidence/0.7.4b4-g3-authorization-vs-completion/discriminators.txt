@@ -1,0 +1,190 @@
+G3 discriminators - recorded transcript
+========================================================================
+Task: 0.7.4b4 / G3 - authorization vs completion in tool.permission evidence
+Base (prerequisite G2 / PR #523): 2c7e3206f271a86e525c37be21a06da4b6fa8288
+Change class: documentation. This task modifies no production file, no test and no gate.
+
+NO MUTATION EXPERIMENT WAS CREATED.
+The G3 directive forbids artificial mutation experiments for a documentation-only task. The contract is
+grounded in the production ordering read from source plus discriminators that already exist in the
+repository. This file records what each of them discriminates, so that no claim here is carried by a
+method name or a test title.
+
+========================================================================
+D-ORDERING - the authorization record precedes the effect
+========================================================================
+Existing test: examples/spring-ai-authority-boundary/src/test/kotlin/dev/tramai/examples/springaiboundary/EvidenceIntegrityTest.kt:104-119
+  `a failure to record the authorization prevents the action`
+  Wiring: GovernedToolCallback(delegate = SideEffectfulToolCallback(), engine = allowedEngine(),
+                               auditEngine = AuditEngine(FailingAuditStore()), context = ...)
+  FailingAuditStore (EvidenceIntegrityTest.kt:200-208) throws from appendNext, so the authorization write
+  cannot succeed.
+  Assertions: the call throws, and tool.invocations() is empty.
+
+  Why it discriminates the ORDER (not the intent): if the delegate were invoked before, or independently
+  of, the record, the side-effect ledger would contain the invocation and the second assertion would fail.
+  The empty ledger is therefore evidence about the order of the two operations. It also pins the rule the
+  order exists for: an authorization that cannot be recorded never becomes an executed action (fail closed).
+
+  Source read for the same order (read at 2c7e3206, not inferred):
+    GovernedToolCallback.kt:79-85     PolicyDecision.Allow -> recordAllow(:83) then execute(:84)
+    BoundaryEvidenceRecorder.kt:55    recordAllow -> record(..., DECISION_ALLOW, ...)
+    BoundaryEvidenceRecorder.kt:76-116  runBlocking { auditEngine.emit(...) } (:83); events += event (:115)
+    AuditEngine.kt:11-34              emit -> store.appendNext(streamId) { factory } (:12); returns the
+                                      persisted AuditEvent (:32)
+  Ordering on the native engine path (also read, for consistency of the contract):
+    ToolInvocationExecutor.kt:27,36,41  authorize(...) per attempt, then executeToolAttempt(...)
+    ToolAuthorizationCoordinator.kt:10-22 -> PolicyEnforcementHelper.kt:39-44
+      policyEngine.evaluate (:41) then auditEmitter.emit (:42), before the decision is returned (:43)
+    AuditEnginePolicyDecisionAuditEmitter.kt:48-77  does not swallow a store failure
+
+========================================================================
+D-COMPLETION - a decision record does not imply the operation ran
+========================================================================
+Existing test: GovernanceBoundaryTest.kt:166-191 `an action requiring approval cannot execute without one`
+  A REQUIRE_APPROVAL record exists (`boundary.events().single().decision == "REQUIRE_APPROVAL"`) while
+  `tool.invocations().isEmpty()` holds: the record exists and execution provably did not happen.
+Existing test: GovernanceBoundaryTest.kt:64-79 `a denied action is never invoked and returns a structured refusal`
+  A DENY record coexists with an empty side-effect ledger.
+  Why they matter to this contract: they are decision records without execution - the converse of reading a
+  decision record as a report about what happened to the operation.
+
+========================================================================
+D-REVERSE-DIRECTION - an ALLOW record survives a delegate failure
+LABEL: OBSERVED (one run, transient artifact, not committed)
+========================================================================
+No committed test covers this direction. It was observed once with a throwaway test, deleted before the
+branch was committed. The probe source is reproduced at the end of this file so the observation stays
+auditable even though its artifact is not part of the delivered change.
+
+Command:
+  JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./gradlew :examples:spring-ai-authority-boundary:test \
+    --tests '*G3TransientProbe*' --no-build-cache --rerun-tasks
+
+Transcript (2026-10-13T19:14:21+02:00 -> 19:15:04+02:00):
+  > Task :examples:spring-ai-authority-boundary:test
+  G3TransientProbeTest > an ALLOW record survives a delegate that throws after authorization() STANDARD_OUT
+      PROBE delegate outcome: IllegalStateException: delegate failed after authorization
+      PROBE recorded events: [ALLOW]
+      PROBE evidence records: [(ALLOW, null)]
+  BUILD SUCCESSFUL in 43s
+  probe exit=0
+
+Result: the delegate threw after authorization, and the boundary holds exactly one valid decision record
+whose kind is ALLOW. The record does not distinguish that outcome from a successful invocation.
+
+========================================================================
+NON-DISCRIMINATORS - named so a later reader does not over-read them
+========================================================================
+- GovernanceBoundaryTest.kt:49-60 `an allowed action executes exactly once and correlates to the
+  authoritative decision` asserts one invocation AND one ALLOW record, but only for the run it performs.
+  It is evidence about that demonstration. It cannot be cited as "ALLOW means the tool completed".
+- The invocation counters in examples/tool-governance (0 vs 1) are observations of that example's own
+  process, asserted by its own test suite. They are not a property of any evidence record.
+- The XR1 demonstration's invocation ledger is not a production completion authority.
+
+========================================================================
+PROBE SOURCE (transient; not part of the delivered change)
+========================================================================
+package dev.tramai.examples.springaiboundary
+
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
+import dev.tramai.core.policy.ApprovalMode
+import dev.tramai.core.policy.AuditDetail
+import dev.tramai.core.policy.ManagedNetworkEgress
+import dev.tramai.core.policy.RiskLevel
+import dev.tramai.core.policy.ToolSecurityMetadata
+import dev.tramai.security.DefaultPolicyEngine
+import dev.tramai.security.PolicyConfiguration
+import dev.tramai.security.audit.AuditEngine
+import dev.tramai.security.audit.InMemoryAuditStore
+import org.junit.jupiter.api.Test
+import org.springframework.ai.tool.ToolCallback
+import org.springframework.ai.tool.definition.ToolDefinition
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class G3TransientProbeTest {
+    private val runId = "run-g3-probe"
+    private val correlationId = "corr-g3-probe"
+
+    @Test
+    fun `an ALLOW record survives a delegate that throws after authorization`() {
+        val delegate =
+            object : ToolCallback {
+                override fun getToolDefinition(): ToolDefinition =
+                    ToolDefinition
+                        .builder()
+                        .name("ledger_append")
+                        .description("throws after being authorized")
+                        .inputSchema("""{"type":"object","properties":{"value":{"type":"string"}}}""")
+                        .build()
+
+                override fun call(toolInput: String): String = error("delegate failed after authorization")
+            }
+
+        val boundary =
+            GovernedToolCallback(
+                delegate = delegate,
+                engine =
+                    DefaultPolicyEngine(
+                        PolicyConfiguration(
+                            allowedTools = setOf("ledger_append"),
+                            allowedPermissions = setOf("ledger.append"),
+                        ),
+                    ),
+                auditEngine = AuditEngine(InMemoryAuditStore()),
+                context = boundaryContext(),
+            )
+
+        val failure = runCatching { boundary.call("""{"value":"boom"}""") }.exceptionOrNull()
+        val evidence = boundary.evidence()
+
+        println("PROBE delegate outcome: ${failure?.let { it::class.simpleName + ": " + it.message }}")
+        println("PROBE recorded events: ${boundary.events().map { it.decision }}")
+        println("PROBE evidence records: ${evidence.map { it.decision.kind to it.decision.reasonCode }}")
+
+        assertTrue(failure != null, "the delegate's failure reaches the caller")
+        assertEquals(1, evidence.size, "exactly one decision record was produced")
+        assertEquals("ALLOW", evidence.single().decision.kind, "the record attests the authorization")
+        assertTrue(boundary.events().single().decision == "ALLOW", "the audit decision is ALLOW")
+    }
+
+    private fun boundaryContext(): BoundaryContext =
+        BoundaryContext(
+            identity =
+                GovernedRunIdentity(
+                    deployment =
+                        WorkloadDeploymentIdentity(
+                            workloadId = WorkloadId("workload-xr1"),
+                            configuration =
+                                WorkloadConfigurationIdentity(
+                                    id = ConfigurationId("configuration-xr1"),
+                                    version = ConfigurationVersion("v1"),
+                                ),
+                            environmentId = EnvironmentId("environment-local"),
+                            deploymentId = DeploymentId("deployment-xr1-1"),
+                        ),
+                    runId = RunId(runId),
+                ),
+            security =
+                ToolSecurityMetadata(
+                    permission = "ledger.append",
+                    risk = RiskLevel.LOW,
+                    approval = ApprovalMode.AUTO,
+                    managedNetworkEgress = ManagedNetworkEgress.ALLOW,
+                    audit = AuditDetail.DECISION_ONLY,
+                ),
+            policyVersion = "policy-xr1-v1",
+            actorId = "spring-ai-workload",
+            correlationId = correlationId,
+        )
+}
