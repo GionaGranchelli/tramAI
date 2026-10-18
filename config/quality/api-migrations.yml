@@ -199,3 +199,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.4e headless governance query API: tramai-security publishes the read-only query contract over the durable governance projection (GovernanceQueryService with its jdbc factory, GovernanceQueryRequest, GovernanceQueryResult, GovernanceProjectionView and the fact, coverage, currency and exposure types they carry). Additive only: no existing signature changed."
     migration: "No consumer action required: the query surface is new. Recompile only if you intend to read governance projections through it."
+
+  - module: ":tramai-observability"
+    fromSha256: "b1b33063d834e78b3c18f4df5494a9c153b77009e899b9e792fe527e6c04d5e9"
+    toSha256: "497b08274e0acf06122b2084902238d26794ab192b277d412dee9f8171d94837"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.4f safe exposure and OTEL mapping: tramai-observability publishes GovernanceExposure and GovernanceDecisionExposure, the typed allowlist that is the only shape of governance information permitted to leave the query boundary, and GovernanceTelemetryExporter, which records it through the runtime event catalogue. Both exposure types are interfaces with private implementations and no constructor or copy(), so a caller cannot fabricate a stronger classification than a real query result produced - the construction path was closed during review. The module also gains an api dependency on tramai-security so the exposure types can carry the repository's existing authority, freshness, currency, completeness and reason-exposure vocabulary instead of a mirrored copy that would drift from the source of truth this slice exists to preserve. Additive only: no existing signature changed."
+    migration: "No consumer action required: both types are new and nothing existing changed. The added dependency is published-to-published with no forbidden layer edge and no cycle; it changes what tramai-observability can see, not what it exposes beyond the two new types."
