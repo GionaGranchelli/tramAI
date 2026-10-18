@@ -1,6 +1,9 @@
 # TASK 0.7.4f — Safe Exposure and OpenTelemetry Mapping
 
-Epic 0.7.4. Status: Phase 0 complete (decision recorded before implementation).
+Epic 0.7.4. Status: complete - Phases 0-6 and XR1 delivered, exact-head CI green, awaiting review. This document
+records the architecture decision taken before implementation; the implementation, exposure matrix and per-phase
+evidence are in the sections below and under
+`docs/roadmap/0.7.4/evidence/0.7.4f-safe-exposure-otel-mapping/`.
 
 ## 1. Baseline
 
@@ -110,17 +113,23 @@ anything else.
 
 ## 6. Phase plan
 
-1. **Phase 1** — typed safe-exposure contract in `:tramai-observability`: a pure, allowlisted representation
-   built from named governance fields, with the result-state distinction carried explicitly.
-2. **Phase 2** — authority and provenance preservation: `AUTHORITATIVE`/`INSTRUMENTED`/`OBSERVED`/`IMPORTED`
-   only where established, registered boundary strength never promoted to verified origin, unknown never
-   upgraded.
-3. **Phase 3** — the OTEL adapter over that contract, using catalogue-registered keys, best-effort and
+All phases are delivered on this branch; the per-phase evidence is under
+`docs/roadmap/0.7.4/evidence/0.7.4f-safe-exposure-otel-mapping/`.
+
+1. **Phase 1 (delivered)** — typed safe-exposure contract in `:tramai-observability`: a pure, allowlisted
+   representation built from named governance fields, with the result-state distinction carried explicitly.
+2. **Phase 2 (delivered)** — authority and provenance preservation: `AUTHORITATIVE`/`INSTRUMENTED`/`OBSERVED`/
+   `IMPORTED` only where established, registered boundary strength never promoted to verified origin, unknown
+   never upgraded.
+3. **Phase 3 (delivered)** — the OTEL adapter over that contract, using catalogue-registered keys, best-effort and
    non-authoritative, wired explicitly.
-4. **Phase 4** — real export qualification with the in-memory OTEL SDK reading rendered records, asserting
-   both presence of permitted fields and absence of forbidden ones.
-5. **Phase 5** — focused mutation campaign over the dangerous rules.
-6. **Phase 6** — gates, exact-head CI, PR.
+4. **Phase 4 (delivered)** — real export qualification with the in-memory OTEL SDK reading rendered records,
+   asserting both presence of permitted fields and absence of forbidden ones, plus a container-backed
+   PostgreSQL -> query port -> exported span test.
+5. **Phase 5 (delivered)** — focused mutation campaign over the dangerous rules.
+6. **Phase 6 (delivered)** — gates, exact-head CI, PR.
+7. **XR1 (delivered)** — Spring AI external-runtime evidence maps without claiming TramAI authorship or
+   enforcement control.
 
 No coverage threshold, mutation baseline, static-analysis baseline, gate definition or CI workflow will be
 changed to obtain a green result.
