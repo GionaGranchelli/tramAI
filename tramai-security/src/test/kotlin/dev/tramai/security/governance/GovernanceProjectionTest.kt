@@ -258,6 +258,34 @@ class GovernanceProjectionTest {
         }
 
     @Test
+    fun `two contradictory records at one source position are not resolved by arrival order`() =
+        runBlocking<Unit> {
+            val allow = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = 7)
+            val deny = decision(DecisionKind.POLICY_DECISION, value = "DENY", sequence = 7)
+
+            suspend fun policyFor(records: List<RecordedDecision>) =
+                reader(registeredAuthority(), ScriptedFacts(decisions = records))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            val forward = policyFor(listOf(allow, deny))
+            val reversed = policyFor(listOf(deny, allow))
+
+            // The source supplied two different records for one position, so neither is established - and the
+            // order the source happened to return them in is not evidence about which one happened. Electing
+            // the first record at the highest position makes the projected authority a function of delivery
+            // order, which no source contract here guarantees.
+            assertThat(forward.latest.value).isNull()
+            assertThat(reversed.latest.value).isNull()
+            assertThat(forward.latest.freshness).isEqualTo(FactFreshness.ABSENT)
+            assertThat(forward.latest.authority).isEqualTo(FactAuthority.NOT_OBSERVED)
+            assertThat(forward.latest.established).contains("contradictory")
+            assertThat(forward.latest.mustNotInfer.joinToString(" ")).contains("no decision occurred")
+            assertThat(forward.completeness).isEqualTo(Completeness.UNKNOWN)
+        }
+
+    @Test
     fun `a fold with a missing intermediate event does not claim completeness`() =
         runBlocking<Unit> {
             val records =

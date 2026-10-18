@@ -10,6 +10,7 @@
 | examples:kotlin-consumer-smoke | applications-examples | internal | excluded | No | examples | excluded |
 | examples:sovereign-document-intelligence | applications-examples | internal | excluded | No | examples | excluded |
 | examples:sovereign-offline-verification | applications-examples | internal | excluded | No | examples | excluded |
+| examples:spring-ai-authority-boundary | applications-examples | internal | excluded | No | examples | excluded |
 | examples:spring-sovereign-starter | applications-examples | internal | excluded | No | examples | excluded |
 | examples:support-agent | applications-examples | internal | excluded | No | examples | excluded |
 | examples:tool-governance | applications-examples | internal | excluded | No | examples | excluded |

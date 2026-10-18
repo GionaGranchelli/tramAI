@@ -19,9 +19,14 @@ internal object GovernanceDecisionFold {
     ): DecisionProjection {
         val distinct = records.distinct()
         val duplicates = records.size - distinct.size
+        val contradictions = contradictions(distinct)
         return when {
             records.isEmpty() -> {
                 absent(kind, coverage, completeness)
+            }
+
+            contradictions.isNotEmpty() -> {
+                conflicting(kind, contradictions, duplicates, coverage)
             }
 
             distinct.all { it.sourceSequence != null } -> {
@@ -32,6 +37,59 @@ internal object GovernanceDecisionFold {
                 unorderedFold(kind, distinct, duplicates, coverage)
             }
         }
+    }
+
+    /**
+     * Positions the source answered more than once, differently.
+     *
+     * Repeating a record is a duplicate, and [RecordedDecision] equality already collapses those. Two *different*
+     * records at one position are not a duplicate: the source has not established which of them happened, and
+     * electing either would make the projected fact a function of the order the source happened to return them
+     * in. No source contract here promises that order, so the position is reported as unresolved instead.
+     */
+    private fun contradictions(distinct: List<RecordedDecision>): Map<Long, List<RecordedDecision>> =
+        distinct
+            .filter { it.sourceSequence != null }
+            .groupBy { it.sourceSequence as Long }
+            .filterValues { atPosition -> atPosition.map { it.copy(sourceSequence = null) }.distinct().size > 1 }
+
+    /**
+     * A position the source contradicted itself on.
+     *
+     * The read observed records but could not establish which of them is the recorded one, so the claim is the
+     * one [FactAuthority.NOT_OBSERVED] carries for exactly this case: evidence about the read, not about the
+     * world. Reporting the family's record authority here would need a value, and there is none to elect; the
+     * contradiction is named in [ProjectedFact.established] so the absence cannot be mistaken for an empty
+     * stream. Completeness is withdrawn: records that disagree with each other cannot be said to account for
+     * their positions.
+     */
+    private fun conflicting(
+        kind: DecisionKind,
+        contradictions: Map<Long, List<RecordedDecision>>,
+        duplicates: Int,
+        coverage: StreamCoverage,
+    ): DecisionProjection {
+        val positions = contradictions.keys.sorted().joinToString(", ")
+        return DecisionProjection(
+            kind = kind,
+            latest =
+                ProjectedFact(
+                    value = null,
+                    authority = FactAuthority.NOT_OBSERVED,
+                    freshness = FactFreshness.ABSENT,
+                    established =
+                        "the source returned contradictory records at source position(s) $positions; " +
+                            "this read does not establish which of them was recorded",
+                    mustNotInfer =
+                        listOf(
+                            "contradictory records at one position are not evidence that no decision occurred; " +
+                                "the source answered the same position more than once with different content",
+                        ),
+                ),
+            completeness = Completeness.UNKNOWN,
+            coverage = coverage,
+            duplicatesIgnored = duplicates,
+        )
     }
 
     private fun orderedFold(
