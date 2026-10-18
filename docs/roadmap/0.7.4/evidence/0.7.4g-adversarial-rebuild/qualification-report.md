@@ -1,7 +1,8 @@
 # 0.7.4g — Adversarial rebuild and mutation proof: qualification report
 
 Epic 0.7.4. Base SHA `33a1830f4edd9604ac40f6ac4e5676d20b01c616` (the 0.7.4f merge, zero divergence from
-the task's stated dependency). Final SHA and gate/CI results are recorded at the end of this file.
+the task's stated dependency). Final SHA `704783333f748106c38d9b670fa47a259960a266`, certified by exact-head
+CI at 19/19 checks success (recorded in §Canonical gate results below).
 
 Everything below is a measurement from a run performed in this campaign, or is labelled otherwise. Three
 delegated agents drafted test files and timed out during their own verification; every count quoted here
@@ -103,6 +104,30 @@ discriminator, not by reasoning it away; M13 replaces the stale 0.7.4f M6 verdic
    never exercised them. Adding a CI lane is a `ci-workflow` change and is deliberately left out of this PR.
 4. The 0.7.4f M6 mutation verdict was stale, and the 0.7.4f completion report's "impossible, not argued" wording
    was wrong in kind. Corrected by M13's verdict (detected by two tests, not made impossible by the types).
+
+## Canonical gate results
+
+Run under JDK 21. `verifyPr` is the canonical local aggregate, but it does not complete in one invocation in this
+environment — it is terminated with SIGTERM (exit 143) by the process reaper — so its constituent gates were run in
+slices with the base-policy property `-PchangePolicyBase=33a1830f4edd9604ac40f6ac4e5676d20b01c616` and, for the
+mutation ratchet, `-PtramaiMutationBaseSha=33a1830f…`. A slice result is reported as a slice, never as `verifyPr`.
+
+| Gate | Result |
+|---|---|
+| `spotlessCheck` | PASS |
+| `verifyStaticAnalysis` | PASS — detekt baseline 4792 → 4792, **0 added**; 16 new findings in the delegated test files were remediated structurally with no suppression |
+| `verify060Architecture` | PASS |
+| `verifyChangePolicy` | PASSED — 15 changed files, `runtime-behaviour`, no violations |
+| `verifyModuleDocContract` | PASS (was red at the base — see §Base defects) |
+| `verifyModuleMatrixDrift` | PASS (was red at the base) |
+| `verifyMutationRatchet` | PASSED — base `33a1830f`, no PIT campaign executed |
+| `verifyCompilerWarnings` | not re-run in this branch's final state; unchanged by this diff and green on the base slice |
+| exact-head CI | **19/19 checks success**, zero failures, head `7047833` |
+
+Invocation note worth recording: `verifyMutationRatchet` fails when it is run without `-PtramaiMutationBaseSha`,
+because it then falls back to `git merge-base HEAD origin/master` and compares the population admissions against a
+different authority base (M35). That red is an invocation artifact, not repo state; the same gate passes with the
+PR base.
 
 ## Deferred to 0.7.4h or later
 
