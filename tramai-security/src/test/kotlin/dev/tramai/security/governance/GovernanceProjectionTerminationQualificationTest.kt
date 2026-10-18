@@ -61,110 +61,140 @@ class GovernanceProjectionTerminationQualificationTest {
             val baselineDump = dump(source)
             assertThat(counts(source)).describedAs("the baseline projection").containsExactly(1, FACT_COUNT, 1)
 
-            // ---- (B) SIGKILL inside the transaction: after the header upsert, before any child row.
-            val interrupted = snapshot(HEAD_INTERRUPTED, "hash-$HEAD_INTERRUPTED", "policy_allowed")
-            val child = launch("in-transaction", HEAD_INTERRUPTED)
-            val marker = awaitMarker(child)
-            assertThat(marker).describedAs("the kill point is the open transaction").contains("head=$HEAD_INTERRUPTED")
-            // The child has executed the header upsert and is holding its transaction open. Unless the
-            // write is still uncommitted, the kill proves nothing about atomicity: a reader must still
-            // see the previous projection, header and children alike.
-            assertThat(visibleDigest(source))
-                .describedAs("the child's header write is uncommitted and invisible to a reader")
-                .isEqualTo(first.semanticDigest)
-            assertThat(counts(source)).containsExactly(1, FACT_COUNT, 1)
-            assertThat(child.isAlive).isTrue()
-            val interruptedExit = killProven(child)
-            awaitNoOtherBackends(source)
+            killedInsideTransaction(source, store, first, baselineDump)
 
-            val recovered =
-                store.load(identity()) ?: error("the interrupted rebuild left no readable projection at all")
-            val afterKill = dump(source)
-            assertThat(counts(source))
-                .describedAs("exactly one version of the projection, with its facts and decisions")
-                .containsExactly(1, FACT_COUNT, 1)
-            assertThat(recovered.snapshot.semanticDigest)
-                .describedAs("the row is one of the two committed snapshots, rebuilt and digest-checked")
-                .isIn(first.semanticDigest, interrupted.semanticDigest)
-
-            // Equality with the baseline dump is the byte-identical claim for the rollback branch; the
-            // commit branch is proved by the store's own digest check plus exact child counts above, and
-            // by the row contents differing from the baseline.
-            if (recovered.snapshot.semanticDigest == first.semanticDigest) {
-                assertThat(afterKill)
-                    .describedAs("the killed transaction rolled back: the previous projection is byte-identical")
-                    .isEqualTo(baselineDump)
-                println(
-                    "R5-B: kill landed inside the transaction (child exit $interruptedExit after SIGKILL); " +
-                        "database holds the previously committed projection, byte-identical",
-                )
-            } else {
-                assertThat(afterKill).describedAs("the new projection committed in full").isNotEqualTo(baselineDump)
-                assertThat(recovered.materializedAt).isNotNull()
-                println(
-                    "R5-B: kill landed inside the transaction (child exit $interruptedExit after SIGKILL); " +
-                        "database holds the fully committed new projection",
-                )
-            }
-
-            // ---- (A) commit returns, the outcome is never delivered.
-            val committed = snapshot(HEAD_COMMITTED, "hash-$HEAD_COMMITTED", "policy_allowed_after_restart")
-            val afterCommit = launch("committed", HEAD_COMMITTED)
-            val committedMarker = awaitMarker(afterCommit)
-            assertThat(committedMarker)
-                .describedAs("the child committed before it was killed")
-                .contains("outcome=PUBLISHED")
-                .contains(committed.semanticDigest)
-            // Commit happened; the outcome went nowhere. The row is visible before the kill and must
-            // still be there, unchanged, after it.
-            assertThat(visibleDigest(source)).isEqualTo(committed.semanticDigest)
-            assertThat(afterCommit.isAlive).isTrue()
-            val committedExit = killProven(afterCommit)
-            awaitNoOtherBackends(source)
-
-            val unacknowledged =
-                store.load(identity()) ?: error("a committed, unacknowledged publish left nothing to read")
-            assertThat(unacknowledged.snapshot.semanticDigest)
-                .describedAs("the commit survived the process that never reported it")
-                .isEqualTo(committed.semanticDigest)
-            assertThat(unacknowledged.materializedAt).isNotNull()
-            assertThat(counts(source))
-                .describedAs("no second version and no duplicated children")
-                .containsExactly(1, FACT_COUNT, 1)
-            val committedDump = dump(source)
-
-            assertThat(store.publish(committed))
-                .describedAs("a retry of the same publish is recognised, not applied")
-                .isEqualTo(MaterializationOutcome.ALREADY_CURRENT)
-            assertThat(dump(source))
-                .describedAs("the retry wrote nothing")
-                .isEqualTo(committedDump)
-            assertThat(counts(source)).containsExactly(1, FACT_COUNT, 1)
-            println(
-                "R5-A: committed-but-unacknowledged projection is readable and a retry reports " +
-                    "ALREADY_CURRENT (child exit $committedExit after SIGKILL, outcome delivered to nobody)",
-            )
-
-            // ---- Control: the load-based assertion above must reject the mixture a non-atomic writer
-            // could leave. Without this, "never a partial mixture" would be a claim about a check that
-            // was never shown to fire.
-            tamper(
-                source,
-                "UPDATE governance_projection_snapshot SET semantic_digest = ? WHERE projection_key = ?",
-                first.semanticDigest,
-                identity().key,
-            )
-            assertCorruption(source, "a header that disagrees with its children")
-            tamper(
-                source,
-                "UPDATE governance_projection_snapshot SET semantic_digest = ? WHERE projection_key = ?",
-                committed.semanticDigest,
-                identity().key,
-            )
-            tamper(source, "DELETE FROM governance_projection_fact WHERE projection_key = ? AND fact = ?", identity().key, FACT_TELEMETRY)
-            assertCorruption(source, "a header whose children are missing")
-            println("R5-CONTROL: a partial mixture is refused by load, so the assertions above discriminate")
+            val committed = killedAfterCommit(source, store)
+            refusedMixtureControl(source, first, committed)
         }
+
+    /** (B) SIGKILL inside the open transaction: after the header upsert, before any child row. */
+    private suspend fun killedInsideTransaction(
+        source: DataSource,
+        store: JdbcGovernanceProjectionStore,
+        first: GovernanceProjectionSnapshot,
+        baselineDump: String,
+    ) {
+        val interrupted = snapshot(HEAD_INTERRUPTED, "hash-$HEAD_INTERRUPTED", "policy_allowed")
+        val child = launch("in-transaction", HEAD_INTERRUPTED)
+        val marker = awaitMarker(child)
+        assertThat(marker).describedAs("the kill point is the open transaction").contains("head=$HEAD_INTERRUPTED")
+        // The child has executed the header upsert and is holding its transaction open. Unless the
+        // write is still uncommitted, the kill proves nothing about atomicity: a reader must still
+        // see the previous projection, header and children alike.
+        assertThat(visibleDigest(source))
+            .describedAs("the child's header write is uncommitted and invisible to a reader")
+            .isEqualTo(first.semanticDigest)
+        assertThat(counts(source)).containsExactly(1, FACT_COUNT, 1)
+        assertThat(child.isAlive).isTrue()
+        val interruptedExit = killProven(child)
+        awaitNoOtherBackends(source)
+
+        val recovered =
+            store.load(identity()) ?: error("the interrupted rebuild left no readable projection at all")
+        val afterKill = dump(source)
+        assertThat(counts(source))
+            .describedAs("exactly one version of the projection, with its facts and decisions")
+            .containsExactly(1, FACT_COUNT, 1)
+        assertThat(recovered.snapshot.semanticDigest)
+            .describedAs("the row is one of the two committed snapshots, rebuilt and digest-checked")
+            .isIn(first.semanticDigest, interrupted.semanticDigest)
+
+        // Equality with the baseline dump is the byte-identical claim for the rollback branch; the
+        // commit branch is proved by the store's own digest check plus exact child counts above, and
+        // by the row contents differing from the baseline.
+        if (recovered.snapshot.semanticDigest == first.semanticDigest) {
+            assertThat(afterKill)
+                .describedAs("the killed transaction rolled back: the previous projection is byte-identical")
+                .isEqualTo(baselineDump)
+            println(
+                "R5-B: kill landed inside the transaction (child exit $interruptedExit after SIGKILL); " +
+                    "database holds the previously committed projection, byte-identical",
+            )
+        } else {
+            assertThat(afterKill).describedAs("the new projection committed in full").isNotEqualTo(baselineDump)
+            assertThat(recovered.materializedAt).isNotNull()
+            println(
+                "R5-B: kill landed inside the transaction (child exit $interruptedExit after SIGKILL); " +
+                    "database holds the fully committed new projection",
+            )
+        }
+    }
+
+    /** (A) the commit returned and the outcome was never delivered. */
+    private suspend fun killedAfterCommit(
+        source: DataSource,
+        store: JdbcGovernanceProjectionStore,
+    ): GovernanceProjectionSnapshot {
+        val committed = snapshot(HEAD_COMMITTED, "hash-$HEAD_COMMITTED", "policy_allowed_after_restart")
+        val afterCommit = launch("committed", HEAD_COMMITTED)
+        val committedMarker = awaitMarker(afterCommit)
+        assertThat(committedMarker)
+            .describedAs("the child committed before it was killed")
+            .contains("outcome=PUBLISHED")
+            .contains(committed.semanticDigest)
+        // Commit happened; the outcome went nowhere. The row is visible before the kill and must still
+        // be there, unchanged, after it.
+        assertThat(visibleDigest(source)).isEqualTo(committed.semanticDigest)
+        assertThat(afterCommit.isAlive).isTrue()
+        val committedExit = killProven(afterCommit)
+        awaitNoOtherBackends(source)
+
+        val unacknowledged =
+            store.load(identity()) ?: error("a committed, unacknowledged publish left nothing to read")
+        assertThat(unacknowledged.snapshot.semanticDigest)
+            .describedAs("the commit survived the process that never reported it")
+            .isEqualTo(committed.semanticDigest)
+        assertThat(unacknowledged.materializedAt).isNotNull()
+        assertThat(counts(source))
+            .describedAs("no second version and no duplicated children")
+            .containsExactly(1, FACT_COUNT, 1)
+        val committedDump = dump(source)
+
+        assertThat(store.publish(committed))
+            .describedAs("a retry of the same publish is recognised, not applied")
+            .isEqualTo(MaterializationOutcome.ALREADY_CURRENT)
+        assertThat(dump(source)).describedAs("the retry wrote nothing").isEqualTo(committedDump)
+        assertThat(counts(source)).containsExactly(1, FACT_COUNT, 1)
+        println(
+            "R5-A: committed-but-unacknowledged projection is readable and a retry reports " +
+                "ALREADY_CURRENT (child exit $committedExit after SIGKILL, outcome delivered to nobody)",
+        )
+        return committed
+    }
+
+    /**
+     * Control: the load-based assertion must reject the mixture a non-atomic writer could leave. Without
+     * this, "never a partial mixture" would be a claim about a check never shown to fire.
+     */
+    private fun refusedMixtureControl(
+        source: DataSource,
+        first: GovernanceProjectionSnapshot,
+        committed: GovernanceProjectionSnapshot,
+    ) {
+        setDigest(source, first.semanticDigest)
+        assertCorruption(source, "a header that disagrees with its children")
+        setDigest(source, committed.semanticDigest)
+        tamper(
+            source,
+            "DELETE FROM governance_projection_fact WHERE projection_key = ? AND fact = ?",
+            identity().key,
+            FACT_TELEMETRY,
+        )
+        assertCorruption(source, "a header whose children are missing")
+        println("R5-CONTROL: a partial mixture is refused by load, so the assertions above discriminate")
+    }
+
+    private fun setDigest(
+        source: DataSource,
+        digest: String,
+    ) {
+        tamper(
+            source,
+            "UPDATE governance_projection_snapshot SET semantic_digest = ? WHERE projection_key = ?",
+            digest,
+            identity().key,
+        )
+    }
 
     private fun assertCorruption(
         source: DataSource,
@@ -207,15 +237,21 @@ class GovernanceProjectionTerminationQualificationTest {
             }
         }
 
+    /** One prepared-statement block, so the resource nesting does not repeat in every query helper. */
+    private fun <T> withStatement(
+        source: DataSource,
+        sql: String,
+        block: (PreparedStatement) -> T,
+    ): T = source.connection.use { connection -> connection.prepareStatement(sql).use(block) }
+
     /** The digest a reader sees right now, without the store's rebuild: visibility, not validity. */
     private fun visibleDigest(source: DataSource): String? =
-        source.connection.use { connection ->
-            connection
-                .prepareStatement("SELECT semantic_digest FROM governance_projection_snapshot WHERE projection_key = ?")
-                .use { statement ->
-                    statement.setString(1, identity().key)
-                    statement.executeQuery().use { rows -> if (rows.next()) rows.getString(1) else null }
-                }
+        withStatement(
+            source,
+            "SELECT semantic_digest FROM governance_projection_snapshot WHERE projection_key = ?",
+        ) { s ->
+            s.setString(1, identity().key)
+            s.executeQuery().use { rows -> if (rows.next()) rows.getString(1) else null }
         }
 
     private fun counts(source: DataSource): List<Int> =
@@ -240,25 +276,23 @@ class GovernanceProjectionTerminationQualificationTest {
      */
     private fun awaitNoOtherBackends(source: DataSource) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
-        while (true) {
-            val others =
-                source.connection.use { connection ->
-                    connection.createStatement().use { statement ->
-                        statement
-                            .executeQuery(
-                                "SELECT count(*) FROM pg_stat_activity " +
-                                    "WHERE datname = current_database() AND pid <> pg_backend_pid()",
-                            ).use { rows ->
-                                rows.next()
-                                rows.getInt(1)
-                            }
-                    }
-                }
-            if (others == 0) return
+        while (countOtherBackends(source) != 0) {
             check(System.nanoTime() < deadline) { "a killed child's database backend is still present after 60s" }
             Thread.sleep(100)
         }
     }
+
+    private fun countOtherBackends(source: DataSource): Int =
+        withStatement(
+            source,
+            "SELECT count(*) FROM pg_stat_activity " +
+                "WHERE datname = current_database() AND pid <> pg_backend_pid()",
+        ) { statement ->
+            statement.executeQuery().use { rows ->
+                rows.next()
+                rows.getInt(1)
+            }
+        }
 
     private fun launch(
         mode: String,
@@ -505,7 +539,10 @@ class GovernanceProjectionTerminationQualificationTest {
 
         private const val HOLD_MILLIS = 120_000L
 
-        private fun env(name: String): String = System.getenv(name)?.takeIf { it.isNotBlank() } ?: error("$name is not set")
+        private fun env(name: String): String {
+            val value = System.getenv(name)?.takeIf { it.isNotBlank() }
+            return value ?: error("$name is not set")
+        }
 
         /** Prints the kill point and waits to be killed. Reaching the timeout is a harness failure. */
         private fun hold(label: String) {
@@ -524,7 +561,11 @@ class GovernanceProjectionTerminationQualificationTest {
             pause: () -> Unit,
         ): DataSource =
             delegating(DataSource::class.java, delegate) { method, args ->
-                if (method.name == "getConnection") pausingConnection(delegate.connection, pause) else call(delegate, method, args)
+                if (method.name == "getConnection") {
+                    pausingConnection(delegate.connection, pause)
+                } else {
+                    call(delegate, method, args)
+                }
             } as DataSource
 
         private fun pausingConnection(

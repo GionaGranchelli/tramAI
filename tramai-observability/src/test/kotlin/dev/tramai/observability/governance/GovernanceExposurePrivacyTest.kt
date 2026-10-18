@@ -132,7 +132,9 @@ class GovernanceExposurePrivacyTest {
             exporter.reset()
 
             telemetry.export(
-                GovernanceQueryFixtures.exposureOf(GovernanceQueryFixtures.decision(kind = kind, authority = authority)),
+                GovernanceQueryFixtures.exposureOf(
+                    GovernanceQueryFixtures.decision(kind = kind, authority = authority),
+                ),
             )
 
             val rendered = render(exporter.finishedSpanItems.single())

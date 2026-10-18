@@ -427,7 +427,10 @@ class GovernanceCorruptionPreservationTest {
             }
         }
 
-    private fun causeChainOf(failure: Throwable?): List<String> = generateSequence(failure) { it.cause }.mapNotNull { it.message }.toList()
+    private fun causeChainOf(failure: Throwable?): List<String> {
+        val chain = generateSequence(failure) { it.cause }.mapNotNull { it.message }
+        return chain.toList()
+    }
 
     private companion object {
         val TABLES =
