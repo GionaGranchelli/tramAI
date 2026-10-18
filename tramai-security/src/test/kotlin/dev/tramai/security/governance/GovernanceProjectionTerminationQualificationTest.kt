@@ -148,9 +148,19 @@ class GovernanceProjectionTerminationQualificationTest {
             // ---- Control: the load-based assertion above must reject the mixture a non-atomic writer
             // could leave. Without this, "never a partial mixture" would be a claim about a check that
             // was never shown to fire.
-            tamper(source, "UPDATE governance_projection_snapshot SET semantic_digest = ? WHERE projection_key = ?", first.semanticDigest, identity().key)
+            tamper(
+                source,
+                "UPDATE governance_projection_snapshot SET semantic_digest = ? WHERE projection_key = ?",
+                first.semanticDigest,
+                identity().key,
+            )
             assertCorruption(source, "a header that disagrees with its children")
-            tamper(source, "UPDATE governance_projection_snapshot SET semantic_digest = ? WHERE projection_key = ?", committed.semanticDigest, identity().key)
+            tamper(
+                source,
+                "UPDATE governance_projection_snapshot SET semantic_digest = ? WHERE projection_key = ?",
+                committed.semanticDigest,
+                identity().key,
+            )
             tamper(source, "DELETE FROM governance_projection_fact WHERE projection_key = ? AND fact = ?", identity().key, FACT_TELEMETRY)
             assertCorruption(source, "a header whose children are missing")
             println("R5-CONTROL: a partial mixture is refused by load, so the assertions above discriminate")
@@ -486,15 +496,16 @@ class GovernanceProjectionTerminationQualificationTest {
                         error("the parent did not terminate this process after the commit")
                     }
 
-                    else -> error("unknown mode $mode")
+                    else -> {
+                        error("unknown mode $mode")
+                    }
                 }
             }
         }
 
         private const val HOLD_MILLIS = 120_000L
 
-        private fun env(name: String): String =
-            System.getenv(name)?.takeIf { it.isNotBlank() } ?: error("$name is not set")
+        private fun env(name: String): String = System.getenv(name)?.takeIf { it.isNotBlank() } ?: error("$name is not set")
 
         /** Prints the kill point and waits to be killed. Reaching the timeout is a harness failure. */
         private fun hold(label: String) {

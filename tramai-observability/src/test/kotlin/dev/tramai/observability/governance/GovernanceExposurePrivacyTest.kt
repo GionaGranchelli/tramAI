@@ -204,9 +204,10 @@ class GovernanceExposurePrivacyTest {
             .filter { it.parameterCount == 0 && it.returnType == String::class.java }
             .mapNotNull { method ->
                 runCatching { method.invoke(value) as String? }.getOrNull()
-            } + value::class.java.methods
-            .filter { it.parameterCount == 0 && it.name.startsWith("get") }
-            .mapNotNull { method -> runCatching { method.invoke(value) }.getOrNull() }
-            .filterIsInstance<Enum<*>>()
-            .map { it.name }
+            } +
+            value::class.java.methods
+                .filter { it.parameterCount == 0 && it.name.startsWith("get") }
+                .mapNotNull { method -> runCatching { method.invoke(value) }.getOrNull() }
+                .filterIsInstance<Enum<*>>()
+                .map { it.name }
 }

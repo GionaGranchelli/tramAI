@@ -339,8 +339,7 @@ private class UnavailableAuditStore(
 
 /** A datasource whose connections cannot be opened, as a real backend outage looks to the store. */
 private class UnavailableDataSource : DataSource {
-    private fun unavailable(): Nothing =
-        throw SQLException("injected connection failure: injected database detail")
+    private fun unavailable(): Nothing = throw SQLException("injected connection failure: injected database detail")
 
     override fun getConnection(): Connection = unavailable()
 

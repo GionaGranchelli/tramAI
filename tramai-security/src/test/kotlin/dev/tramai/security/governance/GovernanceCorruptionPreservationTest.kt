@@ -427,8 +427,7 @@ class GovernanceCorruptionPreservationTest {
             }
         }
 
-    private fun causeChainOf(failure: Throwable?): List<String> =
-        generateSequence(failure) { it.cause }.mapNotNull { it.message }.toList()
+    private fun causeChainOf(failure: Throwable?): List<String> = generateSequence(failure) { it.cause }.mapNotNull { it.message }.toList()
 
     private companion object {
         val TABLES =
@@ -489,7 +488,12 @@ private class WriteRejectingDataSource(
     private fun inspect(sql: String?) {
         val text = sql ?: return
         statementsSeen++
-        val verb = text.trim().split(Regex("\\s+"), limit = 2).first().uppercase()
+        val verb =
+            text
+                .trim()
+                .split(Regex("\\s+"), limit = 2)
+                .first()
+                .uppercase()
         if (verb in WRITE_VERBS) {
             writeStatements++
             throw SQLException("write statement refused ($verb): a governance query must not write")
