@@ -58,10 +58,8 @@ internal object GovernanceDecisionFold {
      *
      * The read observed records but could not establish which of them is the recorded one, so the claim is the
      * one [FactAuthority.NOT_OBSERVED] carries for exactly this case: evidence about the read, not about the
-     * world. Reporting the family's record authority here would need a value, and there is none to elect; the
-     * contradiction is named in [ProjectedFact.established] so the absence cannot be mistaken for an empty
-     * stream. Completeness is withdrawn: records that disagree with each other cannot be said to account for
-     * their positions.
+     * world. The contradiction is named in [ProjectedFact.established] so the absence cannot be mistaken for an
+     * empty stream.
      */
     private fun conflicting(
         kind: DecisionKind,
@@ -70,27 +68,47 @@ internal object GovernanceDecisionFold {
         coverage: StreamCoverage,
     ): DecisionProjection {
         val positions = contradictions.keys.sorted().joinToString(", ")
-        return DecisionProjection(
+        return unresolved(
+            kind = kind,
+            duplicates = duplicates,
+            coverage = coverage,
+            established =
+                "the source returned contradictory records at source position(s) $positions; " +
+                    "this read does not establish which of them was recorded",
+        )
+    }
+
+    /**
+     * A read that observed records but cannot say which one is the recorded one.
+     *
+     * Reporting a value would need an election, and every election available here is delivery order, which no
+     * source contract makes meaningful. Completeness is withdrawn for the same reason, and the limitation says
+     * plainly that this is not evidence that nothing happened.
+     */
+    private fun unresolved(
+        kind: DecisionKind,
+        duplicates: Int,
+        coverage: StreamCoverage,
+        established: String,
+    ): DecisionProjection =
+        DecisionProjection(
             kind = kind,
             latest =
                 ProjectedFact(
                     value = null,
                     authority = FactAuthority.NOT_OBSERVED,
                     freshness = FactFreshness.ABSENT,
-                    established =
-                        "the source returned contradictory records at source position(s) $positions; " +
-                            "this read does not establish which of them was recorded",
+                    established = established,
                     mustNotInfer =
                         listOf(
-                            "contradictory records at one position are not evidence that no decision occurred; " +
-                                "the source answered the same position more than once with different content",
+                            "records the source contradicted or failed to order are not evidence that no " +
+                                "decision occurred",
                         ),
                 ),
             completeness = Completeness.UNKNOWN,
             coverage = coverage,
             duplicatesIgnored = duplicates,
         )
-    }
 
     private fun orderedFold(
         kind: DecisionKind,
@@ -114,18 +132,31 @@ internal object GovernanceDecisionFold {
     }
 
     /**
-     * No ordering basis: report the fact, and state that the newest could not be determined.
+     * No ordering basis: report the fact only if the records agree on it.
      *
-     * The records are historical by nature, but without a position none can be identified as the
-     * point it reflects, so none of them may claim historical standing.
+     * The records are historical by nature, but without a position none can be identified as the point it
+     * reflects, so none of them may claim historical standing. Agreement is a separate question from ordering:
+     * when the records say the same thing there is still a fact to report, and when they disagree electing one
+     * would make the projection a function of the order the source happened to deliver them in.
      */
     private fun unorderedFold(
         kind: DecisionKind,
         distinct: List<RecordedDecision>,
         duplicates: Int,
         coverage: StreamCoverage,
-    ): DecisionProjection =
-        DecisionProjection(
+    ): DecisionProjection {
+        val agrees = distinct.map { it.copy(sourceSequence = null) }.distinct().size == 1
+        if (!agrees) {
+            return unresolved(
+                kind = kind,
+                duplicates = duplicates,
+                coverage = coverage,
+                established =
+                    "the source supplied ${distinct.size} records with no ordering basis and they disagree; " +
+                        "this read does not establish which of them was recorded",
+            )
+        }
+        return DecisionProjection(
             kind = kind,
             latest =
                 recordFact(kind, distinct.first(), FactFreshness.STALE_OR_UNKNOWN).copy(
@@ -137,6 +168,7 @@ internal object GovernanceDecisionFold {
             coverage = coverage,
             duplicatesIgnored = duplicates,
         )
+    }
 
     /** A family that reports nothing: absence classified by why it is absent, not by the empty list. */
     fun absent(

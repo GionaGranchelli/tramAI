@@ -28,7 +28,7 @@ Below the architecture section, cards may carry long-form usage/design content (
 
 ## Coverage
 
-Coverage is computed against the 61-module authoritative manifest (`module-catalog.yml`). `sovereign-runtime-module-matrix.md` is a reference document, not a module card, and is not counted.
+Coverage is computed against the 62-module authoritative manifest (`module-catalog.yml`). `sovereign-runtime-module-matrix.md` is a reference document, not a module card, and is not counted.
 
 | Metric | Count |
 |--------|-------|

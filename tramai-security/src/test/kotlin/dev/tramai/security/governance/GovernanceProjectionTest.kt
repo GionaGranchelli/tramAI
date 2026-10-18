@@ -286,6 +286,76 @@ class GovernanceProjectionTest {
         }
 
     @Test
+    fun `unsequenced records that disagree are not elected by delivery order`() =
+        runBlocking<Unit> {
+            val allow = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = null)
+            val deny = decision(DecisionKind.POLICY_DECISION, value = "DENY", sequence = null)
+
+            suspend fun policyFor(records: List<RecordedDecision>) =
+                reader(registeredAuthority(), ScriptedFacts(decisions = records))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            val forward = policyFor(listOf(allow, deny))
+            val reversed = policyFor(listOf(deny, allow))
+
+            // No position says which record is the later one, and no position says which is the recorded
+            // one either. Electing the first would make the answer depend on delivery order, so neither is
+            // reported and the read says so.
+            assertThat(forward.latest.value).isNull()
+            assertThat(reversed.latest.value).isNull()
+            assertThat(forward.latest.authority).isEqualTo(FactAuthority.NOT_OBSERVED)
+            assertThat(forward.latest.freshness).isEqualTo(FactFreshness.ABSENT)
+            assertThat(forward.latest.established).contains("disagree")
+            assertThat(forward.latest.mustNotInfer.joinToString(" ")).contains("no decision occurred")
+            assertThat(forward.completeness).isEqualTo(Completeness.UNKNOWN)
+        }
+
+    @Test
+    fun `an unsequenced record is still reported, without an ordering claim`() =
+        runBlocking<Unit> {
+            val only = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = null)
+            val policy =
+                reader(registeredAuthority(), ScriptedFacts(decisions = listOf(only)))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            assertThat(policy.latest.value?.decision).isEqualTo("ALLOW")
+            assertThat(policy.latest.freshness).isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
+        }
+
+    @Test
+    fun `the same fact with and without a position is one fact, not a disagreement`() =
+        runBlocking<Unit> {
+            val positioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = 5)
+            val unpositioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = null)
+            val policy =
+                reader(registeredAuthority(), ScriptedFacts(decisions = listOf(positioned, unpositioned)))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            assertThat(policy.latest.value?.decision).isEqualTo("ALLOW")
+            assertThat(policy.latest.freshness).isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
+        }
+
+    @Test
+    fun `a positioned and an unpositioned record that disagree are not elected`() =
+        runBlocking<Unit> {
+            val positioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = 5)
+            val unpositioned = decision(DecisionKind.POLICY_DECISION, value = "DENY", sequence = null)
+            val policy =
+                reader(registeredAuthority(), ScriptedFacts(decisions = listOf(positioned, unpositioned)))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            assertThat(policy.latest.value).isNull()
+        }
+
+    @Test
     fun `a fold with a missing intermediate event does not claim completeness`() =
         runBlocking<Unit> {
             val records =
@@ -354,8 +424,16 @@ class GovernanceProjectionTest {
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
-            assertThat(policy.latest.freshness).isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
+            // The two records carry no position, so nothing establishes freshness - and because they also
+            // disagree, nothing establishes which of them was recorded. No value is reported at all, which
+            // is stronger than reporting one with an unknown freshness: the earlier expectation here was
+            // the delivery-order election this qualification removed.
+            assertThat(policy.latest.value).isNull()
+            assertThat(policy.latest.freshness).isEqualTo(FactFreshness.ABSENT)
+            assertThat(policy.latest.freshness).isNotEqualTo(FactFreshness.CURRENT_AT_VERSION)
             assertThat(policy.latest.freshness).isNotEqualTo(FactFreshness.EVENTUAL_KNOWN_LAG)
+            // The telemetry fact is a separate family: one unpositioned observation, so no lag can be named
+            // and no watermark invented, but there is nothing contradictory to withhold.
             assertThat(projection.telemetry.freshness).isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
             assertThat(projection.telemetry.watermark).isNull()
         }

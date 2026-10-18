@@ -42,11 +42,11 @@ import kotlin.test.Test
  *    matters — a rebuild does not paper over it: the tampered row is still there afterwards and the
  *    load still fails. Which guard fired is asserted, not narrated: these three columns are part of
  *    the snapshot's canonical form, so the digest comparison in `loadWithin` is the mechanism.
- *    The tests also state where that invariant stops: it holds for a candidate whose ordering pair
- *    does not exceed the corrupted row's, and a strictly newer candidate replaces the row wholesale
- *    for the two columns that are not in the upsert predicate. That boundary is asserted, not
- *    glossed over, because "corruption cannot be repaired" is only true of the case where the
- *    corruption claims to be newer.
+ *    The invariant is held by the store, not by the ordering: a publication verifies the stored row
+ *    before it may replace it, so no candidate - same-source or strictly newer - can replace a row it
+ *    cannot verify. Before that guard existed, a newer candidate replaced the whole row for the two
+ *    columns outside the upsert predicate, which repaired the corruption; these tests now assert the
+ *    refusal and that the tampered bytes are still there afterwards.
  *
  * 2. Read-only proof at the database level (Q5). The existing read-only proofs assert the API
  *    surface; these count and reject SQL verbs through a [DataSource] wrapper around every
@@ -103,18 +103,16 @@ class GovernanceCorruptionPreservationTest {
         runCatching { postgres.stop() }
     }
 
-    // ------------------------------------------- Q2: tampered provenance is refused, not repaired
+    // ------------------------------------------- Q2: tampered provenance is refused and never repaired
 
     @Test
-    fun `a tampered audit head position survives a newer publish instead of being repaired`() =
+    fun `a tampered audit head position is refused and no publication repairs it`() =
         runBlocking<Unit> {
             val authority = registeredAuthority()
             val store = materializedStore(authority)
             val pristine = provenance()
             assertThat(pristine.first).isEqualTo("1")
 
-            // An attacker raising the stored head is the direction that matters: the row now claims
-            // to be newer than anything a rebuild can produce from the real sources.
             tamper("SET audit_head_position = 500")
             val corrupted = provenance()
             assertThat(corrupted).isNotEqualTo(pristine)
@@ -129,20 +127,22 @@ class GovernanceCorruptionPreservationTest {
             assertThat(GovernanceQueryService.jdbc(dataSource).query(request()))
                 .isInstanceOf(GovernanceQueryResult.InvalidStoredProjection::class.java)
 
-            // A strictly newer candidate: one more decision advances the real audit head to 2.
-            emitPolicy(PolicyDecision.Deny(reason = "newer", reasonCode = "policy_denied"))
-            val outcome = materializer(authority, store).materialize(identity(), scope)
+            // A publication at the same source versions is refused, not classified: publish verifies the
+            // stored row before it may replace it.
+            assertPublishRefused(authority, store)
 
-            // (2, 1) > (500, 1) is false, so the conditional upsert writes nothing and publish
-            // reports the candidate as stale. It does not "fix" the row, and it does not adopt the
-            // tampered ordering as its own either.
-            assertThat(outcome).isEqualTo(MaterializationOutcome.REJECTED_STALE)
+            // A strictly newer candidate (one more decision advances the real audit head to 2) is refused
+            // too. (2, 1) > (500, 1) is false, so the upsert would have written nothing, but the point is
+            // stronger than that: the row is refused as corrupt before the ordering is even consulted.
+            emitPolicy(PolicyDecision.Deny(reason = "newer", reasonCode = "policy_denied"))
+            assertPublishRefused(authority, store)
+
             assertThat(provenance()).isEqualTo(corrupted)
             assertThat(runCatching { store.load(identity()) }.isFailure).isTrue()
         }
 
     @Test
-    fun `a tampered audit head hash is refused and a same-source rebuild does not repair it`() =
+    fun `a tampered audit head hash is refused and a strictly newer publication does not repair it`() =
         runBlocking<Unit> {
             val authority = registeredAuthority()
             val store = materializedStore(authority)
@@ -152,8 +152,7 @@ class GovernanceCorruptionPreservationTest {
             val corrupted = provenance()
             assertThat(corrupted).isNotEqualTo(pristine)
 
-            // Same guard as above: the hash is in the canonical form, so the digest catches it.
-            // Message observed: "stored projection content does not match its recorded digest".
+            // Same guard: the hash is in the canonical form, so the digest catches it.
             val refusal = runCatching { store.load(identity()) }.exceptionOrNull()
             assertThat(refusal).isInstanceOf(ProjectionCorruptionException::class.java)
             assertThat(refusal?.message)
@@ -161,34 +160,21 @@ class GovernanceCorruptionPreservationTest {
             assertThat(GovernanceQueryService.jdbc(dataSource).query(request()))
                 .isInstanceOf(GovernanceQueryResult.InvalidStoredProjection::class.java)
 
-            // A rebuild from unchanged sources is not greater in the ordering pair, and publish
-            // compares the *stored digest column* rather than re-deriving the stored content, so it
-            // reports already-current and writes nothing. The tampered hash therefore survives.
-            // ponytail: this is also why ALREADY_CURRENT and a refusing read can coexist for one row;
-            // tightening it would mean re-deriving the stored digest on the publish path.
-            assertThat(materializer(authority, store).materialize(identity(), scope))
-                .isEqualTo(MaterializationOutcome.ALREADY_CURRENT)
-            assertThat(provenance()).isEqualTo(corrupted)
-            assertThat(runCatching { store.load(identity()) }.isFailure).isTrue()
-
-            // Boundary asserted rather than assumed: audit_head_hash is not part of the upsert
-            // predicate, so a candidate that is genuinely newer in the ordering pair replaces the
-            // whole row. That is a complete re-derivation from the sources, not a repair of the
-            // tampered bytes, and the corruption ends here.
+            // This is the case that used to end in a repaired row. audit_head_hash is not part of the
+            // upsert predicate, so a candidate that is genuinely newer in the ordering pair used to
+            // satisfy it and replace the whole row - turning an invalid state into a valid one. Publish
+            // now verifies the stored row first, so the newer candidate is refused and the tampered bytes
+            // stay where they are for diagnosis.
             emitPolicy(PolicyDecision.Deny(reason = "newer", reasonCode = "policy_denied"))
-            assertThat(materializer(authority, store).materialize(identity(), scope))
-                .isEqualTo(MaterializationOutcome.PUBLISHED)
-            // The replacement carries the head hash of the position it was read at, so it is not the
-            // pristine value either - it is a re-derived one. What matters is that the tampered bytes
-            // are gone and the row loads.
-            assertThat(provenance().second).isNotEqualTo("tampered-head-hash")
-            assertThat(provenance().second).isNotEqualTo(pristine.second)
-            assertThat(provenance().first).isEqualTo("2")
-            assertThat(store.load(identity())).isNotNull
+            assertPublishRefused(authority, store)
+
+            assertThat(provenance()).isEqualTo(corrupted)
+            assertThat(provenance().second).isEqualTo("tampered-head-hash")
+            assertThat(runCatching { store.load(identity()) }.isFailure).isTrue()
         }
 
     @Test
-    fun `a tampered registration version is refused and a rebuild at the same head does not repair it`() =
+    fun `a tampered registration version is refused and a newer publication does not repair it`() =
         runBlocking<Unit> {
             val authority = registeredAuthority()
             val store = materializedStore(authority)
@@ -199,7 +185,6 @@ class GovernanceCorruptionPreservationTest {
             val corrupted = provenance()
             assertThat(corrupted).isNotEqualTo(pristine)
 
-            // Message observed: "stored projection content does not match its recorded digest".
             val refusal = runCatching { store.load(identity()) }.exceptionOrNull()
             assertThat(refusal).isInstanceOf(ProjectionCorruptionException::class.java)
             assertThat(refusal?.message)
@@ -207,22 +192,31 @@ class GovernanceCorruptionPreservationTest {
             assertThat(GovernanceQueryService.jdbc(dataSource).query(request()))
                 .isInstanceOf(GovernanceQueryResult.InvalidStoredProjection::class.java)
 
-            // (1, 1) > (1, 500) is false: the tampered version dominates the pair for a candidate
-            // built from the same audit head, so the row is not replaced.
-            assertThat(materializer(authority, store).materialize(identity(), scope))
-                .isEqualTo(MaterializationOutcome.REJECTED_STALE)
+            assertPublishRefused(authority, store)
+
+            // The pair is compared lexicographically, so a newer audit head used to win outright and
+            // replace the row wholesale. It is refused now: a re-derivation is not a repair, and the
+            // store has no way to tell a re-derivation from an overwrite of evidence it cannot verify.
+            emitPolicy(PolicyDecision.Deny(reason = "newer", reasonCode = "policy_denied"))
+            assertPublishRefused(authority, store)
+
             assertThat(provenance()).isEqualTo(corrupted)
             assertThat(runCatching { store.load(identity()) }.isFailure).isTrue()
-
-            // Boundary: the pair is compared lexicographically, so a newer audit head wins outright
-            // and the row is replaced wholesale — again a re-derivation, not a patch of the tampered
-            // value. Asserted here so the invariant is stated with its actual limit.
-            emitPolicy(PolicyDecision.Deny(reason = "newer", reasonCode = "policy_denied"))
-            assertThat(materializer(authority, store).materialize(identity(), scope))
-                .isEqualTo(MaterializationOutcome.PUBLISHED)
-            assertThat(provenance().third).isEqualTo(pristine.third)
-            assertThat(store.load(identity())).isNotNull
         }
+
+    /** A publication against a corrupt row must fail, and must not classify the row instead. */
+    private suspend fun assertPublishRefused(
+        authority: WorkloadRegistrationAuthority,
+        store: JdbcGovernanceProjectionStore,
+    ) {
+        val failure =
+            runCatching {
+                materializer(authority, store).materialize(identity(), scope)
+            }.exceptionOrNull()
+        assertThat(failure)
+            .describedAs("a publication must not replace a row it cannot verify")
+            .isInstanceOf(ProjectionCorruptionException::class.java)
+    }
 
     // ------------------------------------------- Q5: zero writes, proven at the database level
 
