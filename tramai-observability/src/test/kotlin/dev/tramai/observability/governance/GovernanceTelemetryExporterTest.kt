@@ -232,12 +232,15 @@ class GovernanceTelemetryExporterTest {
     }
 
     @Test
-    fun `an exposure cannot be fabricated without a query result`() {
-        // Kotlin `internal` is not a JVM visibility, and a data class would generate a public `copy()`. The
-        // public types are therefore interfaces with private implementations, and all of that is asserted here
-        // rather than assumed, because Java is a supported consumer.
+    fun `a consumer cannot implement the exposure types`() {
+        // Kotlin `internal` is not a JVM visibility, and a public interface can simply be implemented by any
+        // consumer - the previous review round found this documented guarantee was stronger than the code. The
+        // types are now sealed with private implementations, so a Kotlin consumer in another module cannot supply
+        // its own. Asserted, not described.
         assertThat(GovernanceExposure::class.java.isInterface).isTrue()
         assertThat(GovernanceDecisionExposure::class.java.isInterface).isTrue()
+        assertThat(GovernanceExposure::class.isSealed).isTrue()
+        assertThat(GovernanceDecisionExposure::class.isSealed).isTrue()
         assertThat(GovernanceExposure::class.java.constructors).isEmpty()
         assertThat(GovernanceDecisionExposure::class.java.constructors).isEmpty()
 
@@ -256,6 +259,65 @@ class GovernanceTelemetryExporterTest {
         val companionMethods = GovernanceExposure.Companion::class.java.methods.map { it.name }
         assertThat(companionMethods).contains("from")
         assertThat(companionMethods).doesNotContain("of")
+    }
+
+    @Test
+    fun `exported attributes are caller-attested, and this adapter does not authenticate them`() {
+        // The documented limit, pinned so it cannot silently drift into a stronger claim. `GovernanceQueryResult`
+        // and its DTOs are publicly constructible, so a caller can hand this adapter a projection no query
+        // produced. The mapper reports that claim faithfully and upgrades nothing - which is exactly why no
+        // consumer may read these attributes as authenticated enforcement evidence.
+        telemetry.export(
+            GovernanceExposure.from(
+                GovernanceQueryResult.Found(
+                    GovernanceQueryFixtures.view(
+                        GovernanceQueryFixtures.decision(
+                            verifiedRange = VerifiedStreamRange(1, 3),
+                            completeness = Completeness.COMPLETE,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val rendered = render(exporter.finishedSpanItems.single())
+
+        assertThat(rendered).contains(GovernanceExposureState.EVIDENCE_AVAILABLE.name)
+        assertThat(rendered).contains(Completeness.COMPLETE.name)
+        // Nothing in the export claims authentication: no attribute exists that could carry such a claim.
+        assertThat(rendered).doesNotContain("AUTHENTICATED")
+        assertThat(rendered).doesNotContain("ATTESTED_BY")
+    }
+
+    @Test
+    fun `a recorded decision outside the approved vocabulary is not disclosed`() {
+        // The query DTO only guarantees a syntactically safe token, and a credential-shaped string satisfies it.
+        // Only the vocabulary the audit readers already recognize is disclosed; anything else becomes a fixed
+        // classification, so the value itself never reaches telemetry.
+        val credentialShaped = "sk-live-example123"
+        telemetry.export(
+            GovernanceQueryFixtures.exposureOf(GovernanceQueryFixtures.decision(recordedDecision = credentialShaped)),
+        )
+
+        val rendered = render(exporter.finishedSpanItems.single())
+
+        assertThat(rendered).contains(RuntimeAttributes.GOVERNANCE_DECISION_RECORDED.name)
+        assertThat(rendered).contains("UNRECOGNIZED")
+        assertThat(rendered).doesNotContain(credentialShaped)
+        assertThat(rendered).doesNotContain("sk-live")
+    }
+
+    @Test
+    fun `the approved decision vocabulary is disclosed as itself`() {
+        listOf("ALLOW", "DENY", "REQUIRE_APPROVAL").forEach { token ->
+            exporter.reset()
+            telemetry.export(
+                GovernanceQueryFixtures.exposureOf(GovernanceQueryFixtures.decision(recordedDecision = token)),
+            )
+            val rendered = render(exporter.finishedSpanItems.single())
+            assertThat(rendered).contains(token)
+            assertThat(rendered).doesNotContain("UNRECOGNIZED")
+        }
     }
 
     /** Renders the attributes the exporter actually delivered, event by event. */

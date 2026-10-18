@@ -16,14 +16,25 @@ import dev.tramai.security.governance.query.SourceCurrency
  * [GovernanceQueryResult] and nothing else: no `toString()`, no reflection, no object serialization and no
  * `Map<String, Any?>` forwarding, so a field that is not named here cannot reach telemetry by accident.
  *
- * ## One construction path
+ * ## What this guarantees, and what it does not
  *
- * This is an interface, so the public type has no constructor at all, and its only implementation is private to
- * this file. [GovernanceExposure.from] is the only way to obtain an instance: an integration that wants
- * authoritative-looking telemetry has to obtain a [GovernanceQueryResult] from the governance query service, and
- * that service applies the projection contract's own coherence rules before returning one. A caller cannot
- * assemble a stronger claim than a real read produced - not with a constructor, not with `copy()`, and not
- * through Java, which would otherwise see a Kotlin `internal` constructor as public.
+ * **Content safety.** The type has no field for a payload: only the properties below can ever be rendered, no
+ * `toString()`, reflection, serialization or `Map<String, Any?>` forwarding is involved, and the mapping copies
+ * claims verbatim instead of inventing or upgrading them. A value that is not named here cannot reach telemetry
+ * through this path.
+ *
+ * **Not authentication.** This is a safe *representation*, not proof of a real authoritative read. Neither this
+ * type nor [from] authenticates that a governance query occurred: `GovernanceQueryResult` and its DTOs are
+ * publicly constructible, and the interfaces below can be implemented by any JVM consumer (Kotlin's `sealed`
+ * restricts Kotlin implementors to this module, but it is a compile-time rule, not a JVM security boundary).
+ * A caller that wants authoritative-looking telemetry can therefore describe whatever it likes, and the mapping
+ * will faithfully report that claim.
+ *
+ * Consequently **no consumer may treat these attributes as authenticated enforcement evidence**. They attest what
+ * the source claimed, and the value of that claim depends on the source being the governance query service. This
+ * is consistent with OpenTelemetry's status here: a representation of evidence, never evidence of enforcement.
+ *
+ * Implementations are private to this file, so a Kotlin consumer cannot construct one and must call [from].
  *
  * ## Included, and why
  *
@@ -31,9 +42,11 @@ import dev.tramai.security.governance.query.SourceCurrency
  * - [GovernanceDecisionExposure.authority] - the evidence classification the repository already uses
  *   ([FactAuthority]). This is the classification the whole slice exists to preserve.
  * - [GovernanceDecisionExposure.freshness] - categorical freshness, per fact.
- * - [GovernanceDecisionExposure.recordedDecision] - the recorded decision category, already bounded by the
- *   projection contract to a safe token. It is the one bounded token that carries what was decided; it is a
- *   span attribute only, never a metric label.
+ * - [GovernanceDecisionExposure.recordedDecision] - the recorded decision category, but only when it is one of
+ *   the values the repository's audit readers already recognize (`ALLOW`, `DENY`, `REQUIRE_APPROVAL`). The query
+ *   contract guarantees only a syntactically safe token, and a credential-shaped string satisfies that, so any
+ *   other value is replaced by a fixed non-disclosing classification instead of being exported. It is a span
+ *   attribute only, never a metric label.
  * - [GovernanceDecisionExposure.hasVerifiedStreamRange] - whether a verified raw range exists. The bound
  *   values themselves are deliberately reduced to this boolean: positions and hashes are identifiers.
  * - [GovernanceDecisionExposure.recordCompleteness] - decision-record completeness, kept independent of
@@ -58,7 +71,7 @@ import dev.tramai.security.governance.query.SourceCurrency
  *   that could justify it. The evidence classification in [GovernanceDecisionExposure.authority] is exported
  *   instead, and only where the source establishes it.
  */
-public interface GovernanceExposure {
+public sealed interface GovernanceExposure {
     public val state: GovernanceExposureState
     public val registrationCurrency: SourceCurrency
     public val auditCurrency: SourceCurrency
@@ -141,10 +154,11 @@ public enum class GovernanceExposureState {
  * Both coverage claims are kept as separate properties: a verified raw stream range and complete decision
  * recognition are different facts, and neither may stand in for the other.
  *
- * An interface for the same reason as [GovernanceExposure]: the public type has no constructor and no `copy()`,
- * and in practice only [GovernanceExposure.from] produces instances.
+ * A sealed interface for the same reasons as [GovernanceExposure]: no constructor, no `copy()`, and Kotlin
+ * implementations restricted to this module. The same limit applies - it is a compile-time rule, not a JVM
+ * security boundary, and a value of this type is a claim to be reported, not an authenticated fact.
  */
-public interface GovernanceDecisionExposure {
+public sealed interface GovernanceDecisionExposure {
     public val kind: DecisionKind
     public val authority: FactAuthority
     public val freshness: FactFreshness
@@ -166,7 +180,10 @@ public interface GovernanceDecisionExposure {
                 decision.kind,
                 decision.fact.authority,
                 decision.fact.freshness,
-                decision.decision,
+                // The query DTO only guarantees a syntactically safe token, which a credential-shaped string can
+                // satisfy. Only the vocabulary the repository's audit readers already recognize is disclosed;
+                // anything else becomes a fixed, non-disclosing classification.
+                approvedDecisionOrUnrecognized(decision.decision),
                 decision.rawCoverage.verifiedRange != null,
                 decision.recordCoverage.completeness,
                 decision.reasonExposure,
@@ -221,3 +238,22 @@ private data class DefaultGovernanceDecisionExposure(
     override val recordCompleteness: Completeness,
     override val reasonCodeExposure: ReasonCodeExposure,
 ) : GovernanceDecisionExposure
+
+/**
+ * The decision values this repository's audit readers already treat as a closed vocabulary.
+ *
+ * Duplicated deliberately rather than shared: those sets are private to `:tramai-security`'s evidence and audit
+ * readers, and this module must not reach into them. The cost is that a new decision value has to be added in
+ * both places - the safe direction, since an unlisted value is withheld here rather than disclosed.
+ */
+private val APPROVED_DECISION_TOKENS = setOf("ALLOW", "DENY", "REQUIRE_APPROVAL")
+
+/** Fixed, non-disclosing stand-in for a recorded decision outside the approved vocabulary. */
+internal const val UNRECOGNIZED_DECISION: String = "UNRECOGNIZED"
+
+private fun approvedDecisionOrUnrecognized(token: String?): String? =
+    when {
+        token == null -> null
+        token in APPROVED_DECISION_TOKENS -> token
+        else -> UNRECOGNIZED_DECISION
+    }

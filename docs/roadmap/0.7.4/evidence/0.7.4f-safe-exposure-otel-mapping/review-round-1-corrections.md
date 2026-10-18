@@ -21,13 +21,20 @@ Two corrections, because the first was not sufficient:
 2. `GovernanceExposure.from` is the only public way to obtain an instance. The module-internal factory is
    `internal` and therefore name-mangled.
 
-The guarantee is asserted, not described: `an exposure cannot be fabricated without a query result` checks that
-both public types are interfaces, that `java.constructors` is empty on each, that no `copy` exists, that the
+The guarantee is asserted, not described: `a consumer cannot implement the exposure types` checks that both
+public types are sealed interfaces, that `java.constructors` is empty on each, that no `copy` exists, that the
 implementation class is not public, and that the companion exposes `from` but not the mangled `of`.
+
+**Correction to this round (superseded by `review-round-2-corrections.md`).** This round claimed that moving to
+interfaces closed the fabrication path. That was wrong: a public interface can be implemented by any consumer, and
+the test above only checked constructor visibility, so it never attempted the obvious bypass. Review round 2 found
+it, and the types are now `sealed` with the contract scoped explicitly - content safety is guaranteed, a real
+authoritative read is not, and no consumer may treat the exported attributes as authenticated enforcement
+evidence. The claim in this file is retained with its correction rather than quietly deleted.
 
 The exporter test that previously constructed an authoritative policy decision now goes through
 `GovernanceExposure.from(...)` over a real query result for the XR1 case; the remaining unit fixtures use the
-module-internal factory, which no consumer can reach.
+module-internal factory, which a Kotlin consumer cannot call.
 
 ### P1 - the emitted events bypassed the catalogue
 

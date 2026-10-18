@@ -16,6 +16,12 @@ import io.opentelemetry.api.trace.Tracer
  * policy decision, block an invocation or mutate projection state: it is downstream of all of them and writes
  * only to a span.
  *
+ * The attributes are also **caller-attested, not authenticated**. This exporter reports what a
+ * [GovernanceExposure] claims; it does not verify that a governance query produced it, and
+ * [GovernanceExposure.from] does not authenticate that either. A consumer reading these attributes must not
+ * treat them as authenticated enforcement evidence - the value of a claim depends on the caller having used the
+ * governance query service.
+ *
  * ## Schema conformance
  *
  * Every event is built as a [RuntimeEvent] through [RuntimeEvent.of], which rejects attributes the catalogue does
