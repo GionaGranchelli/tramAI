@@ -1,8 +1,9 @@
 # 0.7.4g — Adversarial rebuild and mutation proof: qualification report
 
 Epic 0.7.4. Base SHA `33a1830f4edd9604ac40f6ac4e5676d20b01c616` (the 0.7.4f merge, zero divergence from
-the task's stated dependency). Final SHA `704783333f748106c38d9b670fa47a259960a266`, certified by exact-head
-CI at 19/19 checks success (recorded in §Canonical gate results below).
+the task's stated dependency). The code under qualification is `8df558c5`; the certified head — the commit whose
+exact-head CI is green — is recorded in the PR description, because later documentation-only commits change the
+head without changing what was verified.
 
 Everything below is a measurement from a run performed in this campaign, or is labelled otherwise. Three
 delegated agents drafted test files and timed out during their own verification; every count quoted here
@@ -14,7 +15,7 @@ comes from a re-run performed here, not from an agent's report.
 |---|---|---|---|
 | I1 | No authority amplification | PASS | Q2/E2 + M10 killed; `PROVIDER_ROUTE` cannot be built with a stronger authority (asserted at the DTO) |
 | I2 | Deterministic reconstruction | PASS | R1 (existing) + M02, M03 killed; contradictory history no longer elects by arrival order |
-| I3 | Corruption is not repairable by rebuild | PASS | `GovernanceCorruptionPreservationTest` 8 tests: provenance/identity/digest disruption refused **and** not repaired by a newer publish; M05, M06, M07 killed |
+| I3 | Corruption is not repairable by rebuild | PASS | `GovernanceCorruptionPreservationTest` 8 tests: provenance/identity/digest disruption refused **and** no publication — same-source or strictly newer — may replace the row, so the tampered bytes stay for diagnosis; M05, M06, M07 and M14 killed. **Withdrawn claim:** an earlier revision of this report marked I3 PASS while the store still let a newer publication replace a row it could not verify. Review round 1 caught it; the discriminator now exists and M14 proves it discriminates. |
 | I4 | No inferred completeness or freshness | PASS | Q4 (existing) + M08 killed after strengthening, M09 killed; a derived read with no watermark is `STALE_OR_UNKNOWN`, never current |
 | I5 | Observation is not enforcement | PASS | E2/E4; XR1 boundary evidence exports as `POLICY_AUTHORIZATION_RECORD` and never as an enforcement claim |
 | I6 | No protected-payload exposure | PASS | E1 canary suite (6 tests) over accessor, `toString()` and rendered OTEL surfaces; M11, M13 killed |

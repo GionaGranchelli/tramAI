@@ -80,10 +80,29 @@ M13  merge arbitrary metadata into the emitted event (re-run of the 0.7.4f M6)  
      what stops it is detection by these two tests, added in the 0.7.4f review-round-1 rework. The
      claim is corrected here: detected, not impossible.
 
-Result: 13 of 13 valid, security-relevant mutants KILLED, every one with a stated detection mechanism
+Result: 14 of 14 valid, security-relevant mutants KILLED, every one with a stated detection mechanism
 and a byte-identical restoration. No surviving or undetermined mutant remains, so nothing blocks
 qualification under the task's acceptance rule.
 
+M14  let a publication replace a stored row it cannot verify  KILLED  (3 failing of 8)
+     JdbcGovernanceProjectionStore.kt (the pre-upsert verification call removed)
+     86f06ce36f35 -> 0bdc7ab1a3ef  restore byte-identical
+     mechanism: three tests fail with "a publication must not replace a row it cannot verify -
+     Expecting actual not to be null", i.e. without the guard the publication succeeds and the
+     corruption is repaired. This is the mutation that pins the I3 fix from review round 1.
+     Restore note: this mutant was run by hand against a tree with uncommitted changes, and the first
+     `git checkout` restored the file to HEAD instead of to the working state - discarding the fix
+     under test. The three edits were re-applied and the suites re-run (76 tests, 0 failures) before
+     committing. Recorded because a restore that silently reverts the change under test is exactly the
+     failure this protocol exists to catch.
+
+Reproducing this campaign: the harness is committed beside this file as `mutation-campaign.py`. It
+holds the exact file, anchor, replacement, module and discriminator for every mutant above, applies one
+mutant at a time with a single-occurrence assertion, proves application by sha256, reads the verdict
+from the JUnit XML, restores, and proves byte-identical restoration. It is resumable via a state file,
+never touches config/quality/**, and never runs a generate*Baseline task. Run it with JDK 21 from the
+repository root.
+
 Not established here: the repository-wide PIT population is unaffected by this campaign - no PIT run was
-executed, and verifyMutationRatchet was exercised only to confirm the committed authority still passes
+executed, and verifyMutationRatchet was exercised only to confirm the committed authority still passes.
 (11s, no campaign).
