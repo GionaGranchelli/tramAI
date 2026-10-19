@@ -1,6 +1,6 @@
 # TASK 0.7.4g — Adversarial Rebuild and Mutation Proof
 
-Epic 0.7.4. Status: complete — Phases 0-6 delivered; 13 of 13 security-relevant mutants killed, all
+Epic 0.7.4. Status: complete — Phases 0-6 delivered; 15 of 15 security-relevant mutants killed; all
 invariants qualified against the real PostgreSQL backend. Qualification report and mutation transcript are in
 `docs/roadmap/0.7.4/evidence/0.7.4g-adversarial-rebuild/`.
 

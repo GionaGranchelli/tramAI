@@ -1,7 +1,7 @@
 # 0.7.4g — Adversarial rebuild and mutation proof: qualification report
 
 Epic 0.7.4. Base SHA `33a1830f4edd9604ac40f6ac4e5676d20b01c616` (the 0.7.4f merge, zero divergence from
-the task's stated dependency). The code under qualification is `8df558c5`; the certified head — the commit whose
+the task's stated dependency). The code under qualification is `f8c7b5aa`; the certified head — the commit whose
 exact-head CI is green — is recorded in the PR description, because later documentation-only commits change the
 head without changing what was verified.
 
@@ -74,11 +74,18 @@ Every (family, authority) pair the contract permits is exported as itself and ne
 
 ## Mutation population and verdicts
 
-13 mutants, hand-authored (PIT cannot express them — the pinned PIT configuration is the executable mutation
-authority and carries only syntactic mutators). **13 of 13 KILLED**, each with a stated detection mechanism and a
+15 mutants, hand-authored (PIT cannot express them — the pinned PIT configuration is the executable mutation
+authority and carries only syntactic mutators). **15 of 15 KILLED**, each with a stated detection mechanism and a
 byte-identical restoration. Full transcript with per-mutant sha256 and mechanism:
-`mutation-campaign.txt` in this directory. One survivor (M08) was converted by strengthening an inadequate
-discriminator, not by reasoning it away; M13 replaces the stale 0.7.4f M6 verdict.
+`mutation-campaign.txt` in this directory; the runner that reproduces every verdict, with its exact anchors, is
+`mutation-campaign.py`. One survivor (M08) was converted by strengthening an inadequate discriminator, not by
+reasoning it away; M13 replaces the stale 0.7.4f M6 verdict. Two mutants pin the review-round fixes: M14 removes
+the pre-publication verification, M15 reverts the unsequenced election to arrival order.
+
+Correction to an earlier form of this section: M08's verdict was reported here as killed while the committed
+runner still named `MaterializedReadModelQualificationTest` as its discriminator — a suite that survives it. The
+verdict itself was measured with `GovernanceFactClassificationTest`; the runner named the stale suite until
+review round 2. M08 has been re-measured through the corrected runner (1 failing of 3, byte-identical restore).
 
 ## Known limitations preserved (not solved here)
 
@@ -118,12 +125,19 @@ mutation ratchet, `-PtramaiMutationBaseSha=33a1830f…`. A slice result is repor
 | `spotlessCheck` | PASS |
 | `verifyStaticAnalysis` | PASS — detekt baseline 4792 → 4792, **0 added**; 16 new findings in the delegated test files were remediated structurally with no suppression |
 | `verify060Architecture` | PASS |
-| `verifyChangePolicy` | PASSED — 15 changed files, `runtime-behaviour`, no violations |
+| `verifyChangePolicy` | PASSED — 17 changed files, `runtime-behaviour`, no violations |
 | `verifyModuleDocContract` | PASS (was red at the base — see §Base defects) |
 | `verifyModuleMatrixDrift` | PASS (was red at the base) |
 | `verifyMutationRatchet` | PASSED — base `33a1830f`, no PIT campaign executed |
 | `verifyCompilerWarnings` | not re-run in this branch's final state; unchanged by this diff and green on the base slice |
-| exact-head CI | **19/19 checks success**, zero failures, head `7047833` |
+
+**Current qualification is the head recorded in the PR description.** Every measurement above is from this
+campaign's runs at that head or at its immediate predecessor, and the mutation verdicts were re-taken at
+`f8c7b5aa` through the committed runner (`source_sha=f8c7b5aa…` printed by the runner itself).
+
+Superseded measurements, kept for the audit trail and **not** the certification: an earlier head `7047833`
+passed 19/19 checks, and the campaign stood at 13 mutants before review round 1. Those numbers describe a
+different tree; they are retained because a withdrawn or replaced measurement is recorded, not deleted.
 
 Invocation note worth recording: `verifyMutationRatchet` fails when it is run without `-PtramaiMutationBaseSha`,
 because it then falls back to `git merge-base HEAD origin/master` and compares the population admissions against a

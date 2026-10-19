@@ -80,7 +80,7 @@ M13  merge arbitrary metadata into the emitted event (re-run of the 0.7.4f M6)  
      what stops it is detection by these two tests, added in the 0.7.4f review-round-1 rework. The
      claim is corrected here: detected, not impossible.
 
-Result: 14 of 14 valid, security-relevant mutants KILLED, every one with a stated detection mechanism
+Result: 15 of 15 valid, security-relevant mutants KILLED, every one with a stated detection mechanism
 and a byte-identical restoration. No surviving or undetermined mutant remains, so nothing blocks
 qualification under the task's acceptance rule.
 
@@ -95,6 +95,19 @@ M14  let a publication replace a stored row it cannot verify  KILLED  (3 failing
      under test. The three edits were re-applied and the suites re-run (76 tests, 0 failures) before
      committing. Recorded because a restore that silently reverts the change under test is exactly the
      failure this protocol exists to catch.
+
+M15  let arrival order pick which agreeing unsequenced record stands for the fact  KILLED  (1 failing of 38)
+     GovernanceDecisionFold.kt (the unsequenced consensus election reverted to distinct.first())
+     d5ec2daaf373 -> 3e0952ce302b  restore byte-identical
+     mechanism: `agreeing unpositioned records project identically in either delivery order` fails on the
+     sourceVersion assertion - the elected record's position reaches the snapshot digest, so reversing the
+     two records produced a different digest for the same evidence. This pins the review-round-2 fix.
+     Measured at f8c7b5aa, source_sha printed by the runner.
+
+Correction, M08 (review round 2): the runner named MaterializedReadModelQualificationTest as M08's
+discriminator, but that suite SURVIVES the mutant - the mutated branch is unreachable from the production call
+site. The kill was measured with GovernanceFactClassificationTest, which is what the runner now names.
+Re-measured at f8c7b5aa: KILLED, 1 failing of 3, restore byte-identical.
 
 Reproducing this campaign: the harness is committed beside this file as `mutation-campaign.py`. It
 holds the exact file, anchor, replacement, module and discriminator for every mutant above, applies one
