@@ -151,4 +151,36 @@ class PublishedFixtureLeakVerifierTest {
         assertEquals(1, leaks.size, "only the leaking module may be reported: $leaks")
         assertEquals("tramai-engine", leaks.single().module)
     }
+
+    @Test
+    fun `a clean POM has no findings`() {
+        val pom =
+            File(temp, "pom-default.xml").apply {
+                writeText(
+                    "<project><dependencies><dependency>" +
+                        "<artifactId>tramai-core</artifactId></dependency></dependencies></project>",
+                )
+            }
+
+        val leaks = PublishedFixtureLeakVerifier.verifyPoms(listOf("tramai-engine")) { pom }
+
+        assertEquals(emptyList<PublishedFixtureLeak>(), leaks)
+    }
+
+    @Test
+    fun `a fixture dependency exported in the POM is reported`() {
+        val pom =
+            File(temp, "pom-default.xml").apply {
+                writeText(
+                    "<project><dependencies><dependency><artifactId>tramai-engine</artifactId>" +
+                        "<classifier>test-fixtures</classifier></dependency></dependencies></project>",
+                )
+            }
+
+        val leaks = PublishedFixtureLeakVerifier.verifyPoms(listOf("tramai-engine")) { pom }
+
+        assertEquals(1, leaks.size, "the POM leak must be reported: $leaks")
+        assertEquals("<pom>", leaks.single().variant)
+        assertTrue(leaks.single().describe().contains("POM"))
+    }
 }

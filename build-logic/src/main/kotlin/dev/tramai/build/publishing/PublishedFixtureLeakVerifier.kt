@@ -108,6 +108,45 @@ object PublishedFixtureLeakVerifier {
         return leaks
     }
 
+    /**
+     * The POM half of the same boundary: a fixture dependency exported through published metadata reaches
+     * consumers as a normal dependency whether or not the fixture jar is published.
+     *
+     * @param pomFor resolves a module path to its generated `pom-default.xml`, or null when none exists.
+     */
+    fun verifyPoms(
+        modules: List<String>,
+        pomFor: (String) -> File?,
+    ): List<PublishedFixtureLeak> {
+        val leaks = mutableListOf<PublishedFixtureLeak>()
+        for (module in modules.distinct().sorted()) {
+            val pom = pomFor(module)
+            if (pom == null || !pom.isFile) {
+                leaks +=
+                    PublishedFixtureLeak(
+                        module = module,
+                        variant = "<pom>",
+                        artifact = null,
+                        detail = "no generated POM was found, so its published dependencies cannot be audited",
+                    )
+                continue
+            }
+            val text = pom.readText()
+            if (text.contains(FIXTURE_ARTIFACT_MARKER, ignoreCase = true) ||
+                text.contains(FIXTURE_VARIANT_MARKER, ignoreCase = true)
+            ) {
+                leaks +=
+                    PublishedFixtureLeak(
+                        module = module,
+                        variant = "<pom>",
+                        artifact = pom.name,
+                        detail = "a test-fixtures dependency in its published POM",
+                    )
+            }
+        }
+        return leaks
+    }
+
     private fun readVariants(metadata: File): List<Map<*, *>> {
         val parsed =
             runCatching { JsonSlurper().parseText(metadata.readText()) }.getOrElse { cause ->

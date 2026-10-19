@@ -185,6 +185,13 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
                 },
             )
             dependsOn(publishableModuleNames.map { ":$it:generateMetadataFileForMavenPublication" })
+            dependsOn(publishableModuleNames.map { ":$it:generatePomFileForMavenPublication" })
+
+            pomFiles.from(
+                publishableModuleNames.map { moduleName ->
+                    project.layout.projectDirectory.file("$moduleName/build/publications/maven/pom-default.xml")
+                },
+            )
         }
     }
 

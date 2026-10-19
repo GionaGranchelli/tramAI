@@ -31,6 +31,10 @@ abstract class VerifyNoPublishedTestFixturesTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val moduleMetadataFiles: ConfigurableFileCollection
 
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val pomFiles: ConfigurableFileCollection
+
     @TaskAction
     fun verify() {
         val modules = publishableModules.get()
@@ -47,7 +51,11 @@ abstract class VerifyNoPublishedTestFixturesTask : DefaultTask() {
             PublishedFixtureLeakVerifier.verify(modules = modules) { module ->
                 val relative = "${module.removePrefix(":")}/build/publications/maven/module.json"
                 byPath.entries.firstOrNull { it.key.endsWith(relative) }?.value
-            }
+            } +
+                PublishedFixtureLeakVerifier.verifyPoms(modules = modules) { module ->
+                    val relative = "${module.removePrefix(":")}/build/publications/maven/pom-default.xml"
+                    pomFiles.files.firstOrNull { it.absolutePath.endsWith(relative) }
+                }
 
         if (leaks.isNotEmpty()) {
             val detail = leaks.joinToString(separator = "\n") { "  - ${it.describe()}" }
