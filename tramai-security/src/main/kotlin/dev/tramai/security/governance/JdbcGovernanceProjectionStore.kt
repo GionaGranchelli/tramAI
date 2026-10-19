@@ -107,9 +107,10 @@ internal class JdbcGovernanceProjectionStore(
     private fun loadWithin(
         connection: Connection,
         identity: ProjectionIdentity,
+        forUpdate: Boolean = false,
     ): StoredGovernanceProjection? =
         try {
-            val header = selectHeader(connection, identity) ?: return null
+            val header = selectHeader(connection, identity, forUpdate) ?: return null
             requireSupportedFormat(header.formatVersion)
             val snapshot =
                 rebuildSnapshot(
@@ -160,6 +161,14 @@ internal class JdbcGovernanceProjectionStore(
         snapshot: GovernanceProjectionSnapshot,
     ): MaterializationOutcome {
         val key = snapshot.identity.key
+
+        // A publication must never repair corruption. The conditions in UPSERT_HEADER decide whether a row
+        // may be *replaced*; they say nothing about whether it may be *believed*, and a row whose provenance
+        // columns no longer match its digest satisfies them: same key, supported format, newer ordering. So
+        // the stored row is verified before it can be replaced, in this transaction and under a row lock.
+        // A row that fails verification throws here and stays on disk, corrupt, for diagnosis.
+        loadWithin(connection, snapshot.identity, forUpdate = true)
+
         if (upsertHeader(connection, snapshot)) {
             // Replacement is whole-row: the children go in the same transaction, so no committed version
             // holds a mixture of two snapshots. A reader taking its three statements without its own
@@ -368,8 +377,9 @@ internal class JdbcGovernanceProjectionStore(
     private fun selectHeader(
         connection: Connection,
         identity: ProjectionIdentity,
+        forUpdate: Boolean = false,
     ): HeaderRow? =
-        connection.prepareStatement(SELECT_HEADER).use { statement ->
+        connection.prepareStatement(if (forUpdate) SELECT_HEADER_FOR_UPDATE else SELECT_HEADER).use { statement ->
             statement.setString(1, identity.key)
             statement.executeQuery().use { rows ->
                 if (!rows.next()) {
@@ -633,6 +643,15 @@ internal class JdbcGovernanceProjectionStore(
             FROM governance_projection_snapshot
             WHERE projection_key = ?
             """
+
+        /**
+         * The same read, holding the row for the rest of the publishing transaction.
+         *
+         * A publish verifies the stored row before it may replace it, and a lock is what makes that a
+         * decision rather than a sample: without it a concurrent publisher could rewrite the row between
+         * the verification and the upsert.
+         */
+        const val SELECT_HEADER_FOR_UPDATE = "$SELECT_HEADER FOR UPDATE"
 
         const val DELETE_FACTS = "DELETE FROM governance_projection_fact WHERE projection_key = ?"
         const val DELETE_DECISIONS = "DELETE FROM governance_projection_decision WHERE projection_key = ?"

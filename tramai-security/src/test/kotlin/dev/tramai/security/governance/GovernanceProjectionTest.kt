@@ -258,6 +258,133 @@ class GovernanceProjectionTest {
         }
 
     @Test
+    fun `two contradictory records at one source position are not resolved by arrival order`() =
+        runBlocking<Unit> {
+            val allow = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = 7)
+            val deny = decision(DecisionKind.POLICY_DECISION, value = "DENY", sequence = 7)
+
+            suspend fun policyFor(records: List<RecordedDecision>) =
+                reader(registeredAuthority(), ScriptedFacts(decisions = records))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            val forward = policyFor(listOf(allow, deny))
+            val reversed = policyFor(listOf(deny, allow))
+
+            // The source supplied two different records for one position, so neither is established - and the
+            // order the source happened to return them in is not evidence about which one happened. Electing
+            // the first record at the highest position makes the projected authority a function of delivery
+            // order, which no source contract here guarantees.
+            assertThat(forward.latest.value).isNull()
+            assertThat(reversed.latest.value).isNull()
+            assertThat(forward.latest.freshness).isEqualTo(FactFreshness.ABSENT)
+            assertThat(forward.latest.authority).isEqualTo(FactAuthority.NOT_OBSERVED)
+            assertThat(forward.latest.established).contains("contradictory")
+            assertThat(forward.latest.mustNotInfer.joinToString(" ")).contains("no decision occurred")
+            assertThat(forward.completeness).isEqualTo(Completeness.UNKNOWN)
+        }
+
+    @Test
+    fun `unsequenced records that disagree are not elected by delivery order`() =
+        runBlocking<Unit> {
+            val allow = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = null)
+            val deny = decision(DecisionKind.POLICY_DECISION, value = "DENY", sequence = null)
+
+            suspend fun policyFor(records: List<RecordedDecision>) =
+                reader(registeredAuthority(), ScriptedFacts(decisions = records))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            val forward = policyFor(listOf(allow, deny))
+            val reversed = policyFor(listOf(deny, allow))
+
+            // No position says which record is the later one, and no position says which is the recorded
+            // one either. Electing the first would make the answer depend on delivery order, so neither is
+            // reported and the read says so.
+            assertThat(forward.latest.value).isNull()
+            assertThat(reversed.latest.value).isNull()
+            assertThat(forward.latest.authority).isEqualTo(FactAuthority.NOT_OBSERVED)
+            assertThat(forward.latest.freshness).isEqualTo(FactFreshness.ABSENT)
+            assertThat(forward.latest.established).contains("disagree")
+            assertThat(forward.latest.mustNotInfer.joinToString(" ")).contains("no decision occurred")
+            assertThat(forward.completeness).isEqualTo(Completeness.UNKNOWN)
+        }
+
+    @Test
+    fun `an unsequenced record is still reported, without an ordering claim`() =
+        runBlocking<Unit> {
+            val only = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = null)
+            val policy =
+                reader(registeredAuthority(), ScriptedFacts(decisions = listOf(only)))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            assertThat(policy.latest.value?.decision).isEqualTo("ALLOW")
+            assertThat(policy.latest.freshness).isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
+        }
+
+    @Test
+    fun `the same fact with and without a position is one fact, not a disagreement`() =
+        runBlocking<Unit> {
+            val positioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = 5)
+            val unpositioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = null)
+            val policy =
+                reader(registeredAuthority(), ScriptedFacts(decisions = listOf(positioned, unpositioned)))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            assertThat(policy.latest.value?.decision).isEqualTo("ALLOW")
+            assertThat(policy.latest.freshness).isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
+        }
+
+    @Test
+    fun `agreeing unpositioned records project identically in either delivery order`() =
+        runBlocking<Unit> {
+            val positioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = 5)
+            val unpositioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = null)
+
+            suspend fun policyFor(records: List<RecordedDecision>) =
+                reader(registeredAuthority(), ScriptedFacts(decisions = records))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            val forward = policyFor(listOf(positioned, unpositioned))
+            val reversed = policyFor(listOf(unpositioned, positioned))
+
+            // The value agrees, and so must the record that stands for it: its source position reaches the
+            // persisted snapshot's canonical digest, so an order-dependent choice would make equivalent
+            // evidence digest differently and turn an idempotent rebuild into a conflict.
+            assertThat(forward.latest.value?.decision).isEqualTo("ALLOW")
+            assertThat(reversed.latest.value?.decision).isEqualTo("ALLOW")
+            assertThat(forward.latest.sourceVersion).isEqualTo(5L)
+            assertThat(reversed.latest.sourceVersion).isEqualTo(5L)
+            assertThat(reversed.latest.value).isEqualTo(forward.latest.value)
+            assertThat(reversed).isEqualTo(forward)
+
+            // Identifying the fact by its highest known position must not become a freshness claim.
+            assertThat(forward.latest.freshness).isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
+        }
+
+    @Test
+    fun `a positioned and an unpositioned record that disagree are not elected`() =
+        runBlocking<Unit> {
+            val positioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = 5)
+            val unpositioned = decision(DecisionKind.POLICY_DECISION, value = "DENY", sequence = null)
+            val policy =
+                reader(registeredAuthority(), ScriptedFacts(decisions = listOf(positioned, unpositioned)))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            assertThat(policy.latest.value).isNull()
+        }
+
+    @Test
     fun `a fold with a missing intermediate event does not claim completeness`() =
         runBlocking<Unit> {
             val records =
@@ -326,8 +453,16 @@ class GovernanceProjectionTest {
 
             val policy = projection.decisions.single { it.kind == DecisionKind.POLICY_DECISION }
             assertThat(policy.completeness).isEqualTo(Completeness.UNKNOWN)
-            assertThat(policy.latest.freshness).isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
+            // The two records carry no position, so nothing establishes freshness - and because they also
+            // disagree, nothing establishes which of them was recorded. No value is reported at all, which
+            // is stronger than reporting one with an unknown freshness: the earlier expectation here was
+            // the delivery-order election this qualification removed.
+            assertThat(policy.latest.value).isNull()
+            assertThat(policy.latest.freshness).isEqualTo(FactFreshness.ABSENT)
+            assertThat(policy.latest.freshness).isNotEqualTo(FactFreshness.CURRENT_AT_VERSION)
             assertThat(policy.latest.freshness).isNotEqualTo(FactFreshness.EVENTUAL_KNOWN_LAG)
+            // The telemetry fact is a separate family: one unpositioned observation, so no lag can be named
+            // and no watermark invented, but there is nothing contradictory to withhold.
             assertThat(projection.telemetry.freshness).isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
             assertThat(projection.telemetry.watermark).isNull()
         }
