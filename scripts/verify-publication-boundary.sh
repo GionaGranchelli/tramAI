@@ -10,16 +10,23 @@
 # Step 2 is why the manifest exists: enumerating the repository and finding no fixtures proves nothing
 # if the modules never published at all.
 #
-# Usage: scripts/verify-publication-boundary.sh [repo-dir]
+# Usage: scripts/verify-publication-boundary.sh [repo-dir] [--audit-only]
 # Exit code: 0 when the boundary holds, 1 otherwise.
 set -uo pipefail
 
-REPO="${1:-build/publication-boundary-repo}"
+REPO="${REPO_DIR:-build/publication-boundary-repo}"
+AUDIT_ONLY=0
+for argument in "$@"; do
+  case "$argument" in
+    --audit-only) AUDIT_ONLY=1 ;;
+    *) REPO="$argument" ;;
+  esac
+done
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 MANIFEST="build/publication-boundary/publishable-modules.txt"
 
-rm -rf "$REPO" "$MANIFEST"
+rm -f "$MANIFEST"
 echo "step 1/2: auditing generated metadata and POM for every publishable module"
 if ! ./gradlew verifyNoPublishedTestFixtures --no-daemon --console=plain > /tmp/publication-boundary-gate.log 2>&1; then
   echo "FAIL: verifyNoPublishedTestFixtures rejected the generated metadata"
@@ -33,12 +40,20 @@ fi
 EXPECTED=$(grep -c . "$MANIFEST")
 echo "  audited modules: $EXPECTED"
 
-echo "step 2/2: publishing into $REPO and auditing the repository against that set"
-if ! ./gradlew publishAllPublicationsToTramaiRemoteRepository --no-daemon --console=plain \
-      "-PtramaiPublishSnapshotUrl=file://$ROOT/$REPO" > /tmp/publication-boundary-publish.log 2>&1; then
-  echo "FAIL: publication itself failed; see /tmp/publication-boundary-publish.log"
-  grep -aE 'What went wrong|FAILED' /tmp/publication-boundary-publish.log | head -5
-  exit 1
+if [ "$AUDIT_ONLY" -eq 1 ]; then
+  # Reuses the repository already on disk. Used by the orphan-artifact control, which plants a file
+  # after publication and must not have it wiped by a republish.
+  echo "step 2/2: auditing $REPO (publication skipped)"
+else
+  echo "step 2/2: publishing into $REPO and auditing the repository against that set"
+  # Only a publishing run resets the repository; --audit-only must inspect what is there.
+  rm -rf "$REPO"
+  if ! ./gradlew publishAllPublicationsToTramaiRemoteRepository --no-daemon --console=plain \
+        "-PtramaiPublishSnapshotUrl=file://$ROOT/$REPO" > /tmp/publication-boundary-publish.log 2>&1; then
+    echo "FAIL: publication itself failed; see /tmp/publication-boundary-publish.log"
+    grep -aE 'What went wrong|FAILED' /tmp/publication-boundary-publish.log | head -5
+    exit 1
+  fi
 fi
 
 python3 - "$ROOT/$REPO" "$MANIFEST" <<'PY'
@@ -110,7 +125,7 @@ print(f"expected modules: {len(expected)}; published: {len(published)}; "
       f"fixture variants/files/poms: {len(fixture_variants)}/{len(fixture_files)}/{len(fixture_poms)}")
 for problem in problems + fixture_variants + fixture_poms + fixture_files:
     print("  FAIL:", problem)
-ok = not (problems or fixture_variants or fixture_poms)
+ok = not (problems or fixture_variants or fixture_poms or fixture_files)
 print("RESULT:", "PASS" if ok else "FAIL")
 raise SystemExit(0 if ok else 1)
 PY

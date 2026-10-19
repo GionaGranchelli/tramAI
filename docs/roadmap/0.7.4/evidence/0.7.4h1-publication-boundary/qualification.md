@@ -120,7 +120,7 @@ whether or not the variants are published. Proven by compiling the consumers:
 
 | Gate | Result |
 |---|---|
-| `:build-logic:test --tests PublishedFixtureLeakVerifierTest` | **11 tests, 0 failures** — 5 publication semantics, 2 POM, 4 fail-closed structure (VERIFIED) |
+| `:build-logic:test --tests PublishedFixtureLeakVerifierTest` | **13 tests, 0 failures** — 5 publication semantics, 2 POM, 6 fail-closed structure (VERIFIED) |
 | `spotlessCheck` + `verifyStaticAnalysis` | PASS, detekt baseline 4792 → 4792, **0 added** (VERIFIED) |
 | `verifyChangePolicy -PchangePolicyBase=7e628de7…` | PASSED — 7 files, `runtime-behaviour`, no violations (VERIFIED) |
 | `verifyNoPublishedTestFixtures` | PASS — 46 modules audited (VERIFIED) |
@@ -163,3 +163,34 @@ at all. Rather than write a test that manufactures an impossible state, the guar
 code** and replaced with an honest one: the branch is gone, and the KDoc states that the protection is the
 convention (for every fixture-producing module) plus `TramaiTestFixturesPublicationTest` and the release gate —
 not a runtime refusal. The unreachable `throw` was load-bearing only in prose, so removing it is the fix.
+
+## Review round 2 (owner) — two fail-closed edge cases
+
+Both were real. Neither was an architecture problem.
+
+### P1a: a reported fixture file did not decide the exit code
+
+`fixture_files` was collected, printed, and then omitted from the success predicate, so an orphan fixture
+artifact — one no variant names, and in a location the per-module checks do not enumerate — was reported
+and still exited 0. The predicate now includes it.
+
+Control, on a real published repository:
+
+| Step | Result |
+|---|---|
+| baseline (46 modules published) | exit **0** — `expected 46; published 46; fixture variants/files/poms 0/0/0` |
+| plant `tramai-engine-0.7.0-SNAPSHOT-test-fixtures.jar` under `0.7.0-SNAPSHOT/extra/` — no variant names it, so only the repository-wide scan can see it | exit **1** — `0/1/0`, naming the exact path |
+| remove it | exit **0** — `0/0/0` |
+
+The control drove two fixes to the script itself: `--audit-only` now parses as a flag rather than as the repo
+path, and the `rm -rf "$REPO"` reset moved inside the publishing branch — an audit-only run was deleting the
+repository it was supposed to inspect, which made the first two control attempts fail for the wrong reason
+(reported as `published: 0`).
+
+### P1b: mixed valid and malformed variants were partially accepted
+
+`mapNotNull` discarded non-object entries, so `[{"name": "apiElements"}, 42]` produced one valid variant and
+no finding. Every entry must now be an object; the count of non-object entries is reported. Blank variant
+names are also refused, since `"   "` is not a name. Two regressions pin both.
+
+Verifier tests are therefore **13**, TestKit **3**, total **16**.

@@ -106,16 +106,18 @@ object PublishedFixtureLeakVerifier {
         check(!variants.isNullOrEmpty()) {
             "with no variants array, so its published variants could not be audited"
         }
-        return variants.mapNotNull { it as? Map<*, *> }.ifEmpty {
-            throw IllegalStateException("whose variants are not objects, so they could not be audited")
+        val malformed = variants.count { it !is Map<*, *> }
+        check(malformed == 0) {
+            "whose variants include $malformed non-object entries, so they could not be audited"
         }
+        return variants.filterIsInstance<Map<*, *>>()
     }
 
     private fun variantLeaks(
         module: String,
         variant: Map<*, *>,
     ): List<PublishedFixtureLeak> {
-        val name = variant["name"] as? String
+        val name = (variant["name"] as? String)?.takeIf { it.isNotBlank() }
         if (name == null) {
             return listOf(
                 PublishedFixtureLeak(

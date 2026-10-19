@@ -199,6 +199,32 @@ class PublishedFixtureLeakVerifierTest {
     }
 
     @Test
+    fun `mixed valid and non-object variants are a finding, not a silently filtered list`() {
+        val metadata =
+            File(temp, "module.json").apply {
+                writeText("""{"variants": [{"name": "apiElements", "files": []}, 42]}""")
+            }
+
+        val leaks = PublishedFixtureLeakVerifier.verify(listOf("tramai-engine")) { metadata }
+
+        assertEquals(1, leaks.size, "a non-object variant must not be discarded: $leaks")
+        assertContains(leaks.single().describe(), "non-object entries")
+    }
+
+    @Test
+    fun `a blank variant name is a finding`() {
+        val metadata =
+            File(temp, "module.json").apply {
+                writeText("""{"variants": [{"name": "   ", "files": [{"name": "x-test-fixtures.jar"}]}]}""")
+            }
+
+        val leaks = PublishedFixtureLeakVerifier.verify(listOf("tramai-engine")) { metadata }
+
+        assertEquals(1, leaks.size, "a blank name is not a name: $leaks")
+        assertContains(leaks.single().describe(), "without a name")
+    }
+
+    @Test
     fun `a clean POM has no findings`() {
         val pom =
             File(temp, "pom-default.xml").apply {
