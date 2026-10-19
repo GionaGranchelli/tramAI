@@ -56,6 +56,25 @@ metadata; no test-fixtures variant or artifact published.
 
 All 46 generated metadata files carry four variants (api, runtime, javadoc, sources) and no fixture jar.
 
+## Real isolated repository
+
+Metadata and POM inspection is a claim about generated description files. The stronger claim is about what a
+consumer would actually download, so the full publishable set was published into a clean, isolated Maven
+repository and the repository itself was audited (`scripts/verify-publication-boundary.sh`):
+
+| Check | Result |
+|---|---|
+| modules published | **46** |
+| `*-test-fixtures.jar` anywhere in the repository | **0** |
+| published `.module` files with a `testFixtures*` variant | **0** (of 46) |
+| published `.pom` files exporting a fixture dependency | **0** (of 46) |
+| modules publishing main + sources + javadoc | 45 of 45 jar modules |
+| `tramai-bom` | POM only — a `java-platform` module, no jar by design |
+| jars in the repository | 135 |
+| repository size | 13 MB |
+
+Re-runnable: `scripts/verify-publication-boundary.sh [repo-dir]` exits non-zero if any check fails.
+
 ## Negative control (required, and it discriminates)
 
 The mutation is the real defect, restored deliberately: both `skip()` calls removed from the convention
@@ -70,6 +89,22 @@ plugin, and every `module.json` deleted first so Gradle cannot report a stale cl
 | gate after restore | **exit 0**, 46 modules audited; engine back to 4 variants |
 
 This is the guard failing for the intended reason, against a genuinely regenerated publication artifact.
+
+### Second control, at the repository level
+
+The same mutation was applied again and measured through the published repository rather than the generated
+metadata, because the two are different claims:
+
+| Step | Result |
+|---|---|
+| mutation applied (1 anchor, sha256 changed) | `f55bc3ff…` → `8e375209…` |
+| `scripts/verify-publication-boundary.sh` with the mutation | **exit 1** — `fixture vars/jars/poms: 8/20/0` |
+| diagnostics | `tramai-control-plane`, `tramai-engine`, `tramai-security`, `tramai-testing`: fixture jar published; and each published `.module` naming `testFixturesApiElements` / `testFixturesRuntimeElements` |
+| restore | byte-identical (`f55bc3ff…`) |
+| script after restore | **exit 0**, `0/0/0`, `RESULT: PASS` |
+
+The 20 fixture files are the two jars plus their published checksums per module — a consumer-facing artifact
+count, not a metadata count.
 
 ## Internal fixture usage still works
 
