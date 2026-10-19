@@ -25,8 +25,12 @@ tramai-testing         testFixturesApiElements / testFixturesRuntimeElements
 
 1. **`TramaiTestFixturesPlugin`** now excludes both fixture variants from publication for every module that
    owns fixtures — one place, every producer, instead of a per-module copy that only covered the module that
-   happened to be audited. It fails closed if a module applies `maven-publish` without a `java` component,
-   because then the exclusion would be silently skipped.
+   happened to be audited. (Scope note corrected in review round 1: this callback runs inside
+   `withPlugin("java-library")`, which is the only path that creates fixture variants, so there is no
+   reachable state in which a module owns fixtures, publishes, and skips the exclusion. The earlier claim
+   that it fails closed when `maven-publish` is applied without a `java` component was **withdrawn** — that
+   branch was unreachable and has been removed; the guarantee is the convention plus the TestKit regression
+   plus the release gate, not a runtime refusal.)
 2. **`tramai-security/build.gradle.kts`** loses its local copy of the exclusion. The module-level block is
    gone; the behaviour is unchanged because the convention now applies it.
 3. **`verifyNoPublishedTestFixtures`** (build-logic) audits the generated publication metadata of every
@@ -128,20 +132,33 @@ whether or not the variants are published. Proven by compiling the consumers:
 | `:build-logic:test --tests ReleaseVerificationPluginTest` | **7 of 24 fail at the head AND at the pristine base** — see below (OBSERVED) |
 | `verifyPr` | not run as an aggregate; its constituents were run in slices and are reported as slices |
 
-## Pre-existing red on the target branch
+## The four failing checks are PR #400 integration failures, not this branch
 
-`release/0.7.0` at `7e628de7` is **not green**: `api-architecture (verify060Architecture)`,
-`build-logic (release-sovereign)`, `Verify Maintainability Baseline` and `tests` all fail at that head
-(`success=22/27`, plus one neutral GitGuardian check).
+`7e628de7` reports `success=22/27` with four failing checks. Those checks belong to the **PR #400
+integration run against `master`**, so they do not establish that a standalone `release/0.7.0` checkout fails
+identically, and my first characterisation of the target branch as "red at its own head" was too strong.
+The owner's diagnosis, from the job logs and artifacts this host could not retrieve:
+
+- `api-architecture` — 18 API-compatibility failures across `tramai-control-plane`, `tramai-persistence-jdbc`
+  and `tramai-security`: missing or mismatched hash-bound migration entries.
+- `build-logic (release-sovereign)` — `TramaiDocsGuardsPluginTest` references
+  `RuntimeBoundaryProvenance.kt`, absent from the test fixture though present in the repository.
+- `Verify Maintainability Baseline` — `verifyChangePolicy` rejects mixed analyzer/tooling and runtime
+  changes under `analyzer-runtime-separation`.
+- `tests` — `verifyMutationRatchet` M35: admission `fromBaseSha=5bcb030c…` does not match authority base
+  `611845cc…`, **with `611845cc…` supplied to the task**. My earlier "missing `-PtramaiMutationBaseSha`"
+  explanation is **withdrawn**: this is an authority-base provenance mismatch, to be repaired through the
+  authorised mutation-admission process.
 
 The `ReleaseVerificationPluginTest` failures I hit locally are the same family: 7 failures — T1b, T2, T5, T7,
 T7c, T9, T15 — with an identical identity set in a clean detached worktree at the pristine base (dirty=0) and
 at this head. The reported cause is `Could not create task ':verifySovereignRuntimeSignedBundle'`, which this
 change does not touch. **Both runs are recorded; the head did not introduce them.**
 
-This matters for the rest of 0.7.4h: H2 requires exact-head CI to prove the integration gates were selected,
-executed and passed, and that claim is impossible to make truthfully while the target branch is red at its
-own head. Fixing that red is a separate task, not part of H1, and it must not be done by weakening a gate.
+This matters for the rest of 0.7.4h: H2 must prove the integration gates were selected, executed and passed
+**on this branch's own exact head, with the PR base properties supplied** — not on a commit whose checks were
+produced by a different PR's run. The four failures above are blockers for the PR #400 integration and are not
+part of H1; none of them may be resolved by weakening a gate.
 
 ## Review round 1 (owner REQUEST TARGETED CHANGES) — what changed
 
@@ -193,4 +210,4 @@ repository it was supposed to inspect, which made the first two control attempts
 no finding. Every entry must now be an object; the count of non-object entries is reported. Blank variant
 names are also refused, since `"   "` is not a name. Two regressions pin both.
 
-Verifier tests are therefore **13**, TestKit **3**, total **16**.
+Verifier tests are therefore **13**, TestKit **3**, total **16** — the count reported everywhere.
