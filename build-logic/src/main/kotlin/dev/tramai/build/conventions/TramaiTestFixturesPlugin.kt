@@ -25,6 +25,14 @@ import org.gradle.api.component.AdhocComponentWithVariants
  * stayed published. `verifyNoPublishedTestFixtures` proves the result against the generated
  * `module.json` of every publishable module, so this comment is never the evidence.
  *
+ * Scope and limit (0.7.4h1 review): this runs inside `withPlugin("java-library")`, which is the only
+ * path that creates fixture variants, so there is no reachable state where a module owns fixtures, is
+ * publishable and skips the exclusion. A project that applies `maven-publish` without `java-library`
+ * never constructs fixture variants, so it has nothing to exclude and this convention does not fail it
+ * — the "no java component" case is therefore not a guard here and is not claimed as one. What is
+ * claimed is enforced by `TramaiTestFixturesPublicationTest` (real generated metadata, fixture module,
+ * both plugin orders) and by the release gate, not by this callback.
+ *
  * Internal fixture usage is untouched: consumers depend on the project's `testFixtures*Elements`
  * configurations, which exist whether or not the variants are published.
  */
@@ -38,14 +46,9 @@ class TramaiTestFixturesPlugin : Plugin<Project> {
 
     private fun excludeFixtureVariantsFromPublication(project: Project) {
         project.pluginManager.withPlugin("maven-publish") {
-            val javaComponent = project.components.findByName("java") as? AdhocComponentWithVariants
-            if (javaComponent == null) {
-                throw IllegalStateException(
-                    "tramai.test-fixtures: ':${project.name}' applies maven-publish but has no 'java' " +
-                        "component to exclude the test-fixtures variants from. Publishing test fixtures " +
-                        "is not permitted, so the exclusion cannot be silently skipped.",
-                )
-            }
+            // Present by construction: java-library applied above is what creates this component, and it
+            // is what attaches the fixture variants to it.
+            val javaComponent = project.components.named("java").get() as AdhocComponentWithVariants
             val fixturesConfigurations = listOf("testFixturesApiElements", "testFixturesRuntimeElements")
             javaComponent.apply {
                 fixturesConfigurations.forEach { name ->

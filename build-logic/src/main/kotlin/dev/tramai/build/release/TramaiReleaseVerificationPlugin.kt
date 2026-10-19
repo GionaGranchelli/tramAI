@@ -192,6 +192,9 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
                     project.layout.projectDirectory.file("$moduleName/build/publications/maven/pom-default.xml")
                 },
             )
+            auditedModulesManifest.set(
+                project.layout.buildDirectory.file("publication-boundary/publishable-modules.txt"),
+            )
         }
     }
 

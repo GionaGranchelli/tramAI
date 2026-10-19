@@ -1,10 +1,12 @@
 package dev.tramai.build.publishing
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import kotlin.test.assertContains
 
 /**
  * Semantics of the fixture-publication verifier: proves the rule is correct for the inputs it is handed.
@@ -124,7 +126,7 @@ class PublishedFixtureLeakVerifierTest {
 
         assertEquals(1, leaks.size)
         assertEquals("tramai-engine", leaks.single().module)
-        assertEquals("<none>", leaks.single().variant)
+        assertNull(leaks.single().variant, "a missing metadata finding names no variant")
         assertTrue(leaks.single().detail.contains("no generated publication metadata"))
     }
 
@@ -150,6 +152,50 @@ class PublishedFixtureLeakVerifierTest {
 
         assertEquals(1, leaks.size, "only the leaking module may be reported: $leaks")
         assertEquals("tramai-engine", leaks.single().module)
+    }
+
+    @Test
+    fun `metadata without a variants array is a finding, not a clean module`() {
+        val metadata = File(temp, "module.json").apply { writeText("""{"formatVersion": "1.1"}""") }
+
+        val leaks = PublishedFixtureLeakVerifier.verify(listOf("tramai-engine")) { metadata }
+
+        assertEquals(1, leaks.size, "parseable metadata with no variants must not read as clean: $leaks")
+        assertNull(leaks.single().variant)
+        assertContains(leaks.single().describe(), "no variants array")
+    }
+
+    @Test
+    fun `metadata with an empty variants array is a finding`() {
+        val metadata = File(temp, "module.json").apply { writeText("""{"variants": []}""") }
+
+        val leaks = PublishedFixtureLeakVerifier.verify(listOf("tramai-engine")) { metadata }
+
+        assertEquals(1, leaks.size, "an empty variant set is unauditable, not clean: $leaks")
+        assertContains(leaks.single().describe(), "no variants array")
+    }
+
+    @Test
+    fun `metadata that is not JSON is a finding`() {
+        val metadata = File(temp, "module.json").apply { writeText("{ not json") }
+
+        val leaks = PublishedFixtureLeakVerifier.verify(listOf("tramai-engine")) { metadata }
+
+        assertEquals(1, leaks.size, "unparseable metadata must not read as clean: $leaks")
+        assertContains(leaks.single().describe(), "not valid JSON")
+    }
+
+    @Test
+    fun `a variant without a name is a finding`() {
+        val metadata =
+            File(temp, "module.json").apply {
+                writeText("""{"variants": [{"files": [{"name": "x-test-fixtures.jar"}]}]}""")
+            }
+
+        val leaks = PublishedFixtureLeakVerifier.verify(listOf("tramai-engine")) { metadata }
+
+        assertEquals(1, leaks.size, "an unnamed variant cannot be audited and must not be skipped: $leaks")
+        assertContains(leaks.single().describe(), "without a name")
     }
 
     @Test
@@ -180,7 +226,7 @@ class PublishedFixtureLeakVerifierTest {
         val leaks = PublishedFixtureLeakVerifier.verifyPoms(listOf("tramai-engine")) { pom }
 
         assertEquals(1, leaks.size, "the POM leak must be reported: $leaks")
-        assertEquals("<pom>", leaks.single().variant)
+        assertNull(leaks.single().variant, "a POM finding names no variant")
         assertTrue(leaks.single().describe().contains("POM"))
     }
 }

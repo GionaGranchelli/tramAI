@@ -4,9 +4,11 @@ import dev.tramai.build.publishing.PublishedFixtureLeakVerifier
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -35,6 +37,14 @@ abstract class VerifyNoPublishedTestFixturesTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val pomFiles: ConfigurableFileCollection
 
+    /**
+     * The exact module set this run audited, one path per line. Written before the audit so a failing
+     * run still records what it inspected, and consumed by `scripts/verify-publication-boundary.sh` to
+     * require the published repository to contain metadata and a POM for every one of them.
+     */
+    @get:OutputFile
+    abstract val auditedModulesManifest: RegularFileProperty
+
     @TaskAction
     fun verify() {
         val modules = publishableModules.get()
@@ -44,6 +54,10 @@ abstract class VerifyNoPublishedTestFixturesTask : DefaultTask() {
                     "audited. The module catalog is the authority for that set and must not degrade to " +
                     "an empty list.",
             )
+        }
+        auditedModulesManifest.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(modules.distinct().sorted().joinToString(separator = "\n", postfix = "\n"))
         }
 
         val byPath = moduleMetadataFiles.files.associateBy { it.absolutePath }

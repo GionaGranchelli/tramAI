@@ -37,29 +37,28 @@ analysis and formatting in `ci.yml`; maintainability baseline in its own workflo
 Established by 0.7.4g and **not** re-litigated here: the seven evidence invariants (I1–I7) are qualified by
 the merged suites, so Phase 3 reuses that evidence rather than duplicating it.
 
-## The target branch is red at its own head — with the mechanism
+## The four failing checks belong to the PR #400 integration run, not to this branch
 
-`7e628de7` reports `success=22/27` with four failing checks. My first report called that "the branch is red"
-and treated it as a content defect. **Correcting that:** the failure I could diagnose is an **invocation
-artifact**, not a content defect.
+`7e628de7` reports `success=22/27` with four failing checks. My first report called that "the target branch is
+red" and attributed the mutation failure to a missing `-PtramaiMutationBaseSha`. **Both claims are withdrawn.**
 
-At least one failure is verified from the job log: `tests` fails on `:verifyMutationRatchet` —
-`Mutation ratchet (base 611845cc4bb54ad26507cae5cc69257f7e4c767b) baseline verification FAILED`. `611845cc` is
-not this PR's base; the run was triggered by a **push** to `release/0.7.0`, where the canonical
-`-PtramaiMutationBaseSha` property is absent and the task falls back to a different authority — the same
-invocation artifact 0.7.4g recorded when the ratchet was run without its base property.
+The owner retrieved the job logs and artifacts that the API would not serve to this host. Those runs are the
+integration checks for **PR #400 against `master`**, so they do not establish that a standalone
+`release/0.7.0` checkout fails identically — and the property the withdrawn explanation blamed was in fact
+supplied:
 
-`api-architecture (verify060Architecture)`, `build-logic (release-sovereign)` and
-`Verify Maintainability Baseline` fail at the same head. Their logs were not retrievable in this session
-(repeated `i/o timeout` against the jobs-log endpoint), so their cause is **UNRESOLVED** rather than assumed.
-The locally reproduced `ReleaseVerificationPluginTest` failure family — 7 failures (T1b, T2, T5, T7, T7c, T9,
-T15, cause `Could not create task ':verifySovereignRuntimeSignedBundle'`) — reproduces identically in a clean
-detached worktree at the pristine base, so it is pre-existing, whichever way it resolves.
+| Failing check | Actual finding | Disposition |
+|---|---|---|
+| `api-architecture` | 18 API-compatibility failures across `tramai-control-plane`, `tramai-persistence-jdbc`, `tramai-security` — missing or mismatched hash-bound migration entries | reconcile the exact transitions and migration ledger; no blanket regeneration |
+| `build-logic (release-sovereign)` | `TramaiDocsGuardsPluginTest`: `spring-ai-authority-boundary` references `RuntimeBoundaryProvenance.kt`, absent from the test fixture, though the source exists in the repository | repair the fixture construction; rerun positive and negative tests |
+| `Verify Maintainability Baseline` | `verifyChangePolicy` rejects mixed analyzer/tooling and runtime changes under `analyzer-runtime-separation` | keep the policy; classify or separate the changes |
+| `tests` | `verifyMutationRatchet` fails M35: admission `fromBaseSha=5bcb030c…` does not match authority base `611845cc…` — with `611845cc…` supplied to the task | provenance mismatch to repair through the authorised mutation-admission process |
 
-Consequence for this task: a claim of "exact-head CI green" cannot be made for this branch until those four
-checks are green under the canonical invocation. That is a **prerequisite for H2's certification**, and it is
-not part of Phase 1. It must be fixed by making the invocation correct or the task correct — never by
-weakening a gate.
+Consequence for this task, restated precisely: "exact-head CI green" is an H2 acceptance requirement, and it
+must be measured on this branch's own head with the PR base properties supplied. The four failures above are
+blockers for **PR #400's integration**, and their repair is not part of Phase 1. What remains true is that a
+gate must not be reached by weakening it, and that the mutation-ratchet failure is a provenance question to be
+reconciled, not dismissed as an invocation artifact.
 
 ## Acceptance matrix
 
@@ -92,8 +91,9 @@ any baseline regeneration or deviation-ceiling increase; any new authentication 
 
 ## Known limits recorded here
 
-- Four failing checks at the base head, one diagnosed as an invocation artifact, three **UNRESOLVED** for want
-  of logs.
+- The four failing checks are PR #400 integration failures with concrete diagnosed causes (above); the
+  missing-property explanation I first published for the mutation ratchet is **withdrawn** - the property was
+  supplied and the failure is an authority-base provenance mismatch.
 - `verifyPr` is not a CI execution; the PR template's aggregate request is unenforced.
 - Publication boundary is proven against generated Gradle metadata; whether an upstream mirror retains a
   historically published fixture jar is a separate question this task does not answer.

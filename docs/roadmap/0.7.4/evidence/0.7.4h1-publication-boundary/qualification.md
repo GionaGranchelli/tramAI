@@ -120,7 +120,7 @@ whether or not the variants are published. Proven by compiling the consumers:
 
 | Gate | Result |
 |---|---|
-| `:build-logic:test --tests PublishedFixtureLeakVerifierTest` | **5 tests, 0 failures** (VERIFIED) |
+| `:build-logic:test --tests PublishedFixtureLeakVerifierTest` | **11 tests, 0 failures** — 5 publication semantics, 2 POM, 4 fail-closed structure (VERIFIED) |
 | `spotlessCheck` + `verifyStaticAnalysis` | PASS, detekt baseline 4792 → 4792, **0 added** (VERIFIED) |
 | `verifyChangePolicy -PchangePolicyBase=7e628de7…` | PASSED — 7 files, `runtime-behaviour`, no violations (VERIFIED) |
 | `verifyNoPublishedTestFixtures` | PASS — 46 modules audited (VERIFIED) |
@@ -142,3 +142,24 @@ change does not touch. **Both runs are recorded; the head did not introduce them
 This matters for the rest of 0.7.4h: H2 requires exact-head CI to prove the integration gates were selected,
 executed and passed, and that claim is impossible to make truthfully while the target branch is red at its
 own head. Fixing that red is a separate task, not part of H1, and it must not be done by weakening a gate.
+
+## Review round 1 (owner REQUEST TARGETED CHANGES) — what changed
+
+| Finding | Resolution |
+|---|---|
+| P1: no automated TestKit regression for the exclusion | `TramaiTestFixturesPublicationTest` — 3 TestKit tests. A real project with a real `testFixtures` source set is published; the control proves the fixture variant **is** published without the convention, and two tests prove it is removed when `maven-publish` is applied **before** and **after** the convention, while `apiElements` and `sourcesElements` survive |
+| P1: `readVariants()` returned an empty list for metadata without a valid variants array | Structure is now refused, not read as clean: metadata that is not JSON, has no `variants` array, has an empty one, or carries a variant without a name each produce a finding. Four tests pin it, including `{"formatVersion": "1.1"}` |
+| P1: repository audit did not require metadata/POM per expected module | The gate writes `build/publication-boundary/publishable-modules.txt`; the script requires that set to equal the published set and requires `.module` **and** `.pom` for every module in it. Missing metadata is a failure, not an absence of evidence |
+| P2: `<none>` diagnostics were confusing | `variant` is nullable; a finding with no variant name renders as `module 'x' publishes <reason> (artifact 'module.json')` with no fabricated variant |
+| P2: stale cross-reference in `tramai-security` | The comment pointed at "the exclusion at the end of this file", which no longer exists; it now names the convention |
+| P2: report said five verifier tests where the class has more | Counts above are the measured ones: 11 verifier tests, 3 TestKit tests |
+
+### The maven-publish-without-java guard: adjusted, not tested
+
+The previous implementation threw when `maven-publish` was applied without a `java` component. That branch is
+unreachable: the callback runs inside `withPlugin("java-library")`, which is what creates both the component
+and the fixture variants, and a module that publishes without `java-library` never constructs fixture variants
+at all. Rather than write a test that manufactures an impossible state, the guarantee is **withdrawn from the
+code** and replaced with an honest one: the branch is gone, and the KDoc states that the protection is the
+convention (for every fixture-producing module) plus `TramaiTestFixturesPublicationTest` and the release gate —
+not a runtime refusal. The unreachable `throw` was load-bearing only in prose, so removing it is the fix.
