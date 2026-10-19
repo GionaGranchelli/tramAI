@@ -55,6 +55,7 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
 
     override fun apply(project: Project) {
         registerVerifyPublicationMetadata(project)
+        registerVerifyNoPublishedTestFixtures(project)
         registerVerifyPublishedLocalArtifacts(project)
         registerVerifyReleasePublishInputs(project)
         registerVerifySignedPublicationBundle(project)
@@ -163,6 +164,27 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
                 },
             )
             dependsOn(publishableModuleNames.map { ":$it:generatePomFileForMavenPublication" })
+        }
+    }
+
+    private fun registerVerifyNoPublishedTestFixtures(project: Project) {
+        project.tasks.register<VerifyNoPublishedTestFixturesTask>("verifyNoPublishedTestFixtures") {
+            group = "verification"
+            description = "Verifies that no publishable module publishes a test-fixtures variant or artifact."
+
+            // The publishable set comes from the catalog, resolved lazily so a corrupt catalog fails
+            // closed instead of auditing an empty set.
+            val publishableModuleNames = publishableModuleNames(project)
+            this.publishableModules.set(publishableModuleNames)
+
+            // module.json is the generated publication metadata: it lists the variants and artifact
+            // files a consumer actually resolves.
+            moduleMetadataFiles.from(
+                publishableModuleNames.map { moduleName ->
+                    project.layout.projectDirectory.file("$moduleName/build/publications/maven/module.json")
+                },
+            )
+            dependsOn(publishableModuleNames.map { ":$it:generateMetadataFileForMavenPublication" })
         }
     }
 

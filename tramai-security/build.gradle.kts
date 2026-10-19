@@ -1,6 +1,4 @@
 
-import org.gradle.api.component.AdhocComponentWithVariants
-
 plugins {
     `java-library`
     id("tramai.test-fixtures")
@@ -44,11 +42,5 @@ dependencies {
 }
 
 // The fixture above exists only for :tramai-observability's end-to-end test, so it must not become part of this
-// module's published contract. `java-test-fixtures` attaches it to the `java` component, and that component is an
-// AdhocComponentWithVariants - the type Gradle documents `withVariantsFromConfiguration` for. Without this, the
-// fixture jar and its two Gradle-metadata variants ship with the library. Verified by publishing to a local
-// repository and inspecting the artifacts and the .module variants.
-(components["java"] as AdhocComponentWithVariants).apply {
-    withVariantsFromConfiguration(configurations["testFixturesApiElements"]) { skip() }
-    withVariantsFromConfiguration(configurations["testFixturesRuntimeElements"]) { skip() }
-}
+// module's published contract. The exclusion is applied by `tramai.test-fixtures` for every module that owns
+// fixtures; `verifyNoPublishedTestFixtures` proves it against the generated publication metadata.
