@@ -156,10 +156,16 @@ internal object GovernanceDecisionFold {
                         "this read does not establish which of them was recorded",
             )
         }
+        // The record that stands for an agreeing fact must not be chosen by arrival order: its source position
+        // reaches ProjectedFact.sourceVersion and from there the persisted snapshot's canonical digest, so
+        // taking the first delivered record would let delivery order decide a digest that is supposed to
+        // describe the evidence alone. The highest known position is the only order-independent choice here,
+        // and it identifies the fact only - the freshness below stays unknown, so it claims nothing newer.
+        val consensus = distinct.sortedByDescending { it.sourceSequence ?: Long.MIN_VALUE }.first()
         return DecisionProjection(
             kind = kind,
             latest =
-                recordFact(kind, distinct.first(), FactFreshness.STALE_OR_UNKNOWN).copy(
+                recordFact(kind, consensus, FactFreshness.STALE_OR_UNKNOWN).copy(
                     established =
                         "the source supplied ${distinct.size} record(s) with no ordering basis; " +
                             "the newest is not established by this read",

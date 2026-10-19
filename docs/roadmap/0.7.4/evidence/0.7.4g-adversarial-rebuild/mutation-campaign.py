@@ -14,12 +14,26 @@ import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
-ROOT = "/home/gionag/tramai-g"
+# Derived from this file's own location so a clean checkout can run it: the script lives at
+# <root>/docs/roadmap/0.7.4/evidence/0.7.4g-adversarial-rebuild/mutation-campaign.py
+ROOT = os.environ.get("MUTATION_REPO_ROOT") or str(Path(__file__).resolve().parents[5])
 RESULTS = "/tmp/074g-mutants.txt"
 STATE = "/tmp/074g-mutants-state.json"
 LOG_DIR = "/tmp/074g-mutants"
 JAVA_HOME = "/usr/lib/jvm/java-21-openjdk-amd64"
+
+
+def source_sha():
+    """The exact revision verdicts are bound to. A resumed run from another tree is not this run."""
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=60
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
 
 GOV = "tramai-security/src/main/kotlin/dev/tramai/security/governance/"
 OBS = "tramai-observability/src/main/kotlin/dev/tramai/observability/governance/"
@@ -95,7 +109,9 @@ MUTANTS = [
         old="            else -> FactFreshness.STALE_OR_UNKNOWN",
         new="            else -> FactFreshness.CURRENT_AT_VERSION",
         module=":tramai-security",
-        test="dev.tramai.security.governance.MaterializedReadModelQualificationTest",
+        # Detected by GovernanceFactClassificationTest, not by the module's other suites: the mutated
+        # branch is unreachable from the production call site, so only a direct classification test kills it.
+        test="dev.tramai.security.governance.GovernanceFactClassificationTest",
     ),
     dict(
         id="M09",
@@ -159,7 +175,22 @@ MUTANTS = [
         module=":tramai-security",
         test="dev.tramai.security.governance.GovernanceCorruptionPreservationTest",
     ),
+    dict(
+        id="M15",
+        what="let arrival order pick which agreeing unsequenced record stands for the fact",
+        file=GOV + "GovernanceDecisionFold.kt",
+        old="distinct.sortedByDescending { it.sourceSequence ?: Long.MIN_VALUE }.first()",
+        new="distinct.first()",
+        module=":tramai-security",
+        test="dev.tramai.security.governance.GovernanceProjectionTest",
+    ),
 ]
+
+
+def selected():
+    """MUTATION_ONLY=M08,M15 re-measures a subset without re-running the whole campaign."""
+    only = {m.strip() for m in os.environ.get("MUTATION_ONLY", "").split(",") if m.strip()}
+    return [m for m in MUTANTS if not only or m["id"] in only]
 
 
 def sh(args, timeout=1800):
@@ -213,9 +244,17 @@ def run_tests(module, test, log):
 def main():
     os.makedirs(LOG_DIR, exist_ok=True)
     state = json.load(open(STATE)) if os.path.exists(STATE) else {"controls": {}, "done": []}
+    # A verdict belongs to the revision it was measured on. Resuming a state file from another tree would
+    # report kills this run never observed, so a mismatch starts the campaign over.
+    head_sha = source_sha()
+    if state.get("source_sha") not in (None, head_sha):
+        print(f"state was bound to {state['source_sha']}, tree is {head_sha}: discarding resumed state")
+        state = {"controls": {}, "done": []}
+    state["source_sha"] = head_sha
+    print(f"source_sha={head_sha} root={ROOT}")
     open(RESULTS, "a").close()
 
-    for mutant in MUTANTS:
+    for mutant in selected():
         mid = mutant["id"]
         if mid in state["done"]:
             continue
@@ -269,7 +308,10 @@ def main():
         compile_error = bool(re.search(r"^e: ", log_text, re.M)) or "Compilation error" in log_text
         summary = xml_summary(mutant["module"], mutant["test"])
 
-        sh(["git", "checkout", "--", rel])
+        # Restore the bytes that were there, not HEAD: a tree under qualification may carry uncommitted
+        # changes, and `git checkout --` would silently discard the very change being tested.
+        with open(path, "w") as handle:
+            handle.write(source)
         restored = sha(rel)
         restoration = "byte-identical" if restored == before else f"MISMATCH {before[:12]}->{restored[:12]}"
 

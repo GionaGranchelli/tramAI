@@ -342,6 +342,35 @@ class GovernanceProjectionTest {
         }
 
     @Test
+    fun `agreeing unpositioned records project identically in either delivery order`() =
+        runBlocking<Unit> {
+            val positioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = 5)
+            val unpositioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = null)
+
+            suspend fun policyFor(records: List<RecordedDecision>) =
+                reader(registeredAuthority(), ScriptedFacts(decisions = records))
+                    .read(identity, declared(), "run-1")
+                    .decisions
+                    .single { it.kind == DecisionKind.POLICY_DECISION }
+
+            val forward = policyFor(listOf(positioned, unpositioned))
+            val reversed = policyFor(listOf(unpositioned, positioned))
+
+            // The value agrees, and so must the record that stands for it: its source position reaches the
+            // persisted snapshot's canonical digest, so an order-dependent choice would make equivalent
+            // evidence digest differently and turn an idempotent rebuild into a conflict.
+            assertThat(forward.latest.value?.decision).isEqualTo("ALLOW")
+            assertThat(reversed.latest.value?.decision).isEqualTo("ALLOW")
+            assertThat(forward.latest.sourceVersion).isEqualTo(5L)
+            assertThat(reversed.latest.sourceVersion).isEqualTo(5L)
+            assertThat(reversed.latest.value).isEqualTo(forward.latest.value)
+            assertThat(reversed).isEqualTo(forward)
+
+            // Identifying the fact by its highest known position must not become a freshness claim.
+            assertThat(forward.latest.freshness).isEqualTo(FactFreshness.STALE_OR_UNKNOWN)
+        }
+
+    @Test
     fun `a positioned and an unpositioned record that disagree are not elected`() =
         runBlocking<Unit> {
             val positioned = decision(DecisionKind.POLICY_DECISION, value = "ALLOW", sequence = 5)
