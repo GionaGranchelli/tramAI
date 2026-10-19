@@ -15,7 +15,7 @@ Deliver Dashboard 2.0 as a first-party, replaceable client of the headless contr
 - runtime/framework identity plus integration/enforcement provenance where relevant, without implying that TramAI authored external workloads;
 - effective classification/policy/trust posture;
 - provider/model authorization/selection reasons;
-- semantic run timeline;
+- semantic run timeline, including evidenced per-model-attempt timing/usage and governance correlation from 0.7.5;
 - approval/runtime state supported by existing contracts;
 - authorized controls through 0.7.6/0.7.7 APIs;
 - reconstruction/evidence availability;
@@ -28,7 +28,9 @@ Deliver Dashboard 2.0 as a first-party, replaceable client of the headless contr
 - direct database/checkpoint/store mutation;
 - rich policy authoring/simulation/debugger;
 - enterprise deployment packaging;
-- exposing sensitive payloads by default.
+- exposing sensitive payloads by default;
+- reconstructing attempt history from browser telemetry or implementing provider/token accounting in the UI;
+- full LangSmith-style trace ingestion, OMP local-session synchronization, pricing catalogues, subscription analytics or unrestricted transcript browsing in the 0.7.0 core.
 
 ## Tasks
 
@@ -37,7 +39,7 @@ Deliver Dashboard 2.0 as a first-party, replaceable client of the headless contr
 | 0.7.8a | Dashboard baseline/API inventory | Remove/avoid hidden authority assumptions; map required headless APIs |
 | 0.7.8b | Control-plane client layer | Typed client models for workload/run/decision/timeline/control/reconstruction |
 | 0.7.8c | Workload/detail surface | P0 governance posture, recent operational state, runtime/framework identity, and truthful integration/enforcement provenance |
-| 0.7.8d | Semantic run/timeline surface | Render authoritative/best-effort/missing distinctions |
+| 0.7.8d | Semantic run/timeline surface | Render authoritative/best-effort/missing distinctions; optional trace-tree/waterfall grouping for run → operation → model attempts, retries, governance/tool/approval events and per-attempt safe usage, latency and TTFT from the 0.7.5 headless API |
 | 0.7.8e | Approval/control surface | Only server-authorized actions; stale/denied states handled safely |
 | 0.7.8f | Reconstruction/evidence surface | Expose availability/completeness without re-execution |
 | 0.7.8g | Security/privacy/adversarial proof | No direct-store mutation, UI-only auth, or protected-payload leakage |
@@ -57,6 +59,8 @@ protected payloads remain hidden by default
 
 - Full P0 loop is usable headlessly and through Dashboard 2.0.
 - UI displays structured reasons/evidence from control-plane contracts rather than recreating decisions.
+- Invocation attempt details, where observed, display provider/model, timing, outcome and token counts without fabricating missing values or implying that a policy decision proves a provider call completed.
+- Usage/cost summaries are shown only when source data and accounting provenance support them; reasoning token counters are not silently added to output totals, and inferred API-equivalent prices are never represented as billed amounts.
 - The XR1 reference external workload can display its runtime separately from TramAI governance authority and cannot be visually upgraded from observed/instrumented evidence to authoritative enforcement.
 - Authorized controls flow through typed server APIs.
 - Reference sensitive-input scenario proves classification → policy → authorized route → evidence → observation/control → reconstruction.
@@ -65,4 +69,6 @@ protected payloads remain hidden by default
 
 ## Adversarial proof
 
-Reject hidden frontend authorization, direct persistence access, reconstructed policy logic in TypeScript/UI, stale controls without server rejection, protected-payload default exposure, reconstruction implemented as rerun/retry, or UI language that represents observed/instrumented external-runtime evidence as authoritative TramAI enforcement.
+Reject hidden frontend authorization, direct persistence access, reconstructed policy logic in TypeScript/UI, stale controls without server rejection, protected-payload default exposure, reconstruction implemented as rerun/retry, or UI language that represents observed/instrumented external-runtime evidence as authoritative TramAI enforcement. Reject UI-only token aggregation that double-counts retries, silently substitutes zero for unknown usage, or treats cost estimates as actual invoices.
+
+The invocation metadata, persistence and query semantics belong to [0.7.5](EPIC-0.7.5-TIMELINE-RECONSTRUCTION.md), with a field-by-field design and reference comparison in [the 0.7.5 invocation timeline design](DESIGN-0.7.5-MODEL-INVOCATION-TIMELINE.md).
