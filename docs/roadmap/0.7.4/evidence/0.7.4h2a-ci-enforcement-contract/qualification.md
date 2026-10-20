@@ -124,3 +124,22 @@ Five controls cover it — four verifier tests plus a real-task test proving the
 
 The real `ci.yml` control still holds unchanged: exit 0 with the intended enrollment, byte-identical restore
 (`d8476d8e3aaf…`), exit 1 without it — the quality job and its gate step carry no `if:`.
+
+## Review round 4 — exact condition matching
+
+The allowlist was consulted with `text.contains(it)`, so any expression containing an allowed condition
+passed: `github.event_name == 'pull_request' && false` and `${{ false && true }}` both permit nothing and
+both were reported as enforced.
+
+The normalized condition (whitespace collapsed, `${{ }}` stripped) is now compared as an **exact member** of
+the allowlist.
+
+| Condition | Verdict |
+|---|---|
+| `github.event_name == 'pull_request' && false` | rejected |
+| `${{ false && true }}` | rejected |
+| `github.event_name != 'pull_request'` | rejected |
+| `always()`, `success()`, `github.event_name == 'pull_request'` | accepted |
+
+Tests now **35** (29 verifier + 6 task), 0 failures. Real `ci.yml` control unchanged: exit 0 with the
+intended enrollment, byte-identical restore (`d8476d8e3aaf…`), exit 1 without it.
