@@ -49,6 +49,7 @@ class CiGateEnrollmentVerifierTest {
         lines += "      - name: Quality gates"
         stepCondition?.let { lines += "        if: $it" }
         if (continuesOnError == "continue-on-error=step") lines += "        continue-on-error: true"
+        changes.valueAfter("step-if=")?.let { lines += "        if: $it" }
         if (extraRun == null) {
             lines += "        run: ./gradlew $steps --no-daemon $masking"
         } else {
@@ -283,6 +284,35 @@ class CiGateEnrollmentVerifierTest {
             gate = "verifyModuleMatrixDrift",
             expectedText = "no workflow step executes it",
         )
+    }
+
+    @Test
+    fun `a step conditioned on a push event is not enforced on pull requests`() {
+        assertAllRejectedWith(
+            mutated("step-if=" + "${'$'}{{ github.event_name == 'push' }}"),
+            expectedText = "not proven to run for pull requests",
+        )
+    }
+
+    @Test
+    fun `a step conditioned on an arbitrary input is not enforced`() {
+        assertAllRejectedWith(
+            mutated("step-if=inputs.generate-baseline"),
+            expectedText = "not proven to run for pull requests",
+        )
+    }
+
+    @Test
+    fun `a step conditioned on the pull request event is enforced`() {
+        assertEquals(
+            emptyList<String>(),
+            findings(mutated("step-if=github.event_name == 'pull_request'")),
+        )
+    }
+
+    @Test
+    fun `a step conditioned on always is enforced`() {
+        assertEquals(emptyList<String>(), findings(mutated("step-if=always()")))
     }
 
     @Test

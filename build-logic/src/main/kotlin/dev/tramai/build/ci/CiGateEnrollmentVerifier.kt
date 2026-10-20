@@ -33,6 +33,14 @@ object CiGateEnrollmentVerifier {
     // deliberately NOT listed: GitHub's default shell is `bash -e`, which aborts at the failing `gradlew`
     // before that line runs, so treating it as masking would be a false positive. The distinction is pinned by
     // tests rather than assumed.
+    // A condition counts as unconditional enforcement only when its satisfaction on the required pull-request
+    // event is *provable*. `${{ github.event_name == 'push' }}` is not "possibly enabled" - it is a gate that
+    // provably never runs for the PR it is supposed to protect, so an unprovable expression is a finding, not a
+    // pass. `github.event_name == 'pull_request'` is listed because it proves PR applicability, and the real
+    // workflows use that form.
+    private val PROVES_PULL_REQUEST =
+        listOf("always()", "success()", "true", "github.event_name == 'pull_request'")
+
     private val MASKING_PATTERNS = listOf("|| true", "||true", "|| :", "||:", "|| exit 0", "set +e")
 
     fun verify(
@@ -252,12 +260,14 @@ object CiGateEnrollmentVerifier {
         val jobCondition = selection.job["if"]
         val mask = MASKING_PATTERNS.firstOrNull { (selection.step["run"] as String).contains(it, ignoreCase = true) }
         return when {
-            yamlBoolean(stepCondition) == false -> {
-                "the step that runs it is conditional ('if: $stepCondition')"
+            conditionUnproven(stepCondition) != null -> {
+                "the step that runs it is conditional ('if: ${conditionUnproven(stepCondition)}') and is not " +
+                    "proven to run for pull requests"
             }
 
-            yamlBoolean(jobCondition) == false -> {
-                "its job is conditional ('if: $jobCondition')"
+            conditionUnproven(jobCondition) != null -> {
+                "its job is conditional ('if: ${conditionUnproven(jobCondition)}') and is not proven to run " +
+                    "for pull requests"
             }
 
             yamlBoolean(selection.step["continue-on-error"]) == true ||
@@ -286,6 +296,26 @@ object CiGateEnrollmentVerifier {
             ?.mapNotNull { entry ->
                 (entry.value as? Map<*, *>)?.let { entry.key.toString() to it }
             }.orEmpty()
+
+    /**
+     * The condition text when it is **not** proven to hold for a pull-request event, or null when it is proven
+     * (or absent). "Cannot be proved" counts as no enforcement: a gate that silently never runs on the pull
+     * request it protects must not pass review. Declared as a value to stay inside the function-count budget.
+     */
+    private val conditionUnproven: (Any?) -> String? = { condition ->
+        val text =
+            condition
+                ?.toString()
+                ?.replace("\${{", "")
+                ?.replace("}}", "")
+                ?.trim()
+                .orEmpty()
+        when {
+            text.isEmpty() -> null
+            PROVES_PULL_REQUEST.any { text.contains(it) } -> null
+            else -> text
+        }
+    }
 
     private fun yamlBoolean(value: Any?): Boolean? =
         when (value) {

@@ -95,6 +95,21 @@ class VerifyCiGateEnrollmentTaskTest {
     }
 
     @Test
+    fun `a step that only runs on push fails closed`() {
+        val conditional =
+            compliantWorkflow().replace(
+                "      - name: Governance integration gates",
+                "      - name: Governance integration gates\n" +
+                    "        if: " + "${'$'}" + "{{ github.event_name == 'push' }}",
+            )
+
+        val failure = assertFailsWith<GradleException> { taskOver(workflowDir("ci.yml" to conditional)).verify() }
+
+        assertContains(failure.message.orEmpty(), "not proven to run for pull requests")
+        assertContains(failure.message.orEmpty(), "3 required gate(s)")
+    }
+
+    @Test
     fun `the task reads every workflow file it is given`() {
         val split =
             compliantWorkflow().replace(
