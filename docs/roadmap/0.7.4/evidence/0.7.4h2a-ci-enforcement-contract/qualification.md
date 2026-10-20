@@ -88,3 +88,16 @@ resolved, and only where execution is real:
 | `./gradlew verifyCiGateEnrollment` after restore | **exit 1**, naming all three gates |
 
 Contract tests are **16** (14 mechanism controls + 2 indirection controls).
+
+## Review round 2 — four cases closed
+
+| Case | Resolution |
+|---|---|
+| A gate named in `echo`, a comment or another program is not execution | the run block is split into command segments on `&&`, `||`, `;`, `|`, and a segment counts only when its **command word is Gradle itself**. `echo "verifyModuleMatrixDrift"`, `# ./gradlew verifyModuleMatrixDrift` and `env ./gradlew-echo verifyModuleMatrixDrift` are rejected; the real `./gradlew "${GRADLE_ARGS[@]}"` still resolves |
+| The failure-artifact upload must belong to the job that runs the gate | it is now checked on the selected job, not on any job in the workflow |
+| A real Gradle-task integration test | `VerifyCiGateEnrollmentTaskTest` drives the task through `ProjectBuilder` so files are read from disk: compliant workflow accepted; no workflow files fail closed; unparseable workflow fails closed naming the gates; a dropped gate fails with "1 required gate(s)"; a gate split across two files still enforced |
+| `./gradlew ... \|\| exit 0` | added as a masking pattern. A bare `; exit 0` is **not** restricted: GitHub runs steps under `bash -e`, which aborts at the failing `gradlew` before that line executes, so treating it as masking would be a false positive. A test asserts the non-restriction explicitly |
+
+Tests: **22 verifier + 5 task = 27, 0 failures**. The repo-scale control was re-run after these changes and
+still holds: `ci.yml` with the two-line enrollment → exit 0; restore byte-identical (`d8476d8e3aaf…`); without
+it → exit 1.
