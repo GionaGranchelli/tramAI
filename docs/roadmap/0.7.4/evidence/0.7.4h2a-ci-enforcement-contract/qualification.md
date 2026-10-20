@@ -55,3 +55,36 @@ the task says so by name instead of passing quietly.
   it merge-required server-side. The merge gate remains `AGENTS.md` plus the owner.
 - `verify060MaintainabilityRelease` cannot be configured in this environment
   (`verifySovereignRuntimeSignedBundle only supports file:// repositories`), so it is not an enforcement vehicle.
+
+## Repo-scale positive control (and the gap it found)
+
+The fixture tests were not sufficient. Applying the intended two-line enrollment to the **real** `ci.yml` and
+running the task showed the verifier rejecting all three gates — because real CI does not name them in the step:
+
+```yaml
+- name: Run quality gates (${{ matrix.name }})
+  run: |
+    GRADLE_ARGS=(${{ matrix.gates }} --no-daemon)
+    ...
+    ./gradlew "${GRADLE_ARGS[@]}"
+```
+
+A search over step text therefore reports a correctly enrolled gate as absent. Both indirections are now
+resolved, and only where execution is real:
+
+- `${{ matrix.FIELD }}` resolves to that field's values across the job's matrix include entries, because every
+  entry runs the same step with its own value;
+- a shell assignment in the same step (`NAME=(a b)`, `NAME="a b"`, `NAME=a`) resolves into the command that
+  references it;
+- the match is restricted to logical `gradlew` command lines, with backslash continuations joined first, so a
+  gate assigned to a variable that no command uses still counts as **not** executed.
+
+| Step | Result |
+|---|---|
+| `ci.yml` byte hash before | `d8476d8e3aaf…` |
+| enrollment applied (2 lines, matrix entry `governance-integration` with all four gates) | patched hash `c9963cb3fa1f…` |
+| `./gradlew verifyCiGateEnrollment` with the enrollment | **exit 0** — "3 required gate(s) audited across 7 workflow file(s)…" |
+| bytes restored | `d8476d8e3aaf…` — **byte-identical** |
+| `./gradlew verifyCiGateEnrollment` after restore | **exit 1**, naming all three gates |
+
+Contract tests are **16** (14 mechanism controls + 2 indirection controls).
