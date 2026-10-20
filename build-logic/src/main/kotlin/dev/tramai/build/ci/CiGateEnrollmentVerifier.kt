@@ -25,6 +25,9 @@ data class CiGateEnrollmentFinding(
  * controlled fixtures and the release task drives it with the real `.github/workflows`.
  */
 object CiGateEnrollmentVerifier {
+    /** A shell assignment inside a step: `NAME=(a b)`, `NAME="a b"` or `NAME=a`. */
+    private val ASSIGNMENT = Regex("^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*\\(?(.*?)\\)?\\s*$")
+
     /** Step-level syntax that turns a failing command into a successful step. */
     private val MASKING_PATTERNS = listOf("|| true", "||true", "|| :", "||:", "set +e")
 
@@ -153,9 +156,78 @@ object CiGateEnrollmentVerifier {
             (job["steps"] as? List<*>)
                 ?.mapNotNull { it as? Map<*, *> }
                 .orEmpty()
-                .filter { step -> (step["run"] as? String)?.let { invokesGate(it, gate) } == true }
-                .map { step -> Selection(workflow, job, step) }
+                .filter { step ->
+                    (step["run"] as? String)
+                        ?.let { run -> executedCommands(job, run).any { invokesGate(it, gate) } } == true
+                }.map { step -> Selection(workflow, job, step) }
         }
+
+    /**
+     * The commands this step would actually run, with matrix references resolved.
+     *
+     * Two things make a naive string search report the wrong answer, and both are in the real workflow:
+     *
+     * 1. CI passes the gate list through the matrix (`GRADLE_ARGS=(${{ matrix.gates }} --no-daemon)`), so the
+     *    task name lives in the matrix definition, not in the step. Every matrix entry runs the same step with
+     *    its own value, so the union of those values is genuinely executed.
+     * 2. Only a line that invokes `gradlew` executes anything. A gate named in the matrix and *assigned* to a
+     *    variable that no command uses is not executed, so the match is restricted to `gradlew` command lines,
+     *    with backslash continuations joined first.
+     *
+     * A matrix value that never reaches a command therefore enlists no gate.
+     */
+    private fun executedCommands(
+        job: Map<*, *>,
+        run: String,
+    ): List<String> {
+        val matrix = (job["strategy"] as? Map<*, *>)?.get("matrix") as? Map<*, *>
+        val values = mutableMapOf<String, MutableList<String>>()
+        for (entry in (matrix?.get("include") as? List<*>).orEmpty().mapNotNull { it as? Map<*, *> }) {
+            for ((key, value) in entry) {
+                values.getOrPut(key.toString()) { mutableListOf() } += value?.toString().orEmpty()
+            }
+        }
+        for ((key, value) in matrix.orEmpty()) {
+            if (value is List<*>) {
+                values.getOrPut(key.toString()) { mutableListOf() } += value.map { it?.toString().orEmpty() }
+            }
+        }
+        val expanded =
+            values.entries.fold(run) { acc, (field, fieldValues) ->
+                acc.replace("\${{ matrix.$field }}", fieldValues.joinToString(" "))
+            }
+        val logical = mutableListOf<String>()
+        val buffer = StringBuilder()
+        for (line in expanded.lines()) {
+            val trimmed = line.trimEnd()
+            buffer.append(trimmed.removeSuffix("\\")).append(' ')
+            if (!trimmed.endsWith("\\")) {
+                logical += buffer.toString()
+                buffer.setLength(0)
+            }
+        }
+        if (buffer.isNotEmpty()) logical += buffer.toString()
+
+        // A step may hand the arguments to the command through a shell variable, which is what the real
+        // workflow does: `GRADLE_ARGS=(${{ matrix.gates }} --no-daemon)` then `./gradlew "${GRADLE_ARGS[@]}"`.
+        // The variable is resolved from its assignment in the same step, so the gate still has to appear in a
+        // real command rather than in any line at all.
+        val assignments =
+            logical
+                .mapNotNull { line ->
+                    ASSIGNMENT.find(line)?.let { match ->
+                        match.groupValues[1] to match.groupValues[2].trim().trim('"', '\'')
+                    }
+                }.toMap()
+        return logical.filter { it.contains("gradlew") }.map { command ->
+            assignments.entries.fold(command) { acc, (name, value) ->
+                acc
+                    .replace("\${" + name + "[@]}", value)
+                    .replace("\${" + name + "}", value)
+                    .replace("$" + name, value)
+            }
+        }
+    }
 
     /**
      * Why this selection would not enforce the gate, or null when it would. Each reason names the mechanism,

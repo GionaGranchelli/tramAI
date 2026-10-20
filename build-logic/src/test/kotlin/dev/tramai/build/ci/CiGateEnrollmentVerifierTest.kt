@@ -188,6 +188,48 @@ class CiGateEnrollmentVerifierTest {
         )
     }
 
+    /** The shape the real ci.yml uses: the gate list arrives through the matrix, not in the step text. */
+    private fun matrixWorkflow(referencesMatrix: Boolean): String {
+        val delegate = "./gradlew \"\${GRADLE_ARGS[@]}\""
+        val invocation = if (referencesMatrix) delegate else "./gradlew spotlessCheck"
+        return """
+            name: ci
+            on:
+              pull_request:
+
+            jobs:
+              quality:
+                runs-on: ubuntu-latest
+                strategy:
+                  fail-fast: false
+                  matrix:
+                    include:
+                      - name: governance-integration
+                        gates: verifyModuleMatrixDrift verifyModuleDocContract verifyNoPublishedTestFixtures
+                steps:
+                  - name: Quality gates (${'$'}{{ matrix.name }})
+                    run: |
+                      GRADLE_ARGS=(${'$'}{{ matrix.gates }} --no-daemon)
+                      $invocation
+                  - name: Upload quality reports
+                    if: always()
+                    uses: actions/upload-artifact@v4
+                    with:
+                      name: reports
+                      path: build/reports
+            """.trimIndent()
+    }
+
+    @Test
+    fun `a gate supplied through the matrix is recognized as executed`() {
+        assertEquals(emptyList<String>(), findings(matrixWorkflow(referencesMatrix = true)))
+    }
+
+    @Test
+    fun `a matrix value that never reaches the command does not count`() {
+        assertEquals(gates.toSet(), rejectedGates(matrixWorkflow(referencesMatrix = false)))
+    }
+
     @Test
     fun `a gate enrolled in a second workflow is still enforced`() {
         val reported =
