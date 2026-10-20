@@ -25,7 +25,9 @@ jobs:
           - name: junit-test-signatures
             gates: verifyJUnitTestSignatures
           # Governance integration (0.7.4h2b): the three gates 0.7.4h1/h2 made real, plus the verifier that
-          # proves this very enrollment. Removing any one of them makes verifyCiGateEnrollment fail.
+          # audits this enrollment. Removing any of the three gates makes verifyCiGateEnrollment fail. Removing
+          # the verifier itself does not: a gate cannot observe its own removal, so that case needs the check
+          # to be required by branch protection (see the 0.7.4h2b qualification record).
           - name: governance-integration
             gates: verifyModuleMatrixDrift verifyModuleDocContract verifyNoPublishedTestFixtures verifyCiGateEnrollment
 

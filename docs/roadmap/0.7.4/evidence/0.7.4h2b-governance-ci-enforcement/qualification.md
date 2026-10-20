@@ -56,11 +56,24 @@ Each mutation applied to the real `.github/workflows/ci.yml` in this checkout, o
 ### Known limit, stated rather than hidden
 
 Removing **the verifier's own invocation** from the matrix exits 0. A gate cannot observe its own removal
-from inside itself: if nothing runs `verifyCiGateEnrollment`, nothing reports that fact. Detecting that
-requires the check to be *required* at the repository level, which is a branch-protection setting and not a
-workflow property. `release/0.7.0` currently has no branch protection (the protection API returns `404`), so
-no check on this branch — including the four pre-existing `quality` legs — is merge-required server-side.
-0.7.4h2b makes the gates execute and fail correctly; it does not and cannot make GitHub require them.
+from inside itself: if nothing runs `verifyCiGateEnrollment`, nothing reports that fact. This is not
+something 0.7.4h2b can fix from inside the workflow, and two distinct mechanisms are often conflated here:
+
+- **A required check** (`quality (governance-integration)` marked required in branch protection) prevents a
+  merge *when that check does not pass or does not report*. It does **not** detect removal of
+  `verifyCiGateEnrollment` from an otherwise successful job: the remaining three gates still run, the job
+  still goes green, the required check still reports success, and the merge gate is satisfied. Required-check
+  status is a merge gate, not an enrollment audit.
+- **An independent enforcement mechanism** is what would detect that removal — for example a second verifier
+  running from a different job or workflow, a scheduled audit that diffs the enrolled gate list against a
+  committed expectation, or a check comparing the workflow against a pinned contract. None of those exist
+  today, and building one is deliberately out of scope for H2b (the mission forbids redesigning the CI
+  infrastructure and forbids broadening the contract without its own evidence).
+
+Additionally, `release/0.7.0` has no branch protection at all (the protection API returns `404`), so no check
+on this branch — including the four pre-existing `quality` legs — is merge-required server-side today.
+0.7.4h2b makes the gates execute and fail correctly for real violations; it neither makes GitHub require them
+nor audits its own enrollment.
 
 ## Review note
 
