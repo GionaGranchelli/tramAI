@@ -101,3 +101,26 @@ Contract tests are **16** (14 mechanism controls + 2 indirection controls).
 Tests: **22 verifier + 5 task = 27, 0 failures**. The repo-scale control was re-run after these changes and
 still holds: `ci.yml` with the two-line enrollment → exit 0; restore byte-identical (`d8476d8e3aaf…`); without
 it → exit 1.
+
+## Review round 3 — conditional execution
+
+`disablingReason()` rejected only a literal `if: false`. Any other expression fell through `yamlBoolean()` as
+`null` and the step counted as unconditional enforcement, so `if: ${{ github.event_name == 'push' }}` was
+"enforceable" while provably never running on a pull request.
+
+A condition now counts only when its satisfaction on the required pull-request event is **provable**:
+
+| Condition | Verdict |
+|---|---|
+| absent / blank | accepted |
+| `always()`, `success()`, `true` | accepted |
+| `github.event_name == 'pull_request'` | accepted — it proves PR applicability, and the real workflows use that form |
+| `${{ github.event_name == 'push' }}` | **rejected**, naming the condition |
+| `inputs.generate-baseline` | **rejected**, naming the condition |
+
+"Unprovable" is treated as no enforcement: a gate nobody can prove runs is a gate nobody can rely on.
+Five controls cover it — four verifier tests plus a real-task test proving the task fails closed with
+"3 required gate(s)" for the push-only workflow. Tests now **32** (26 verifier + 6 task), 0 failures.
+
+The real `ci.yml` control still holds unchanged: exit 0 with the intended enrollment, byte-identical restore
+(`d8476d8e3aaf…`), exit 1 without it — the quality job and its gate step carry no `if:`.
