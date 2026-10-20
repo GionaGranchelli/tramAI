@@ -49,7 +49,6 @@ class CiGateEnrollmentVerifierTest {
         lines += "      - name: Quality gates"
         stepCondition?.let { lines += "        if: $it" }
         if (continuesOnError == "continue-on-error=step") lines += "        continue-on-error: true"
-        changes.valueAfter("step-if=")?.let { lines += "        if: $it" }
         if (extraRun == null) {
             lines += "        run: ./gradlew $steps --no-daemon $masking"
         } else {
@@ -298,6 +297,30 @@ class CiGateEnrollmentVerifierTest {
     fun `a step conditioned on an arbitrary input is not enforced`() {
         assertAllRejectedWith(
             mutated("step-if=inputs.generate-baseline"),
+            expectedText = "not proven to run for pull requests",
+        )
+    }
+
+    @Test
+    fun `a pull request condition conjoined with false is not enforced`() {
+        assertAllRejectedWith(
+            mutated("step-if=github.event_name == 'pull_request' && false"),
+            expectedText = "not proven to run for pull requests",
+        )
+    }
+
+    @Test
+    fun `a false conjunction is not enforced`() {
+        assertAllRejectedWith(
+            mutated("step-if=" + "${'$'}" + "{{ false && true }}"),
+            expectedText = "not proven to run for pull requests",
+        )
+    }
+
+    @Test
+    fun `a negated pull request condition is not enforced`() {
+        assertAllRejectedWith(
+            mutated("step-if=github.event_name != 'pull_request'"),
             expectedText = "not proven to run for pull requests",
         )
     }

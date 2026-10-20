@@ -38,8 +38,18 @@ object CiGateEnrollmentVerifier {
     // provably never runs for the PR it is supposed to protect, so an unprovable expression is a finding, not a
     // pass. `github.event_name == 'pull_request'` is listed because it proves PR applicability, and the real
     // workflows use that form.
+    // Matched exactly, never by substring: `github.event_name == 'pull_request' && false` contains the allowed
+    // text but permits nothing, so a substring test would call a dead step enforced.
+    private val WHITESPACE = Regex("\\s+")
+
     private val PROVES_PULL_REQUEST =
-        listOf("always()", "success()", "true", "github.event_name == 'pull_request'")
+        setOf(
+            "always()",
+            "success()",
+            "true",
+            "github.event_name == 'pull_request'",
+            "github.event_name == \"pull_request\"",
+        )
 
     private val MASKING_PATTERNS = listOf("|| true", "||true", "|| :", "||:", "|| exit 0", "set +e")
 
@@ -309,10 +319,11 @@ object CiGateEnrollmentVerifier {
                 ?.replace("\${{", "")
                 ?.replace("}}", "")
                 ?.trim()
+                ?.replace(WHITESPACE, " ")
                 .orEmpty()
         when {
             text.isEmpty() -> null
-            PROVES_PULL_REQUEST.any { text.contains(it) } -> null
+            text in PROVES_PULL_REQUEST -> null
             else -> text
         }
     }
