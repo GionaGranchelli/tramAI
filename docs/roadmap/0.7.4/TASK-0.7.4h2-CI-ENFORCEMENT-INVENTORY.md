@@ -98,13 +98,17 @@ by itself; the merge gate is `AGENTS.md` plus the owner. Recorded so no later cl
 1. A pure verifier that reads workflow YAML *semantics*: the event triggers (must include `pull_request` with
    the integration branch in scope), the selected job, and the exact step that executes each required gate —
    then refuses each of: gate command removed, step disabled (`if: false`), job disabled, `continue-on-error:
-   true`, shell-level failure masking (`|| true`, `set +e`, `exit 0` in the step), and a missing/unconditional
+   true`, shell-level failure masking (`|| true`, `|| exit 0`, `set +e`), and a missing/unconditional
    failure-artifact upload.
 2. Tests against **controlled workflow fixtures** — one accepted positive and one per negative control — so
    this PR is green on its own unchanged base. The diagnostic must name the specific gate.
 3. The real-repository enforcement task is **registered but not aggregated**, so nothing runs it in this PR.
    It is activated by the workflow-only PR invoking it, which is exactly when the gates it asserts are
    actually enrolled. That keeps the preparatory PR green without weakening the eventual enforcement.
+
+A bare `; exit 0` after the Gradle command is **not** treated as masking: GitHub runs steps under `bash -e`,
+which aborts at the failing `gradlew` before that line executes. Refusing it would be a false positive, and the
+non-restriction is pinned by a test rather than left implicit.
 
 **Phase C (separate `ci-workflow` PR).** Enroll `verifyModuleMatrixDrift`, `verifyModuleDocContract` and
 `verifyNoPublishedTestFixtures` in an existing quality job (matrix entry or step, JDK 25), keep failure
