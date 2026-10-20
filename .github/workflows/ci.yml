@@ -24,6 +24,10 @@ jobs:
             gates: verifyDependencyHygiene
           - name: junit-test-signatures
             gates: verifyJUnitTestSignatures
+          # Governance integration (0.7.4h2b): the three gates 0.7.4h1/h2 made real, plus the verifier that
+          # proves this very enrollment. Removing any one of them makes verifyCiGateEnrollment fail.
+          - name: governance-integration
+            gates: verifyModuleMatrixDrift verifyModuleDocContract verifyNoPublishedTestFixtures verifyCiGateEnrollment
 
     steps:
       - name: Checkout
