@@ -67,3 +67,21 @@ no check on this branch — including the four pre-existing `quality` legs — i
 The 0.7.4h2a contract that this enrollment is validated by was merged in PR #541 and its own controls prove
 each rejection names the specific missing or bypassed gate. Nothing in this PR weakens, replaces or bypasses
 an existing check.
+
+## Phase D1/D2/D3 — the real gates fail for real violations
+
+Run at this head against the real gates, each violation applied to the working tree and restored.
+
+| Control | Clean | Violated | Diagnostic | Restored |
+|---|---|---|---|---|
+| **D1** matrix drift — one phantom row appended to `docs/reference/module-matrix.md` | exit 0 | **exit 1** | `[GENERATED_DOCUMENT_DRIFT] Module matrix drift: run ./gradlew generateModuleMatrix` | byte-identical → exit 0 |
+| **D2** documentation drift — `docs/modules/tramai-engine.md` removed | exit 0 | **exit 1** | `[MODULE_CARD_MISSING] Manifest module 'tramai-engine' has no card in docs/modules` | byte-identical → exit 0 |
+| **D3** fixture publication — reused from 0.7.4h1 | — | exit 1 | 8 findings naming module/variant/artifact (metadata level); `8 variants / 20 files` (repository level); orphan artifact `0/1/0` | byte-identical → exit 0 |
+
+D3 reuse is sound rather than assumed: `git diff eed45f6f..HEAD` over
+`PublishedFixtureLeakVerifier.kt`, `TramaiTestFixturesPlugin.kt` and `VerifyNoPublishedTestFixturesTask.kt` is
+**empty**, so the gate and the convention that produce 0.7.4h1's negative controls are the same code that runs
+in this enrollment.
+
+Each failure names the specific cause and the specific fix, which is the property the mission asks for: CI
+fails for the intended reason, not merely with a non-zero exit.
