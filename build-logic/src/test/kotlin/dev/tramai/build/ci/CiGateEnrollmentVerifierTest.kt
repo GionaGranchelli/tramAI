@@ -30,11 +30,13 @@ class CiGateEnrollmentVerifierTest {
         val stepCondition = changes.valueAfter("step-if=")
         val jobCondition = changes.valueAfter("job-if=")
         val continuesOnError = changes.firstOrNull { it.startsWith("continue-on-error=") }
-        val withArtifact = changes.none { it == "no-artifact" }
+        val withArtifact = changes.none { it == "no-artifact" || it == "artifact-in-other-job" }
         val artifactCondition =
             if (changes.any { it == "artifact-if-success" }) "success()" else "always()"
         val branches =
             if (changes.any { it == "wrong-branch" }) "[master]" else "[release/0.7.0, master]"
+        val extraRun = changes.valueAfter("run-extra=")
+        val artifactInOtherJob = changes.any { it == "artifact-in-other-job" }
 
         val lines = mutableListOf("name: ci", "on:", "  pull_request:", "    branches: $branches", "")
         lines += "jobs:"
@@ -47,7 +49,24 @@ class CiGateEnrollmentVerifierTest {
         lines += "      - name: Quality gates"
         stepCondition?.let { lines += "        if: $it" }
         if (continuesOnError == "continue-on-error=step") lines += "        continue-on-error: true"
-        lines += "        run: ./gradlew $steps --no-daemon $masking"
+        if (extraRun == null) {
+            lines += "        run: ./gradlew $steps --no-daemon $masking"
+        } else {
+            lines += "        run: |"
+            lines += "          ./gradlew $steps --no-daemon $masking"
+            lines += "          $extraRun"
+        }
+        if (artifactInOtherJob) {
+            lines += "  diagnostics:"
+            lines += "    runs-on: ubuntu-latest"
+            lines += "    steps:"
+            lines += "      - name: Upload diagnostics elsewhere"
+            lines += "        if: always()"
+            lines += "        uses: actions/upload-artifact@v4"
+            lines += "        with:"
+            lines += "          name: reports"
+            lines += "          path: build/reports"
+        }
         if (withArtifact) {
             lines += "      - name: Upload diagnostics"
             lines += "        if: $artifactCondition"
@@ -228,6 +247,62 @@ class CiGateEnrollmentVerifierTest {
     @Test
     fun `a matrix value that never reaches the command does not count`() {
         assertEquals(gates.toSet(), rejectedGates(matrixWorkflow(referencesMatrix = false)))
+    }
+
+    @Test
+    fun `a gate named in an echo is not executed`() {
+        assertRejectsOnly(
+            mutated(
+                "steps=verifyModuleDocContract verifyNoPublishedTestFixtures",
+                "run-extra=echo \"verifyModuleMatrixDrift\"",
+            ),
+            gate = "verifyModuleMatrixDrift",
+            expectedText = "no workflow step executes it",
+        )
+    }
+
+    @Test
+    fun `a gate named in a comment is not executed`() {
+        assertRejectsOnly(
+            mutated(
+                "steps=verifyModuleDocContract verifyNoPublishedTestFixtures",
+                "run-extra=# ./gradlew verifyModuleMatrixDrift",
+            ),
+            gate = "verifyModuleMatrixDrift",
+            expectedText = "no workflow step executes it",
+        )
+    }
+
+    @Test
+    fun `a gate whose arguments are echoed to a non-gradle command is not executed`() {
+        assertRejectsOnly(
+            mutated(
+                "steps=verifyModuleDocContract verifyNoPublishedTestFixtures",
+                "run-extra=env ./gradlew-echo verifyModuleMatrixDrift",
+            ),
+            gate = "verifyModuleMatrixDrift",
+            expectedText = "no workflow step executes it",
+        )
+    }
+
+    @Test
+    fun `an artifact upload in an unrelated job does not satisfy the contract`() {
+        assertAllRejectedWith(
+            mutated("artifact-in-other-job"),
+            expectedText = "no 'always()' failure-artifact upload",
+        )
+    }
+
+    @Test
+    fun `or-exit-zero masks the exit status`() {
+        assertAllRejectedWith(mutated("mask=|| exit 0"), expectedText = "masks its exit status")
+    }
+
+    @Test
+    fun `a bare semicolon exit zero is not treated as masking`() {
+        // GitHub runs a failing step under `bash -e`, which aborts at the gradlew failure before `exit 0`
+        // executes. Restricting this would be a false positive, so it is accepted and stated explicitly.
+        assertEquals(emptyList<String>(), findings(mutated("mask=; exit 0")))
     }
 
     @Test

@@ -28,8 +28,12 @@ object CiGateEnrollmentVerifier {
     /** A shell assignment inside a step: `NAME=(a b)`, `NAME="a b"` or `NAME=a`. */
     private val ASSIGNMENT = Regex("^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*\\(?(.*?)\\)?\\s*$")
 
-    /** Step-level syntax that turns a failing command into a successful step. */
-    private val MASKING_PATTERNS = listOf("|| true", "||true", "|| :", "||:", "set +e")
+    // Step-level syntax that turns a failing command into a successful step. `|| exit 0` discards the failing
+    // status exactly like `|| true`. A bare `; exit 0` is
+    // deliberately NOT listed: GitHub's default shell is `bash -e`, which aborts at the failing `gradlew`
+    // before that line runs, so treating it as masking would be a false positive. The distinction is pinned by
+    // tests rather than assumed.
+    private val MASKING_PATTERNS = listOf("|| true", "||true", "|| :", "||:", "|| exit 0", "set +e")
 
     fun verify(
         workflows: Map<String, String>,
@@ -117,16 +121,16 @@ object CiGateEnrollmentVerifier {
             branches == null ||
                 branches.any { it?.toString() == requiredBranch || it?.toString() == "release/**" }
         val reachesBranch = requiredEvent in events && coversBranch
+        // The upload must belong to the job that runs the gate: an artifact step in some unrelated job proves
+        // nothing about this gate's failure evidence.
         val keepsDiagnostics =
-            jobs(root).any { (_, job) ->
-                (job["steps"] as? List<*>)
-                    ?.mapNotNull { it as? Map<*, *> }
-                    .orEmpty()
-                    .any { step ->
-                        val uses = step["uses"] as? String ?: return@any false
-                        uses.contains("upload-artifact") && (step["if"] as? String)?.contains("always()") == true
-                    }
-            }
+            (chosen.job["steps"] as? List<*>)
+                ?.mapNotNull { it as? Map<*, *> }
+                .orEmpty()
+                .any { step ->
+                    val uses = step["uses"] as? String ?: return@any false
+                    uses.contains("upload-artifact") && (step["if"] as? String)?.contains("always()") == true
+                }
         val findings = mutableListOf<CiGateEnrollmentFinding>()
         if (!reachesBranch) {
             findings +=
@@ -219,14 +223,23 @@ object CiGateEnrollmentVerifier {
                         match.groupValues[1] to match.groupValues[2].trim().trim('"', '\'')
                     }
                 }.toMap()
-        return logical.filter { it.contains("gradlew") }.map { command ->
-            assignments.entries.fold(command) { acc, (name, value) ->
-                acc
-                    .replace("\${" + name + "[@]}", value)
-                    .replace("\${" + name + "}", value)
-                    .replace("$" + name, value)
+        return logical
+            .map { line ->
+                assignments.entries.fold(line) { acc, (name, value) ->
+                    acc
+                        .replace("\${" + name + "[@]}", value)
+                        .replace("\${" + name + "}", value)
+                        .replace("$" + name, value)
+                }
+            }.flatMap { line -> line.split("&&", "||", ";", "|") }
+            .map { segment -> segment.trim() }
+            // Naming the gate anywhere else does not execute it: not in an `echo`, not in a comment
+            // (`# ./gradlew verifyModuleMatrixDrift`), not as an argument to another program. The command word
+            // has to be Gradle itself, so this reads the first word of the segment instead of the whole line.
+            .filter { segment ->
+                val command = segment.substringBefore(' ').substringBefore('\t')
+                !segment.startsWith("#") && (command.endsWith("gradlew") || command.endsWith("gradlew.bat"))
             }
-        }
     }
 
     /**
