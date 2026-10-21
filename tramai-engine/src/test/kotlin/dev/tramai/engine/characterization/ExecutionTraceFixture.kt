@@ -2,6 +2,7 @@ package dev.tramai.engine.characterization
 
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
+import dev.tramai.core.exception.ModelRegistryException
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
@@ -132,6 +133,9 @@ internal class ExecutionTraceFixture {
     /** Replaces the trace-recording observer (Epic 0.7.5b: wrap it to observe attempt identity). */
     var observerOverride: OperationObserver? = null
 
+    /** Refuses every model lookup, so the governed path stops before any provider call. */
+    var modelRegistryRejects: Boolean = false
+
     fun engine(): TramaiEngine {
         val cache = RecordingCache(sink, cachePreloaded)
         val provider =
@@ -160,7 +164,7 @@ internal class ExecutionTraceFixture {
             providerRegistry = builder.build(),
             operationObserver = observerOverride ?: RecordingObserver(sink, recordEngineEvents),
             responseCache = if (cacheEnabled) cache else dev.tramai.engine.NoOpOperationResponseCache,
-            modelRegistry = RecordingModelRegistry(sink),
+            modelRegistry = RecordingModelRegistry(sink, reject = modelRegistryRejects),
             modelRegistrySettings = ModelRegistrySettings(enabled = true),
             chatMemory = if (memoryEnabled) RecordingMemory(sink) else null,
             conversationIdProvider = ConversationIdProvider { "conversation-1" },
@@ -397,6 +401,7 @@ internal class ExecutionTraceFixture {
 
     private class RecordingModelRegistry(
         private val sink: ExecutionTraceSink,
+        private val reject: Boolean = false,
     ) : ModelRegistry {
         override suspend fun findApprovedModel(
             providerId: String,
@@ -406,6 +411,7 @@ internal class ExecutionTraceFixture {
                 "model.authorize",
                 "model" to modelName,
             )
+            if (reject) throw ModelRegistryException("model refused by the registry")
             return RegisteredModel("id=*", providerId, modelName, "revision")
         }
     }

@@ -81,3 +81,58 @@ several minutes in this environment (exit 143). Its components were run separate
    that is the point at which the same rule would otherwise be re-implemented three ways.
 7. S18 (workload identity), S19 (event origin) and T1 (caller authentication) remain unresolved from
    0.7.4: a recorded attempt says an attempt was *observed*, not that the caller was authenticated.
+
+## Review round 1 — four corrections
+
+**1. A refused call is not a provider attempt.** Observation used to start before authorization and
+before the `BEFORE_PROVIDER_INVOCATION` gate, so a policy or registry refusal was recorded as an
+attempt (and a registry refusal could land as `UNKNOWN`). Recording now begins only after both
+pre-call checks pass: the engine asks its observer for a recording observation *after* the gate, so a
+refusal leaves no row and a start timestamp describes an actual provider call. Telemetry for the
+refusal is untouched — the pre-existing observation still receives its callbacks.
+
+**2. A delegate failure can no longer drop the record.** Recording used to run after the delegate call
+and depended on the observation returned by the delegate's `onCallStarted`. Delegate callbacks are now
+contained, and the terminal record is written *before* forwarding, so an observer outage cannot erase
+attempt history. Cancellation still escapes through the existing containment rule.
+
+**3. The Spring path is wired by the application, and that gap is documented rather than claimed
+closed.** The persistence starter publishes an `AttemptObservationStore` bean, but the default
+`TramaiAutoConfiguration` never collects an `OperationObserver`, so a default Spring Boot application
+gets the store and records no rows. Installing the recorder is one line at the composition point the
+application already owns:
+
+```kotlin
+Tramai.builder()
+    .observer(AttemptRecordingObserver(store, delegate = myObserver))  // myObserver may be NoOp
+```
+
+That configuration is what the eight engine execution tests drive: they pass an
+`AttemptRecordingObserver` as the engine observer and assert the rows a real provider call produces,
+including retry, refusal, cancellation and duplicate-write cases.
+
+**Not fixed here, stated as a limitation:** the auto-configuration was not changed to install the
+recorder automatically. `TramaiAutoConfiguration.kt` is a legacy file whose pre-existing
+over-long declarations are baselined by exact source snippet; any edit reformats the file, and the
+reformatting rule re-joins the very lines detekt then rejects, so the file cannot be touched without
+an unrelated, unreviewable rewrite of a dozen legacy declarations. That rewrite is a separate task;
+until it happens, automatic Spring recording is not claimed.
+
+**4. In-memory history order matches JDBC.** `InMemoryAttemptObservationStore.findByInvocation` now
+orders by `(startedAt, attempt)` exactly as the durable store does, so a test can no longer pass with
+an order production never returns.
+
+### Added tests
+
+| Invariant | Test |
+|---|---|
+| Recording does not begin at call start (a refusal cannot be recorded) | `recording starts only when the engine asks for it, not at call start` |
+| A throwing delegate cannot drop the record | `a throwing delegate cannot drop the attempt record` |
+| A refused call records nothing end-to-end | `a call refused before the provider is invoked records no attempt` |
+| No store bean means no recorder and no history | `with no observation persistence configured nothing is fabricated` |
+
+### Limit, stated rather than implied
+
+Automatic Spring installation is not implemented (see correction 3). The supported path is explicit
+observer wiring at the application's composition point, exercised end-to-end by the engine execution
+tests; automatic installation is blocked on the separate legacy-file reformat task.

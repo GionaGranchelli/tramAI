@@ -34,7 +34,7 @@ class InMemoryAttemptObservationStore : AttemptObservationStore {
             AttemptHistory.Available(
                 attempts.values
                     .filter { it.invocationId == invocationId }
-                    .sortedBy { it.attempt },
+                    .sortedWith(compareBy({ it.startedAt }, { it.attempt })),
             )
         }
 

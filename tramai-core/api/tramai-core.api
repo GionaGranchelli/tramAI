@@ -1925,7 +1925,7 @@ public final class dev/tramai/core/observation/attempt/AttemptHistory$Uninstrume
 }
 
 public abstract interface class dev/tramai/core/observation/attempt/AttemptIdentifyingObserver : dev/tramai/core/observation/OperationObserver {
-	public abstract fun forAttempt (Ldev/tramai/core/observation/AttemptIdentity;)Ldev/tramai/core/observation/OperationObserver;
+	public abstract fun recording (Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/observation/OperationObservation;Ldev/tramai/core/observation/AttemptIdentity;)Ldev/tramai/core/observation/OperationObservation;
 }
 
 public abstract interface class dev/tramai/core/observation/attempt/AttemptObservationStore {
@@ -1954,8 +1954,8 @@ public final class dev/tramai/core/observation/attempt/AttemptProvenance : java/
 public final class dev/tramai/core/observation/attempt/AttemptRecordingObserver : dev/tramai/core/observation/OperationObserver, dev/tramai/core/observation/attempt/AttemptIdentifyingObserver {
 	public fun <init> (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/core/observation/AttemptIdentity;Ldev/tramai/core/observation/OperationObserver;Ljava/time/Clock;)V
 	public synthetic fun <init> (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/core/observation/AttemptIdentity;Ldev/tramai/core/observation/OperationObserver;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun forAttempt (Ldev/tramai/core/observation/AttemptIdentity;)Ldev/tramai/core/observation/OperationObserver;
 	public fun onCallStarted (Ldev/tramai/core/observation/OperationCallContext;)Ldev/tramai/core/observation/OperationObservation;
+	public fun recording (Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/observation/OperationObservation;Ldev/tramai/core/observation/AttemptIdentity;)Ldev/tramai/core/observation/OperationObservation;
 }
 
 public final class dev/tramai/core/observation/attempt/InMemoryAttemptObservationStore : dev/tramai/core/observation/attempt/AttemptObservationStore {

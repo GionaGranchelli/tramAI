@@ -206,4 +206,21 @@ class ModelAttemptObservationExecutionTest {
         assertThat(UninstrumentedAttemptObservationStore.findByInvocation("any-invocation"))
             .isEqualTo(AttemptHistory.Uninstrumented)
     }
+
+    @Test
+    fun `a call refused before the provider is invoked records no attempt`() {
+        val store = InMemoryAttemptObservationStore()
+        val captor = IdentityCapturingObserver()
+        val fixture =
+            fixtureWith(store, captor) {
+                modelRegistryRejects = true
+            }
+
+        assertThatThrownBy { runBlocking { fixture.engine().create(TraceService::class).answer("input") } }
+            .isInstanceOf(dev.tramai.core.exception.ModelRegistryException::class.java)
+
+        // Authorization runs before recording starts, so a refusal leaves no row: attempt history
+        // must never count a policy or registry refusal as a provider attempt.
+        assertThat(attemptRows(store)).isEmpty()
+    }
 }

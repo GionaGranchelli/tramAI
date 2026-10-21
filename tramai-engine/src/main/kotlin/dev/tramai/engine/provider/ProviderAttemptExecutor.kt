@@ -86,47 +86,45 @@ internal class ProviderAttemptExecutor(
         val maxAttempts = request.operation.operation.providerRetries + 1
         repeat(maxAttempts) { retryIndex ->
             val attempt = startAttempt(request)
+            // Nothing is recorded until the pre-call checks pass: a policy or registry refusal is
+            // not a provider attempt, and recording it would inflate attempt history.
+            var observation = attempt.observation
             try {
                 beforeProviderInvocation.invoke(request.providerId, request.request.model, request.correlationId, request.securityContext)
-                val response =
-                    operationInterceptor.interceptResponse(
-                        attempt.context,
-                        callOnce(request.providerId, request.provider, attempt.request, request.operation),
-                    )
-                val sanitized =
-                    responseSanitizer.sanitize(
-                        response = response,
-                        operation = request.operation,
-                        ref = ProviderCallRef(request.providerId, request.request.model, request.correlationId),
-                        securityContext = request.securityContext,
-                        observation = attempt.observation,
-                    )
-                attempt.observation.onProviderResponse(sanitized)
+                observation = recordingObservation(attempt, request)
+                val sanitized = callProvider(attempt, request, observation)
+                observation.onProviderResponse(sanitized)
                 // Synchronous success must reach the breaker symmetrically with the
                 // streaming path: a healthy completion resets the failure history.
                 circuitBreaker.onSuccess(request.permit)
-                return ProviderCallResult(sanitized, attempt.observation, request.providerId, request.request.model, attempt.approvedModel)
+                return ProviderCallResult(
+                    sanitized,
+                    observation,
+                    request.providerId,
+                    request.request.model,
+                    attempt.approvedModel,
+                )
             } catch (error: DlpInspectionException) {
-                attempt.observation.onCallCompleted(parseSuccess = null)
+                observation.onCallCompleted(parseSuccess = null)
                 circuitBreaker.onAbandoned(request.permit)
                 throw error
             } catch (error: CancellationException) {
-                attempt.observation.completeCancellation(error)
+                observation.completeCancellation(error)
                 circuitBreaker.onAbandoned(request.permit)
                 throw error
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
-                attempt.observation.onProviderFailure(error)
-                attempt.observation.onCallCompleted(parseSuccess = null)
+                observation.onProviderFailure(error)
+                observation.onCallCompleted(parseSuccess = null)
                 when (val decision = retryPolicy.decide(error, retryIndex, maxAttempts)) {
                     is ProviderRetryDecision.Retry -> {
-                        emitRetryScheduled(attempt.observation, request.providerId, retryIndex, decision)
+                        emitRetryScheduled(observation, request.providerId, retryIndex, decision)
                         delay(decision.delayMillis)
                     }
 
                     ProviderRetryDecision.Stop -> {
                         if (circuitBreaker.onFailure(request.permit, error)) {
-                            attempt.observation.emitRuntimeEvent(
+                            observation.emitRuntimeEvent(
                                 RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
                                     set(RuntimeAttributes.PROVIDER_ID, request.providerId)
                                 },
@@ -161,20 +159,43 @@ internal class ProviderAttemptExecutor(
         )
     }
 
+    private suspend fun callProvider(
+        attempt: ProviderRetryAttempt,
+        request: ProviderRetryRequest,
+        observation: OperationObservation,
+    ): ModelResponse {
+        val response =
+            operationInterceptor.interceptResponse(
+                attempt.context,
+                callOnce(request.providerId, request.provider, attempt.request, request.operation),
+            )
+        return responseSanitizer.sanitize(
+            response = response,
+            operation = request.operation,
+            ref = ProviderCallRef(request.providerId, request.request.model, request.correlationId),
+            securityContext = request.securityContext,
+            observation = observation,
+        )
+    }
+
     /**
-     * Binds the configured observer to this invocation when it can attribute attempts (Epic 0.7.5b).
-     * An observer that cannot is used unchanged, and no invocation identity is invented for it.
+     * Asks the configured observer for a recording observation bound to this invocation
+     * (Epic 0.7.5b). An observer that cannot record is used unchanged, and no identity is invented.
+     * Also notes the call helper above: one provider call, intercepted and sanitized.
      */
-    private fun attemptObserverFor(request: ProviderRetryRequest): OperationObserver {
-        val identifying = operationObserver as? AttemptIdentifyingObserver ?: return operationObserver
-        return identifying.forAttempt(
+    private fun recordingObservation(
+        attempt: ProviderRetryAttempt,
+        request: ProviderRetryRequest,
+    ): OperationObservation {
+        val identifying = operationObserver as? AttemptIdentifyingObserver ?: return attempt.observation
+        val identity =
             AttemptIdentity(
                 invocationId = request.invocationId,
                 workflowRunId = request.governedRun?.runId?.value,
                 correlationId = request.correlationId,
                 routeIndex = request.routeIndex,
-            ),
-        )
+            )
+        return identifying.recording(attempt.context, attempt.observation, identity)
     }
 
     private suspend fun startAttempt(request: ProviderRetryRequest): ProviderRetryAttempt {
@@ -187,7 +208,7 @@ internal class ProviderAttemptExecutor(
                 attempt = request.attemptCounter.next(),
             )
         val intercepted = request.request.copy(messages = operationInterceptor.interceptRequest(context, request.request.messages))
-        val observation = attemptObserverFor(request).onCallStarted(context)
+        val observation = operationObserver.onCallStarted(context)
         observation.emitRuntimeEvent(
             RuntimeEvent.of(RuntimeEvents.ROUTE_SELECTED) {
                 set(RuntimeAttributes.PROVIDER_ID, request.providerId)

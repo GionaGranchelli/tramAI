@@ -27,10 +27,17 @@ class FailureIsolatingOperationObserver(
     private val delegate: OperationObserver,
 ) : OperationObserver,
     AttemptIdentifyingObserver {
-    /** Bound delegate stays inside the boundary, so isolation is preserved per attempt. */
-    override fun forAttempt(identity: AttemptIdentity): OperationObserver {
-        val identifying = delegate as? AttemptIdentifyingObserver ?: return this
-        return FailureIsolatingOperationObserver(identifying.forAttempt(identity))
+    /**
+     * The engine passes the observation this boundary already produced, so the recording object
+     * forwards into the isolation wrapper rather than around it.
+     */
+    override fun recording(
+        context: OperationCallContext,
+        observation: OperationObservation,
+        identity: AttemptIdentity,
+    ): OperationObservation {
+        val identifying = delegate as? AttemptIdentifyingObserver ?: return observation
+        return identifying.recording(context, observation, identity)
     }
 
     override fun onCallStarted(context: OperationCallContext): OperationObservation =

@@ -44,18 +44,15 @@ class AttemptRecordingObserver(
     private val clock: Clock = Clock.systemUTC(),
 ) : OperationObserver,
     AttemptIdentifyingObserver {
-    /**
-     * Same store, same delegate, this attempt's identity: the engine calls this once per attempt
-     * and the returned observer records at most one row for it.
-     */
-    override fun forAttempt(identity: AttemptIdentity): OperationObserver {
-        val bound = AttemptRecordingObserver(store, identity, delegate, clock)
-        return bound
-    }
+    /** Observation itself is the delegate's: recording begins only when the engine asks for it. */
+    override fun onCallStarted(context: OperationCallContext): OperationObservation = delegate.onCallStarted(context)
 
-    override fun onCallStarted(context: OperationCallContext): OperationObservation {
+    override fun recording(
+        context: OperationCallContext,
+        observation: OperationObservation,
+        identity: AttemptIdentity,
+    ): OperationObservation {
         val startedAt = clock.instant()
-        val delegateObservation = delegate.onCallStarted(context)
         val invocationId = identity.invocationId
         if (invocationId.isNullOrBlank()) {
             SecondaryFailureDiagnostic.report(
@@ -65,11 +62,11 @@ class AttemptRecordingObserver(
                 failurePolicy = "FAIL_OPEN",
                 authority = SecondaryEffectAuthority.NON_AUTHORITATIVE.name,
             )
-            return delegateObservation
+            return observation
         }
         return RecordingObservation(
             store = store,
-            delegate = delegateObservation,
+            delegate = observation,
             context = context,
             identity = identity,
             startedAt = startedAt,
@@ -93,12 +90,12 @@ class AttemptRecordingObserver(
 
         override fun onProviderResponse(response: ModelResponse) {
             this.response = response
-            delegate.onProviderResponse(response)
+            forwarding("onProviderResponse") { delegate.onProviderResponse(response) }
         }
 
         override fun onProviderFailure(error: Throwable) {
             this.failure = error
-            delegate.onProviderFailure(error)
+            forwarding("onProviderFailure") { delegate.onProviderFailure(error) }
         }
 
         override fun onStructuredParseFailure(
@@ -106,29 +103,32 @@ class AttemptRecordingObserver(
             errorSummary: String,
         ) {
             // Diagnostic material stays on the delegate's privileged channel; it is never recorded.
-            delegate.onStructuredParseFailure(rawResponse, errorSummary)
+            forwarding("onStructuredParseFailure") {
+                delegate.onStructuredParseFailure(rawResponse, errorSummary)
+            }
         }
 
         override fun onEngineEvent(
             name: String,
             attributes: Map<String, Any?>,
         ) {
-            delegate.onEngineEvent(name, attributes)
+            forwarding("onEngineEvent") { delegate.onEngineEvent(name, attributes) }
         }
 
         override fun onEngineEvent(event: RuntimeEvent) {
-            delegate.onEngineEvent(event)
+            forwarding("onEngineEvent") { delegate.onEngineEvent(event) }
         }
 
         override fun onCallCompleted(parseSuccess: Boolean?) {
-            delegate.onCallCompleted(parseSuccess)
+            // Record first: a delegate that throws must not be able to drop the attempt.
             record()
+            forwarding("onCallCompleted") { delegate.onCallCompleted(parseSuccess) }
         }
 
         override fun onCallCancelled() {
             cancelled = true
-            delegate.onCallCancelled()
             record()
+            forwarding("onCallCancelled") { delegate.onCallCancelled() }
         }
 
         /**
@@ -183,8 +183,17 @@ class AttemptRecordingObserver(
     }
 }
 
+@OptIn(ExperimentalTramaiInternalApi::class)
+private fun forwarding(
+    callback: String,
+    action: () -> Unit,
+) {
+    runCatching(action).onFailure { error -> contain(callback, error) }
+}
+
 /**
  * Contains a secondary-effect failure; cancellation always escapes unchanged.
+ * Forwards one callback first and contains its failure, so recording is independent of the delegate.
  */
 @OptIn(ExperimentalTramaiInternalApi::class)
 private fun contain(

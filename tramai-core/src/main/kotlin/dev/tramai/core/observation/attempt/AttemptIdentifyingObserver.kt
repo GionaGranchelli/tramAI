@@ -1,6 +1,8 @@
 package dev.tramai.core.observation.attempt
 
 import dev.tramai.core.observation.AttemptIdentity
+import dev.tramai.core.observation.OperationCallContext
+import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
 
 /**
@@ -15,6 +17,14 @@ import dev.tramai.core.observation.OperationObserver
  * engine uses it unchanged.
  */
 interface AttemptIdentifyingObserver : OperationObserver {
-    /** Returns an observer bound to [identity] for the next attempt, or this observer if unbound. */
-    fun forAttempt(identity: AttemptIdentity): OperationObserver
+    /**
+     * Returns an observation that records the attempt described by [context] and [observation],
+     * attributed to [identity]. The engine calls this **after** authorization and the
+     * before-provider-invocation gate, so a refused call is never recorded as a provider attempt.
+     */
+    fun recording(
+        context: OperationCallContext,
+        observation: OperationObservation,
+        identity: AttemptIdentity,
+    ): OperationObservation
 }
