@@ -324,7 +324,7 @@ internal class RecordingObservation : OperationObservation {
             }.second
 
     @Test
-    fun `a capability refusal records no attempt because the provider was never called`() =
+    fun `a capability refusal records no attempt because the provider was never called`() {
         runBlocking {
             val store = InMemoryAttemptObservationStore()
             val visionLess =
@@ -371,4 +371,5 @@ internal class RecordingObservation : OperationObservation {
             // provider call that never occurred.
             assertThat(store.all()).isEmpty()
         }
+    }
 }
