@@ -42,7 +42,7 @@ class SemanticTimelineQueryTest {
         val timeline =
             query(
                 attempts(
-                    observation("inv-a", attempt = 0, startedAt = "10:00:00", outcome = AttemptOutcome.FAILED),
+                    observation("inv-a", attempt = 0, startedAt = "10:00:00").copy(outcome = AttemptOutcome.FAILED),
                     observation("inv-a", attempt = 1, startedAt = "10:00:05"),
                     observation("inv-b", attempt = 0, startedAt = "10:01:00"),
                 ),
@@ -108,7 +108,7 @@ class SemanticTimelineQueryTest {
                     duplicated,
                     duplicated,
                     duplicated,
-                    observation("inv-a", attempt = 1, tokens = Tokens(input = 1)),
+                    observation("inv-a", attempt = 1, tokens = Tokens(input = 1, output = 2)),
                 ),
             ).timeline(TimelineRequest(RUN))
 
@@ -117,11 +117,35 @@ class SemanticTimelineQueryTest {
         assertThat(usage.attemptsCounted).isEqualTo(2)
         assertThat(usage.duplicatesIgnored).isEqualTo(2)
         assertThat(usage.inputTokens).isEqualTo(11L)
-        assertThat(usage.outputTokens).isEqualTo(5L)
+        assertThat(usage.outputTokens).isEqualTo(7L)
+        assertThat(usage.attemptsWithoutUsage).isZero()
     }
 
     @Test
-    fun `unknown usage stays unknown and thinking tokens are never added to output`() {
+    fun `thinking tokens are never added to the output total`() {
+        val timeline =
+            query(
+                attempts(
+                    observation(
+                        "inv-a",
+                        attempt = 0,
+                        tokens = Tokens(input = 10, output = 5, thinking = 7),
+                    ),
+                ),
+            ).timeline(TimelineRequest(RUN))
+
+        val usage = timeline.usage!!
+        assertThat(usage.inputTokens).isEqualTo(10L)
+        assertThat(usage.outputTokens).isEqualTo(5L)
+        // Its own component, never folded into the completion count.
+        assertThat(usage.thinkingTokens).isEqualTo(7L)
+        assertThat(usage.attemptsWithoutUsage).isZero()
+    }
+
+    @Test
+    fun `a component total is null when any counted attempt did not report it`() {
+        // Attempt 0 reports everything, attempt 1 reports nothing. Summing attempt 0 alone would read
+        // as the run total while silently omitting attempt 1, so every component stays unknown.
         val timeline =
             query(
                 attempts(
@@ -135,13 +159,31 @@ class SemanticTimelineQueryTest {
             ).timeline(TimelineRequest(RUN))
 
         val usage = timeline.usage!!
-        assertThat(usage.inputTokens).isEqualTo(10L)
-        assertThat(usage.outputTokens).isEqualTo(5L)
-        // Reported as its own component, never folded into the completion count.
-        assertThat(usage.thinkingTokens).isEqualTo(7L)
+        assertThat(usage.attemptsCounted).isEqualTo(2)
         assertThat(usage.attemptsWithoutUsage).isEqualTo(1)
+        assertThat(usage.inputTokens).isNull()
+        assertThat(usage.outputTokens).isNull()
+        assertThat(usage.thinkingTokens).isNull()
+    }
 
-        // A component no attempt reported is unknown, not zero.
+    @Test
+    fun `a component missing from one attempt does not suppress a component all attempts reported`() {
+        val timeline =
+            query(
+                attempts(
+                    observation("inv-a", attempt = 0, tokens = Tokens(input = 10, output = 5)),
+                    observation("inv-a", attempt = 1, tokens = Tokens(input = 4, thinking = 2)),
+                ),
+            ).timeline(TimelineRequest(RUN))
+
+        val usage = timeline.usage!!
+        assertThat(usage.inputTokens).isEqualTo(14L)
+        assertThat(usage.outputTokens).isNull()
+        assertThat(usage.thinkingTokens).isNull()
+    }
+
+    @Test
+    fun `unknown usage stays unknown, never zero`() {
         val silent = query(attempts(observation("inv-a", attempt = 0))).timeline(TimelineRequest(RUN)).usage!!
         assertThat(silent.inputTokens).isNull()
         assertThat(silent.outputTokens).isNull()
@@ -203,6 +245,51 @@ class SemanticTimelineQueryTest {
         assertThat(timeline.correlation).isEqualTo(CorrelationEvidence.SAME_WORKFLOW_RUN)
         val snapshot = timeline.governance as GovernanceSection.Snapshot
         assertThat(snapshot.decisionKinds).containsExactly(DecisionKind.POLICY_DECISION)
+    }
+
+    @Test
+    fun `mixed correlation evidence is unresolved instead of picking the id`() {
+        val timeline =
+            query(
+                attempts(
+                    observation("inv-a", attempt = 0),
+                    observation("inv-a", attempt = 1).copy(correlationId = null),
+                ),
+            ).timeline(TimelineRequest(RUN))
+
+        // The invocation cannot claim corr-1: one attempt did not carry it.
+        assertThat(timeline.invocations.single().correlationId).isNull()
+    }
+
+    @Test
+    fun `a snapshot for the same run claims no link when no attempt was observed`() {
+        val timeline =
+            query(attempts(), service(GovernanceQueryResult.Found(view(runId = RUN))))
+                .timeline(TimelineRequest(RUN, scopeFor(RUN)))
+
+        assertThat(timeline.governance).isInstanceOf(GovernanceSection.Snapshot::class.java)
+        // Same run, but there is no observed side to link to.
+        assertThat(timeline.correlation).isEqualTo(CorrelationEvidence.NONE)
+    }
+
+    @Test
+    fun `an unsupported or invalid projection is carried through as its own state`() {
+        val unsupported =
+            query(attempts(observation("inv-a", attempt = 0)), service(GovernanceQueryResult.UnsupportedFormat("v9")))
+                .timeline(TimelineRequest(RUN, scopeFor(RUN)))
+        assertThat(unsupported.governance).isEqualTo(GovernanceSection.UnsupportedFormat("v9"))
+        assertThat(unsupported.correlation).isEqualTo(CorrelationEvidence.NONE)
+
+        val invalid =
+            query(
+                attempts(observation("inv-a", attempt = 0)),
+                service(GovernanceQueryResult.InvalidStoredProjection("digest mismatch")),
+            ).timeline(TimelineRequest(RUN, scopeFor(RUN)))
+        assertThat(invalid.governance).isEqualTo(GovernanceSection.InvalidStoredProjection("digest mismatch"))
+        assertThat(invalid.correlation).isEqualTo(CorrelationEvidence.NONE)
+        // A refused projection never becomes a snapshot, and the attempts still stand on their own.
+        assertThat(invalid.governance).isNotInstanceOf(GovernanceSection.Snapshot::class.java)
+        assertThat(invalid.invocations).hasSize(1)
     }
 
     @Test
@@ -304,7 +391,6 @@ class SemanticTimelineQueryTest {
         attempt: Int,
         startedAt: String = "10:00:00",
         tokens: Tokens = Tokens(),
-        outcome: AttemptOutcome = AttemptOutcome.SUCCEEDED,
     ) = ModelAttemptObservation(
         invocationId = invocationId,
         attempt = attempt,
@@ -317,7 +403,7 @@ class SemanticTimelineQueryTest {
         startedAt = at(startedAt),
         completedAt = at(startedAt).plusSeconds(1),
         durationMillis = 1_000,
-        outcome = outcome,
+        outcome = AttemptOutcome.SUCCEEDED,
         failureCategory = null,
         finishReason = "STOP",
         finishReasonReported = false,

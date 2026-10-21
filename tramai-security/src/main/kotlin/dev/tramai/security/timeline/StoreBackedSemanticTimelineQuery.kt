@@ -30,7 +30,13 @@ internal class StoreBackedSemanticTimelineQuery(
             invocations = invocationsOf(distinct),
             usage = usageOf(recorded, distinct),
             governance = governanceSection,
-            correlation = correlationOf(request, governanceSection),
+            // With nothing observed there is no second side to correlate, so no link is claimed.
+            correlation =
+                if (distinct.isEmpty()) {
+                    CorrelationEvidence.NONE
+                } else {
+                    correlationOf(request, governanceSection)
+                },
         )
     }
 
@@ -68,9 +74,14 @@ internal fun invocationsOf(attempts: List<ModelAttemptObservation>): List<Invoca
             InvocationTimeline(invocationId, agreedCorrelationId(ordered), ordered)
         }.sortedWith(compareBy({ it.attempts.first().startedAt }, { it.invocationId }))
 
-/** One correlation id, or `null` when none was recorded or the attempts recorded different ones. */
+/**
+ * One correlation id, or `null` when the attempts do not all carry the same one.
+ *
+ * `null` values are kept in the comparison: an attempt with an id beside an attempt without one is
+ * mixed evidence, and picking the id would assert an association the records do not support.
+ */
 internal fun agreedCorrelationId(attempts: List<ModelAttemptObservation>): String? =
-    attempts.mapNotNull { it.correlationId }.distinct().singleOrNull()
+    attempts.map { it.correlationId }.distinct().singleOrNull()
 
 /**
  * Run-level usage over distinct attempts. A component no attempt reported stays `null`: unknown is
@@ -85,9 +96,9 @@ internal fun usageOf(
         attemptsCounted = distinct.size,
         duplicatesIgnored = recorded.size - distinct.size,
         attemptsWithoutUsage = distinct.count(::reportedNoUsage),
-        inputTokens = distinct.sumOrNull { it.inputTokens },
-        outputTokens = distinct.sumOrNull { it.outputTokens },
-        thinkingTokens = distinct.sumOrNull { it.thinkingTokens },
+        inputTokens = distinct.completeSumOrNull { it.inputTokens },
+        outputTokens = distinct.completeSumOrNull { it.outputTokens },
+        thinkingTokens = distinct.completeSumOrNull { it.thinkingTokens },
     )
 }
 
@@ -95,6 +106,14 @@ internal fun usageOf(
 private fun reportedNoUsage(attempt: ModelAttemptObservation): Boolean =
     attempt.inputTokens == null && attempt.outputTokens == null && attempt.thinkingTokens == null
 
-/** Sums the reported values, or `null` when none was reported — never `0` for "unreported". */
-private fun List<ModelAttemptObservation>.sumOrNull(select: (ModelAttemptObservation) -> Int?): Long? =
-    mapNotNull(select).takeIf { it.isNotEmpty() }?.sumOf { it.toLong() }
+/**
+ * A run total only when every counted attempt reported this component; otherwise `null`.
+ *
+ * Summing the attempts that happened to report would produce a number that reads as the run's total
+ * while silently omitting the attempts that reported nothing. A partial sum is not a total, and an
+ * invented total is the failure this record type exists to prevent.
+ */
+private fun List<ModelAttemptObservation>.completeSumOrNull(select: (ModelAttemptObservation) -> Int?): Long? {
+    val values = mapNotNull(select)
+    return values.takeIf { it.size == size }?.sumOf { it.toLong() }
+}

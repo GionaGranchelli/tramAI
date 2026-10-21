@@ -29,9 +29,12 @@ reports `NotConfigured`, and neither is reported as "governance recorded nothing
   `NotMaterialized` / `UnsupportedFormat` / `InvalidStoredProjection`, never "nothing happened".
 - **A scope for another run is refused.** `TimelineRequest` rejects a `governanceScope` naming a
   different `workflowRunId` rather than presenting that run's governance beside these attempts.
-- **Unknown is not zero.** Usage components are `null` when no attempt reported them, and the usage
-  summary itself is `null` when no attempt was recorded. Thinking tokens are their own component and
-  are never added into the output total.
+- **Unknown is not zero, and a partial sum is not a total.** A usage component is reported only when
+  **every** counted attempt reported it; summing the attempts that happened to report would produce a
+  number that reads as the run total while silently omitting the rest. Components are `null`
+  otherwise, the summary itself is `null` when nothing was recorded, and `attemptsWithoutUsage` is
+  the count to read when a component is `null`. Thinking tokens are their own component and are never
+  added into the output total.
 - **Uninstrumented history is not empty history.** `AttemptHistoryState` separates `UNINSTRUMENTED`
   (nothing persists, so nothing can be established) from `EMPTY` (recording works and found nothing)
   from `RECORDED`.
@@ -39,6 +42,11 @@ reports `NotConfigured`, and neither is reported as "governance recorded nothing
   keep their own authority. Nothing in the timeline promotes an observation to authority.
 
 ## Determinism
+
+A correlation id is reported for an invocation only when every attempt carries the same one: an
+attempt with an id beside an attempt without one is mixed evidence, and picking the id would assert an
+association the records do not support. A snapshot that answers for the same run claims no link at all
+when no attempt was observed, because there is no second side to correlate.
 
 Ordering is derived only from recorded fields: invocations by first attempt `startedAt` then
 `invocationId`, attempts by `(startedAt, attempt)`, the flat attempt list by
@@ -58,6 +66,11 @@ collapsed before anything is counted.
 | Uninstrumented ≠ empty | `uninstrumented history is not empty history` |
 | Missing correlation stays unresolved | `missing correlation remains unresolved` |
 | Only same-run identity is claimed | `a governance snapshot for the same run is the only correlation claimed` |
+| Mixed correlation evidence is not agreement | `mixed correlation evidence is unresolved instead of picking the id` |
+| A same-run snapshot links to nothing when nothing was observed | `a snapshot for the same run claims no link when no attempt was observed` |
+| A partial component total is not a run total | `a component total is null when any counted attempt did not report it` |
+| A component every attempt reported still sums | `a component missing from one attempt does not suppress a component all attempts reported` |
+| A refused projection keeps its own state | `an unsupported or invalid projection is carried through as its own state` |
 | A foreign-run scope is refused | `a governance scope naming another run is refused rather than presented` |
 | An unmaterialized projection does not erase attempts | `an unmaterialized projection is reported as such and not as absent governance` |
 | Observations never become authority | `observations stay observed telemetry and never become governance evidence` |
@@ -78,8 +91,12 @@ The engine test opts in to the internal API marker at file level because `Govern
 plumbing, not application vocabulary: it is the sanctioned way to put a real call inside a governed
 run without inventing an identity.
 
-Test totals at the head that opened the PR: `:tramai-security:test` 1269/0, `:tramai-engine:test`
-1023/0 (5 new execution tests, 13 new timeline tests).
+Review round 1 corrected three of these claims and added the tests above. Discrimination recorded:
+with the partial-sum, `mapNotNull` correlation and unconditional-correlation mutants applied, the
+three corresponding tests fail; with the fix restored they pass.
+
+Test totals at the head that opened the PR: `:tramai-security:test` 1275/0, `:tramai-engine:test`
+1023/0 (5 new execution tests, 19 timeline tests).
 
 ## Not done, deliberately
 

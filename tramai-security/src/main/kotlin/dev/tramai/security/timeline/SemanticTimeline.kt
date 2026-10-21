@@ -131,7 +131,8 @@ public data class InvocationTimeline(
     public val invocationId: String,
     /**
      * The correlation id the attempts of this invocation carry, or `null` when none was recorded or
-     * when the attempts disagree. Disagreement is reported as `null`, never resolved by picking one.
+     * when the attempts do not all carry the same one — including the case where one carries an id
+     * and another carries none. Mixed evidence is reported as `null`, never resolved by picking.
      */
     public val correlationId: String?,
     /** Attempts ordered by `(startedAt, attempt)`. */
@@ -153,9 +154,11 @@ public data class InvocationTimeline(
  * Run-level usage observed across the attempts in this timeline.
  *
  * `null` components are unknown, never zero: a provider that reported no token count is not a
- * provider that used none. Thinking tokens are reported as their own component and are never added
- * into [outputTokens], because providers that fold reasoning into the completion count would then be
- * counted twice.
+ * provider that used none. A component is reported only when **every** counted attempt reported it —
+ * summing the attempts that happened to report would read as a run total while omitting the rest, so
+ * [attemptsWithoutUsage] is the count to read when a component is `null`. Thinking tokens are their
+ * own component and are never added into [outputTokens], because providers that fold reasoning into
+ * the completion count would then be counted twice.
  */
 public data class ObservedUsage(
     /** Distinct `(invocationId, attempt)` observations counted. */
