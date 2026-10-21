@@ -1321,6 +1321,169 @@ public final class dev/tramai/security/model/InMemoryModelRegistry$Companion {
 	public final fun builder ()Ldev/tramai/security/model/InMemoryModelRegistry$Builder;
 }
 
+public final class dev/tramai/security/timeline/AttemptHistoryState : java/lang/Enum {
+	public static final field EMPTY Ldev/tramai/security/timeline/AttemptHistoryState;
+	public static final field RECORDED Ldev/tramai/security/timeline/AttemptHistoryState;
+	public static final field UNINSTRUMENTED Ldev/tramai/security/timeline/AttemptHistoryState;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/timeline/AttemptHistoryState;
+	public static fun values ()[Ldev/tramai/security/timeline/AttemptHistoryState;
+}
+
+public final class dev/tramai/security/timeline/CorrelationEvidence : java/lang/Enum {
+	public static final field NONE Ldev/tramai/security/timeline/CorrelationEvidence;
+	public static final field SAME_WORKFLOW_RUN Ldev/tramai/security/timeline/CorrelationEvidence;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/timeline/CorrelationEvidence;
+	public static fun values ()[Ldev/tramai/security/timeline/CorrelationEvidence;
+}
+
+public abstract interface class dev/tramai/security/timeline/GovernanceSection {
+}
+
+public final class dev/tramai/security/timeline/GovernanceSection$InvalidStoredProjection : dev/tramai/security/timeline/GovernanceSection {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/security/timeline/GovernanceSection$InvalidStoredProjection;
+	public static synthetic fun copy$default (Ldev/tramai/security/timeline/GovernanceSection$InvalidStoredProjection;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/timeline/GovernanceSection$InvalidStoredProjection;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/timeline/GovernanceSection$NotConfigured : dev/tramai/security/timeline/GovernanceSection {
+	public static final field INSTANCE Ldev/tramai/security/timeline/GovernanceSection$NotConfigured;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/timeline/GovernanceSection$NotMaterialized : dev/tramai/security/timeline/GovernanceSection {
+	public static final field INSTANCE Ldev/tramai/security/timeline/GovernanceSection$NotMaterialized;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/timeline/GovernanceSection$NotQueried : dev/tramai/security/timeline/GovernanceSection {
+	public static final field INSTANCE Ldev/tramai/security/timeline/GovernanceSection$NotQueried;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/timeline/GovernanceSection$Snapshot : dev/tramai/security/timeline/GovernanceSection {
+	public fun <init> (Ldev/tramai/security/governance/query/GovernanceProjectionView;)V
+	public final fun component1 ()Ldev/tramai/security/governance/query/GovernanceProjectionView;
+	public final fun copy (Ldev/tramai/security/governance/query/GovernanceProjectionView;)Ldev/tramai/security/timeline/GovernanceSection$Snapshot;
+	public static synthetic fun copy$default (Ldev/tramai/security/timeline/GovernanceSection$Snapshot;Ldev/tramai/security/governance/query/GovernanceProjectionView;ILjava/lang/Object;)Ldev/tramai/security/timeline/GovernanceSection$Snapshot;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDecisionKinds ()Ljava/util/List;
+	public final fun getView ()Ldev/tramai/security/governance/query/GovernanceProjectionView;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/timeline/GovernanceSection$UnsupportedFormat : dev/tramai/security/timeline/GovernanceSection {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/security/timeline/GovernanceSection$UnsupportedFormat;
+	public static synthetic fun copy$default (Ldev/tramai/security/timeline/GovernanceSection$UnsupportedFormat;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/timeline/GovernanceSection$UnsupportedFormat;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/timeline/InvocationTimeline {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)Ldev/tramai/security/timeline/InvocationTimeline;
+	public static synthetic fun copy$default (Ldev/tramai/security/timeline/InvocationTimeline;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/security/timeline/InvocationTimeline;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempts ()Ljava/util/List;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getFinalOutcome ()Ldev/tramai/core/observation/attempt/AttemptOutcome;
+	public final fun getInvocationId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/timeline/ObservedUsage {
+	public fun <init> (IIILjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()Ljava/lang/Long;
+	public final fun component5 ()Ljava/lang/Long;
+	public final fun component6 ()Ljava/lang/Long;
+	public final fun copy (IIILjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)Ldev/tramai/security/timeline/ObservedUsage;
+	public static synthetic fun copy$default (Ldev/tramai/security/timeline/ObservedUsage;IIILjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;ILjava/lang/Object;)Ldev/tramai/security/timeline/ObservedUsage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttemptsCounted ()I
+	public final fun getAttemptsWithoutUsage ()I
+	public final fun getDuplicatesIgnored ()I
+	public final fun getInputTokens ()Ljava/lang/Long;
+	public final fun getOutputTokens ()Ljava/lang/Long;
+	public final fun getThinkingTokens ()Ljava/lang/Long;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/timeline/SemanticTimeline {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/security/timeline/AttemptHistoryState;Ljava/util/List;Ldev/tramai/security/timeline/ObservedUsage;Ldev/tramai/security/timeline/GovernanceSection;Ldev/tramai/security/timeline/CorrelationEvidence;)V
+	public final fun attempts ()Ljava/util/List;
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/security/timeline/AttemptHistoryState;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Ldev/tramai/security/timeline/ObservedUsage;
+	public final fun component5 ()Ldev/tramai/security/timeline/GovernanceSection;
+	public final fun component6 ()Ldev/tramai/security/timeline/CorrelationEvidence;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/security/timeline/AttemptHistoryState;Ljava/util/List;Ldev/tramai/security/timeline/ObservedUsage;Ldev/tramai/security/timeline/GovernanceSection;Ldev/tramai/security/timeline/CorrelationEvidence;)Ldev/tramai/security/timeline/SemanticTimeline;
+	public static synthetic fun copy$default (Ldev/tramai/security/timeline/SemanticTimeline;Ljava/lang/String;Ldev/tramai/security/timeline/AttemptHistoryState;Ljava/util/List;Ldev/tramai/security/timeline/ObservedUsage;Ldev/tramai/security/timeline/GovernanceSection;Ldev/tramai/security/timeline/CorrelationEvidence;ILjava/lang/Object;)Ldev/tramai/security/timeline/SemanticTimeline;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCorrelation ()Ldev/tramai/security/timeline/CorrelationEvidence;
+	public final fun getFirstAttemptAt ()Ljava/time/Instant;
+	public final fun getGovernance ()Ldev/tramai/security/timeline/GovernanceSection;
+	public final fun getHistory ()Ldev/tramai/security/timeline/AttemptHistoryState;
+	public final fun getInvocations ()Ljava/util/List;
+	public final fun getUsage ()Ldev/tramai/security/timeline/ObservedUsage;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/security/timeline/SemanticTimelineQuery {
+	public static final field Companion Ldev/tramai/security/timeline/SemanticTimelineQuery$Companion;
+	public static fun of (Ldev/tramai/core/observation/attempt/AttemptObservationStore;)Ldev/tramai/security/timeline/SemanticTimelineQuery;
+	public static fun of (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/security/governance/query/GovernanceQueryService;)Ldev/tramai/security/timeline/SemanticTimelineQuery;
+	public abstract fun timeline (Ldev/tramai/security/timeline/TimelineRequest;)Ldev/tramai/security/timeline/SemanticTimeline;
+}
+
+public final class dev/tramai/security/timeline/SemanticTimelineQuery$Companion {
+	public final fun of (Ldev/tramai/core/observation/attempt/AttemptObservationStore;)Ldev/tramai/security/timeline/SemanticTimelineQuery;
+	public final fun of (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/security/governance/query/GovernanceQueryService;)Ldev/tramai/security/timeline/SemanticTimelineQuery;
+	public static synthetic fun of$default (Ldev/tramai/security/timeline/SemanticTimelineQuery$Companion;Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/security/governance/query/GovernanceQueryService;ILjava/lang/Object;)Ldev/tramai/security/timeline/SemanticTimelineQuery;
+}
+
+public final class dev/tramai/security/timeline/TimelineRequest {
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ldev/tramai/security/governance/query/GovernanceQueryRequest;)V
+	public synthetic fun <init> (Ljava/lang/String;Ldev/tramai/security/governance/query/GovernanceQueryRequest;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/security/governance/query/GovernanceQueryRequest;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/security/governance/query/GovernanceQueryRequest;)Ldev/tramai/security/timeline/TimelineRequest;
+	public static synthetic fun copy$default (Ldev/tramai/security/timeline/TimelineRequest;Ljava/lang/String;Ldev/tramai/security/governance/query/GovernanceQueryRequest;ILjava/lang/Object;)Ldev/tramai/security/timeline/TimelineRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getGovernanceScope ()Ldev/tramai/security/governance/query/GovernanceQueryRequest;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class dev/tramai/security/verification/FileSystemModelArtifactVerifier : dev/tramai/core/model/ModelArtifactVerifier {
 	public static final field HASH_BUFFER_SIZE I
 	public fun <init> (Ljava/util/Set;Ljava/util/Map;Ljava/time/Clock;)V
