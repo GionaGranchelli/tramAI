@@ -7,7 +7,7 @@
 
 ### Responsibility
 
-Implements the sovereign store SPIs on PostgreSQL/JDBC: approval stores, continuation stores, audit store, suspended-invocation store, replay envelope codecs, and the 0.7.1c control-plane workload registration store (`JdbcWorkloadRegistrationStore`, tables in migration `V8__control_plane_workload_registration.sql`). Consumed directly or via `tramai-spring-boot-starter-sovereign-persistence-jdbc`.
+Implements the sovereign store SPIs on PostgreSQL/JDBC: approval stores, continuation stores, audit store, suspended-invocation store, replay envelope codecs, the 0.7.1c control-plane workload registration store (`JdbcWorkloadRegistrationStore`, tables in migration `V8__control_plane_workload_registration.sql`), and the 0.7.5b model-attempt observation store (`JdbcModelAttemptObservationStore`, table in migration `V9__model_attempt_observations.sql`). Consumed directly or via `tramai-spring-boot-starter-sovereign-persistence-jdbc`.
 
 ### Public entry points
 

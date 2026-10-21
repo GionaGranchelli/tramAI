@@ -80,8 +80,7 @@ class ProviderCancellationContractTest {
             runBlocking {
                 executor(
                     observation = observation,
-                    retryPolicy = retryPolicy,
-                    circuitBreaker = circuitBreaker,
+                    resilience = ExecutorResilience(retryPolicy = retryPolicy, circuitBreaker = circuitBreaker),
                 ).execute(
                     request(
                         FakeProvider {
@@ -148,7 +147,7 @@ class ProviderCancellationContractTest {
         val attemptExecutor =
             executor(
                 observation = observation,
-                retryPolicy = retryPolicy,
+                resilience = ExecutorResilience(retryPolicy = retryPolicy),
                 authorization = authorization { throw cancellation },
             )
 

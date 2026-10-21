@@ -309,7 +309,7 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
                 coordinator(
                     plan = plan(provider),
                     breaker = breaker,
-                    sanitizer = ProviderResponseSanitizer { _, _, _, _, _, _, _ -> throw dlp },
+                    sanitizer = ProviderResponseSanitizer { _, _, _, _, _ -> throw dlp },
                 )
 
             // First call fails retryably -> OPEN until t=100.
@@ -752,14 +752,14 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     private fun coordinator(
         plan: ProviderRoutingPlan,
         breaker: ProviderCircuitBreaker,
-        sanitizer: ProviderResponseSanitizer = ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
+        sanitizer: ProviderResponseSanitizer = ProviderResponseSanitizer { response, _, _, _, _ -> response },
         observation: RecordingObservation = RecordingObservation(),
         interceptor: OperationInterceptor = object : OperationInterceptor {},
     ): ProviderExecutionCoordinator {
         val attempt =
             executor(
                 observation = observation,
-                circuitBreaker = breaker,
+                resilience = ExecutorResilience(circuitBreaker = breaker),
                 sanitizer = sanitizer,
                 interceptor = interceptor,
             )

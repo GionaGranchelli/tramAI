@@ -74,6 +74,14 @@ internal data class ProviderExecutionRequest(
     val securityContext: ExecutionSecurityContext,
     val beforeRoute: ProviderRouteGate,
     val governedRun: GovernedRunIdentity? = null,
+    /**
+     * Identity of this invocation (Epic 0.7.5b). Generated once per [ProviderExecutionRequest], so
+     * every attempt of this invocation shares it and no second invocation can reuse it.
+     */
+    val invocationId: String =
+        java.util.UUID
+            .randomUUID()
+            .toString(),
 )
 
 /**
@@ -312,6 +320,8 @@ internal class ProviderExecutionCoordinator(
         securityContext = request.securityContext,
         permit =
         permit,
+        invocationId = request.invocationId,
+        governedRun = request.governedRun,
     )
 }
 

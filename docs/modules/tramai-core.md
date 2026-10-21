@@ -19,6 +19,7 @@ Zero- to near-zero-dependency contracts and SPI surface: `@AiService`/`@Operatio
 - Policy: `PolicyEngine`, `EnforcementPoint`, `PolicyDecision`
 - Approval: `ApprovalStore`, `ApprovalContinuationStore`, `ApprovalGateway`, `ApprovalToken`
 - Events: `RuntimeEventCatalogue` (authoritative event/reason-code catalogue)
+- Attempt observation (0.7.5b): `OperationObserver`, `OperationCallContext`, `AttemptIdentity`, `ModelAttemptObservation`, `AttemptObservationStore`, `AttemptHistory`, `AttemptRecordingObserver`
 - Exceptions: `TramaiException` hierarchy
 
 Verify the full public surface against `tramai-core/api/tramai-core.api`.

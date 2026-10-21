@@ -125,6 +125,13 @@ public final class dev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/persistence/jdbc/JdbcModelAttemptObservationStore : dev/tramai/core/observation/attempt/AttemptObservationStore {
+	public fun <init> (Ljavax/sql/DataSource;)V
+	public fun append (Ldev/tramai/core/observation/attempt/ModelAttemptObservation;)Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
+	public fun findByInvocation (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;
+	public fun findByWorkflowRun (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;
+}
+
 public abstract interface class dev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec {
 	public abstract fun decode (Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;)[B
 	public abstract fun encode ([B)Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;

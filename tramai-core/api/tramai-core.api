@@ -1731,6 +1731,25 @@ public final class dev/tramai/core/nativeimage/NativeImageProxyConfig {
 	public static final fun write (Ljava/nio/file/Path;[Lkotlin/reflect/KClass;)V
 }
 
+public final class dev/tramai/core/observation/AttemptIdentity {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;)Ldev/tramai/core/observation/AttemptIdentity;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/AttemptIdentity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;ILjava/lang/Object;)Ldev/tramai/core/observation/AttemptIdentity;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getInvocationId ()Ljava/lang/String;
+	public final fun getRouteIndex ()Ljava/lang/Integer;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class dev/tramai/core/observation/CompositeOperationInterceptor : dev/tramai/core/observation/OperationInterceptor {
 	public fun <init> (Ljava/util/List;)V
 	public fun interceptRequest (Ldev/tramai/core/observation/OperationCallContext;Ljava/util/List;)Ljava/util/List;
@@ -1771,15 +1790,19 @@ public final class dev/tramai/core/observation/NoOpToolFailureDiagnosticObserver
 
 public final class dev/tramai/core/observation/OperationCallContext {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/core/observation/AttemptIdentity;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/core/observation/AttemptIdentity;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/String;
 	public final fun component5 ()I
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)Ldev/tramai/core/observation/OperationCallContext;
-	public static synthetic fun copy$default (Ldev/tramai/core/observation/OperationCallContext;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IILjava/lang/Object;)Ldev/tramai/core/observation/OperationCallContext;
+	public final fun component6 ()Ldev/tramai/core/observation/AttemptIdentity;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/core/observation/AttemptIdentity;)Ldev/tramai/core/observation/OperationCallContext;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/OperationCallContext;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/core/observation/AttemptIdentity;ILjava/lang/Object;)Ldev/tramai/core/observation/OperationCallContext;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAttempt ()I
+	public final fun getIdentity ()Ldev/tramai/core/observation/AttemptIdentity;
 	public final fun getMethodName ()Ljava/lang/String;
 	public final fun getProviderId ()Ljava/lang/String;
 	public final fun getRequestedModel ()Ljava/lang/String;
@@ -1873,6 +1896,126 @@ public final class dev/tramai/core/observation/ToolFailureDiagnosticEvent {
 
 public abstract interface class dev/tramai/core/observation/ToolFailureDiagnosticObserver {
 	public abstract fun record (Ldev/tramai/core/observation/ToolFailureDiagnosticEvent;)V
+}
+
+public final class dev/tramai/core/observation/attempt/AttemptAppendOutcome : java/lang/Enum {
+	public static final field ALREADY_RECORDED Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
+	public static final field RECORDED Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
+	public static final field UNINSTRUMENTED Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
+	public static fun values ()[Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
+}
+
+public abstract interface class dev/tramai/core/observation/attempt/AttemptHistory {
+}
+
+public final class dev/tramai/core/observation/attempt/AttemptHistory$Available : dev/tramai/core/observation/attempt/AttemptHistory {
+	public fun <init> (Ljava/util/List;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun copy (Ljava/util/List;)Ldev/tramai/core/observation/attempt/AttemptHistory$Available;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/attempt/AttemptHistory$Available;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/core/observation/attempt/AttemptHistory$Available;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempts ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/observation/attempt/AttemptHistory$Uninstrumented : dev/tramai/core/observation/attempt/AttemptHistory {
+	public static final field INSTANCE Ldev/tramai/core/observation/attempt/AttemptHistory$Uninstrumented;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/observation/attempt/AttemptObservationStore {
+	public abstract fun append (Ldev/tramai/core/observation/attempt/ModelAttemptObservation;)Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
+	public abstract fun findByInvocation (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;
+	public abstract fun findByWorkflowRun (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;
+}
+
+public final class dev/tramai/core/observation/attempt/AttemptOutcome : java/lang/Enum {
+	public static final field CANCELLED Ldev/tramai/core/observation/attempt/AttemptOutcome;
+	public static final field FAILED Ldev/tramai/core/observation/attempt/AttemptOutcome;
+	public static final field SUCCEEDED Ldev/tramai/core/observation/attempt/AttemptOutcome;
+	public static final field UNKNOWN Ldev/tramai/core/observation/attempt/AttemptOutcome;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptOutcome;
+	public static fun values ()[Ldev/tramai/core/observation/attempt/AttemptOutcome;
+}
+
+public final class dev/tramai/core/observation/attempt/AttemptProvenance : java/lang/Enum {
+	public static final field OBSERVED_IN_PROCESS Ldev/tramai/core/observation/attempt/AttemptProvenance;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptProvenance;
+	public static fun values ()[Ldev/tramai/core/observation/attempt/AttemptProvenance;
+}
+
+public final class dev/tramai/core/observation/attempt/AttemptRecordingObserver : dev/tramai/core/observation/OperationObserver {
+	public fun <init> (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/core/observation/OperationObserver;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/core/observation/OperationObserver;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun onCallStarted (Ldev/tramai/core/observation/OperationCallContext;)Ldev/tramai/core/observation/OperationObservation;
+}
+
+public final class dev/tramai/core/observation/attempt/InMemoryAttemptObservationStore : dev/tramai/core/observation/attempt/AttemptObservationStore {
+	public fun <init> ()V
+	public fun append (Ldev/tramai/core/observation/attempt/ModelAttemptObservation;)Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
+	public fun findByInvocation (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;
+	public fun findByWorkflowRun (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;
+}
+
+public final class dev/tramai/core/observation/attempt/ModelAttemptObservation {
+	public fun <init> (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;JLdev/tramai/core/observation/attempt/AttemptOutcome;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ldev/tramai/core/observation/attempt/AttemptProvenance;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/time/Instant;
+	public final fun component11 ()J
+	public final fun component12 ()Ldev/tramai/core/observation/attempt/AttemptOutcome;
+	public final fun component13 ()Ljava/lang/String;
+	public final fun component14 ()Ljava/lang/String;
+	public final fun component15 ()Z
+	public final fun component16 ()Ljava/lang/Integer;
+	public final fun component17 ()Ljava/lang/Integer;
+	public final fun component18 ()Ljava/lang/Integer;
+	public final fun component19 ()Ldev/tramai/core/observation/attempt/AttemptProvenance;
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/Integer;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/time/Instant;
+	public final fun copy (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;JLdev/tramai/core/observation/attempt/AttemptOutcome;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ldev/tramai/core/observation/attempt/AttemptProvenance;)Ldev/tramai/core/observation/attempt/ModelAttemptObservation;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/attempt/ModelAttemptObservation;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;JLdev/tramai/core/observation/attempt/AttemptOutcome;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ldev/tramai/core/observation/attempt/AttemptProvenance;ILjava/lang/Object;)Ldev/tramai/core/observation/attempt/ModelAttemptObservation;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempt ()I
+	public final fun getCompletedAt ()Ljava/time/Instant;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getDurationMillis ()J
+	public final fun getFailureCategory ()Ljava/lang/String;
+	public final fun getFinishReason ()Ljava/lang/String;
+	public final fun getFinishReasonReported ()Z
+	public final fun getInputTokens ()Ljava/lang/Integer;
+	public final fun getInvocationId ()Ljava/lang/String;
+	public final fun getOutcome ()Ldev/tramai/core/observation/attempt/AttemptOutcome;
+	public final fun getOutputTokens ()Ljava/lang/Integer;
+	public final fun getProvenance ()Ldev/tramai/core/observation/attempt/AttemptProvenance;
+	public final fun getProviderId ()Ljava/lang/String;
+	public final fun getReportedModel ()Ljava/lang/String;
+	public final fun getRequestedModel ()Ljava/lang/String;
+	public final fun getRouteIndex ()Ljava/lang/Integer;
+	public final fun getStartedAt ()Ljava/time/Instant;
+	public final fun getThinkingTokens ()Ljava/lang/Integer;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/observation/attempt/UninstrumentedAttemptObservationStore : dev/tramai/core/observation/attempt/AttemptObservationStore {
+	public static final field INSTANCE Ldev/tramai/core/observation/attempt/UninstrumentedAttemptObservationStore;
+	public fun append (Ldev/tramai/core/observation/attempt/ModelAttemptObservation;)Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
+	public fun findByInvocation (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;
+	public fun findByWorkflowRun (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;
 }
 
 public final class dev/tramai/core/observation/event/DynamicAttributeNamespace {

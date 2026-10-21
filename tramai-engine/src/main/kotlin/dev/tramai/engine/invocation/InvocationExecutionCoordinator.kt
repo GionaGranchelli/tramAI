@@ -208,18 +208,16 @@ internal class InvocationExecutionCoordinator(
                                 ProviderResponseSanitizer {
                                     response,
                                     operation,
-                                    providerId,
-                                    modelName,
-                                    correlationId,
+                                    ref,
                                     securityContext,
                                     observation,
                                     ->
                                     providerResponseDlpSanitizer.sanitizeProviderResponse(
                                         response,
                                         operation,
-                                        providerId,
-                                        modelName,
-                                        correlationId,
+                                        ref.providerId,
+                                        ref.modelName,
+                                        ref.correlationId,
                                         securityContext,
                                         observation,
                                     )
