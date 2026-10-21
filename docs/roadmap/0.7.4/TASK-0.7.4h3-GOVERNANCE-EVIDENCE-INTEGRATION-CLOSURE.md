@@ -48,7 +48,7 @@ would be listed as unmet; none are.
 | Duplicate/reordered evidence obeys explicit semantics | 0.7.4g — duplicate, reorder, stale and missing-source discriminators; 15/15 mutants killed |
 | Projection lag and source authority are observable | 0.7.4c1/c3 freshness authority table, pinned in 0.7.4g |
 | Query/telemetry defaults do not leak protected payloads | 0.7.4f exposure privacy tests; canaries seeded for every excluded field |
-| The XR1 Spring AI path is projected without pretending TramAI authored the workload | 0.7.4a XR1 discrepancy + 0.7.4b3 boundary provenance |
+| The XR1 Spring AI path is projected without pretending TramAI authored the workload | 0.7.4a XR1 discrepancy + 0.7.4b3 boundary provenance, and the 0.7.4f mapping tests `GovernanceExposureMapperTest` (`spring ai boundary evidence maps without claiming authorship or enforcement`) plus `GovernanceExposurePrivacyTest`. What those prove is the **safe projection and exposure of XR1-shaped evidence** — not a live, end-to-end Spring AI execution trace, which no 0.7.4 artefact claims |
 | Clients can distinguish enforced from instrumented/observed/imported evidence | 0.7.4b2/b3 provenance attributes; 0.7.4f keeps OTEL non-authoritative |
 | Adversarial rejection list (projection-side policy, duplicate final state, stale overwrite, unavailable source as PASS, payload leakage, telemetry as prevention, client-supplied enforcement strength, external-runtime as TramAI-governed) | 0.7.4g mutation campaign plus 0.7.4f/b3 discriminators |
 
@@ -63,6 +63,59 @@ would be listed as unmet; none are.
 | Observed telemetry ≠ proof of enforcement | OTEL mapping is additive and non-authoritative | 0.7.4f |
 | Client/integration metadata cannot self-upgrade enforcement strength | enforcement strength comes from the evaluator, not the caller | 0.7.4b2/b3 |
 | Protected payloads are excluded by default | exposure contract filters by default, canaries per field | 0.7.4f |
+
+## Acceptance gates H0–H4 reconciled
+
+The 0.7.4h acceptance matrix defines five gates. Each is reconciled here rather than asserted complete.
+
+| Gate | Claim | Evidence form | State |
+|---|---|---|---|
+| H0 | Dependency state exact, no inference from old reports | this document's delivery ledger | **satisfied** |
+| H1 | All eligible modules qualified; zero unexpected fixture publications; negative control fails for the intended reason | PR #539 + `evidence/0.7.4h1-publication-boundary/` | **satisfied** (46 modules, `0/0/0`, controls 8 findings and `8/20/0`, orphan `0/1/0`) |
+| H2 | Exact-head CI proves the gates were selected, executed and passed; removal is mechanically detected | PRs #541, #542 + `evidence/0.7.4h2a-*`, `evidence/0.7.4h2b-*` | **satisfied for the three governance gates**; see the H4 qualification for the verifier itself |
+| H3 | The seven invariants still qualified at the closure head, reusing 0.7.4g evidence | reuse argument below | **satisfied** |
+| H4 | Zero surviving valid security-critical mutants in the new integration protections | D4 control record below | **satisfied within its documented scope, with one classified escape** |
+
+### H3 — why the 0.7.4g evidence still applies
+
+Reuse is argued from the tree, not from dates:
+
+```text
+git diff --stat 7e628de7 5222375e -- tramai-security/src/main tramai-observability/src/main   tramai-engine/src/main tramai-core/src/main tramai-structured/src/main
+(no output)
+```
+
+No runtime production module changed between the 0.7.4g merge (`7e628de7`) and the post-0.7.4h2b
+integration head (`5222375e`). Every change in that range is `build-logic`, `.github/workflows/ci.yml`, tests,
+or documentation. The invariants proved by the 0.7.4g adversarial campaign and the 15/15 mutant kills therefore
+hold at the closure head, because the code they were proved against is identical.
+
+### H4 — mutation and bypass record, and the one escape
+
+The new integration protections in 0.7.4h are the publication-boundary verifier (0.7.4h1) and the CI
+enrollment verifier (0.7.4h2a). Their adversarial record:
+
+| Protection | Mutation / bypass applied | Verdict |
+|---|---|---|
+| enrollment verifier | remove `verifyModuleMatrixDrift` from the workflow | **killed** — exit 1, names that gate |
+| enrollment verifier | remove `verifyModuleDocContract` | **killed** — exit 1, names that gate |
+| enrollment verifier | remove `verifyNoPublishedTestFixtures` | **killed** — exit 1, names that gate |
+| enrollment verifier | disable the step (`if: false`) | **killed** — exit 1, "not proven to run for pull requests" |
+| enrollment verifier | mask the Gradle exit status (`\|\| true`, `\|\| exit 0`) | **killed** — exit 1, "masks its exit status" |
+| enrollment verifier | conditions that merely contain an allowed expression (`… && false`) | **killed** — exit 1, exact-match allowlist |
+| enrollment verifier | name a gate in `echo`, a comment, or another program | **killed** — exit 1, "no workflow step executes it" |
+| publication verifier | re-publish a fixture variant / artifact | **killed** — 8 findings; repository level `8/20/0`; orphan `0/1/0` |
+| **enrollment verifier** | **remove the verifier's own invocation** | **SURVIVES** — exit 0, nothing runs the verifier |
+
+**Classification of the escape.** The last row is a *documented, classified escape*, not a missed mutant. A
+gate cannot observe its own removal from inside itself, and no 0.7.4 artefact claims otherwise. It is
+detectable only by an independent mechanism (a second verifier in another job, a scheduled audit diffing the
+enrolled list against a committed expectation, or a workflow-vs-contract diff) — none of which exist, and
+building one is outside 0.7.4's scope.
+
+Consequently H4 is recorded as **satisfied within its documented scope**: every mutation of the protections
+themselves is killed, and the one bypass that survives is named here rather than absorbed into a universal
+"zero surviving mutants" claim. Universal mutation closure is **not** claimed.
 
 ## CI enforcement state after 0.7.4h (measured, not assumed)
 
@@ -91,7 +144,7 @@ implied completeness is not.
 
 | ID | Limitation | What would close it |
 |---|---|---|
-| S18 | Workload authenticity is not established — TramAI cannot prove it authored the workload it reports on | an authenticated workload identity outside the caller's control |
+| S18 | Workload **identity** is not authenticated against the registration authority: a registered boundary's strength never proves an event passed through it, so an evidence record can name a workload identity it cannot prove it interacted with. External workloads are explicitly *not* supposed to be TramAI-authored — the missing property is authenticating the identity they claim, not authorship | an authenticated workload identity issued by the registration authority, outside the caller's control |
 | S19 | Event-origin authenticity is not established for all evidence families | signed origin attestation at the producer boundary |
 | T1 | Caller identity authentication remains tracked, not solved | an authenticated principal from the runtime host |
 | G4 | `provider.route` has no live producer; the evidence family is declared non-production | a real provider-route producer in the runtime |
@@ -110,11 +163,13 @@ implied completeness is not.
 
 ## Verdict
 
-**COMPLETE** for Epic 0.7.4's scope, with the limitations above carried forward explicitly.
+**COMPLETE** for Epic 0.7.4's scope, with the limitations above carried forward explicitly and the
+H4 self-removal escape classified rather than absorbed.
 
-Explicitly **not** claimed: that TramAI authenticates the workload (S18) or the event origin (S19); that the
-`provider.route` family has a live producer (G4); that any check on `release/0.7.0` is merge-required; that
-removal of the CI enrollment verifier is detectable from inside CI.
+Explicitly **not** claimed: that TramAI authenticates the workload identity a record names, or that it
+authors external workloads (S18); that event origin is authenticated (S19); that the `provider.route` family
+has a live producer (G4); that any check on `release/0.7.0` is merge-required; that removal of the CI
+enrollment verifier is detectable from inside CI.
 
 ## How to re-verify from a clean checkout
 

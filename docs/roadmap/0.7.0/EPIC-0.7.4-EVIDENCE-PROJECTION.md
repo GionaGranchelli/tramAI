@@ -1,9 +1,10 @@
 # Epic 0.7.4 — Governance Evidence, Projection & Query API
 
 **Branch:** delivered on `release/0.7.0` (task branches per sub-task)  
-**Status:** ✅ Complete — closed 2026-10-20 at `5222375e`  
+**Status:** 🟡 Closure proposed — 0.7.4h3 in PR #543, qualified at `5222375e`; the closure merge commit is
+recorded when that PR lands, so this line never names a SHA that is not yet a closure  
 **Closure record:** [TASK-0.7.4h3-GOVERNANCE-EVIDENCE-INTEGRATION-CLOSURE.md](../0.7.4/TASK-0.7.4h3-GOVERNANCE-EVIDENCE-INTEGRATION-CLOSURE.md)  
-**Carried limitations:** S18 (workload authenticity), S19 (event-origin authenticity), T1 (caller identity), G4 (`provider.route` has no live producer), and the CI limits recorded in the closure record  
+**Carried limitations:** S18 (authenticating the claimed workload identity), S19 (event-origin authenticity), T1 (caller identity), G4 (`provider.route` has no live producer), and the CI limits recorded in the closure record  
 **Dependencies:** 0.7.1 HARD; 0.7.2/0.7.3 SOFT; XR1 required before evidence/projection contracts are frozen
 
 ## Executive decision
