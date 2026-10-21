@@ -3,8 +3,11 @@ package dev.tramai.engine.provider
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.exception.ModelRegistryException
+import dev.tramai.core.exception.ProviderCapabilityException
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelArtifactDigest
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
@@ -15,7 +18,10 @@ import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
+import dev.tramai.core.observation.attempt.AttemptRecordingObserver
+import dev.tramai.core.observation.attempt.InMemoryAttemptObservationStore
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.security.DlpInspectionException
 import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.CircuitBreakerSettings
@@ -218,10 +224,11 @@ internal fun request(
     provider: ModelProvider,
     retries: Int = 0,
     counter: AttemptCounter = AttemptCounter(),
+    messages: List<Message> = emptyList(),
 ) = ProviderRetryRequest(
     "primary",
     provider,
-    ModelRequest("model", emptyList(), timeoutMillis = 1_000),
+    ModelRequest("model", messages, timeoutMillis = 1_000),
     componentOperation(retries),
     counter,
     0,
@@ -315,4 +322,53 @@ internal class RecordingObservation : OperationObservation {
                 it.first ==
                     "tramai.route.selected"
             }.second
+
+    @Test
+    fun `a capability refusal records no attempt because the provider was never called`() =
+        runBlocking {
+            val store = InMemoryAttemptObservationStore()
+            val visionLess =
+                object : ModelProvider {
+                    override suspend fun complete(request: ModelRequest) = error("must not be invoked")
+
+                    override fun providerId() = "primary"
+
+                    override fun supportsCapability(capability: ProviderCapability): Boolean {
+                        val supported = capability != ProviderCapability.VISION
+                        return supported
+                    }
+                }
+            val resilience = ExecutorResilience()
+            val executor =
+                ProviderAttemptExecutor(
+                    "service",
+                    AttemptRecordingObserver(store),
+                    object : OperationInterceptor {},
+                    resilience.circuitBreaker,
+                    resilience.retryPolicy,
+                    authorization { approvedModel() },
+                    ProviderInvocationGate { _, _, _, _ -> },
+                    ProviderResponseSanitizer { response, _, _, _, _ -> response },
+                )
+            val imageRequest =
+                request(
+                    visionLess,
+                    messages =
+                        listOf(
+                            Message(
+                                MessageRole.USER,
+                                "",
+                                contentParts =
+                                    listOf(ContentPart.ImagePart("image/png", byteArrayOf(1))),
+                            ),
+                        ),
+                )
+
+            assertThatThrownBy { runBlocking { executor.execute(imageRequest) } }
+                .isInstanceOf(ProviderCapabilityException::class.java)
+
+            // The refusal happens before recording is armed: attempt history must not count a
+            // provider call that never occurred.
+            assertThat(store.all()).isEmpty()
+        }
 }

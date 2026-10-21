@@ -91,6 +91,9 @@ internal class ProviderAttemptExecutor(
             var observation = attempt.observation
             try {
                 beforeProviderInvocation.invoke(request.providerId, request.request.model, request.correlationId, request.securityContext)
+                // A capability refusal is a pre-call check too: it must run before recording is
+                // armed, or a provider that is never called is written to attempt history.
+                requireVisionSupport(request.provider, request.request)
                 observation = recordingObservation(attempt, request)
                 val sanitized = callProvider(attempt, request, observation)
                 observation.onProviderResponse(sanitized)
@@ -265,7 +268,6 @@ internal class ProviderAttemptExecutor(
     ): ModelResponse {
         val timeoutMillis = request.timeoutMillis ?: operation.operation.timeoutMillis
         return try {
-            requireVisionSupport(provider, request)
             withTimeout(timeoutMillis) { provider.complete(request) }
         } catch (error: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()

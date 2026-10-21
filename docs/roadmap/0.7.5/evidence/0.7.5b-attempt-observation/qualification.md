@@ -136,3 +136,14 @@ an order production never returns.
 Automatic Spring installation is not implemented (see correction 3). The supported path is explicit
 observer wiring at the application's composition point, exercised end-to-end by the engine execution
 tests; automatic installation is blocked on the separate legacy-file reformat task.
+
+## Review round 2 — the capability refusal
+
+A vision-capability refusal still landed after recording was armed. `requireVisionSupport` lived inside
+`callOnce`, which runs after line 94 arms the recorder, so on the legacy routing path an unsupported
+provider that was never called could be written as a `FAILED` attempt. The check now runs in the retry
+loop immediately after the `BEFORE_PROVIDER_INVOCATION` gate and before recording is armed; only
+reachable provider faults remain inside `callOnce`.
+
+Test: `a capability refusal records no attempt because the provider was never called` — a vision-less
+provider, a request carrying an image, the capability exception asserted, and the store asserted empty.
