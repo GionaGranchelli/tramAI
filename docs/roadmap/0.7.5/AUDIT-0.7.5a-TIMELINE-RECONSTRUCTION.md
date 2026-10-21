@@ -38,17 +38,36 @@ A **per-attempt seam with attempt index, provider and requested model already re
 engine's failure-isolating wrapper (`FailureIsolatingOperationObserver.kt`) guarantees observer failures cannot
 change the business outcome. Nothing in this path persists: the only shipped consumer forwards to OpenTelemetry.
 
+**What the context does *not* carry** — and 0.7.5b must bridge from the engine rather than assume:
+
+| Missing from `OperationCallContext` | Consequence if not bridged |
+|---|---|
+| `workflowRunId` / `correlationId` | an attempt cannot be attached to a governed run, so it cannot meet the governance decision at all |
+| `routeIndex` / next-route identity | a retry cannot be distinguished from a fallback to a different route |
+| a unique invocation id | **`attempt` alone is insufficient**: one run can invoke the same operation repeatedly, and attempt 0 of the second invocation collides with attempt 0 of the first |
+
+Identity must therefore be joined in by the producer, from `GovernedRunIdentity`
+(`tramai-core/.../identity/GovernedRunIdentity.kt:18`) and the route actually executed, not inferred from
+`attempt`.
+
 ### 1.2 Response-side usage and identity
 
 | Fact | Location | Shape |
 |---|---|---|
-| `inputTokens`, `outputTokens`, `thinkingTokens`, `modelUsed`, `finishReason` | `tramai-core/.../model/ModelResponse.kt:25-35` | all nullable |
+| `inputTokens`, `outputTokens`, `thinkingTokens`, `modelUsed` | `tramai-core/.../model/ModelResponse.kt:29-39` | **nullable** — `null` means not reported |
+| `finishReason` | `ModelResponse.kt:41` | **not nullable**: `FinishReason = FinishReason.STOP` |
 | streaming `UsageMetrics(input, output, thinking, imageCount, imageTokensEstimate)` | `tramai-core/.../model/Streaming.kt:8-14` | all nullable |
 | `StreamChunk` = `Token` / `Completion` / `Error` | `Streaming.kt:19-36` | sealed; no timestamps |
 
-Nullability is the honest signal: `null` means the provider did not report it. `modelUsed` is the *answering*
-model, distinct from `requestedModel` — the two must never be collapsed (design §9, "multiple deployments with
-same brand/model").
+Nullability is the honest signal for the token fields: `null` means the provider did not report it. `modelUsed`
+is the *answering* model, distinct from `requestedModel` — the two must never be collapsed (design §9,
+"multiple deployments with same brand/model").
+
+**`finishReason` is the exception and must not be treated like the token fields.** It defaults to
+`FinishReason.STOP`, so a provider that reported nothing and a provider that reported a normal stop are
+indistinguishable at this type. A timeline record must therefore carry the finish reason as *observed-or-absent*
+(for example a nullable value plus an explicit "reported" flag), never copy `STOP` into a record as though the
+provider had said it. This is a contract clarification for 0.7.5b, not a change to `ModelResponse` here.
 
 ### 1.3 Retry and fallback structure
 
@@ -126,7 +145,7 @@ Legend: **YES** durable and queryable · **MEM** in memory only · **OTEL** opti
 | Answering model (`modelUsed`) per attempt | NONE durable | `ModelResponse.modelUsed` never persisted |
 | Attempt duration | OTEL | `OperationObservation` timing in the OTel observer |
 | Input / output / thinking tokens per attempt | NONE durable | `ModelResponse`/`UsageMetrics` fields; observed, then dropped |
-| Finish reason per attempt | NONE durable | `ModelResponse.finishReason` |
+| Finish reason per attempt | NONE durable | `ModelResponse.finishReason` — **non-nullable, defaults to `STOP`**, so it cannot by itself distinguish a provider report from a default |
 | TTFT (time to first token) | **NONE** | `grep -r 'timeToFirstToken\|ttft'` over `*.kt` → **no matches** |
 | Retry / fallback lineage (which route, which next) | MEM | `StreamingCandidate.routeIndex/nextRoute`, `ProviderFallback*` |
 | Streaming attempt terminal usage | NONE guaranteed | `StreamChunk` has no timestamps; design §9 "partial failed stream with no terminal usage" |
@@ -155,14 +174,17 @@ Reuse, do not invent. Three additions, each justified by a gap above and nothing
 schemaVersion, workflowRunId?, correlationId?, attempt, routeIndex,
 providerId, requestedModel, modelUsed?,            // requested vs answered, never merged
 startedAt, completedAt, durationMillis,
-outcome (SUCCEEDED | FAILED | CANCELLED | UNKNOWN), failureClass?, finishReason?,
+outcome (SUCCEEDED | FAILED | CANCELLED | UNKNOWN), failureClass?,
+finishReason?, finishReasonReported: Boolean,      // ModelResponse defaults to STOP; do not copy a default as fact
 inputTokens?, outputTokens?, thinkingTokens?,      // null = provider did not report
 timeToFirstTokenMillis?,                           // null until a producer can measure it
 source = OBSERVED_IN_PROCESS                        // never upgraded to "authoritative"
 ```
 
-**B. An append-only attempts store** — `AttemptObservationStore` (append + read by run/correlation/attempt), with
-one JDBC implementation reusing the existing `DataSource` wiring pattern and one file implementation for tests.
+**B. An append-only attempts store** — `AttemptObservationStore` (append + read by run/correlation/attempt/
+invocation id), with **JDBC persistence** reusing the existing `DataSource` wiring pattern and an **in-memory
+implementation for tests**. A file implementation is optional, not required, and is not part of 0.7.5b's
+acceptance.
 Deliberately **not** the audit chain: attempt telemetry is observed, the chain is authoritative evidence, and
 0.7.4's central invariant is that observed telemetry never becomes proof of enforcement. Same persistence
 pattern, separate surface, explicit label.
@@ -183,14 +205,19 @@ tracing cannot be enabled retroactively.
 
 **In scope**
 
-1. `ModelAttemptObservation` + `AttemptObservationStore` SPI + JDBC and in-memory/file implementations.
+1. `ModelAttemptObservation` + `AttemptObservationStore` SPI, with **JDBC** persistence and an **in-memory**
+   implementation for tests. A file store is optional and out of acceptance.
 2. Producer on **one** native execution path: the non-streaming provider attempt in `tramai-engine` (where
    `ModelResponse` with usage is available and terminal).
-3. Record written once per attempt including failures, with `outcome` explicit.
-4. Retention of nulls as nulls: unknown usage, unknown model, unknown TTFT, unknown correlation.
-5. A read API for attempts by `workflowRunId`/`correlationId`, returning attempts **plus** an explicit
-   completeness/unavailability state, so a partial history cannot be read as a complete one.
-6. Tests for the design's own discriminators that apply to this path: retry-then-succeed keeps two attempts; the
+3. Run identity bridged explicitly from the engine: `workflowRunId`, `correlationId`, `routeIndex` and a unique
+   invocation id travel with the record, because `attempt` alone collides across repeated invocations of the same
+   operation in one run.
+4. `finishReason` recorded as observed-or-absent, never as the `STOP` default standing in for a provider report.
+5. Record written once per attempt including failures, with `outcome` explicit.
+6. Retention of nulls as nulls: unknown usage, unknown model, unknown TTFT, unknown correlation.
+7. A read API for attempts by `workflowRunId`/`correlationId`/invocation id, returning attempts **plus** an
+   explicit completeness/unavailability state, so a partial history cannot be read as a complete one.
+8. Tests for the design's own discriminators that apply to this path: retry-then-succeed keeps two attempts; the
    same attempt recorded twice is not double-counted; thinking tokens already included in output are not added;
    missing usage is not zero; a failed attempt with no response is not a completion; ALLOW plus failure is not a
    completed execution; secret canaries do not appear in records, diagnostics or queries; zero provider/tool/
