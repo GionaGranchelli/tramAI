@@ -1,12 +1,14 @@
 package dev.tramai.core.observation.attempt
 
 import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.observation.FailureIsolatingOperationObserver
 import dev.tramai.core.observation.NoOpOperationObservation
 import dev.tramai.core.observation.NoOpOperationObserver
 import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
 import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
 import kotlinx.coroutines.CancellationException
@@ -24,19 +26,21 @@ import java.time.Clock
  * share an attempt identity, so an unidentified attempt is reported on the secondary-diagnostic
  * channel instead of being stored under a fabricated identity.
  */
+@OptIn(ExperimentalTramaiInternalApi::class)
 class AttemptRecordingObserver(
     private val store: AttemptObservationStore,
-    private val delegate: OperationObserver = NoOpOperationObserver,
+    delegate: OperationObserver = NoOpOperationObserver,
     private val clock: Clock = Clock.systemUTC(),
 ) : OperationObserver {
+    /**
+     * Every forwarded callback crosses the failure-isolating boundary, so a throwing delegate can
+     * never change a governed outcome and this class never invokes a raw observer callback.
+     */
+    private val delegate = FailureIsolatingOperationObserver(delegate)
+
     override fun onCallStarted(context: OperationCallContext): OperationObservation {
         val startedAt = clock.instant()
-        val delegateObservation =
-            runCatching { delegate.onCallStarted(context) }
-                .getOrElse { error ->
-                    contain("onCallStarted", error)
-                    NoOpOperationObservation
-                }
+        val delegateObservation = delegate.onCallStarted(context)
         val invocationId = context.identity.invocationId
         if (invocationId.isNullOrBlank()) {
             SecondaryFailureDiagnostic.report(
@@ -66,12 +70,12 @@ class AttemptRecordingObserver(
 
         override fun onProviderResponse(response: ModelResponse) {
             this.response = response
-            contain("onProviderResponse") { delegate.onProviderResponse(response) }
+            delegate.onProviderResponse(response)
         }
 
         override fun onProviderFailure(error: Throwable) {
             this.failure = error
-            contain("onProviderFailure") { delegate.onProviderFailure(error) }
+            delegate.onProviderFailure(error)
         }
 
         override fun onStructuredParseFailure(
@@ -79,28 +83,28 @@ class AttemptRecordingObserver(
             errorSummary: String,
         ) {
             // Diagnostic material stays on the delegate's privileged channel; it is never recorded.
-            contain("onStructuredParseFailure") { delegate.onStructuredParseFailure(rawResponse, errorSummary) }
+            delegate.onStructuredParseFailure(rawResponse, errorSummary)
         }
 
         override fun onEngineEvent(
             name: String,
             attributes: Map<String, Any?>,
         ) {
-            contain("onEngineEvent") { delegate.onEngineEvent(name, attributes) }
+            delegate.onEngineEvent(name, attributes)
         }
 
         override fun onEngineEvent(event: RuntimeEvent) {
-            contain("onEngineEvent") { delegate.onEngineEvent(event) }
+            delegate.onEngineEvent(event)
         }
 
         override fun onCallCompleted(parseSuccess: Boolean?) {
-            contain("onCallCompleted") { delegate.onCallCompleted(parseSuccess) }
+            delegate.onCallCompleted(parseSuccess)
             record()
         }
 
         override fun onCallCancelled() {
             cancelled = true
-            contain("onCallCancelled") { delegate.onCallCancelled() }
+            delegate.onCallCancelled()
             record()
         }
 
