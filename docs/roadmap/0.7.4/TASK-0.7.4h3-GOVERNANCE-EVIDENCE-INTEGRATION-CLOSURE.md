@@ -181,10 +181,29 @@ implied completeness is not.
 
 **COMPLETE for implementation; CONDITIONAL for Epic closure.**
 
-Every 0.7.4 task is delivered, merged and evidenced. Closure is conditional on one explicit acceptance: the
-residual control weakness **R1** (a verifier cannot prove it will always be invoked). H4's strict
-zero-survivor criterion is **not** established and is not presented as if it were. Accepting R1 closes the
-Epic; declining it leaves H4 open by definition, requiring an independent enforcement mechanism.
+Every 0.7.4 task from 0.7.4a through 0.7.4h2b is merged and evidenced; 0.7.4h3 is this closure record itself,
+so it is the one task that cannot be merged before it is written. Closure is conditional on one explicit
+acceptance: the residual control weakness **R1** (a verifier cannot prove it will always be invoked). H4's
+strict zero-survivor criterion is **not** established and is not presented as if it were.
+
+### R1 disposition
+
+Review recommends accepting R1 as a **temporary, explicit risk exception** for closing Epic 0.7.4 — not as a
+passing H4 result. The reasoning is recorded because it separates two different outcomes: R1 is an
+enforcement-infrastructure limitation, and it is not evidence that the implemented governance projection or
+query semantics are defective.
+
+**Formal acceptance is the repository owner's act and is not assumed by this record.** As written here, R1 is
+open. If the owner accepts it, Epic 0.7.4 closes with R1 named; if not, H4 stays open by definition.
+
+If accepted, one obligation attaches and is tracked separately from the Epic:
+
+| ID | Pre-release obligation | Gate |
+|---|---|---|
+| R1-action | An independently executed enrollment check — a second verifier in another job, a scheduled audit diffing the enrolled gate list against a committed expectation, or a workflow-vs-contract diff | must be complete **before 0.7.0 release promotion** |
+
+Branch protection is a **different** problem and is tracked separately: it makes a check merge-required, which
+addresses merge safety, while R1-action addresses detecting removal of the verifier itself.
 
 Explicitly **not** claimed: that TramAI authenticates the workload identity a record names, or that it
 authors external workloads (S18); that event origin is authenticated (S19); that the `provider.route` family
