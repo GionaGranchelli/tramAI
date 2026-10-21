@@ -60,7 +60,8 @@ reconstruction preserves historical enforcement/evidence provenance rather than 
 |---|---|
 | 0.7.5a | Delivered — [timeline/reconstruction audit](../0.7.5/AUDIT-0.7.5a-TIMELINE-RECONSTRUCTION.md) (PR #544) |
 | 0.7.5b | Delivered for its **durable attempt-observation** slice only: content-free record, JDBC + in-memory stores, one producer on the non-streaming path, read API. Evidence: [qualification](../0.7.5/evidence/0.7.5b-attempt-observation/qualification.md). The *typed governance transition model* in the same candidate row is **not** delivered; joining decisions to attempts is 0.7.5c's own scope and stays there. |
-| 0.7.5c to 0.7.5h | Not started |
+| 0.7.5c | Delivered for its **read-only projection/query** slice: the timeline contract, the projection over the 0.7.4 governance query and the 0.7.5b attempt store, correlation limited to shared run identity, and the usage summary. Evidence: [qualification](../0.7.5/evidence/0.7.5c-timeline-query/qualification.md). Retry/fallback/tool/approval *events* are **not** delivered: no event log exists to read, and inventing one is 0.7.5d/e scope. |
+| 0.7.5d to 0.7.5h | Not started |
 
 ## Acceptance criteria
 
