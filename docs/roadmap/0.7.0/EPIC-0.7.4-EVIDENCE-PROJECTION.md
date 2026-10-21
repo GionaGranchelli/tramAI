@@ -1,7 +1,9 @@
 # Epic 0.7.4 — Governance Evidence, Projection & Query API
 
-**Branch:** `epic/0.7.4-evidence-projection`  
-**Status:** ⚪ Planned  
+**Branch:** delivered on `release/0.7.0` (task branches per sub-task)  
+**Status:** 🟡 Closure proposed — 0.7.4h3 in PR #543, qualified at `5222375e`; the closure merge commit is recorded when that PR lands. **Implementation complete; closure conditional on owner acceptance of residual control weakness R1** (H4 strict zero-survivor criterion not established — a verifier cannot prove it will always be invoked)  
+**Closure record:** [TASK-0.7.4h3-GOVERNANCE-EVIDENCE-INTEGRATION-CLOSURE.md](../0.7.4/TASK-0.7.4h3-GOVERNANCE-EVIDENCE-INTEGRATION-CLOSURE.md)  
+**Carried limitations:** S18 (authenticating the claimed workload identity), S19 (event-origin authenticity), T1 (caller identity), G4 (`provider.route` has no live producer), and the CI limits recorded in the closure record  
 **Dependencies:** 0.7.1 HARD; 0.7.2/0.7.3 SOFT; XR1 required before evidence/projection contracts are frozen
 
 ## Executive decision
@@ -48,7 +50,10 @@ OTEL and best-effort telemetry may mirror facts but remain non-authoritative.
 | 0.7.4e | Query API | Stable headless workload/run/decision/control-state query contracts |
 | 0.7.4f | Safe exposure/OTEL mapping | Protected-payload defaults; observed/instrumented/imported evidence remains distinguishable from authoritative enforcement; OTEL never upgrades telemetry into proof of prevention |
 | 0.7.4g | Adversarial/rebuild/mutation proof | Duplicate/reorder/stale/missing-source and privacy discriminators |
-| 0.7.4h | Integration/docs | Evidence schema/query docs and Epic acceptance |
+| 0.7.4h1 | Publication boundary | Test fixtures are not published; the boundary is verified against real generated metadata, POMs and an isolated repository |
+| 0.7.4h2a | CI gate-enrollment contract | A verifier that proves the governance gates are actually executed by CI, with adversarial workflow fixtures |
+| 0.7.4h2b | CI enforcement | The three gates plus the verifier run on every pull request and fail for real violations |
+| 0.7.4h3 | Integration/docs closure | Consolidated proof ledger, acceptance mapping and named remaining limitations |
 
 ## Core invariants
 
