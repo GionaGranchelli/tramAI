@@ -74,20 +74,26 @@ The 0.7.4h acceptance matrix defines five gates. Each is reconciled here rather 
 | H1 | All eligible modules qualified; zero unexpected fixture publications; negative control fails for the intended reason | PR #539 + `evidence/0.7.4h1-publication-boundary/` | **satisfied** (46 modules, `0/0/0`, controls 8 findings and `8/20/0`, orphan `0/1/0`) |
 | H2 | Exact-head CI proves the gates were selected, executed and passed; removal is mechanically detected | PRs #541, #542 + `evidence/0.7.4h2a-*`, `evidence/0.7.4h2b-*` | **satisfied for the three governance gates**; see the H4 qualification for the verifier itself |
 | H3 | The seven invariants still qualified at the closure head, reusing 0.7.4g evidence | reuse argument below | **satisfied** |
-| H4 | Zero surviving valid security-critical mutants in the new integration protections | D4 control record below | **satisfied within its documented scope, with one classified escape** |
+| H4 | Zero surviving valid security-critical mutants in the new integration protections | D4 control record below | **NOT satisfied in its strict form** — 8 killed, 1 security-relevant bypass (R1) survives; closure conditional on acceptance of R1 |
 
 ### H3 — why the 0.7.4g evidence still applies
 
-Reuse is argued from the tree, not from dates:
+Reuse is argued from the tree, not from dates. Both forms below were run at this head and produced no output;
+they are recorded together because one names the seven module trees while the other is the wider claim.
 
 ```text
-git diff --stat 7e628de7 5222375e -- tramai-security/src/main tramai-observability/src/main   tramai-engine/src/main tramai-core/src/main tramai-structured/src/main
+# A - all seven runtime production module trees, both endpoints
+git diff --stat 7e628de7 5222375e -- tramai-security/src/main tramai-observability/src/main tramai-engine/src/main tramai-core/src/main tramai-structured/src/main tramai-control-plane/src/main tramai-standalone/src/main
+(no output; 0 bytes)
+
+# B - stronger form: every src/main path in the range that is not build-logic
+git diff --name-only 7e628de7 5222375e | grep 'src/main' | grep -v '^build-logic/'
 (no output)
 ```
 
-No runtime production module changed between the 0.7.4g merge (`7e628de7`) and the post-0.7.4h2b
-integration head (`5222375e`). Every change in that range is `build-logic`, `.github/workflows/ci.yml`, tests,
-or documentation. The invariants proved by the 0.7.4g adversarial campaign and the 15/15 mutant kills therefore
+No runtime production module changed between the 0.7.4g merge (`7e628de7`) and the post-0.7.4h2b integration
+head (`5222375e`); every change in that range is `build-logic`, `.github/workflows/ci.yml`, tests, or
+documentation. The invariants proved by the 0.7.4g adversarial campaign and the 15/15 mutant kills therefore
 hold at the closure head, because the code they were proved against is identical.
 
 ### H4 — mutation and bypass record, and the one escape
@@ -113,9 +119,19 @@ detectable only by an independent mechanism (a second verifier in another job, a
 enrolled list against a committed expectation, or a workflow-vs-contract diff) — none of which exist, and
 building one is outside 0.7.4's scope.
 
-Consequently H4 is recorded as **satisfied within its documented scope**: every mutation of the protections
-themselves is killed, and the one bypass that survives is named here rather than absorbed into a universal
-"zero surviving mutants" claim. Universal mutation closure is **not** claimed.
+Consequently H4 is recorded as **not satisfied in its strict form**. H4's acceptance criterion is "zero
+surviving valid security-critical mutants". Eight controls are killed and one security-relevant bypass
+survives, so **strict zero-survivor acceptance is not established**. The implementation result is successful;
+the acceptance criterion is not met, and the difference is recorded instead of reconciled by wording:
+
+> **H4 status: eight adversarial controls killed. One security-relevant self-removal bypass remains and
+> requires an independent enforcement mechanism. Strict zero-survivor acceptance is not established. Epic
+> closure is conditional on explicit acceptance of this residual limitation (R1).**
+
+R1 is tracked as a residual control weakness in its own right, not as a documentation nuance, because the
+property is architectural: a passing self-enrollment verifier proves the required gates were present **when
+the verifier executed**; it cannot prove the verifier will always be invoked. More tests inside the same
+verifier cannot close R1 — only an independent mechanism can.
 
 ## CI enforcement state after 0.7.4h (measured, not assumed)
 
@@ -156,15 +172,19 @@ implied completeness is not.
 | Limitation | Consequence | What would close it |
 |---|---|---|
 | `release/0.7.0` has **no branch protection** (protection API returns `404`) | no check on this branch is merge-required server-side, including the four pre-existing `quality` legs | owner enables protection and marks required checks |
-| Marking a check required is a merge gate, not an enrollment audit | removing `verifyCiGateEnrollment` from an otherwise green job still produces a green job | an independent mechanism: second verifier in another job, scheduled audit diffing the enrolled list against a committed expectation, or workflow-vs-contract diff |
+| **R1 (residual control weakness)** — a verifier cannot establish that it will always be invoked: removing `verifyCiGateEnrollment` from an otherwise green job still produces a green job | H4's strict zero-survivor criterion is not established; Epic closure is conditional on owner acceptance of R1 | an independent mechanism: second verifier in another job, scheduled audit diffing the enrolled list against a committed expectation, or workflow-vs-contract diff. Marking the check required is **not** sufficient |
 | `verify060MaintainabilityRelease` cannot be configured locally | it configures `verifySovereignRuntimeSignedBundle`, which only supports `file://`, so it is not a usable local or CI vehicle for these gates | a configurable sovereign bundle location |
 | 7 pre-existing `ReleaseVerificationPluginTest` failures (`Could not create task ':verifySovereignRuntimeSignedBundle'`) | build-logic tests cannot be reported as wholly green at any head examined | fixing the task-creation path |
 | PR #400 integration failures against `master` | `master`-targeted validation shows failures unrelated to this branch | separate integration repair |
 
 ## Verdict
 
-**COMPLETE** for Epic 0.7.4's scope, with the limitations above carried forward explicitly and the
-H4 self-removal escape classified rather than absorbed.
+**COMPLETE for implementation; CONDITIONAL for Epic closure.**
+
+Every 0.7.4 task is delivered, merged and evidenced. Closure is conditional on one explicit acceptance: the
+residual control weakness **R1** (a verifier cannot prove it will always be invoked). H4's strict
+zero-survivor criterion is **not** established and is not presented as if it were. Accepting R1 closes the
+Epic; declining it leaves H4 open by definition, requiring an independent enforcement mechanism.
 
 Explicitly **not** claimed: that TramAI authenticates the workload identity a record names, or that it
 authors external workloads (S18); that event origin is authenticated (S19); that the `provider.route` family
