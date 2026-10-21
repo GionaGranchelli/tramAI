@@ -75,23 +75,22 @@ class AttemptRecordingObserverTest {
         override fun findByInvocation(invocationId: String): AttemptHistory = AttemptHistory.Uninstrumented
     }
 
-    private fun context(
-        attempt: Int = 0,
-        invocationId: String? = "inv-1",
-    ) = OperationCallContext(
-        serviceInterface = "com.example.Service",
-        methodName = "call",
-        providerId = "primary",
-        requestedModel = "logical-model",
-        attempt = attempt,
-        identity =
-            AttemptIdentity(
-                invocationId = invocationId,
-                workflowRunId = "run-1",
-                correlationId = "corr-1",
-                routeIndex = 0,
-            ),
-    )
+    private fun context(attempt: Int = 0) =
+        OperationCallContext(
+            serviceInterface = "com.example.Service",
+            methodName = "call",
+            providerId = "primary",
+            requestedModel = "logical-model",
+            attempt = attempt,
+        )
+
+    private fun identity(invocationId: String? = "inv-1") =
+        AttemptIdentity(
+            invocationId = invocationId,
+            workflowRunId = "run-1",
+            correlationId = "corr-1",
+            routeIndex = 0,
+        )
 
     private fun recorded(store: InMemoryAttemptObservationStore): List<ModelAttemptObservation> =
         when (val history = store.findByInvocation("inv-1")) {
@@ -103,7 +102,7 @@ class AttemptRecordingObserverTest {
     fun `a successful attempt is recorded with identity, usage exactly as reported and provenance`() {
         val store = InMemoryAttemptObservationStore()
         val observation =
-            AttemptRecordingObserver(store, clock = FixedClock()).onCallStarted(context())
+            AttemptRecordingObserver(store, identity(), clock = FixedClock()).onCallStarted(context())
         observation.onProviderResponse(
             ModelResponse(
                 content = "answer",
@@ -133,7 +132,7 @@ class AttemptRecordingObserverTest {
     @Test
     fun `missing usage stays null and a STOP default is never reported as a provider claim`() {
         val store = InMemoryAttemptObservationStore()
-        val observation = AttemptRecordingObserver(store, clock = FixedClock()).onCallStarted(context())
+        val observation = AttemptRecordingObserver(store, identity(), clock = FixedClock()).onCallStarted(context())
         observation.onProviderResponse(ModelResponse(content = "answer"))
         observation.onCallCompleted(parseSuccess = null)
 
@@ -149,7 +148,7 @@ class AttemptRecordingObserverTest {
     @Test
     fun `a failure followed by completion is one FAILED attempt, not two and not a success`() {
         val store = InMemoryAttemptObservationStore()
-        val observation = AttemptRecordingObserver(store, clock = FixedClock()).onCallStarted(context())
+        val observation = AttemptRecordingObserver(store, identity(), clock = FixedClock()).onCallStarted(context())
         observation.onProviderFailure(IllegalStateException("boom"))
         observation.onCallCompleted(parseSuccess = null)
 
@@ -163,7 +162,7 @@ class AttemptRecordingObserverTest {
     @Test
     fun `a cancelled attempt is recorded as CANCELLED`() {
         val store = InMemoryAttemptObservationStore()
-        val observation = AttemptRecordingObserver(store, clock = FixedClock()).onCallStarted(context())
+        val observation = AttemptRecordingObserver(store, identity(), clock = FixedClock()).onCallStarted(context())
         observation.onCallCancelled()
 
         assertThat(recorded(store).single().outcome).isEqualTo(AttemptOutcome.CANCELLED)
@@ -172,7 +171,7 @@ class AttemptRecordingObserverTest {
     @Test
     fun `a completion with neither response nor failure is UNKNOWN, never success`() {
         val store = InMemoryAttemptObservationStore()
-        val observation = AttemptRecordingObserver(store, clock = FixedClock()).onCallStarted(context())
+        val observation = AttemptRecordingObserver(store, identity(), clock = FixedClock()).onCallStarted(context())
         observation.onCallCompleted(parseSuccess = null)
 
         val attempt = recorded(store).single()
@@ -183,7 +182,7 @@ class AttemptRecordingObserverTest {
     @Test
     fun `repeated terminal callbacks do not duplicate the attempt`() {
         val store = InMemoryAttemptObservationStore()
-        val observation = AttemptRecordingObserver(store, clock = FixedClock()).onCallStarted(context())
+        val observation = AttemptRecordingObserver(store, identity(), clock = FixedClock()).onCallStarted(context())
         observation.onProviderResponse(ModelResponse(content = "answer"))
         observation.onCallCompleted(parseSuccess = true)
         observation.onCallCompleted(parseSuccess = true)
@@ -196,11 +195,12 @@ class AttemptRecordingObserverTest {
     fun `an attempt without invocation identity is not recorded under a fabricated identity`() {
         val delegate = CountingDelegate()
         val store = InMemoryAttemptObservationStore()
-        AttemptRecordingObserver(store, delegate = delegate, clock = FixedClock())
-            .onCallStarted(context(invocationId = null))
+        AttemptRecordingObserver(store, identity(invocationId = null), delegate, FixedClock())
+            .onCallStarted(context())
             .onCallCompleted(parseSuccess = true)
 
         assertThat(delegate.started).isEqualTo(1)
+        assertThat(store.all()).isEmpty()
         assertThat(store.findByInvocation("inv-1")).isEqualTo(AttemptHistory.Available(emptyList()))
         assertThat(store.findByWorkflowRun("run-1")).isEqualTo(AttemptHistory.Available(emptyList()))
     }
@@ -220,28 +220,38 @@ class AttemptRecordingObserverTest {
     }
 
     @Test
-    fun `a throwing delegate still lets the attempt be recorded`() {
-        val store = InMemoryAttemptObservationStore()
-        val throwing =
+    fun `a terminal outcome is forwarded to the delegate the observer was given`() {
+        // Isolation of a throwing observer is the composition's failure-isolating wrapper, which the
+        // secondary-failure architecture guard requires at every invocation site; this class forwards.
+        val seen = mutableListOf<String>()
+        val delegate =
             OperationObserver { _ ->
                 object : OperationObservation {
-                    override fun onProviderResponse(response: ModelResponse) = error("otel down")
+                    override fun onProviderResponse(response: ModelResponse) {
+                        seen += "response"
+                    }
 
-                    override fun onProviderFailure(error: Throwable) = error("otel down")
+                    override fun onProviderFailure(error: Throwable) {
+                        seen += "failure"
+                    }
 
                     override fun onStructuredParseFailure(
                         rawResponse: String,
                         errorSummary: String,
                     ) = Unit
 
-                    override fun onCallCompleted(parseSuccess: Boolean?) = error("otel down")
+                    override fun onCallCompleted(parseSuccess: Boolean?) {
+                        seen += "completed"
+                    }
                 }
             }
+        val store = InMemoryAttemptObservationStore()
         val observation =
-            AttemptRecordingObserver(store, delegate = throwing, clock = FixedClock()).onCallStarted(context())
+            AttemptRecordingObserver(store, identity(), delegate, FixedClock()).onCallStarted(context())
         observation.onProviderResponse(ModelResponse(content = "answer"))
         observation.onCallCompleted(parseSuccess = true)
 
+        assertThat(seen).containsExactly("response", "completed")
         assertThat(recorded(store).single().outcome).isEqualTo(AttemptOutcome.SUCCEEDED)
     }
 

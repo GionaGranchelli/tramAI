@@ -1790,19 +1790,15 @@ public final class dev/tramai/core/observation/NoOpToolFailureDiagnosticObserver
 
 public final class dev/tramai/core/observation/OperationCallContext {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/core/observation/AttemptIdentity;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/core/observation/AttemptIdentity;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/String;
 	public final fun component5 ()I
-	public final fun component6 ()Ldev/tramai/core/observation/AttemptIdentity;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/core/observation/AttemptIdentity;)Ldev/tramai/core/observation/OperationCallContext;
-	public static synthetic fun copy$default (Ldev/tramai/core/observation/OperationCallContext;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/core/observation/AttemptIdentity;ILjava/lang/Object;)Ldev/tramai/core/observation/OperationCallContext;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)Ldev/tramai/core/observation/OperationCallContext;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/OperationCallContext;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IILjava/lang/Object;)Ldev/tramai/core/observation/OperationCallContext;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAttempt ()I
-	public final fun getIdentity ()Ldev/tramai/core/observation/AttemptIdentity;
 	public final fun getMethodName ()Ljava/lang/String;
 	public final fun getProviderId ()Ljava/lang/String;
 	public final fun getRequestedModel ()Ljava/lang/String;
@@ -1928,6 +1924,10 @@ public final class dev/tramai/core/observation/attempt/AttemptHistory$Uninstrume
 	public fun toString ()Ljava/lang/String;
 }
 
+public abstract interface class dev/tramai/core/observation/attempt/AttemptIdentifyingObserver : dev/tramai/core/observation/OperationObserver {
+	public abstract fun forAttempt (Ldev/tramai/core/observation/AttemptIdentity;)Ldev/tramai/core/observation/OperationObserver;
+}
+
 public abstract interface class dev/tramai/core/observation/attempt/AttemptObservationStore {
 	public abstract fun append (Ldev/tramai/core/observation/attempt/ModelAttemptObservation;)Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
 	public abstract fun findByInvocation (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;
@@ -1951,14 +1951,16 @@ public final class dev/tramai/core/observation/attempt/AttemptProvenance : java/
 	public static fun values ()[Ldev/tramai/core/observation/attempt/AttemptProvenance;
 }
 
-public final class dev/tramai/core/observation/attempt/AttemptRecordingObserver : dev/tramai/core/observation/OperationObserver {
-	public fun <init> (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/core/observation/OperationObserver;Ljava/time/Clock;)V
-	public synthetic fun <init> (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/core/observation/OperationObserver;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+public final class dev/tramai/core/observation/attempt/AttemptRecordingObserver : dev/tramai/core/observation/OperationObserver, dev/tramai/core/observation/attempt/AttemptIdentifyingObserver {
+	public fun <init> (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/core/observation/AttemptIdentity;Ldev/tramai/core/observation/OperationObserver;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/core/observation/AttemptIdentity;Ldev/tramai/core/observation/OperationObserver;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun forAttempt (Ldev/tramai/core/observation/AttemptIdentity;)Ldev/tramai/core/observation/OperationObserver;
 	public fun onCallStarted (Ldev/tramai/core/observation/OperationCallContext;)Ldev/tramai/core/observation/OperationObservation;
 }
 
 public final class dev/tramai/core/observation/attempt/InMemoryAttemptObservationStore : dev/tramai/core/observation/attempt/AttemptObservationStore {
 	public fun <init> ()V
+	public final fun all ()Ljava/util/List;
 	public fun append (Ldev/tramai/core/observation/attempt/ModelAttemptObservation;)Ldev/tramai/core/observation/attempt/AttemptAppendOutcome;
 	public fun findByInvocation (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;
 	public fun findByWorkflowRun (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptHistory;

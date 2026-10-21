@@ -37,4 +37,7 @@ class InMemoryAttemptObservationStore : AttemptObservationStore {
                     .sortedBy { it.attempt },
             )
         }
+
+    /** Every attempt written so far, in write order. Test support: not part of the query contract. */
+    fun all(): List<ModelAttemptObservation> = synchronized(attempts) { attempts.values.toList() }
 }

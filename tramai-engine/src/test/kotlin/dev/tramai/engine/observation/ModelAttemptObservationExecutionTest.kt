@@ -32,17 +32,6 @@ import java.util.concurrent.atomic.AtomicLong
  * invoked, really fails and is really retried. Nothing here calls the observer directly.
  */
 class ModelAttemptObservationExecutionTest {
-    /** Advances on every read so duration is derived from the clock, not hardcoded. */
-    private class TickingClock : Clock() {
-        private val tick = AtomicLong()
-
-        override fun instant(): Instant = Instant.parse("2026-02-01T00:00:00Z").plusMillis(tick.addAndGet(250))
-
-        override fun getZone(): ZoneId = ZoneOffset.UTC
-
-        override fun withZone(zone: ZoneId?): Clock = this
-    }
-
     /** Records the identity the engine bridged into the observer, so assertions never guess a UUID. */
     private class IdentityCapturingObserver : OperationObserver {
         val contexts = mutableListOf<OperationCallContext>()
@@ -70,8 +59,9 @@ class ModelAttemptObservationExecutionTest {
         configure: ExecutionTraceFixture.() -> Unit = {},
     ): ExecutionTraceFixture {
         val fixture = ExecutionTraceFixture()
-        fixture.observerOverride =
-            AttemptRecordingObserver(store, delegate = captor, clock = TickingClock())
+        // The engine binds this observer to each attempt through AttemptIdentifyingObserver, so the
+        // test never knows or invents an invocation id.
+        fixture.observerOverride = AttemptRecordingObserver(store, delegate = captor)
         fixture.configure()
         return fixture
     }
@@ -82,8 +72,13 @@ class ModelAttemptObservationExecutionTest {
             AttemptHistory.Uninstrumented -> error("expected observed history, got Uninstrumented")
         }
 
-    private fun invocationIds(captor: IdentityCapturingObserver): List<String> {
-        val ids = captor.contexts.mapNotNull { it.identity.invocationId }
+    private fun attemptRows(store: InMemoryAttemptObservationStore): List<ModelAttemptObservation> {
+        val rows = store.all()
+        return rows
+    }
+
+    private fun invocationIds(store: InMemoryAttemptObservationStore): List<String> {
+        val ids = attemptRows(store).map { it.invocationId }.distinct()
         return ids
     }
 
@@ -96,10 +91,10 @@ class ModelAttemptObservationExecutionTest {
         assertThat(runBlocking { fixture.engine().create(TraceService::class).answer("hello") })
             .isEqualTo("answer")
 
-        val invocationIds = invocationIds(captor)
-        assertThat(invocationIds).hasSize(1)
-
-        val attempt = attempts(store.findByInvocation(invocationIds.single())).single()
+        val recorded = attemptRows(store)
+        assertThat(recorded).hasSize(1)
+        val attempt = recorded.single()
+        assertThat(attempt.invocationId).isNotBlank()
         assertThat(attempt.attempt).isZero()
         assertThat(attempt.outcome).isEqualTo(AttemptOutcome.SUCCEEDED)
         assertThat(attempt.provenance).isEqualTo(AttemptProvenance.OBSERVED_IN_PROCESS)
@@ -108,7 +103,13 @@ class ModelAttemptObservationExecutionTest {
         assertThat(attempt.reportedModel).isNotNull()
         assertThat(attempt.routeIndex).isZero()
         assertThat(attempt.correlationId).isNotNull()
-        assertThat(attempt.durationMillis).isEqualTo(250L)
+        // Derived from the engine's own timestamps, never hardcoded.
+        assertThat(attempt.durationMillis)
+            .isEqualTo(
+                java.time.Duration
+                    .between(attempt.startedAt, attempt.completedAt)
+                    .toMillis(),
+            )
     }
 
     @Test
@@ -120,11 +121,9 @@ class ModelAttemptObservationExecutionTest {
         assertThat(runBlocking { fixture.engine().create(TraceService::class).retryOnce("input") })
             .isEqualTo("answer")
 
-        val invocationIds = invocationIds(captor)
-        assertThat(invocationIds).hasSize(2)
-        assertThat(invocationIds.toSet()).hasSize(1)
-
-        val recorded = attempts(store.findByInvocation(invocationIds.first()))
+        val recorded = attemptRows(store)
+        assertThat(recorded).hasSize(2)
+        assertThat(recorded.map { it.invocationId }.distinct()).hasSize(1)
         assertThat(recorded.map { it.attempt }).containsExactly(0, 1)
         assertThat(recorded.map { it.outcome })
             .containsExactly(AttemptOutcome.FAILED, AttemptOutcome.SUCCEEDED)
@@ -144,7 +143,7 @@ class ModelAttemptObservationExecutionTest {
             service.answer("second")
         }
 
-        val invocationIds = invocationIds(captor)
+        val invocationIds = invocationIds(store)
         assertThat(invocationIds).hasSize(2)
         assertThat(invocationIds.toSet()).hasSize(2)
         assertThat(attempts(store.findByInvocation(invocationIds[0])).map { it.attempt }).containsExactly(0)
@@ -160,7 +159,7 @@ class ModelAttemptObservationExecutionTest {
         assertThatThrownBy { runBlocking { fixture.engine().create(TraceService::class).answer("input") } }
             .isInstanceOf(ProviderException::class.java)
 
-        val recorded = attempts(store.findByInvocation(invocationIds(captor).single()))
+        val recorded = attempts(store.findByInvocation(invocationIds(store).single()))
         assertThat(recorded).hasSize(1)
         assertThat(recorded.single().outcome).isEqualTo(AttemptOutcome.FAILED)
         assertThat(recorded.single().reportedModel).isNull()
@@ -174,7 +173,7 @@ class ModelAttemptObservationExecutionTest {
         val fixture = fixtureWith(store, captor)
         runBlocking { fixture.engine().create(TraceService::class).answer("input") }
 
-        val recorded = attempts(store.findByInvocation(invocationIds(captor).single())).single()
+        val recorded = attempts(store.findByInvocation(invocationIds(store).single())).single()
         assertThat(recorded.inputTokens).isNull()
         assertThat(recorded.outputTokens).isNull()
         assertThat(recorded.thinkingTokens).isNull()
@@ -190,7 +189,7 @@ class ModelAttemptObservationExecutionTest {
         val canary = "CANARY-SECRET-7f3a91"
         runBlocking { fixture.engine().create(TraceService::class).answer(canary) }
 
-        val recorded = attempts(store.findByInvocation(invocationIds(captor).single())).single()
+        val recorded = attempts(store.findByInvocation(invocationIds(store).single())).single()
         assertThat(recorded.toString()).doesNotContain(canary)
         assertThat(listOfNotNull(recorded.providerId, recorded.requestedModel, recorded.reportedModel))
             .noneMatch { it.contains(canary) }

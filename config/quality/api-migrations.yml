@@ -206,3 +206,17 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.4f safe exposure and OTEL mapping: tramai-observability publishes GovernanceExposure and GovernanceDecisionExposure, the typed allowlist that is the only shape of governance information permitted to leave the query boundary, and GovernanceTelemetryExporter, which records it through the runtime event catalogue. Both exposure types are interfaces with private implementations and no constructor or copy(), so a caller cannot fabricate a stronger classification than a real query result produced - the construction path was closed during review. The module also gains an api dependency on tramai-security so the exposure types can carry the repository's existing authority, freshness, currency, completeness and reason-exposure vocabulary instead of a mirrored copy that would drift from the source of truth this slice exists to preserve. Additive only: no existing signature changed."
     migration: "No consumer action required: both types are new and nothing existing changed. The added dependency is published-to-published with no forbidden layer edge and no cycle; it changes what tramai-observability can see, not what it exposes beyond the two new types."
+
+  - module: ":tramai-persistence-jdbc"
+    fromSha256: "0b04daf0a52a32e5467840089ba305dbe0979f2875b81ca02be8cd063025f4fa"
+    toSha256: "906fa7e10a58cfe8d70e7f985df219a3e053d87ccb8e2e3e4f72818544bb0e82"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.5b durable model-attempt observation: tramai-persistence-jdbc publishes JdbcModelAttemptObservationStore, the durable AttemptObservationStore implementation backed by V9__model_attempt_observations.sql, whose primary key is (invocation_id, attempt) so a repeated terminal callback cannot create a second attempt. These rows are content-free telemetry - no prompt, response, tool payload or reasoning text can be represented - and are deliberately kept outside the authoritative audit chain. Additive only: no existing signature changed."
+    migration: "No consumer action required unless you intend to read attempt history: the store is new and nothing existing changed. To record attempts, publish the store as an AttemptObservationStore bean and pass it to the attempt-recording observer; with no configured store the engine records nothing and reports uninstrumented history rather than fabricated attempts. Existing schemas are untouched: apply the new migration and the table is created empty."
+
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    fromSha256: "2f12c7776fc64c59b1cf128038db52bbdb400f4c2c928e87dcabf3459b81557b"
+    toSha256: "56e4fb7b758a9b476e9a6c9dd7f2cbdf043e3f80f2ef61e2bdd0702c364cdc72"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.5b durable model-attempt observation: the starter exposes one conditional modelAttemptObservationStore(DataSource) bean so an application that already has a DataSource can opt into durable attempt observation without writing wiring of its own. The bean is @ConditionalOnMissingBean, so an application-supplied store wins, and it is not created at all when no DataSource is present - absent configuration therefore observes nothing rather than fabricating history. Additive only: no existing bean or signature changed."
+    migration: "No consumer action required: the bean is additive and conditional. Applications that do not want attempt observation simply do not inject the store; applications that do get JDBC persistence through the existing starter dependency."

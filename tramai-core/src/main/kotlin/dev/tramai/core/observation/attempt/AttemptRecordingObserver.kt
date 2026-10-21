@@ -1,7 +1,7 @@
 package dev.tramai.core.observation.attempt
 
 import dev.tramai.core.model.ModelResponse
-import dev.tramai.core.observation.FailureIsolatingOperationObserver
+import dev.tramai.core.observation.AttemptIdentity
 import dev.tramai.core.observation.NoOpOperationObservation
 import dev.tramai.core.observation.NoOpOperationObserver
 import dev.tramai.core.observation.OperationCallContext
@@ -29,19 +29,34 @@ import java.time.Clock
 @OptIn(ExperimentalTramaiInternalApi::class)
 class AttemptRecordingObserver(
     private val store: AttemptObservationStore,
-    delegate: OperationObserver = NoOpOperationObserver,
-    private val clock: Clock = Clock.systemUTC(),
-) : OperationObserver {
     /**
-     * Every forwarded callback crosses the failure-isolating boundary, so a throwing delegate can
-     * never change a governed outcome and this class never invokes a raw observer callback.
+     * Identity of the invocation this attempt belongs to, supplied by the engine that created it.
+     * Identity travels by construction because `OperationCallContext` is a stable API: extending it
+     * would break `copy` and `componentN` for compiled consumers.
      */
-    private val delegate = FailureIsolatingOperationObserver(delegate)
+    private val identity: AttemptIdentity = AttemptIdentity(),
+    /**
+     * The already-wrapped observation supplied by the composition wiring, as for every engine
+     * coordinator: forwarded callbacks cross the failure-isolating boundary before they reach the
+     * application's own observer. This class never wraps or invokes a raw observer itself.
+     */
+    private val delegate: OperationObserver = NoOpOperationObserver,
+    private val clock: Clock = Clock.systemUTC(),
+) : OperationObserver,
+    AttemptIdentifyingObserver {
+    /**
+     * Same store, same delegate, this attempt's identity: the engine calls this once per attempt
+     * and the returned observer records at most one row for it.
+     */
+    override fun forAttempt(identity: AttemptIdentity): OperationObserver {
+        val bound = AttemptRecordingObserver(store, identity, delegate, clock)
+        return bound
+    }
 
     override fun onCallStarted(context: OperationCallContext): OperationObservation {
         val startedAt = clock.instant()
         val delegateObservation = delegate.onCallStarted(context)
-        val invocationId = context.identity.invocationId
+        val invocationId = identity.invocationId
         if (invocationId.isNullOrBlank()) {
             SecondaryFailureDiagnostic.report(
                 extensionPoint = "attempt_observation",
@@ -52,14 +67,22 @@ class AttemptRecordingObserver(
             )
             return delegateObservation
         }
-        return RecordingObservation(store, delegateObservation, context, invocationId, startedAt, clock)
+        return RecordingObservation(
+            store = store,
+            delegate = delegateObservation,
+            context = context,
+            identity = identity,
+            startedAt = startedAt,
+            clock = clock,
+        )
     }
 
+    @OptIn(ExperimentalTramaiInternalApi::class)
     private class RecordingObservation(
         private val store: AttemptObservationStore,
         private val delegate: OperationObservation,
         private val context: OperationCallContext,
-        private val invocationId: String,
+        private val identity: AttemptIdentity,
         private val startedAt: java.time.Instant,
         private val clock: Clock,
     ) : OperationObservation {
@@ -119,11 +142,11 @@ class AttemptRecordingObserver(
             val observation =
                 try {
                     ModelAttemptObservation(
-                        invocationId = invocationId,
+                        invocationId = identity.invocationId.orEmpty(),
                         attempt = context.attempt,
-                        workflowRunId = context.identity.workflowRunId,
-                        correlationId = context.identity.correlationId,
-                        routeIndex = context.identity.routeIndex,
+                        workflowRunId = identity.workflowRunId,
+                        correlationId = identity.correlationId,
+                        routeIndex = identity.routeIndex,
                         providerId = context.providerId,
                         requestedModel = context.requestedModel,
                         reportedModel = response?.modelUsed,
@@ -163,6 +186,7 @@ class AttemptRecordingObserver(
 /**
  * Contains a secondary-effect failure; cancellation always escapes unchanged.
  */
+@OptIn(ExperimentalTramaiInternalApi::class)
 private fun contain(
     callback: String,
     error: Throwable,

@@ -37,20 +37,7 @@ data class OperationCallContext(
     val requestedModel: String,
     /** Zero-based attempt number within the engine retry loop. */
     val attempt: Int,
-    /** Identity the engine can attribute this attempt to (Epic 0.7.5b). */
-    val identity: AttemptIdentity = AttemptIdentity(),
-) {
-    /**
-     * Pre-0.7.5b form, preserved so existing compiled callers keep working; it supplies no identity.
-     */
-    constructor(
-        serviceInterface: String,
-        methodName: String,
-        providerId: String,
-        requestedModel: String,
-        attempt: Int,
-    ) : this(serviceInterface, methodName, providerId, requestedModel, attempt, AttemptIdentity())
-}
+)
 
 /**
  * Observer entry point used by the engine to create per-call observations.

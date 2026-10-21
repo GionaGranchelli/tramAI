@@ -14,6 +14,7 @@ import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
+import dev.tramai.core.observation.attempt.AttemptIdentifyingObserver
 import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
@@ -160,6 +161,22 @@ internal class ProviderAttemptExecutor(
         )
     }
 
+    /**
+     * Binds the configured observer to this invocation when it can attribute attempts (Epic 0.7.5b).
+     * An observer that cannot is used unchanged, and no invocation identity is invented for it.
+     */
+    private fun attemptObserverFor(request: ProviderRetryRequest): OperationObserver {
+        val identifying = operationObserver as? AttemptIdentifyingObserver ?: return operationObserver
+        return identifying.forAttempt(
+            AttemptIdentity(
+                invocationId = request.invocationId,
+                workflowRunId = request.governedRun?.runId?.value,
+                correlationId = request.correlationId,
+                routeIndex = request.routeIndex,
+            ),
+        )
+    }
+
     private suspend fun startAttempt(request: ProviderRetryRequest): ProviderRetryAttempt {
         val context =
             OperationCallContext(
@@ -168,16 +185,9 @@ internal class ProviderAttemptExecutor(
                 providerId = request.providerId,
                 requestedModel = request.operation.operation.model,
                 attempt = request.attemptCounter.next(),
-                identity =
-                    AttemptIdentity(
-                        invocationId = request.invocationId,
-                        workflowRunId = request.governedRun?.runId?.value,
-                        correlationId = request.correlationId,
-                        routeIndex = request.routeIndex,
-                    ),
             )
         val intercepted = request.request.copy(messages = operationInterceptor.interceptRequest(context, request.request.messages))
-        val observation = operationObserver.onCallStarted(context)
+        val observation = attemptObserverFor(request).onCallStarted(context)
         observation.emitRuntimeEvent(
             RuntimeEvent.of(RuntimeEvents.ROUTE_SELECTED) {
                 set(RuntimeAttributes.PROVIDER_ID, request.providerId)
@@ -211,6 +221,16 @@ internal class ProviderAttemptExecutor(
         throw ProviderException(failureMessage(providerId, operation), error)
     }
 
+    private fun requireVisionSupport(
+        provider: ModelProvider,
+        request: ModelRequest,
+    ) {
+        val needsVision = request.messages.any { it.hasImage() }
+        if (needsVision && !provider.supportsCapability(ProviderCapability.VISION)) {
+            throw ProviderCapabilityException(provider.providerId(), "VISION")
+        }
+    }
+
     private fun failureMessage(
         providerId: String,
         operation: OperationDefinition,
@@ -224,9 +244,7 @@ internal class ProviderAttemptExecutor(
     ): ModelResponse {
         val timeoutMillis = request.timeoutMillis ?: operation.operation.timeoutMillis
         return try {
-            if (request.messages.any { it.hasImage() } && !provider.supportsCapability(ProviderCapability.VISION)) {
-                throw ProviderCapabilityException(provider.providerId(), "VISION")
-            }
+            requireVisionSupport(provider, request)
             withTimeout(timeoutMillis) { provider.complete(request) }
         } catch (error: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
@@ -235,6 +253,8 @@ internal class ProviderAttemptExecutor(
                     "$serviceInterface.${operation.method.name}",
                 error,
             )
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             rethrowAsProviderFailure(error, providerId, operation)
         }
