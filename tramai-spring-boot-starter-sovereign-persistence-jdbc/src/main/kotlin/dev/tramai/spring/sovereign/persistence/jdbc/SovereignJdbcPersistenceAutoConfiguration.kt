@@ -3,6 +3,7 @@ package dev.tramai.spring.sovereign.persistence.jdbc
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
+import dev.tramai.core.observation.attempt.AttemptObservationStore
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.persistence.jdbc.GovernedJdbcSuspendedInvocationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalContinuationStore
@@ -10,6 +11,7 @@ import dev.tramai.persistence.jdbc.JdbcApprovalStore
 import dev.tramai.persistence.jdbc.JdbcAuditPayloadCodec
 import dev.tramai.persistence.jdbc.JdbcAuditStore
 import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
+import dev.tramai.persistence.jdbc.JdbcModelAttemptObservationStore
 import dev.tramai.persistence.jdbc.JdbcReplayEnvelopeCodec
 import dev.tramai.persistence.jdbc.JdbcSuspendedInvocationStore
 import dev.tramai.security.audit.AuditStore
@@ -193,6 +195,14 @@ class SovereignJdbcPersistenceAutoConfiguration {
         dataSource: DataSource,
         payloadCodec: JdbcAuditPayloadCodec,
     ): AuditStore = JdbcAuditStore(dataSource, payloadCodec)
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
+    fun modelAttemptObservationStore(dataSource: DataSource): AttemptObservationStore {
+        val store: AttemptObservationStore = JdbcModelAttemptObservationStore(dataSource)
+        return store
+    }
 
     @Bean
     @ConditionalOnMissingBean

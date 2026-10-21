@@ -289,7 +289,7 @@ class ProviderExecutionCoordinatorTest {
                     _,
                     ->
                 },
-                ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
+                ProviderResponseSanitizer { response, _, _, _, _ -> response },
             )
         return ProviderExecutionCoordinator(
             dependencies =

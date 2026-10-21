@@ -54,6 +54,14 @@ reconstruction preserves historical enforcement/evidence provenance rather than 
 | 0.7.5g | Adversarial/mutation proof | Trap provider/tool/network invocation, config substitution, duplicate-attempt aggregation, cross-run correlation, invented metrics, provenance upgrades and payload leakage |
 | 0.7.5h | Integration/docs | Reference timeline/reconstruction examples and Epic gate |
 
+### Delivery status
+
+| Candidate | State |
+|---|---|
+| 0.7.5a | Delivered — [timeline/reconstruction audit](../0.7.5/AUDIT-0.7.5a-TIMELINE-RECONSTRUCTION.md) (PR #544) |
+| 0.7.5b | Delivered for its **durable attempt-observation** slice only: content-free record, JDBC + in-memory stores, one producer on the non-streaming path, read API. Evidence: [qualification](../0.7.5/evidence/0.7.5b-attempt-observation/qualification.md). The *typed governance transition model* in the same candidate row is **not** delivered; joining decisions to attempts is 0.7.5c's own scope and stays there. |
+| 0.7.5c to 0.7.5h | Not started |
+
 ## Acceptance criteria
 
 - Reference run renders classification, policy, routing, approval/control and execution transitions where evidence exists.

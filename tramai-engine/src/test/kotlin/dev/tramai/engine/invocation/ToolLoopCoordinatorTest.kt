@@ -184,7 +184,7 @@ class ToolLoopCoordinatorTest {
                 ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
                 permissiveAuthorization(),
                 ProviderInvocationGate { _, _, _, _ -> },
-                ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
+                ProviderResponseSanitizer { response, _, _, _, _ -> response },
             )
         val providerCoordinator =
             ProviderExecutionCoordinator(

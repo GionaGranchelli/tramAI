@@ -224,7 +224,7 @@ abstract class ProviderGovernedExecutionPathTestBase {
                 ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
                 authorization(),
                 ProviderInvocationGate { _, _, _, _ -> },
-                ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
+                ProviderResponseSanitizer { response, _, _, _, _ -> response },
             )
         return ProviderExecutionCoordinator(
             dependencies =
