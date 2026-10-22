@@ -37,10 +37,20 @@ Verify the full public surface against `tramai-observability/api/tramai-observab
 ### Failure semantics
 
 - Observability must not break the happy path (failure-isolated observers); OTel absence degrades gracefully
+- **No failure path exports exception messages or stack traces.** All six failure callbacks — workflow step
+  failure, workflow failure, and the worker's lease-renewal, lease-release, poll and step failures — record
+  `exception.type` and `exception.escaped` only, through one shared helper
+  (`Span.recordSafeException`), and any span status description is a fixed string. A failure message is
+  upstream-controlled and can carry a response body, a URL or a request fragment; the exported diagnostic
+  is the failure *type*, which is what a back-end can act on anyway. Event names, identifiers, counts and
+  metrics are unaffected.
 
 ### Contract tests / TCKs
 
 - Span/attribute tests in `tramai-observability/src/test`
+- `ExceptionPrivacyObserverTest` — one canary-bearing exception per failure path (six), asserting the
+  canary is absent from attributes, events and status descriptions while the failure type and event
+  identifiers survive
 
 ### Do not
 
@@ -198,7 +208,11 @@ Every workflow run produces a span named `workflow.{workflowName}` (e.g., `workf
 | `tramai.workflow.context.*` | `WorkflowContext.attributes` | `tramai.workflow.context.userId` |
 | `tramai.workflow.outcome` | On completion/failure | `success` / `failure` |
 
-**Span status:** Set to `ERROR` with exception message when workflow fails.
+**Span status:** Set to `ERROR` with the fixed description `Workflow failed` when a workflow fails, and
+the failure is recorded as an `exception` event carrying `exception.type` and `exception.escaped` only.
+The step-failure path records the same type-only event. Exception messages and stack traces are never
+exported on either path: a failure message is upstream-controlled and can carry payload, so the exported
+signal is the failure *type* plus the fixed status text.
 
 ### Operation metrics
 
@@ -357,7 +371,8 @@ onWorkflowStarted(name, context)
                  │
                  └── onWorkflowCompleted / onWorkflowFailed
                      ├── Removes from active map
-                     ├── (on failure): span.recordException, StatusCode.ERROR
+                     ├── (on failure): exception event {exception.type, exception.escaped},
+                     │   StatusCode.ERROR with the fixed "Workflow failed" description
                      ├── Sets tramai.workflow.outcome
                      ├── metrics.runs.add(1)
                      ├── metrics.duration.record(...)

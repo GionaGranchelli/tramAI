@@ -163,15 +163,7 @@ private class SpanBackedObservation(
      */
     override fun onProviderFailure(error: Throwable) {
         failure = error
-        span.addEvent(
-            "exception",
-            Attributes.of(
-                AttributeKey.stringKey("exception.type"),
-                error.javaClass.name,
-                AttributeKey.booleanKey("exception.escaped"),
-                false,
-            ),
-        )
+        span.recordSafeException(error)
         span.setStatus(StatusCode.ERROR, "Provider call failed")
     }
 
