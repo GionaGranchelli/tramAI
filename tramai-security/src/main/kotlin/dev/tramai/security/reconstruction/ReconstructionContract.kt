@@ -54,6 +54,10 @@ public data class ReconstructionRequest(
  * and present it as the configuration that ran: those are different facts, and a contract that can
  * confuse them is worse than no contract.
  *
+ * **Source-declared, not verified.** [Recorded] means "the evidence source stated this identity". It
+ * does not mean the identity was authenticated, and no state of this type can express authentication:
+ * see `HISTORICAL_CONFIGURATION_UNVERIFIED` and the result's trust assumptions.
+ *
  * **Trust boundary:** the values in [Recorded] are caller-supplied. This type validates their shape
  * (present, non-blank, at least one reference) and validates *nothing* about their provenance — it
  * cannot tell a reference read from the run's own persisted evidence from one taken out of the
@@ -144,10 +148,11 @@ public enum class ReconstructionLimitation {
     /**
      * A configuration reference was supplied, but nothing in this contract authenticated its origin.
      *
-     * [HistoricalConfigurationReference.Recorded] validates shape only. A correctly shaped reference
-     * can have been read from the run's persisted evidence or taken from the current configuration,
-     * and the two are indistinguishable here — so a [ReconstructionStatus.SUPPORTED] result says the
-     * sources answered, not that this identity is authentic.
+     * [HistoricalConfigurationReference.Recorded] validates shape only and means *source-declared*: a
+     * correctly shaped reference can have been read from the run's persisted evidence or taken from the
+     * current configuration, and the two are indistinguishable here. So a
+     * [ReconstructionStatus.SUPPORTED] result says the sources answered, not that this identity is
+     * authentic — and no value of this enum claims otherwise, because no verifier exists to support it.
      */
     HISTORICAL_CONFIGURATION_UNVERIFIED,
 
@@ -180,6 +185,23 @@ public enum class ReconstructionLimitation {
  *
  * [status] and [limitations] are derived from the carried evidence, never stored: a result cannot
  * say `SUPPORTED` while carrying an uninstrumented history, because there is no field to disagree.
+ *
+ * ## Trust assumptions a caller is making
+ *
+ * 1. **The evidence source read persisted historical evidence, not current configuration.** Nothing
+ *    here can distinguish the two; a result never substitutes current values itself, and
+ *    [HistoricalConfigurationReference.NotRecorded] stays unknown rather than being filled in.
+ * 2. **[HistoricalConfigurationReference.NotRecorded] means the lookup completed and found none.** A
+ *    source that could not complete must fail instead — a failure is propagated, never converted into
+ *    absence.
+ * 3. **[HistoricalConfigurationReference.Recorded] is source-declared, never authenticated.** No
+ *    verifier exists in this library, so a correctly shaped reference is reported as
+ *    `HISTORICAL_CONFIGURATION_UNVERIFIED` rather than trusted.
+ * 4. **A read-only collaborator is a contract on the implementation, not a proof about it.** See
+ *    [SemanticTimelineQuery] and [HistoricalConfigurationSource].
+ *
+ * If authenticated provenance is ever required, it needs an authority this contract does not have.
+ * Reporting the limitation is the honest answer available today.
  */
 public data class ReconstructionResult(
     /** The question this result answers, including the historical identity it was allowed to cite. */

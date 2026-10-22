@@ -73,10 +73,57 @@ absent, not merely unused.
 See defect 2. The reference type still validates shape only; the difference is that the result now
 *states* that provenance is unauthenticated instead of leaving `SUPPORTED` to imply otherwise.
 
+The distinction the owner asked for is now explicit in the vocabulary and docs:
+
+- **Source-declared** — `HistoricalConfigurationReference.Recorded` means "the evidence source stated
+  this identity". Doc'd in those words on the type, on the constructor, on the limitation and on the
+  result.
+- **Verified provenance** — not expressible. No state, enum constant or subtype claims authentication,
+  because no authority in this library can establish it; adding one would be inventing a verifier. A
+  supplied reference is always reported as `HISTORICAL_CONFIGURATION_UNVERIFIED`.
+- **Trust assumptions** are listed on `ReconstructionResult`: the source read persisted historical
+  evidence rather than current configuration; `NotRecorded` means the lookup completed and found none;
+  `Recorded` is unauthenticated; a read-only collaborator is a contract on an implementation, not proof
+  about it.
+- **Source obligations** are listed on `HistoricalConfigurationSource`: return `NotRecorded` only when
+  the lookup completed and established no reference was recorded; throw on failure (a failure
+  propagates, never becomes absence); never read current configuration as a fallback.
+
+## Adversarial regression coverage
+
+Mapping of the owner's twelve required cases to tests in this PR. All run through the shipped path
+unless noted.
+
+| # | Required case | Test |
+|---|---|---|
+| 1 | No attempts recorded does not prove no execution | `no attempt recorded is not proof that execution did not occur` |
+| 2 | Uninstrumented attempts remain unknown | `an uninstrumented store leaves execution unknown rather than empty` |
+| 3 | Zero usage and missing usage stay distinct | `token usage explicitly reported as zero stays zero`, `unknown usage is named rather than zeroed` |
+| 4 | Partial usage cannot appear as a complete total | `an incomplete component total stays unknown` |
+| 5 | Missing TTFT and unreported finish reasons stay unknown | `no time-to-first-token or provider-reported finish reason is fabricated` |
+| 6 | Missing historical configuration never falls back to current | `missing historical configuration never falls back to a current configuration` |
+| 7 | A source failure propagates rather than becoming `NotRecorded` | `a source failure propagates instead of becoming NotRecorded` |
+| 8 | A source-declared reference does not become authenticated provenance | `a source-declared reference never becomes authenticated provenance` |
+| 9 | A refused projection cannot become `SUPPORTED` merely because attempts exist | `a refused projection cannot be supported merely because attempts exist` |
+| 10 | Side-effect traps untouched during reconstruction | `the shipped read path performs no writes and invokes nothing external`, `the reconstruction queries only what it was asked for` |
+| 11 | Observed attempts keep non-authoritative provenance | `finish reason provenance is never fabricated`, `no time-to-first-token or provider-reported finish reason is fabricated` |
+| 12 | Payload canaries do not appear through the producer path | `protected payload canaries appear only where they were recorded` |
+
+Additional discriminators recorded for the highest-risk items (mutants applied, then restored):
+
+```
+source failure swallowed into NotRecorded
+  -> a source failure propagates instead of becoming NotRecorded              FAILS
+SUPPORTED granted when only one source answered
+  -> a refused projection cannot be supported merely because attempts exist   FAILS
+supplied reference presented as recorded-and-fine
+  -> a source-declared reference never becomes authenticated provenance       FAILS
+```
+
 ## Verification
 
-`:tramai-security:test --tests 'dev.tramai.security.reconstruction.*'` — **36 tests** (17 contract +
-10 reconstructor + 9 missing-evidence semantics), 0 failures. Whole-module and CI results recorded at the
+`:tramai-security:test --tests 'dev.tramai.security.reconstruction.*'` — **43 tests** (17 contract +
+10 reconstructor + 9 missing-evidence + 7 adversarial), 0 failures. Whole-module and CI results recorded at the
 head that opened the PR.
 
 Discrimination recorded (mutants applied to the implementation, then restored):
@@ -96,8 +143,12 @@ partial usage summed instead of reported as unknown
   was carried by a limitation, not by a fourth status.
 - **No TTFT or reasoning-token field.** Neither exists in the recorded attempt, so neither is invented;
   `finishReasonReported` stays `false` until a provider-reported flag exists (0.7.5b).
-- **No attempt to authenticate a source or a reference.** Out of scope for a library contract: it would
-  need an authority that this epic does not own.
+- **No attempt to authenticate a source or a reference, and no verifier invented.** Out of scope for a
+  library contract: it would need an authority this epic does not own, so the limitation is reported
+  instead.
+- **No `Unavailable` lookup state.** A source that cannot complete must throw; that keeps the port to
+  one method and the failure path to the language's own. A source that swallows its own failure and
+  returns `NotRecorded` remains undetectable — stated as an obligation and documented, not enforced.
 - **No new persistence, endpoint, export or analytics.**
 - **Inherited, unchanged:** a default Spring application records no attempts, so its reconstruction is
   `ATTEMPTS_UNINSTRUMENTED` (0.7.5b gap).

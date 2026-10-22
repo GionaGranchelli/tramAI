@@ -13,9 +13,15 @@ import dev.tramai.security.timeline.TimelineRequest
  * an implementation backed by current configuration defeats the contract it feeds, because
  * [HistoricalConfigurationReference.Recorded] validates shape only and cannot detect the difference.
  *
- * Returning [HistoricalConfigurationReference.NotRecorded] is always correct when the evidence is not
- * there. It is reported as a limitation, while a substituted value would silently become a false
- * historical fact.
+ * Two obligations bind every implementation:
+ *
+ * 1. **Return [HistoricalConfigurationReference.NotRecorded] only when the lookup completed and
+ *    established that no reference was recorded.** If the lookup fails — store unreachable, unreadable,
+ *    unparsable — throw. A failure propagates through [EvidenceBackedReconstructor] as a failure; a
+ *    swallowed failure reported as `NotRecorded` would read as "the run recorded nothing", which is a
+ *    different and false claim.
+ * 2. **Never read current configuration as a fallback.** The historical identity is not derivable from
+ *    the configuration in force now, and nothing downstream can detect the substitution.
  *
  * **This interface cannot enforce that.** It declares a lookup and promises nothing about how an
  * implementation answers: a read-only source and a source that reads current configuration are the
