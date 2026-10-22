@@ -165,12 +165,10 @@ private class SpanBackedObservation(
         failure = error
         span.addEvent(
             "exception",
-            io.opentelemetry.api.common.Attributes.of(
-                io.opentelemetry.api.common.AttributeKey
-                    .stringKey("exception.type"),
+            Attributes.of(
+                AttributeKey.stringKey("exception.type"),
                 error.javaClass.name,
-                io.opentelemetry.api.common.AttributeKey
-                    .booleanKey("exception.escaped"),
+                AttributeKey.booleanKey("exception.escaped"),
                 false,
             ),
         )
