@@ -21,9 +21,16 @@ import dev.tramai.security.timeline.TimelineRequest
  *
  * Everything it exposes is either reused from an existing contract ([SemanticTimeline],
  * [GovernanceSection], [AttemptHistoryState], [CorrelationEvidence]) or is new classification
- * vocabulary. It duplicates no timeline, governance or attempt model, adds no persistence, performs
- * no provider, tool, approval or network invocation, and carries no content: prompts, responses,
- * tool payloads and reasoning are not expressible in these types.
+ * vocabulary. It duplicates no timeline, governance or attempt model, adds no persistence, and
+ * performs no provider, tool, approval or network invocation.
+ *
+ * **On content:** there is no prompt, response, tool-payload or reasoning *field* anywhere in this
+ * surface, so no redaction step can be forgotten for a dedicated payload. That is a structural
+ * property of the field set and **not** a guarantee about the string values it does carry:
+ * [HistoricalConfigurationReference.Recorded.policyVersion], `workflowDigest` and the identifiers
+ * reused from other contracts are opaque values whose safety depends on what wrote them. This
+ * contract neither redacts nor verifies them — producer-side handling (0.7.4 audit emission, 0.7.5b
+ * observation) remains the boundary that keeps secrets out.
  *
  * Historical identity is *cited*, never substituted: [HistoricalConfigurationReference.NotRecorded]
  * means the run recorded no configuration identity, and no current configuration may be filled in
@@ -46,11 +53,21 @@ public data class ReconstructionRequest(
  * A reconstruction may cite what the run recorded. It may never read the configuration in force now
  * and present it as the configuration that ran: those are different facts, and a contract that can
  * confuse them is worse than no contract.
+ *
+ * **Trust boundary:** the values in [Recorded] are caller-supplied. This type validates their shape
+ * (present, non-blank, at least one reference) and validates *nothing* about their provenance — it
+ * cannot tell a reference read from the run's own persisted evidence from one taken out of the
+ * current configuration. Obtaining the reference from persisted historical evidence, and never from
+ * current configuration, is the obligation of the reader that builds a [ReconstructionRequest]
+ * (0.7.5e). Reading a `Recorded` value as proof of provenance would be exactly the substitution this
+ * type exists to prevent.
  */
 public sealed interface HistoricalConfigurationReference {
     /**
-     * References the run recorded. At least one must be present — an empty [Recorded] would be
-     * indistinguishable from [NotRecorded] while looking like evidence.
+     * References the caller states the run recorded. At least one must be present — an empty
+     * [Recorded] would be indistinguishable from [NotRecorded] while looking like evidence. The
+     * values are taken on trust: shape is validated, provenance is not (see the type's trust
+     * boundary).
      */
     public data class Recorded
         @JvmOverloads

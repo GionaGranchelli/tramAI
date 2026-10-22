@@ -16,7 +16,6 @@ import dev.tramai.security.governance.query.GovernanceDecisionFact
 import dev.tramai.security.governance.query.GovernanceFactSummary
 import dev.tramai.security.governance.query.GovernanceProjectionIdentity
 import dev.tramai.security.governance.query.GovernanceProjectionView
-import dev.tramai.security.governance.query.GovernanceQueryRequest
 import dev.tramai.security.governance.query.GovernanceSourceProvenance
 import dev.tramai.security.governance.query.RawStreamCoverage
 import dev.tramai.security.governance.query.SourceCurrency
@@ -68,6 +67,31 @@ class ReconstructionContractTest {
         assertThatThrownBy { HistoricalConfigurationReference.Recorded() }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("reconstruction-empty-recorded-configuration")
+    }
+
+    @Test
+    fun `a blank policy version is refused instead of passing for a reference`() {
+        assertThatThrownBy { HistoricalConfigurationReference.Recorded(policyVersion = " ") }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("reconstruction-policy-version-blank")
+    }
+
+    @Test
+    fun `a blank workflow digest is refused instead of passing for a reference`() {
+        assertThatThrownBy { HistoricalConfigurationReference.Recorded(workflowDigest = "") }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("reconstruction-workflow-digest-blank")
+    }
+
+    @Test
+    fun `a caller-supplied reference is accepted without any provenance check`() {
+        // Pins the trust boundary rather than a safety property: shape is validated, provenance is
+        // not, so 0.7.5e must obtain these values from persisted historical evidence.
+        val accepted =
+            HistoricalConfigurationReference.Recorded(policyVersion = "policy-7", workflowDigest = "sha-256:abc")
+
+        assertThat(accepted.policyVersion).isEqualTo("policy-7")
+        assertThat(accepted.workflowDigest).isEqualTo("sha-256:abc")
     }
 
     @Test
@@ -210,7 +234,7 @@ class ReconstructionContractTest {
     }
 
     @Test
-    fun `no exposed type can express a protected payload`() {
+    fun `no exposed type has a dedicated payload field`() {
         val forbidden = listOf("prompt", "response", "payload", "reasoning", "content")
         val exposed =
             listOf(

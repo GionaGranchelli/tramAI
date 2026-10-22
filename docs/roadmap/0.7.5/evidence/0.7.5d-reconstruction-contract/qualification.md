@@ -71,7 +71,9 @@ evidence.
 | Shared run identity alone leaves correlation unresolved | `shared run identity alone leaves correlation unresolved` |
 | Evidence for another run is refused | `evidence for another run is refused rather than reconstructed` |
 | The classification is deterministic | `the classification is derived from the evidence and repeats identically` |
-| No protected payload is expressible | `no exposed type can express a protected payload` |
+| No dedicated payload field exists | `no exposed type has a dedicated payload field` |
+| Blank references are refused | `a blank policy version is refused instead of passing for a reference`, `a blank workflow digest is refused instead of passing for a reference` |
+| A caller-supplied reference is not provenance-checked | `a caller-supplied reference is accepted without any provenance check` |
 
 Discrimination recorded (mutants applied to the implementation, then restored). Each mutant fails the
 test that names the rule, and only that class of test:
@@ -99,6 +101,19 @@ EXECUTION_NOT_ESTABLISHED no longer raised when decisions were recorded
 | `verifyCancellationSafety` | PASSED (no new throwing path outside the existing vocabulary) |
 | `verifyJUnitTestSignatures` | PASSED |
 | `verifyCompilerWarnings` | PASSED (gate green) |
+
+## Trust boundary of the historical reference
+
+`HistoricalConfigurationReference.Recorded` validates shape only: present, non-blank, at least one
+reference. It validates **nothing** about provenance — it cannot distinguish a reference read from the
+run's own persisted evidence from one taken out of the current configuration. Consequently:
+
+**0.7.5e must obtain these references from persisted historical evidence, and never from current
+configuration.** Reading a `Recorded` value as proof of provenance is precisely the substitution this
+type exists to prevent.
+
+The test `a caller-supplied reference is accepted without any provenance check` pins that boundary so
+no later reader can mistake the contract for a verifier.
 
 ## Deliberately not here
 
