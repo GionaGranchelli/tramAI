@@ -119,7 +119,11 @@ class EvidenceBackedReconstructorTest {
 
         assertThat(result.governance).isSameAs(refused)
         assertThat(result.status).isEqualTo(ReconstructionStatus.PARTIAL)
-        assertThat(result.limitations).containsExactly(ReconstructionLimitation.GOVERNANCE_SOURCE_REFUSED)
+        assertThat(result.limitations)
+            .containsExactly(
+                ReconstructionLimitation.GOVERNANCE_SOURCE_REFUSED,
+                ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED,
+            )
     }
 
     @Test

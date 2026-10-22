@@ -1367,6 +1367,7 @@ public final class dev/tramai/security/reconstruction/ReconstructionLimitation :
 	public static final field GOVERNANCE_NOT_OBSERVED Ldev/tramai/security/reconstruction/ReconstructionLimitation;
 	public static final field GOVERNANCE_SOURCE_REFUSED Ldev/tramai/security/reconstruction/ReconstructionLimitation;
 	public static final field HISTORICAL_CONFIGURATION_NOT_RECORDED Ldev/tramai/security/reconstruction/ReconstructionLimitation;
+	public static final field HISTORICAL_CONFIGURATION_UNVERIFIED Ldev/tramai/security/reconstruction/ReconstructionLimitation;
 	public static final field USAGE_UNKNOWN Ldev/tramai/security/reconstruction/ReconstructionLimitation;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/reconstruction/ReconstructionLimitation;

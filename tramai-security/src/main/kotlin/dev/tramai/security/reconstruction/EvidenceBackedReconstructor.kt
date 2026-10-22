@@ -16,6 +16,13 @@ import dev.tramai.security.timeline.TimelineRequest
  * Returning [HistoricalConfigurationReference.NotRecorded] is always correct when the evidence is not
  * there. It is reported as a limitation, while a substituted value would silently become a false
  * historical fact.
+ *
+ * **This interface cannot enforce that.** It declares a lookup and promises nothing about how an
+ * implementation answers: a read-only source and a source that reads current configuration are the
+ * same type, and a `Recorded` answer carries no provenance. Every `Recorded` value therefore produces
+ * [ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED], and
+ * [ReconstructionStatus.SUPPORTED] must not be read as authentication. Better-behaved implementations
+ * reduce the doubt; nothing here removes it.
  */
 public fun interface HistoricalConfigurationSource {
     /** The configuration/policy identity the persisted evidence holds for [workflowRunId]. */

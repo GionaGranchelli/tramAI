@@ -99,18 +99,25 @@ public sealed interface HistoricalConfigurationReference {
 /**
  * Whether the available historical evidence supports reconstructing the declared scope.
  *
- * The three values describe evidence, not success: [SUPPORTED] means both evidence sources answered
- * *and* the historical configuration identity is known, so the reconstruction can state what happened
- * without filling a gap. It is not a claim that the run succeeded, or that a decision caused anything.
+ * The three values describe **evidence coverage, not truth**: they say whether the sources answered
+ * for the declared scope, never what happened.
+ *
+ * [SUPPORTED] therefore does **not** certify historical authenticity, exhaustive event coverage,
+ * successful execution or complete metrics — a result can be [SUPPORTED] and still carry limitations
+ * (an unauthenticated configuration reference, an execution history that observed no attempt). Read
+ * [ReconstructionResult.limitations] together with the status; the status alone is not a clean bill.
  */
 public enum class ReconstructionStatus {
-    /** Historical evidence is sufficient for the declared scope. */
+    /** The required sources answered sufficiently for the declared scope. Not a claim of truth. */
     SUPPORTED,
 
-    /** Some historical evidence is missing; what is present is still reported, with the gap named. */
+    /**
+     * Some evidence is available, but one or more required elements or source conditions are
+     * unresolved. What is present is still reported, with the gap named.
+     */
     PARTIAL,
 
-    /** Reconstruction cannot be established from the available sources at all. */
+    /** The available evidence cannot establish the requested reconstruction at all. */
     UNSUPPORTED,
 }
 
@@ -135,8 +142,23 @@ public enum class ReconstructionLimitation {
     HISTORICAL_CONFIGURATION_NOT_RECORDED,
 
     /**
-     * Governance recorded decisions, but no attempt was observed. A recorded decision — including an
-     * `ALLOW` — is permission, never proof that anything executed.
+     * A configuration reference was supplied, but nothing in this contract authenticated its origin.
+     *
+     * [HistoricalConfigurationReference.Recorded] validates shape only. A correctly shaped reference
+     * can have been read from the run's persisted evidence or taken from the current configuration,
+     * and the two are indistinguishable here — so a [ReconstructionStatus.SUPPORTED] result says the
+     * sources answered, not that this identity is authentic.
+     */
+    HISTORICAL_CONFIGURATION_UNVERIFIED,
+
+    /**
+     * No attempt was observed for the run, so execution history is unknown.
+     *
+     * Raised whenever the attempt store recorded nothing — whether it reported no attempts
+     * ([AttemptHistoryState.EMPTY]) or was never instrumented
+     * ([AttemptHistoryState.UNINSTRUMENTED]). Absence of an observation is not proof that nothing ran,
+     * and a recorded decision beside it — including an `ALLOW` — is permission, never proof of
+     * execution.
      */
     EXECUTION_NOT_ESTABLISHED,
 
@@ -230,17 +252,19 @@ public data class ReconstructionResult(
         public fun limitationsOf(
             timeline: SemanticTimeline,
             historicalConfiguration: HistoricalConfigurationReference,
-        ): Set<ReconstructionLimitation> {
-            val snapshot = timeline.governance as? GovernanceSection.Snapshot
-            return buildSet {
+        ): Set<ReconstructionLimitation> =
+            buildSet {
                 addAll(governanceLimitations(timeline.governance))
                 if (timeline.history == AttemptHistoryState.UNINSTRUMENTED) {
                     add(ReconstructionLimitation.ATTEMPTS_UNINSTRUMENTED)
                 }
-                if (historicalConfiguration !is HistoricalConfigurationReference.Recorded) {
+                if (historicalConfiguration is HistoricalConfigurationReference.Recorded) {
+                    add(ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED)
+                } else {
                     add(ReconstructionLimitation.HISTORICAL_CONFIGURATION_NOT_RECORDED)
                 }
-                if (snapshot != null && claimsExecutionWithoutObservation(timeline)) {
+                if (timeline.history != AttemptHistoryState.RECORDED) {
+                    // No observation, so execution is unknown - whatever governance did or did not say.
                     add(ReconstructionLimitation.EXECUTION_NOT_ESTABLISHED)
                 }
                 val recorded = timeline.history == AttemptHistoryState.RECORDED
@@ -251,7 +275,6 @@ public data class ReconstructionResult(
                     add(ReconstructionLimitation.CORRELATION_UNRESOLVED)
                 }
             }
-        }
 
         private fun governanceLimitations(governance: GovernanceSection): Set<ReconstructionLimitation> =
             when (governance) {
@@ -266,18 +289,5 @@ public data class ReconstructionResult(
                 GovernanceSection.NotMaterialized,
                 -> setOf(ReconstructionLimitation.GOVERNANCE_NOT_OBSERVED)
             }
-
-        /**
-         * Whether the evidence holds decisions that a reader could mistake for evidence of execution.
-         *
-         * The condition is deliberately broader than an `ALLOW` token: this contract does not parse
-         * decision tokens at all, so *no* recorded decision is treated as execution evidence when no
-         * attempt was observed in a recording-capable history.
-         */
-        private fun claimsExecutionWithoutObservation(timeline: SemanticTimeline): Boolean {
-            val decisions = (timeline.governance as? GovernanceSection.Snapshot)?.view?.decisions
-            return !decisions.isNullOrEmpty() &&
-                timeline.history != AttemptHistoryState.RECORDED
-        }
     }
 }

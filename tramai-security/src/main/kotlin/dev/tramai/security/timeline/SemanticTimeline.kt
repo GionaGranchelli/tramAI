@@ -220,6 +220,14 @@ public data class SemanticTimeline(
  *
  * Blocking by design, matching the governance query it composes: a Java consumer needs no coroutine
  * machinery, and a suspending variant is deliberately not part of this slice.
+ *
+ * **Read-only is a contract on the implementation, not a property this type can enforce.** The
+ * interface declares one method and promises what that method returns; it cannot inspect what an
+ * implementation does while producing it. The shipped implementation
+ * ([Companion.of][Companion]) is verified to read and never write (see the write-traps in
+ * `SemanticTimelineQueryTest`), but a caller-supplied implementation is unverified: it could append to
+ * the attempt store, call a provider or write elsewhere. Do not read this signature as proof that
+ * every implementation is side-effect-free.
  */
 public fun interface SemanticTimelineQuery {
     /**
