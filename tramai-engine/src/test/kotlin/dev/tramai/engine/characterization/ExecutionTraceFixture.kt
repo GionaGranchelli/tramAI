@@ -136,16 +136,59 @@ internal class ExecutionTraceFixture {
     /** Refuses every model lookup, so the governed path stops before any provider call. */
     var modelRegistryRejects: Boolean = false
 
+    // --- Epic 0.7.5g: canary injection points for the producer-path confidentiality proof. Every
+    // default preserves the previous behaviour, so no existing test changes.
+
+    /** Content the provider returns. */
+    var providerResponseContent: String = "answer"
+
+    /** Message on the retryable [ProviderException] raised by [providerFailures]. */
+    var providerFailureMessage: String = "provider failed"
+
+    /** Message on the terminal error chunk emitted when [streamingFails]. */
+    var streamFailureMessage: String = "stream failed"
+
+    /** Raw arguments on the tool call the provider requests. */
+    var toolCallArgumentsJson: String = "{}"
+
+    /** Content of the [dev.tramai.core.model.ToolResult.Success] the tool returns. */
+    var toolResultContent: String = "paid"
+
+    /** Observes the exact [dev.tramai.core.model.ModelRequest] that reaches the provider. */
+    var onRequest: ((dev.tramai.core.model.ModelRequest) -> Unit)? = null
+
+    /** Token usage the provider reports on a successful response. */
+    var providerInputTokens: Int? = null
+    var providerOutputTokens: Int? = null
+    var providerThinkingTokens: Int? = null
+
+    /** Whether the provider names the model it used. `false` models a provider that reports none. */
+    var providerReportsModel: Boolean = true
+
     fun engine(): TramaiEngine {
         val cache = RecordingCache(sink, cachePreloaded)
         val provider =
             RecordingProvider(
                 sink,
-                providerFailures,
-                streaming = streaming,
-                streamingFails = streamingFails,
-                blocking = blockingProvider,
-                entered = providerEntered,
+                ProviderBehaviour(
+                    failFirst = providerFailures,
+                    streaming = streaming,
+                    streamingFails = streamingFails,
+                    blocking = blockingProvider,
+                    entered = providerEntered,
+                    responseContent = providerResponseContent,
+                    failureMessage = providerFailureMessage,
+                    streamFailureMessage = streamFailureMessage,
+                    toolArgumentsJson = toolCallArgumentsJson,
+                    onRequest = onRequest,
+                    response =
+                        ResponseShape(
+                            inputTokens = providerInputTokens,
+                            outputTokens = providerOutputTokens,
+                            thinkingTokens = providerThinkingTokens,
+                            reportsModel = providerReportsModel,
+                        ),
+                ),
             )
         val builder =
             ProviderRegistry
@@ -154,10 +197,10 @@ internal class ExecutionTraceFixture {
                 .model("logical-model", "primary")
         if (fallbackEnabled) {
             builder
-                .provider("fallback", RecordingProvider(sink, 0, providerName = "fallback"))
+                .provider("fallback", RecordingProvider(sink, ProviderBehaviour(providerName = "fallback")))
                 .fallbackProvider("logical-model", "fallback")
         }
-        val toolRegistry = ToolRegistry(mapOf("payment" to RecordingTool(sink)))
+        val toolRegistry = ToolRegistry(mapOf("payment" to RecordingTool(sink, toolResultContent)))
         val approvalStore = if (approvalRequired) RecordingApprovalContinuationStore(sink) else null
         val approvalCoordinator = if (approvalRequired) RecordingApprovalCoordinator(sink) else null
         return TramaiEngine(
@@ -416,14 +459,33 @@ internal class ExecutionTraceFixture {
         }
     }
 
+    /** What a successful response reports. Defaults model the behaviours existing tests rely on. */
+    private data class ResponseShape(
+        val inputTokens: Int? = null,
+        val outputTokens: Int? = null,
+        val thinkingTokens: Int? = null,
+        val reportsModel: Boolean = true,
+    )
+
+    /** Everything a test can shape about the fake provider. Data class: exempt from the ctor limit. */
+    private data class ProviderBehaviour(
+        var failFirst: Int = 0,
+        val providerName: String = "primary",
+        val streaming: Boolean = false,
+        val streamingFails: Boolean = false,
+        val blocking: Boolean = false,
+        val entered: kotlinx.coroutines.CompletableDeferred<Unit>? = null,
+        val responseContent: String = "answer",
+        val failureMessage: String = "provider failed",
+        val streamFailureMessage: String = "stream failed",
+        val toolArgumentsJson: String = "{}",
+        val onRequest: ((dev.tramai.core.model.ModelRequest) -> Unit)? = null,
+        val response: ResponseShape = ResponseShape(),
+    )
+
     private class RecordingProvider(
         private val sink: ExecutionTraceSink,
-        private var failFirst: Int,
-        private val providerName: String = "primary",
-        private val streaming: Boolean = false,
-        private val streamingFails: Boolean = false,
-        private val blocking: Boolean = false,
-        private val entered: kotlinx.coroutines.CompletableDeferred<Unit>? = null,
+        private val behaviour: ProviderBehaviour,
     ) : ModelProvider,
         dev.tramai.core.provider.StreamCapable {
         private val callCount = AtomicInteger(0)
@@ -431,13 +493,14 @@ internal class ExecutionTraceFixture {
 
         override suspend fun complete(request: ModelRequest): ModelResponse {
             val call = callCount.incrementAndGet()
-            sink.record("provider.execute", "provider" to providerName, "model" to request.model)
-            if (call <= failFirst) {
+            sink.record("provider.execute", "provider" to behaviour.providerName, "model" to request.model)
+            behaviour.onRequest?.invoke(request)
+            if (call <= behaviour.failFirst) {
                 delay(1)
-                throw ProviderException("provider failed", retryable = true)
+                throw ProviderException(behaviour.failureMessage, retryable = true)
             }
-            if (blocking) {
-                entered?.let { if (!it.isCompleted) it.complete(Unit) }
+            if (behaviour.blocking) {
+                behaviour.entered?.let { if (!it.isCompleted) it.complete(Unit) }
                 kotlinx.coroutines.awaitCancellation()
             }
             val wantsTool = request.tools?.isNotEmpty() == true && toolCallEmitted.incrementAndGet() == 1
@@ -445,23 +508,29 @@ internal class ExecutionTraceFixture {
                 ModelResponse(
                     content = "",
                     modelUsed = request.model,
-                    toolCalls = listOf(ToolCall("call-1", "payment", "{}")),
+                    toolCalls = listOf(ToolCall("call-1", "payment", behaviour.toolArgumentsJson)),
                 )
             } else {
-                ModelResponse(content = "answer", modelUsed = request.model)
+                ModelResponse(
+                    content = behaviour.responseContent,
+                    modelUsed = if (behaviour.response.reportsModel) request.model else null,
+                    inputTokens = behaviour.response.inputTokens,
+                    outputTokens = behaviour.response.outputTokens,
+                    thinkingTokens = behaviour.response.thinkingTokens,
+                )
             }
         }
 
-        override fun providerId() = providerName
+        override fun providerId() = behaviour.providerName
 
         override fun stream(request: ModelRequest): kotlinx.coroutines.flow.Flow<dev.tramai.core.model.StreamChunk> =
             kotlinx.coroutines.flow.flow {
-                sink.record("streaming.start", "provider" to providerName)
-                if (streamingFails) {
-                    sink.record("streaming.terminal", "provider" to providerName, "outcome" to "failure")
+                sink.record("streaming.start", "provider" to behaviour.providerName)
+                if (behaviour.streamingFails) {
+                    sink.record("streaming.terminal", "provider" to behaviour.providerName, "outcome" to "failure")
                     emit(
                         dev.tramai.core.model.StreamChunk
-                            .Error(ProviderException("stream failed", retryable = true)),
+                            .Error(ProviderException(behaviour.streamFailureMessage, retryable = true)),
                     )
                     return@flow
                 }
@@ -473,7 +542,7 @@ internal class ExecutionTraceFixture {
                     dev.tramai.core.model.StreamChunk
                         .Token("second"),
                 )
-                sink.record("streaming.terminal", "provider" to providerName, "outcome" to "success")
+                sink.record("streaming.terminal", "provider" to behaviour.providerName, "outcome" to "success")
                 emit(
                     dev.tramai.core.model.StreamChunk
                         .Complete(fullText = "firstsecond"),
@@ -483,6 +552,7 @@ internal class ExecutionTraceFixture {
 
     private class RecordingTool(
         private val sink: ExecutionTraceSink,
+        private val resultContent: String = "paid",
     ) : ResolvedTool {
         override val name = "payment"
         override val description = "Payment tool"
@@ -496,7 +566,7 @@ internal class ExecutionTraceFixture {
         ): ToolResult {
             sink.record("tool.execute.start", "tool" to name, "call" to "call-1")
             sink.record("tool.execute.success", "tool" to name)
-            return ToolResult.Success("paid")
+            return ToolResult.Success(resultContent)
         }
     }
 
