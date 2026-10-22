@@ -179,7 +179,11 @@ Every call to an `@AiService` method that reaches a provider produces a span nam
 | `gen_ai.usage.output_tokens` | On provider response | `45` |
 | `tramai.structured.parse_success` | On call completion | `true` / `false` |
 
-**Span status:** Set to `ERROR` with the exception message when `onProviderFailure` is called.
+**Span status:** Set to `ERROR` with a fixed description (`Provider call failed`) when
+`onProviderFailure` is called. The provider's exception message and stack trace are never exported: the
+engine sanitizes only the failures that travel through `providerTransportFailure`, so an exception a
+provider throws directly can carry response bodies, URLs or request fragments. The failure is recorded as
+an `exception` event carrying `exception.type` (the class name) and `exception.escaped`, nothing more.
 
 ### Workflow spans
 
@@ -299,12 +303,14 @@ onCallStarted(context)
                  │   └── Records metrics: input_tokens, output_tokens, *per_attempt
                  │
                  ├── onProviderFailure(error)
-                 │   ├── span.recordException(error)
-                 │   └── span.setStatus(StatusCode.ERROR)
+                 │   ├── span.addEvent("exception", {exception.type, exception.escaped})
+                 │   └── span.setStatus(StatusCode.ERROR, "Provider call failed")
+                 │       (no message, no stack trace: the provider's text is never exported)
                  │
                  ├── onStructuredParseFailure(rawResponse, errorSummary)
-                 │   ├── span.addEvent("tramai.parse.failure", {raw, error})
+                 │   ├── span.addEvent("tramai.parse.failure", {failure_code, parse_success})
                  │   └── metrics.parseFailures.add(1)
+                 │       (the raw response and the validation error are not exported)
                  │
                  ├── onEngineEvent(name, attributes)
                  │   ├── span.addEvent(name, attributes)
