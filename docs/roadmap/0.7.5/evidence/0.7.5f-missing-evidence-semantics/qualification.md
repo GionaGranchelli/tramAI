@@ -89,6 +89,21 @@ The distinction the owner asked for is now explicit in the vocabulary and docs:
   the lookup completed and established no reference was recorded; throw on failure (a failure
   propagates, never becomes absence); never read current configuration as a fallback.
 
+## Whose properties are these? (types, shipped implementation, or collaborators)
+
+The three are different, and the documentation now says which is which:
+
+- **Types** — no prompt/response/payload/reasoning field exists; no state claims authenticated
+  provenance; status and limitations are derived, so a result cannot contradict its evidence. These are
+  compile-time properties of the vocabulary.
+- **Shipped implementation** — `EvidenceBackedReconstructor` makes no external call of its own, and the
+  shipped read path is verified read-only by write-trapping tests. That is a property of this
+  composition, proven by tests against it.
+- **Caller-supplied collaborators** — unverified, and stated as such. An arbitrary
+  `SemanticTimelineQuery` may write or call out; an arbitrary `HistoricalConfigurationSource` may read
+  current configuration or swallow its own failure. Nothing here can inspect an implementation, so the
+  contract reports what it cannot verify (`HISTORICAL_CONFIGURATION_UNVERIFIED`) instead of claiming it.
+
 ## Adversarial regression coverage
 
 Mapping of the owner's twelve required cases to tests in this PR. All run through the shipped path
@@ -105,9 +120,9 @@ unless noted.
 | 7 | A source failure propagates rather than becoming `NotRecorded` | `a source failure propagates instead of becoming NotRecorded` |
 | 8 | A source-declared reference does not become authenticated provenance | `a source-declared reference never becomes authenticated provenance` |
 | 9 | A refused projection cannot become `SUPPORTED` merely because attempts exist | `a refused projection cannot be supported merely because attempts exist` |
-| 10 | Side-effect traps untouched during reconstruction | `the shipped read path performs no writes and invokes nothing external`, `the reconstruction queries only what it was asked for` |
+| 10 | Side-effect traps untouched during reconstruction | `the shipped read path performs no writes and invokes nothing external`, `the reconstruction queries only what it was asked for`, and `the reconstructor holds only its two read collaborators` (field shape, not implementation behaviour) |
 | 11 | Observed attempts keep non-authoritative provenance | `finish reason provenance is never fabricated`, `no time-to-first-token or provider-reported finish reason is fabricated` |
-| 12 | Payload canaries do not appear through the producer path | `protected payload canaries appear only where they were recorded` |
+| 12 | Payload canaries do not appear through the producer path | **PARTIAL — pending 0.7.5g**: `values the source recorded are preserved and no unrecorded canary appears` proves recorded values are carried through and nothing is invented. It does **not** prove end-to-end confidentiality for prompts, responses or tool payloads through a producer path; those fields do not exist in this surface, and that proof belongs to 0.7.5g. |
 
 Additional discriminators recorded for the highest-risk items (mutants applied, then restored):
 
@@ -146,6 +161,8 @@ partial usage summed instead of reported as unknown
 - **No attempt to authenticate a source or a reference, and no verifier invented.** Out of scope for a
   library contract: it would need an authority this epic does not own, so the limitation is reported
   instead.
+- **Confidentiality proof through the producer path is 0.7.5g**, not here. The canary test above is
+  labelled PARTIAL in the coverage table rather than counted as one of twelve demonstrated cases.
 - **No `Unavailable` lookup state.** A source that cannot complete must throw; that keeps the port to
   one method and the failure path to the language's own. A source that swallows its own failure and
   returns `NotRecorded` remains undetectable — stated as an obligation and documented, not enforced.

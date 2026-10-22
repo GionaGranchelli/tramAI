@@ -119,7 +119,7 @@ class AdversarialSemanticsTest {
     }
 
     @Test
-    fun `protected payload canaries appear only where they were recorded`() {
+    fun `values the source recorded are preserved and no unrecorded canary appears`() {
         val canary = "CANARY-9f13-da7a"
         val store = InMemoryAttemptObservationStore().apply { append(attempt("inv-1", 0, correlationId = canary)) }
         val governance =
@@ -130,6 +130,9 @@ class AdversarialSemanticsTest {
 
         val rendered = result.toString() + "\n" + result.timeline.toString()
 
+        // Scope of this proof: it shows recorded values are carried through and nothing is invented.
+        // It does NOT prove end-to-end confidentiality for prompts, responses or tool payloads through
+        // a producer path - those fields do not exist in this surface, and that proof is 0.7.5g.
         // The recorded values surface (so the rendering is not vacuous) ...
         assertThat(rendered).contains(canary)
         assertThat(rendered).contains("$canary-reason")
