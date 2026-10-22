@@ -53,7 +53,9 @@ Read that output as an argument for the design:
 
 - `SemanticTimelineQuery.Companion.of(store, governance)` — the companion member, not a constructor.
 - `new HistoricalConfigurationReference.Recorded(configuration, policyVersion, workflowDigest)` — use the
-  three-argument form; `@JvmOverloads` makes the one-argument form mean `workflowDigest`.
+  explicit three-argument form when you mean a policy version. `@JvmOverloads` generates overloads by
+  dropping *trailing* parameters, so the single-argument constructor is `Recorded(configuration)` and
+  passing a policy version as the only argument does not compile — which is the safe failure.
 - `timeline.attempts()` is a function; `timeline.getInvocations()`, `getUsage()`, `getWorkflowRunId()` are
   property accessors.
 

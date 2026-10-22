@@ -30,10 +30,17 @@ dependencies {
     testImplementation(libs.postgresql)
 }
 
+// The top-level `fun main()` lives in TimelineReconstructionExample.kt, so the generated class is
+// TimelineReconstructionExampleKt — not a name derived from the file's main function.
+val exampleMainClass = "dev.tramai.examples.timeline.TimelineReconstructionExampleKt"
+
 application {
-    mainClass.set("dev.tramai.examples.timeline.TimelineReconstructionMainKt")
+    mainClass.set(exampleMainClass)
 }
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // The launcher smoke test loads exactly the class this build configures, so a wrong mainClass
+    // fails a test instead of only failing `./gradlew run`.
+    systemProperty("tramai.example.mainClass", exampleMainClass)
 }

@@ -12,7 +12,7 @@ Reference integration for Epic 0.7.5: query a run's recorded attempts and govern
 
 ### Public entry points
 
-- `TimelineReconstructionExample` — Kotlin example: in-memory evidence, the shipped read path, and the narrative renderer
+- `TimelineReconstructionExample` — Kotlin example: in-memory evidence, the shipped read path, and the narrative renderer; its top-level `main` is the one `application.mainClass` points at
 - `TimelineReconstructionJavaExample` — the same example in Java, proving the API is callable from a Java consumer
 - `TimelineReconstructionPersistenceTest` — PostgreSQL qualification of `SUPPORTED`, `PARTIAL` and the empty-history `PARTIAL`, plus the uninstrumented `UNSUPPORTED` path
 
@@ -42,7 +42,7 @@ Repository-facing only (example module — not published).
 
 ### Contract tests / TCKs
 
-- `TimelineReconstructionExampleTest` (Kotlin, 2 tests), `TimelineReconstructionJavaExampleTest` (Java, 2 tests), `TimelineReconstructionPersistenceTest` (PostgreSQL, 5 tests)
+- `TimelineReconstructionExampleTest` (Kotlin, 2), `TimelineReconstructionLauncherSmokeTest` (launcher, 1), `TimelineReconstructionJavaExampleTest` (Java, 2), `TimelineReconstructionPersistenceTest` (PostgreSQL, 5)
 
 ### Do not
 

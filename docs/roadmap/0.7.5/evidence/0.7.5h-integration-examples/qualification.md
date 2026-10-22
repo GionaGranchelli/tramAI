@@ -13,7 +13,7 @@ unimplemented functionality is re-described as delivered.
 |---|---|
 | Kotlin integration example over the shipped timeline/reconstruction API | `examples/timeline-reconstruction/src/main/kotlin/dev/tramai/examples/timeline/TimelineReconstructionExample.kt` |
 | Java integration example over the same API (Java-consumer proof) | `examples/timeline-reconstruction/src/main/java/dev/tramai/examples/timeline/TimelineReconstructionJavaExample.java` |
-| Example acceptance tests (Kotlin 2, Java 2) | `TimelineReconstructionExampleTest`, `TimelineReconstructionJavaExampleTest` |
+| Example acceptance tests (Kotlin 3, Java 2) | `TimelineReconstructionExampleTest`, `TimelineReconstructionLauncherSmokeTest`, `TimelineReconstructionJavaExampleTest` |
 | Real persistence-to-reconstruction qualification, PostgreSQL 17 | `TimelineReconstructionPersistenceTest` (5 tests) |
 | Module card + catalogue entry + coverage table | `docs/modules/timeline-reconstruction.md`, `config/quality/module-catalog.yml`, `docs/modules/README.md` |
 | Acceptance matrix (this document) | below |
@@ -26,8 +26,15 @@ example has no redaction step to forget.
 
 ```
 ./gradlew :examples:timeline-reconstruction:run     # prints the Kotlin narrative
-./gradlew :examples:timeline-reconstruction:test    # 9 tests, Kotlin + Java + PostgreSQL
+./gradlew :examples:timeline-reconstruction:test    # 10 tests, Kotlin + Java + PostgreSQL
 ```
+
+The `run` task is smoke-tested, not just documented: `TimelineReconstructionLauncherSmokeTest` loads the
+exact class name the build configures (passed to the test as a system property, one source of truth),
+invokes `main`, and asserts the printed narrative. This closes a real defect in the first head of this PR —
+`application.mainClass` named `...MainKt`, a class no source file generates, so `./gradlew run` failed while
+every compiling test passed. Re-introducing that name fails the smoke test (verified: 1 test, 1 failure).
+`./gradlew :examples:timeline-reconstruction:run` now prints the narrative shown below.
 
 The Kotlin narrative for the reference evidence, as produced by the tests:
 
@@ -52,18 +59,27 @@ honest reading rather than the convenient one.
 **Java parity is a compile-time claim, not a story.** The Java example calls
 `SemanticTimelineQuery.Companion.of(store, null)`, `new EvidenceBackedReconstructor(query, source)`,
 `reconstruct(runId, null)`, `HistoricalConfigurationReference.Recorded(...)` and the result accessors
-directly. Two accessor mistakes were caught by writing it: `Recorded` needs the three-argument constructor
-form from Java (`@JvmOverloads` makes the one-argument form mean `workflowDigest`), and
-`SemanticTimeline.attempts()` is a function, not a `getAttempts()` property. Both are documented in the
-example source so the next consumer does not rediscover them.
+directly. Writing it surfaced two Java-consumer facts, both documented in the example source:
+`@JvmOverloads` generates overloads by dropping *trailing* parameters, so the single-argument
+`Recorded(...)` overload binds `configuration` — pass the explicit three-argument form when you mean a
+policy version; and `SemanticTimeline.attempts()` is a function, not a `getAttempts()` property.
 
 ## 3. Real persistence to reconstruction
 
-`TimelineReconstructionPersistenceTest` runs against PostgreSQL 17 testcontainers with **no hand-built
-evidence**: the governance projection is written by the shipped materializer through the
-`:tramai-security` test fixture and read through the public `GovernanceQueryService.jdbc(dataSource)`
-port, and the attempts are real `model_attempt_observations` rows read back by
-`JdbcModelAttemptObservationStore`.
+`TimelineReconstructionPersistenceTest` runs against PostgreSQL 17 testcontainers. What is real here,
+and what is not, stated exactly:
+
+- **Real persistence, real reader.** The governance projection is produced by the shipped materializer
+  (through the `:tramai-security` test fixture) and read through the public
+  `GovernanceQueryService.jdbc(dataSource)` port; the observations are persisted through the real
+  `JdbcModelAttemptObservationStore` and read back from real `model_attempt_observations` rows.
+- **The attempt records themselves are constructed by the example**, not produced by a governed engine
+  run in this test. This test therefore qualifies *persistence-to-reconstruction*, not the producer path.
+  The producer path — a real governed operation through `ProviderAttemptExecutor` →
+  `AttemptRecordingObserver` → store → query → reconstructor, with canaries — is proven separately in
+  0.7.5g (`ProducerPathConfidentialityTest`, `ProducerPathProvenanceTest`,
+  `JdbcAttemptObservationConfidentialityTest`; see the [0.7.5g qualification](../0.7.5g-adversarial-mutation/qualification.md)).
+  Neither proof substitutes for the other.
 
 | State | Test | Asserted |
 |---|---|---|
@@ -100,7 +116,7 @@ instrumentation.
 
 | Invariant | Verdict | Evidence |
 |---|---|---|
-| `reconstruction != re-execution` | **MET** | Zero-write trap tests; reconstructor has no collaborator capable of invoking anything (0.7.5e/Gate 2) |
+| `reconstruction != re-execution` | **MET** | Zero-write trap tests on the **shipped composition**: a write-trapping store, exact read counts and a reflection assertion that the shipped reconstruction types expose no provider/tool/approval/network capability. This is not a claim about arbitrary caller-supplied implementations of `SemanticTimelineQuery` or `HistoricalConfigurationSource`, which remain unverified — 0.7.5g demonstrates a collaborator that writes before reading (0.7.5e/Gate 2) |
 | `missing historical evidence remains missing` | **MET** | Missing/unknown matrix tests; `EXECUTION_NOT_ESTABLISHED` follows the observation, not the decisions (0.7.5f) |
 | `current configuration is never silently substituted` | **MET** | The type system has no "current configuration" input; `NotRecorded` has no fields; source must throw on failure rather than return absence |
 | `best-effort telemetry remains distinguishable from authoritative evidence` | **MET** | `FactAuthority` preserved from 0.7.4; `AttemptProvenance.OBSERVED_IN_PROCESS` never upgraded; a decision is never proof of execution |
@@ -122,7 +138,8 @@ instrumentation.
 ## 7. Verification
 
 ```
-:examples:timeline-reconstruction:test         tests=9  failures=0  (2 Kotlin example, 2 Java example, 5 PostgreSQL)
+:examples:timeline-reconstruction:test         tests=10 failures=0  (3 Kotlin example, 2 Java example, 5 PostgreSQL)
+:examples:timeline-reconstruction:run          prints the reference narrative, exit 0
 ```
 
 Repository gates at this head (`-PtramaiStaticAnalysisBaseRef`/`-PchangePolicyBase` pinned to
