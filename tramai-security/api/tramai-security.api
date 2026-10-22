@@ -1321,6 +1321,12 @@ public final class dev/tramai/security/model/InMemoryModelRegistry$Companion {
 	public final fun builder ()Ldev/tramai/security/model/InMemoryModelRegistry$Builder;
 }
 
+public final class dev/tramai/security/reconstruction/EvidenceBackedReconstructor {
+	public fun <init> (Ldev/tramai/security/timeline/SemanticTimelineQuery;Ldev/tramai/security/reconstruction/HistoricalConfigurationSource;)V
+	public final fun reconstruct (Ljava/lang/String;Ldev/tramai/security/governance/query/GovernanceQueryRequest;)Ldev/tramai/security/reconstruction/ReconstructionResult;
+	public static synthetic fun reconstruct$default (Ldev/tramai/security/reconstruction/EvidenceBackedReconstructor;Ljava/lang/String;Ldev/tramai/security/governance/query/GovernanceQueryRequest;ILjava/lang/Object;)Ldev/tramai/security/reconstruction/ReconstructionResult;
+}
+
 public abstract interface class dev/tramai/security/reconstruction/HistoricalConfigurationReference {
 }
 
@@ -1348,6 +1354,10 @@ public final class dev/tramai/security/reconstruction/HistoricalConfigurationRef
 	public final fun getWorkflowDigest ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/security/reconstruction/HistoricalConfigurationSource {
+	public abstract fun referenceFor (Ljava/lang/String;)Ldev/tramai/security/reconstruction/HistoricalConfigurationReference;
 }
 
 public final class dev/tramai/security/reconstruction/ReconstructionLimitation : java/lang/Enum {
