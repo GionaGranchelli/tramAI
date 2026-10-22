@@ -1321,6 +1321,95 @@ public final class dev/tramai/security/model/InMemoryModelRegistry$Companion {
 	public final fun builder ()Ldev/tramai/security/model/InMemoryModelRegistry$Builder;
 }
 
+public abstract interface class dev/tramai/security/reconstruction/HistoricalConfigurationReference {
+}
+
+public final class dev/tramai/security/reconstruction/HistoricalConfigurationReference$NotRecorded : dev/tramai/security/reconstruction/HistoricalConfigurationReference {
+	public static final field INSTANCE Ldev/tramai/security/reconstruction/HistoricalConfigurationReference$NotRecorded;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/reconstruction/HistoricalConfigurationReference$Recorded : dev/tramai/security/reconstruction/HistoricalConfigurationReference {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/core/identity/WorkloadConfigurationIdentity;)V
+	public fun <init> (Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/core/identity/WorkloadConfigurationIdentity;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/security/reconstruction/HistoricalConfigurationReference$Recorded;
+	public static synthetic fun copy$default (Ldev/tramai/security/reconstruction/HistoricalConfigurationReference$Recorded;Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/reconstruction/HistoricalConfigurationReference$Recorded;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getConfiguration ()Ldev/tramai/core/identity/WorkloadConfigurationIdentity;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getWorkflowDigest ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/reconstruction/ReconstructionLimitation : java/lang/Enum {
+	public static final field ATTEMPTS_UNINSTRUMENTED Ldev/tramai/security/reconstruction/ReconstructionLimitation;
+	public static final field CORRELATION_UNRESOLVED Ldev/tramai/security/reconstruction/ReconstructionLimitation;
+	public static final field EXECUTION_NOT_ESTABLISHED Ldev/tramai/security/reconstruction/ReconstructionLimitation;
+	public static final field GOVERNANCE_NOT_OBSERVED Ldev/tramai/security/reconstruction/ReconstructionLimitation;
+	public static final field GOVERNANCE_SOURCE_REFUSED Ldev/tramai/security/reconstruction/ReconstructionLimitation;
+	public static final field HISTORICAL_CONFIGURATION_NOT_RECORDED Ldev/tramai/security/reconstruction/ReconstructionLimitation;
+	public static final field USAGE_UNKNOWN Ldev/tramai/security/reconstruction/ReconstructionLimitation;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/reconstruction/ReconstructionLimitation;
+	public static fun values ()[Ldev/tramai/security/reconstruction/ReconstructionLimitation;
+}
+
+public final class dev/tramai/security/reconstruction/ReconstructionRequest {
+	public fun <init> (Ldev/tramai/security/timeline/TimelineRequest;Ldev/tramai/security/reconstruction/HistoricalConfigurationReference;)V
+	public final fun component1 ()Ldev/tramai/security/timeline/TimelineRequest;
+	public final fun component2 ()Ldev/tramai/security/reconstruction/HistoricalConfigurationReference;
+	public final fun copy (Ldev/tramai/security/timeline/TimelineRequest;Ldev/tramai/security/reconstruction/HistoricalConfigurationReference;)Ldev/tramai/security/reconstruction/ReconstructionRequest;
+	public static synthetic fun copy$default (Ldev/tramai/security/reconstruction/ReconstructionRequest;Ldev/tramai/security/timeline/TimelineRequest;Ldev/tramai/security/reconstruction/HistoricalConfigurationReference;ILjava/lang/Object;)Ldev/tramai/security/reconstruction/ReconstructionRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHistoricalConfiguration ()Ldev/tramai/security/reconstruction/HistoricalConfigurationReference;
+	public final fun getTimeline ()Ldev/tramai/security/timeline/TimelineRequest;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/reconstruction/ReconstructionResult {
+	public static final field Companion Ldev/tramai/security/reconstruction/ReconstructionResult$Companion;
+	public fun <init> (Ldev/tramai/security/reconstruction/ReconstructionRequest;Ldev/tramai/security/timeline/SemanticTimeline;)V
+	public final fun component1 ()Ldev/tramai/security/reconstruction/ReconstructionRequest;
+	public final fun component2 ()Ldev/tramai/security/timeline/SemanticTimeline;
+	public final fun copy (Ldev/tramai/security/reconstruction/ReconstructionRequest;Ldev/tramai/security/timeline/SemanticTimeline;)Ldev/tramai/security/reconstruction/ReconstructionResult;
+	public static synthetic fun copy$default (Ldev/tramai/security/reconstruction/ReconstructionResult;Ldev/tramai/security/reconstruction/ReconstructionRequest;Ldev/tramai/security/timeline/SemanticTimeline;ILjava/lang/Object;)Ldev/tramai/security/reconstruction/ReconstructionResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempts ()Ldev/tramai/security/timeline/AttemptHistoryState;
+	public final fun getGovernance ()Ldev/tramai/security/timeline/GovernanceSection;
+	public final fun getHistoricalConfiguration ()Ldev/tramai/security/reconstruction/HistoricalConfigurationReference;
+	public final fun getLimitations ()Ljava/util/Set;
+	public final fun getRequest ()Ldev/tramai/security/reconstruction/ReconstructionRequest;
+	public final fun getStatus ()Ldev/tramai/security/reconstruction/ReconstructionStatus;
+	public final fun getTimeline ()Ldev/tramai/security/timeline/SemanticTimeline;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/reconstruction/ReconstructionResult$Companion {
+	public final fun limitationsOf (Ldev/tramai/security/timeline/SemanticTimeline;Ldev/tramai/security/reconstruction/HistoricalConfigurationReference;)Ljava/util/Set;
+	public final fun of (Ldev/tramai/security/reconstruction/ReconstructionRequest;Ldev/tramai/security/timeline/SemanticTimeline;)Ldev/tramai/security/reconstruction/ReconstructionResult;
+	public final fun statusOf (Ldev/tramai/security/timeline/SemanticTimeline;Ldev/tramai/security/reconstruction/HistoricalConfigurationReference;)Ldev/tramai/security/reconstruction/ReconstructionStatus;
+}
+
+public final class dev/tramai/security/reconstruction/ReconstructionStatus : java/lang/Enum {
+	public static final field PARTIAL Ldev/tramai/security/reconstruction/ReconstructionStatus;
+	public static final field SUPPORTED Ldev/tramai/security/reconstruction/ReconstructionStatus;
+	public static final field UNSUPPORTED Ldev/tramai/security/reconstruction/ReconstructionStatus;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/reconstruction/ReconstructionStatus;
+	public static fun values ()[Ldev/tramai/security/reconstruction/ReconstructionStatus;
+}
+
 public final class dev/tramai/security/timeline/AttemptHistoryState : java/lang/Enum {
 	public static final field EMPTY Ldev/tramai/security/timeline/AttemptHistoryState;
 	public static final field RECORDED Ldev/tramai/security/timeline/AttemptHistoryState;

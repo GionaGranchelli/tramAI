@@ -208,7 +208,6 @@ public data class SemanticTimeline(
     /** Attempts across every invocation, ordered by `(startedAt, invocationId, attempt)`. */
     public fun attempts(): List<ModelAttemptObservation> =
         invocations
-            .sortedBy { it.attempts.first().startedAt }
             .flatMap { it.attempts }
             .sortedWith(compareBy({ it.startedAt }, { it.invocationId }, { it.attempt }))
 
