@@ -119,7 +119,11 @@ class EvidenceBackedReconstructorTest {
 
         assertThat(result.governance).isSameAs(refused)
         assertThat(result.status).isEqualTo(ReconstructionStatus.PARTIAL)
-        assertThat(result.limitations).containsExactly(ReconstructionLimitation.GOVERNANCE_SOURCE_REFUSED)
+        assertThat(result.limitations)
+            .containsExactly(
+                ReconstructionLimitation.GOVERNANCE_SOURCE_REFUSED,
+                ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED,
+            )
     }
 
     @Test
@@ -132,10 +136,11 @@ class EvidenceBackedReconstructorTest {
     }
 
     @Test
-    fun `no collaborator can perform an external action`() {
+    fun `the reconstructor holds only its two read collaborators`() {
         val fields = EvidenceBackedReconstructor::class.java.declaredFields.map { it.type }
 
-        // The only ways out of this class are a read-only timeline query and a reference lookup.
+        // Field types pin what the shipped composition can reach; an arbitrary implementation of
+        // either interface is unverified, which is why this asserts shape and not behaviour.
         assertThat(fields)
             .containsExactlyInAnyOrder(SemanticTimelineQuery::class.java, HistoricalConfigurationSource::class.java)
         // Ignore the synthetic members the compiler and the coverage instrumentation add.

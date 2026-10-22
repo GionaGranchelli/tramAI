@@ -44,7 +44,8 @@ class ReconstructionContractTest {
         val result = result(timeline(history = AttemptHistoryState.RECORDED), recorded())
 
         assertThat(result.status).isEqualTo(ReconstructionStatus.SUPPORTED)
-        assertThat(result.limitations).isEmpty()
+        // SUPPORTED means the sources answered; the reference is still unauthenticated.
+        assertThat(result.limitations).containsExactly(ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED)
         assertThat(result.attempts).isEqualTo(AttemptHistoryState.RECORDED)
         assertThat(result.governance).isInstanceOf(GovernanceSection.Snapshot::class.java)
     }
@@ -103,7 +104,11 @@ class ReconstructionContractTest {
             )
 
         assertThat(result.status).isEqualTo(ReconstructionStatus.PARTIAL)
-        assertThat(result.limitations).containsExactly(ReconstructionLimitation.GOVERNANCE_NOT_OBSERVED)
+        assertThat(result.limitations)
+            .containsExactly(
+                ReconstructionLimitation.GOVERNANCE_NOT_OBSERVED,
+                ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED,
+            )
     }
 
     @Test
@@ -120,6 +125,8 @@ class ReconstructionContractTest {
             .containsExactlyInAnyOrder(
                 ReconstructionLimitation.GOVERNANCE_NOT_OBSERVED,
                 ReconstructionLimitation.ATTEMPTS_UNINSTRUMENTED,
+                ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED,
+                ReconstructionLimitation.EXECUTION_NOT_ESTABLISHED,
             )
     }
 
@@ -134,7 +141,11 @@ class ReconstructionContractTest {
             assertThat(result.status).isEqualTo(ReconstructionStatus.PARTIAL)
             assertThat(result.governance).isSameAs(governance)
             assertThat(result.governance).isNotInstanceOf(GovernanceSection.Snapshot::class.java)
-            assertThat(result.limitations).containsExactly(ReconstructionLimitation.GOVERNANCE_SOURCE_REFUSED)
+            assertThat(result.limitations)
+                .containsExactly(
+                    ReconstructionLimitation.GOVERNANCE_SOURCE_REFUSED,
+                    ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED,
+                )
         }
     }
 
@@ -191,11 +202,15 @@ class ReconstructionContractTest {
                 recorded(),
             )
         assertThat(silent.timeline.usage).isNull()
-        assertThat(silent.limitations).containsExactly(ReconstructionLimitation.USAGE_UNKNOWN)
+        assertThat(silent.limitations)
+            .containsExactly(
+                ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED,
+                ReconstructionLimitation.USAGE_UNKNOWN,
+            )
 
         val reported = result(timeline(history = AttemptHistoryState.RECORDED, tokens = true), recorded())
         assertThat(reported.timeline.usage!!.inputTokens).isEqualTo(10L)
-        assertThat(reported.limitations).isEmpty()
+        assertThat(reported.limitations).containsExactly(ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED)
     }
 
     @Test
@@ -207,7 +222,11 @@ class ReconstructionContractTest {
             )
 
         assertThat(result.status).isEqualTo(ReconstructionStatus.SUPPORTED)
-        assertThat(result.limitations).containsExactly(ReconstructionLimitation.CORRELATION_UNRESOLVED)
+        assertThat(result.limitations)
+            .containsExactly(
+                ReconstructionLimitation.HISTORICAL_CONFIGURATION_UNVERIFIED,
+                ReconstructionLimitation.CORRELATION_UNRESOLVED,
+            )
     }
 
     @Test
