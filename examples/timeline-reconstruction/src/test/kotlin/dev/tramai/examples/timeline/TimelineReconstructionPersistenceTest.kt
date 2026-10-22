@@ -32,10 +32,15 @@ import javax.sql.DataSource
 /**
  * Epic 0.7.5h — real persistence to real reconstruction, on both halves, in PostgreSQL.
  *
- * Nothing here is a hand-built projection or a hand-built attempt row: the governance projection is
- * written by the shipped materializer (through the `:tramai-security` test fixture) and read through the
- * public `GovernanceQueryService.jdbc` port, and the attempts live in real `model_attempt_observations`
- * rows read back by `JdbcModelAttemptObservationStore`.
+ * What is real: the governance projection is written by the shipped materializer (through the
+ * `:tramai-security` test fixture) and read through the public `GovernanceQueryService.jdbc` port, and the
+ * observations are persisted through the real `JdbcModelAttemptObservationStore` and read back from real
+ * `model_attempt_observations` rows.
+ *
+ * What is not: the attempt *records* are constructed by the example, not produced by a governed engine
+ * run. This test qualifies persistence-to-reconstruction, not the producer path — that path is proven
+ * separately in 0.7.5g (`ProducerPathConfidentialityTest`, `ProducerPathProvenanceTest`,
+ * `JdbcAttemptObservationConfidentialityTest`). Neither proof substitutes for the other.
  *
  * The four evidence states are all reachable, with one honest caveat: `UNSUPPORTED` requires *both*
  * sources to be silent, which needs an uninstrumented attempt store — an instrumented PostgreSQL store
