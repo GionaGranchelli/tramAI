@@ -1,6 +1,6 @@
 # Epic 0.7.5 — Integration, Reference Examples & Final Epic Qualification
 
-**Task:** 0.7.5h · **Base:** `release/0.7.0` @ `202e5f09` (0.7.5g squash-merge) · **PR:** #552 against `release/0.7.0`
+**Task:** 0.7.5h · **Base:** `release/0.7.0` @ `202e5f09` (0.7.5g squash-merge) · **PR:** #552 against `release/0.7.0` · **Merged:** `83a69734`
 
 This is the epic gate. It adds the executable reference examples the epic promised, qualifies the
 reconstruction against real PostgreSQL in all four evidence states, and then states — criterion by
