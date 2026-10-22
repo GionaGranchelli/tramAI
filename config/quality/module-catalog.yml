@@ -83,6 +83,12 @@ modules:
     apiStability: excluded
     rationale: "Java consumer compilation proof for stable API compatibility (Epic 10.2)."
 
+  - path: ":examples:timeline-reconstruction"
+    <<: *example
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+
   - path: ":examples:kotlin-consumer-smoke"
     <<: *example
     layer: applications-examples

@@ -13,6 +13,7 @@
 | examples:spring-ai-authority-boundary | applications-examples | internal | excluded | No | examples | excluded |
 | examples:spring-sovereign-starter | applications-examples | internal | excluded | No | examples | excluded |
 | examples:support-agent | applications-examples | internal | excluded | No | examples | excluded |
+| examples:timeline-reconstruction | applications-examples | internal | excluded | No | examples | excluded |
 | examples:tool-governance | applications-examples | internal | excluded | No | examples | excluded |
 | tramai-anthropic | provider-adapters | preview | preview | Yes | providers | included |
 | tramai-azure-openai | provider-adapters | preview | preview | Yes | providers | included |

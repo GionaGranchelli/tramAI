@@ -1,7 +1,7 @@
 # Epic 0.7.5 — Semantic Timeline & Forensic Reconstruction
 
 **Branch:** `epic/0.7.5-timeline-reconstruction`  
-**Status:** ⚪ Planned  
+**Status:** ✅ Delivered — epic gate 5 MET / 3 PARTIAL / 0 NOT MET (see [qualification](../0.7.5/evidence/0.7.5h-integration-examples/qualification.md))  
 **Dependencies:** 0.7.4 HARD
 
 ## Executive decision
@@ -65,7 +65,7 @@ reconstruction preserves historical enforcement/evidence provenance rather than 
 | 0.7.5e | Delivered: `EvidenceBackedReconstructor` reads the materialized governance projection and the recorded attempts through the 0.7.5c query, takes the historical reference from a `HistoricalConfigurationSource` port so a caller cannot inject one, and returns the 0.7.5d result. Side-effect-free by construction: it has no collaborator through which a provider, tool, approval or network call could be made. Evidence: [qualification](../0.7.5/evidence/0.7.5e-reconstructor/qualification.md). No engine loop, export or report assembly. |
 | 0.7.5f | Delivered: semantic correctness pass over 0.7.5c-e. "No attempt recorded" no longer reads as "nothing executed" (the limitation follows the observation, not the decisions), a correctly shaped configuration reference is reported as unauthenticated, and the missing/unknown semantics for uninstrumented stores, unqueried governance, zero vs unknown usage, incomplete component totals, finish-reason provenance and retry-vs-invocation are pinned by tests on the shipped read path, including a write-trapping store proving no writes or external invocations. Evidence: [qualification](../0.7.5/evidence/0.7.5f-missing-evidence-semantics/qualification.md). Status vocabulary unchanged. |
 | 0.7.5g | Delivered: end-to-end confidentiality proven through the real producer path (engine, OTel span, PostgreSQL columns) with canaries at five origins; zero-write reconstruction with exact read counts; causal, accounting and provenance integrity on both the read and recording paths; 15/15 admissible mutants killed (four first-pass survivors exposed hand-built fixtures and forced two real-path detectors); one production defect found and fixed — OTel provider-failure export carried the raw upstream message and stack trace. Evidence: [qualification](../0.7.5/evidence/0.7.5g-adversarial-mutation/qualification.md). Boundary: caller-supplied collaborators and non-attempt logging remain unverified. |
-| 0.7.5h | Not started |
+| 0.7.5h | Delivered: epic gate. Kotlin **and** Java reference examples over the shipped read path (`examples/timeline-reconstruction`, 9 tests), real persistence-to-reconstruction qualification in PostgreSQL for `SUPPORTED`, `PARTIAL` (no governance scope, and empty instrumented history) and `UNSUPPORTED` (uninstrumented store), plus a criterion-by-criterion acceptance matrix that scores the epic **5 MET / 3 PARTIAL / 0 NOT MET** and names each gap instead of re-describing it. Evidence: [qualification](../0.7.5/evidence/0.7.5h-integration-examples/qualification.md). Release blocker tracked separately: [#551](https://github.com/GionaGranchelli/tramAI/issues/551) (workflow/worker OTel exception export) must merge before 0.7.0 promotion. |
 
 ## Acceptance criteria
 

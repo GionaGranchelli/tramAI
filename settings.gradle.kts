@@ -65,4 +65,5 @@ include(
     "examples:spring-ai-authority-boundary",
     "examples:java-consumer-smoke",
     "examples:kotlin-consumer-smoke",
+    "examples:timeline-reconstruction",
 )
