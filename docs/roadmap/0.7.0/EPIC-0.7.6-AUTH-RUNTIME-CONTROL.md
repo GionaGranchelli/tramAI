@@ -1,7 +1,7 @@
 # Epic 0.7.6 — Authentication, Authorization & Runtime Control
 
 **Branch:** `epic/0.7.6-auth-runtime-control`  
-**Status:** ⚪ Planned  
+**Status:** 🟡 Active — audit delivered (0.7.6a), implementation not started  
 **Dependencies:** 0.7.1 HARD; 0.7.4 HARD
 
 ## Executive decision
@@ -30,7 +30,7 @@ Expose privileged control-plane commands only through an identity-provider-neutr
 
 | ID | Candidate | Required result |
 |---|---|---|
-| 0.7.6a | Security/control baseline audit | Map current auth hooks, lifecycle APIs, stores and unsafe direct mutations |
+| 0.7.6a | Security/control baseline audit | ✅ **Delivered** — [AUDIT-0.7.6a](../0.7.6/AUDIT-0.7.6a-SECURITY-CONTROL-BASELINE.md). Inventory, control-path matrix, threat model, gap register (5 BLOCKER / 5 REQUIRED / 5 DEFERRED / 3 ACCEPTED) and the [0.7.6b handoff spec](../0.7.6/TASK-0.7.6b-PRINCIPAL-OPERATOR-CAPABILITY.md). |
 | 0.7.6b | Principal + operator capability contract | IdP-neutral authenticated identity and server-side operator/control-plane capability model; terminology must not collapse operator authority with runtime capability governance |
 | 0.7.6c | OIDC/Spring boundary | Generic adapter/integration seam without vendor authority semantics in core |
 | 0.7.6d | Typed control commands | Target identity, expected version/precondition, reason and supported lifecycle operations |
@@ -56,6 +56,36 @@ operator capability != runtime capability
 - Successful controls are attributable and reconstructable.
 - Direct-store/client bypasses are absent from supported control paths.
 - Operator authorization vocabulary is unambiguous and does not become the canonical representation for runtime tool/MCP/model capabilities.
+
+## Audit baseline (0.7.6a, delivered)
+
+Recorded, not remediated. Full evidence: [AUDIT-0.7.6a](../0.7.6/AUDIT-0.7.6a-SECURITY-CONTROL-BASELINE.md).
+
+What already exists and is reusable:
+
+- fenced workload mutation — `WorkloadRegistrationAuthority` with `WorkloadStateVersion` compare-and-set, and
+  a port (`WorkloadControlPlaneCommands`) with no unconditional write operation;
+- approval optimistic concurrency and a transactionally coupled decision+audit outbox;
+- shape validation for actor identifiers (`SafeActorIdPolicy`), explicitly format-only;
+- one real authenticated ingress: GitHub HMAC webhook verification with a replay cache;
+- a working authentication + scope-authorization *shape* in `tramai-platform` (`ApiKeyAuthenticator`,
+  `requireScope`), which no module depends on.
+
+What does not exist (BLOCKERs gating 0.7.6e):
+
+1. operator authentication on any control path — approval decisions take `actorId`/`actorRole` from the
+   request body (`ApprovalControlPlaneController.kt:75-108`);
+2. fail-closed concurrency on approvals — `ApprovalDecisionCommand.expectedVersion` defaults to `null` and
+   `null` means auto-detect (`SovereignOpsApprovalDecisionControlPlane.kt:109,118`), so the store CAS always
+   succeeds and a concurrent decision silently overwrites;
+3. enforcement of the declared approver role (`requiredRole` is requested and stored, never compared);
+4. an operator capability vocabulary — the only scope enum mixes operator and runtime authority;
+5. a single authoritative control boundary — privileged mutations are reachable from several controllers
+   and from public store interfaces.
+
+These findings do **not** change the epic's acceptance criteria, and none of the criteria below may be
+marked complete because a contract exists. `docs/modules` documentation must not describe these paths as
+authorized until 0.7.6e enforces it.
 
 ## Adversarial proof
 
