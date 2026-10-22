@@ -239,8 +239,12 @@ class GovernanceTelemetryExporterTest {
         // its own. Asserted, not described.
         assertThat(GovernanceExposure::class.java.isInterface).isTrue()
         assertThat(GovernanceDecisionExposure::class.java.isInterface).isTrue()
-        assertThat(GovernanceExposure::class.isSealed).isTrue()
-        assertThat(GovernanceDecisionExposure::class.isSealed).isTrue()
+        // Read the JVM `PermittedSubclasses` attribute rather than `KClass.isSealed`: the Kotlin reflection
+        // property needs kotlin-reflect, which is not on this module's test classpath, and the compiler says
+        // so (NO_REFLECTION_IN_CLASS_PATH). The JVM attribute asserts the same guarantee without the
+        // dependency: a sealed interface has permitted subclasses, an open one does not.
+        assertThat(GovernanceExposure::class.java.permittedSubclasses).isNotEmpty()
+        assertThat(GovernanceDecisionExposure::class.java.permittedSubclasses).isNotEmpty()
         assertThat(GovernanceExposure::class.java.constructors).isEmpty()
         assertThat(GovernanceDecisionExposure::class.java.constructors).isEmpty()
 

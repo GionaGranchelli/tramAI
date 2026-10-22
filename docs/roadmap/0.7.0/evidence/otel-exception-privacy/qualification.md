@@ -83,9 +83,23 @@ record the same for the operation observer fixed in 0.7.5g.
 mutation (recordException restored on all six paths)                 tests=6 failures=6  (6/6 killed)
 ```
 
-Repository gates: spotlessCheck, verifyStaticAnalysis, verifyChangePolicy, verifyModuleDocContract,
+Repository gates: spotlessCheck, verifyStaticAnalysis, verifyChangePolicy (8 files), verifyModuleDocContract,
 `:tramai-observability:apiCheck`, verifyJUnitTestSignatures, verifyCompilerWarnings, and the full
-`:tramai-observability:test` suite. Exact-head CI: see PR #554.
+`:tramai-observability:test` suite (61/0). Exact-head CI: see PR #554.
+
+### Pre-existing warnings this PR surfaced
+
+Touching `:tramai-observability` makes CI recompile the module's test sources, which surfaced two
+**pre-existing** `NO_REFLECTION_IN_CLASS_PATH` warnings in `GovernanceTelemetryExporterTest.kt:242:46` and
+`:243:54`. Proven pre-existing by a forced clean compile at the pristine base `a9ccd7a9`
+(`:tramai-observability:compileTestKotlin --rerun-tasks`), which emits the same two warnings at the same
+lines; the gate had never counted them because that compile was cached in every earlier CI run.
+
+Fixed rather than baselined, per the gate's own rule: `KClass.isSealed` needs kotlin-reflect, which is not on
+this module's test classpath, so both assertions now read the JVM `PermittedSubclasses` attribute
+(`Class.getPermittedSubclasses()`), which asserts the same sealing guarantee without the dependency. Result:
+`compiler-warnings: 0 baseline-covered warning identities; gate green`, and the governance test still passes
+(61/0).
 
 No public API change: `recordSafeException` is `internal`, and no shipped signature moved.
 
