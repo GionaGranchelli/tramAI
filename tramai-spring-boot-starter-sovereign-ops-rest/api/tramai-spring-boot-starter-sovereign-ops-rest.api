@@ -266,11 +266,6 @@ public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorSecurit
 	public final fun setRoleMappings (Ljava/util/Map;)V
 }
 
-public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorSubjectPolicy {
-	public static final field INSTANCE Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSubjectPolicy;
-	public final fun recordable (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
-}
-
 public final class dev/tramai/spring/sovereign/ops/rest/security/UnsupportedOperatorSubjectException : java/lang/RuntimeException {
 	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V

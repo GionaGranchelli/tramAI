@@ -128,6 +128,39 @@ HTML/JS payload content, and with Spring Security on the *test* classpath Boot's
 their requests. Disabling filters in a test about payload rendering keeps the assertion honest; the transport
 behaviour is covered by `OperatorAuthenticationHttpTest`, which exercises the real chain.
 
+## Gate-driven changes (and the one that needs owner sign-off)
+
+Two CI failures were diagnosed before any edit; the base comparison rule was applied for both.
+
+**1. `api-architecture` — my module needed an API-migration entry.** Adding public adapter types changes the
+starter's API dump, and the gate requires an exact hash-bound entry. Appended one entry to
+`config/quality/api-migrations.yml` (`fromSha256=557d7bc5…` → `toSha256=31888bc7…`, targetVersion 0.7.0).
+Append-only; no existing entry edited. Sanctioned mechanism, not a gate edit.
+
+**2. `global-state` — one new finding in my module, fixed in code, not by deviation.** Caused by a Kotlin
+`object` (a static singleton) and by `mutableListOf()` construction. Replaced with a top-level
+`recordableOperatorSubject(...)` function and an immutable `List<RequestMatcher>` built with a widening cast;
+the exception moved to `UnsupportedOperatorSubjectException.kt` to satisfy `MatchingDeclarationName`. The
+deviation ceiling was not touched.
+
+**3. `RuntimeEventCatalogueArchitectureTest` — declared configuration namespace (needs owner sign-off).**
+That gate forbids `tramai.`-prefixed literals in production code except the *exact declared Spring
+configuration-property names* held in its `configPropertyLiterals` allow-list. My
+`@ConfigurationProperties("tramai.sovereign.ops.security")` is a new declared namespace, so it was added to
+that list — the file's own documented mechanism for a declared namespace. **Flagged for review because
+`AGENTS.md` treats an analyzer change as a stop-and-report condition:** the alternative was renaming the
+property namespace away from the repository's established `tramai.sovereign.ops.*` convention, which would
+have been a worse compatibility decision made to avoid a one-line registration. Not hidden, not suppressed,
+and not merged by me.
+
+**Pre-existing, not mine (VERIFIED at the pristine base).** `verify060Architecture` at `61277823` fails
+`api-architecture` with **26** diagnostics across `:tramai-control-plane`, `:tramai-persistence-jdbc`,
+`:tramai-security` and `:tramai-spring-boot-starter-sovereign-persistence-jdbc`. At this head the same 26
+remain and **my module contributes 0**. The pre-existing entries are missing migration records for
+already-merged API changes; they are recorded here rather than fixed, because fixing them is a separate
+migration task and touching them inside this PR would mix an unrelated authority change into a security
+adapter.
+
 ## What authentication is now established, and what is not
 
 **Established:** requests to the protected paths must carry a valid RS256 JWT from the configured issuer for

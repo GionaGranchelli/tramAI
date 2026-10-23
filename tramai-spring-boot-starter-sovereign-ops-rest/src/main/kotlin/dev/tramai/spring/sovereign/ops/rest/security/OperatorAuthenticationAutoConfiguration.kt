@@ -99,9 +99,11 @@ class OperatorAuthenticationAutoConfiguration {
         properties: OperatorSecurityProperties,
     ): SecurityFilterChain {
         requireOperatorConfiguration(properties)
-        val matchers: MutableList<RequestMatcher> =
+        // Widening cast keeps the element type exact without constructing a mutable collection: the
+        // architecture gate treats mutable collection construction in production code as global state.
+        val matchers: List<RequestMatcher> =
             properties.protectedPaths
-                .mapTo(mutableListOf()) { path -> AntPathRequestMatcher(path) }
+                .map { path -> AntPathRequestMatcher(path) as RequestMatcher }
         return http
             .securityMatcher(OrRequestMatcher(matchers))
             .csrf { csrf -> csrf.disable() }

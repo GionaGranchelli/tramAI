@@ -35,7 +35,7 @@ class OperatorPrincipalFactory(
         verifiedAt: Instant = clock.instant(),
     ): OperatorPrincipal {
         val (issuer, subject) = verifiedIdentity(jwt)
-        val recordableSubject = OperatorSubjectPolicy.recordable(issuer, subject)
+        val recordableSubject = recordableOperatorSubject(issuer, subject)
         return OperatorPrincipal(
             subject = recordableSubject,
             issuer = issuer,

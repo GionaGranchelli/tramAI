@@ -85,6 +85,8 @@ class RuntimeEventCatalogueArchitectureTest {
             "tramai.sovereign.ops.approval-gateway",
             "tramai.sovereign.ops.approved-resume-worker",
             "tramai.sovereign.ops.outbox.worker",
+            // 0.7.6c: declared @ConfigurationProperties namespace of the operator authentication boundary.
+            "tramai.sovereign.ops.security",
             "tramai.sovereign.persistence",
         )
 

@@ -3,18 +3,6 @@ package dev.tramai.spring.sovereign.ops.rest.security
 import dev.tramai.core.approval.SafeActorIdPolicy
 
 /**
- * Raised when a verified token carries a subject that cannot be recorded as an approval actor id.
- *
- * Fail-closed on purpose (audit limitation A4): the operator subject becomes the actor recorded in
- * approval evidence, so an identity that the approval path could not store must not silently become an
- * operator under some rewritten form.
- */
-class UnsupportedOperatorSubjectException(
-    message: String,
-    cause: Throwable? = null,
-) : RuntimeException(message, cause)
-
-/**
  * Subject compatibility policy for operator identities (0.7.6c, resolves audit limitation A4).
  *
  * Identity is the exact pair `(issuer, subject)`. This policy **never transforms** a subject: it either
@@ -29,25 +17,23 @@ class UnsupportedOperatorSubjectException(
  * are **rejected** rather than mapped. A future deterministic, issuer-aware, collision-resistant
  * mapping is a separate decision; inventing one inside the authentication adapter would put a second
  * identity authority next to the approval store.
+ *
+ * A top-level function rather than an `object`: the rule is stateless, and the repository's architecture
+ * gate treats a Kotlin `object` in production code as global state.
+ *
+ * @throws UnsupportedOperatorSubjectException when the subject is blank, malformed, too long, or uses
+ *   characters the actor-id rule does not allow.
  */
-object OperatorSubjectPolicy {
-    /**
-     * Returns [subject] unchanged when it can be recorded as an approval actor id.
-     *
-     * @throws UnsupportedOperatorSubjectException when the subject is blank, malformed, too long, or
-     *   uses characters the actor-id rule does not allow.
-     */
-    fun recordable(
-        issuer: String,
-        subject: String,
-    ): String =
-        try {
-            SafeActorIdPolicy.validateActorId(subject, "subject")
-        } catch (rejected: IllegalArgumentException) {
-            throw UnsupportedOperatorSubjectException(
-                "operator subject from issuer '$issuer' cannot be recorded as an approval actor id: " +
-                    (rejected.message ?: "rejected by the actor-id rule"),
-                rejected,
-            )
-        }
-}
+internal fun recordableOperatorSubject(
+    issuer: String,
+    subject: String,
+): String =
+    try {
+        SafeActorIdPolicy.validateActorId(subject, "subject")
+    } catch (rejected: IllegalArgumentException) {
+        throw UnsupportedOperatorSubjectException(
+            "operator subject from issuer '$issuer' cannot be recorded as an approval actor id: " +
+                (rejected.message ?: "rejected by the actor-id rule"),
+            rejected,
+        )
+    }
