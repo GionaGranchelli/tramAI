@@ -286,8 +286,23 @@ Scenarios 1–5 and 11 are the fail-open family the repository treats as P1; 0.7
 | A1 | Actor ids are format-validated only, never authenticated, for the duration of 0.7.6a–0.7.6d | Recorded, not claimed safe. `SafeActorIdPolicy` must keep saying so until 0.7.6e wires the principal. |
 | A2 | In-process callers holding a store reference can mutate state | Library design constraint: TramAI is a JVM library, not a server. 0.7.6e/g must confine the claim to "the supported control path". |
 | A3 | `tramai-platform` remains an unwired module | Its auth shape is the reuse candidate; wiring it into the release is out of scope here. |
+| A4 | Operator subject charset is narrower than real IdP subjects: `SafeActorIdPolicy` allows `[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}`, so Auth0-style `auth0|abc123` and URL-shaped subjects are rejected at construction | Deliberate fail-closed coupling: the subject becomes the approval actor id, so an id the approval path cannot record must not become an operator. 0.7.6c must map such subjects into a recordable form (or report the conflict) and test real subject formats before claiming IdP neutrality. |
 
 ---
+
+## 7a. Owner-retained requirements (binding on 0.7.6b–0.7.6g)
+
+Recorded at audit approval. These are acceptance gates for the implementation tasks, not advice:
+
+1. **Fix the approval concurrency bypass before any control operation is described as safe.** A caller must not
+   be able to substitute the latest version for a missing expected version (finding F2). Until 0.7.6d makes the
+   expected version required, no documentation may describe approval decisions as stale-protected.
+2. **`OperatorPrincipal` is data, not proof of authentication.** An arbitrary caller constructing one must gain
+   no authority: enforcement (0.7.6e) accepts a principal only from the trusted authentication boundary
+   (0.7.6c) and 0.7.6g proves an unauthenticated path cannot obtain authority.
+3. **Carry these findings as explicit acceptance gates with state-unchanged assertions.** Adversarial tests must
+   prove that an unauthorized or stale command leaves authoritative persistent state unchanged — not merely that
+   the call returned an error (0.7.6g, §6).
 
 ## 8. Proposed architecture for 0.7.6
 
