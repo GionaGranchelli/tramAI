@@ -31,7 +31,7 @@ Expose privileged control-plane commands only through an identity-provider-neutr
 | ID | Candidate | Required result |
 |---|---|---|
 | 0.7.6a | Security/control baseline audit | ✅ **Delivered** — [AUDIT-0.7.6a](../0.7.6/AUDIT-0.7.6a-SECURITY-CONTROL-BASELINE.md). Inventory, control-path matrix, threat model, gap register (5 BLOCKER / 5 REQUIRED / 5 DEFERRED / 3 ACCEPTED) and the [0.7.6b handoff spec](../0.7.6/TASK-0.7.6b-PRINCIPAL-OPERATOR-CAPABILITY.md). |
-| 0.7.6b | Principal + operator capability contract | IdP-neutral authenticated identity and server-side operator/control-plane capability model; terminology must not collapse operator authority with runtime capability governance |
+| 0.7.6b | Principal + operator capability contract | ✅ **Delivered** — `dev.tramai.core.operator`: `OperatorPrincipal` (subject+issuer identity, typed `authorize`), closed `OperatorCapability` (four audited operations, no wildcard), `OperatorAuthorizationResult`. Contracts only: **no enforcement**, and the module card says so. Spec: [TASK-0.7.6b](../0.7.6/TASK-0.7.6b-PRINCIPAL-OPERATOR-CAPABILITY.md) |
 | 0.7.6c | OIDC/Spring boundary | Generic adapter/integration seam without vendor authority semantics in core |
 | 0.7.6d | Typed control commands | Target identity, expected version/precondition, reason and supported lifecycle operations |
 | 0.7.6e | Runtime authorization path | Authenticate → authorize → validate → mutate authority; no bypass store path |
