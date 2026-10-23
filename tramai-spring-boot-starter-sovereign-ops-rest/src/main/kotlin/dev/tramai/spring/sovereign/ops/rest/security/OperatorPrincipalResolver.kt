@@ -35,16 +35,11 @@ class OperatorPrincipalResolver(
         val jwtAuthentication =
             authentication as? JwtAuthenticationToken
                 ?: throw InsufficientAuthenticationException("tramai-operator-not-authenticated")
-        return try {
-            principalFactory.fromVerified(jwtAuthentication.token)
-        } catch (unsupported: UnsupportedOperatorSubjectException) {
-            // A verified token whose subject cannot be recorded is an unusable credential, not a server
-            // fault: fail the authentication (401) rather than surfacing a 500 to the caller.
-            throw InsufficientAuthenticationException(
-                "tramai-operator-subject-unsupported",
-                unsupported,
-            )
-        }
+        // Every identity the boundary cannot establish - missing issuer, missing subject, unrecordable
+        // subject - is thrown by the factory as an AuthenticationException, so Spring answers 401 and the
+        // handler is never reached. A try/catch here would have to enumerate those cases and would miss
+        // the next one added.
+        return principalFactory.fromVerified(jwtAuthentication.token)
     }
 
     /** Resolves the principal of the current request's verified authentication. */

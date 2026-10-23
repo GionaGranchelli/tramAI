@@ -88,8 +88,11 @@ class OperatorSubjectPolicyTest {
             .isInstanceOf(UnsupportedOperatorSubjectException::class.java)
         assertThatThrownBy { factory().fromVerified(jwt("alice smith")) }
             .isInstanceOf(UnsupportedOperatorSubjectException::class.java)
+        // A missing subject is a rejected credential, not a server fault: the resolver no longer
+        // translates it, because the factory now throws an authentication failure itself.
         assertThatThrownBy { factory().fromVerified(jwt(null)) }
-            .isInstanceOf(IllegalStateException::class.java)
+            .isInstanceOf(UnsupportedOperatorSubjectException::class.java)
+            .hasMessageContaining("missing-subject")
     }
 
     @Test

@@ -80,6 +80,43 @@ class OperatorAuthenticationHttpTest {
     }
 
     @Test
+    fun `a verified token without a subject is rejected with 401 and never reaches the handler`() {
+        // Regression guard: this used to raise IllegalStateException from the factory, which Spring
+        // surfaced as 500. An unusable credential is an authentication failure, not a server fault.
+        val token = keys.token(OperatorTestKeys.TokenSpec(subject = null))
+
+        mockMvc
+            .perform(get("/tramai/sovereign/test/whoami").header(HttpHeaders.AUTHORIZATION, "Bearer $token"))
+            .andExpect(status().isUnauthorized)
+
+        assertThat(sideEffects.invocations()).isZero()
+    }
+
+    @Test
+    fun `a verified token without an expiry claim is rejected with 401`() {
+        val token = keys.token(OperatorTestKeys.TokenSpec(expiresAt = null))
+
+        mockMvc
+            .perform(get("/tramai/sovereign/test/whoami").header(HttpHeaders.AUTHORIZATION, "Bearer $token"))
+            .andExpect(status().isUnauthorized)
+
+        assertThat(sideEffects.invocations()).isZero()
+    }
+
+    @Test
+    fun `a permissive host decoder cannot weaken the operator chain`() {
+        // The context holds a second, deliberately permissive JwtDecoder bean that trusts the foreign
+        // key and applies no validators. If the chain inherited it, this forged token would be accepted.
+        val forged = keys.token(OperatorTestKeys.TokenSpec(signedWith = keys.foreignPair))
+
+        mockMvc
+            .perform(get("/tramai/sovereign/test/whoami").header(HttpHeaders.AUTHORIZATION, "Bearer $forged"))
+            .andExpect(status().isUnauthorized)
+
+        assertThat(sideEffects.invocations()).isZero()
+    }
+
+    @Test
     fun `a token signed by a foreign key is rejected with 401`() {
         val forged = keys.token(OperatorTestKeys.TokenSpec(signedWith = keys.foreignPair))
 

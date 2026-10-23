@@ -1,5 +1,7 @@
 package dev.tramai.spring.sovereign.ops.rest.security
 
+import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
@@ -23,10 +25,12 @@ import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher
 import org.springframework.security.web.util.matcher.OrRequestMatcher
 import org.springframework.security.web.util.matcher.RequestMatcher
+import org.springframework.util.AntPathMatcher
 import org.springframework.util.ClassUtils
 import org.springframework.web.method.support.HandlerMethodArgumentResolver
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 import java.time.Clock
+import java.time.Instant
 
 /**
  * Identity-provider-neutral operator authentication boundary for the sovereign-ops REST control plane
@@ -75,9 +79,12 @@ class OperatorAuthenticationAutoConfiguration {
      * the JWKS location is configured rather than discovered from the token.
      */
     @Bean
-    @ConditionalOnMissingBean(JwtDecoder::class)
-    fun operatorJwtDecoder(properties: OperatorSecurityProperties): JwtDecoder {
-        requireOperatorConfiguration(properties)
+    @ConditionalOnMissingBean(name = ["operatorJwtDecoder"])
+    fun operatorJwtDecoder(
+        properties: OperatorSecurityProperties,
+        @Value("\${tramai.sovereign.ops.rest.base-path:/tramai/sovereign/approvals}") approvalBasePath: String,
+    ): JwtDecoder {
+        requireOperatorConfiguration(properties, approvalBasePath)
         val decoder =
             NimbusJwtDecoder
                 .withJwkSetUri(properties.jwkSetUri)
@@ -97,8 +104,10 @@ class OperatorAuthenticationAutoConfiguration {
     fun operatorSecurityFilterChain(
         http: HttpSecurity,
         properties: OperatorSecurityProperties,
+        @Qualifier("operatorJwtDecoder") decoder: JwtDecoder,
+        @Value("\${tramai.sovereign.ops.rest.base-path:/tramai/sovereign/approvals}") approvalBasePath: String,
     ): SecurityFilterChain {
-        requireOperatorConfiguration(properties)
+        requireOperatorConfiguration(properties, approvalBasePath)
         // Widening cast keeps the element type exact without constructing a mutable collection: the
         // architecture gate treats mutable collection construction in production code as global state.
         val matchers: List<RequestMatcher> =
@@ -110,7 +119,14 @@ class OperatorAuthenticationAutoConfiguration {
             .sessionManagement { session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests { authorize -> authorize.anyRequest().authenticated() }
             .oauth2ResourceServer { server ->
-                server.jwt { jwt -> jwt.jwtAuthenticationConverter(JwtAuthenticationConverter()) }
+                // Pinned explicitly: a host application may define its own JwtDecoder bean, and the
+                // operator chain must not inherit a decoder whose validation policy this adapter does
+                // not control.
+                server.jwt { jwt ->
+                    jwt
+                        .decoder(decoder)
+                        .jwtAuthenticationConverter(JwtAuthenticationConverter())
+                }
             }.build()
     }
 
@@ -172,13 +188,19 @@ internal fun operatorJwtValidators(
     DelegatingOAuth2TokenValidator(
         JwtValidators.createDefaultWithIssuer(issuer),
         JwtClaimValidator<List<String>>("aud") { claim -> claim != null && audience in claim },
+        // Presence, not just timestamp comparison: Spring's default timestamp validator compares a
+        // claimed expiry but a token that simply omits `exp` would otherwise be accepted forever.
+        JwtClaimValidator<Instant>("exp") { claim -> claim != null },
     )
 
 /**
  * Fail-closed configuration check: turning authentication on without an issuer, audience or JWKS URI is a
  * startup failure, never a degraded mode. Internal so the failure behaviour is directly testable.
  */
-internal fun requireOperatorConfiguration(properties: OperatorSecurityProperties) {
+internal fun requireOperatorConfiguration(
+    properties: OperatorSecurityProperties,
+    approvalBasePath: String,
+) {
     val missing =
         buildList {
             if (properties.issuer.isBlank()) add("issuer")
@@ -187,5 +209,28 @@ internal fun requireOperatorConfiguration(properties: OperatorSecurityProperties
         }
     check(missing.isEmpty()) {
         "tramai-operator-authentication-incomplete-configuration: missing ${missing.joinToString(", ")}"
+    }
+    requireProtectedControlPlane(properties.protectedPaths, approvalBasePath)
+}
+
+/**
+ * Fail-closed route coverage. The approval base path is configurable, so protecting a fixed pattern would
+ * silently leave the control plane outside the operator chain whenever a consumer moved it. Both the base
+ * path and a synthetic child of it must match some protected pattern, and an empty pattern list is a
+ * failure rather than an unprotected-but-authenticated boundary.
+ */
+internal fun requireProtectedControlPlane(
+    protectedPaths: List<String>,
+    controlPlaneBasePath: String,
+) {
+    val matcher = AntPathMatcher()
+    val basePath = controlPlaneBasePath.trimEnd('/')
+    val covered =
+        protectedPaths.any { pattern ->
+            matcher.match(pattern, basePath) && matcher.match(pattern, "$basePath/probe")
+        }
+    check(covered) {
+        "tramai-operator-authentication-unprotected-control-plane: control plane at '$basePath' is not " +
+            "covered by protected-paths ${protectedPaths.ifEmpty { listOf("<empty>") }}"
     }
 }

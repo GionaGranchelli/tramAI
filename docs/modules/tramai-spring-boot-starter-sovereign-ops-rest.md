@@ -51,6 +51,10 @@ Verify against `tramai-spring-boot-starter-sovereign-ops-rest/api/tramai-spring-
   - `enabled=true` with a blank `issuer`, `audience` or `jwk-set-uri` → **startup failure**
     (`tramai-operator-authentication-incomplete-configuration`). There is no anonymous fallback, no
     trusted-header mode, and no principal constructed from request data;
+  - the configured control plane (`tramai.sovereign.ops.rest.base-path`) not covered by `protected-paths`,
+    or an empty `protected-paths` → **startup failure**
+    (`tramai-operator-authentication-unprotected-control-plane`), so moving the approval base path cannot
+    quietly move it out of the operator chain;
   - `enabled=true` without Spring Security on the classpath → **startup failure**
     (`tramai-operator-authentication-missing-dependency`), because an inactive boundary that looks enabled
     would leave the routes open.

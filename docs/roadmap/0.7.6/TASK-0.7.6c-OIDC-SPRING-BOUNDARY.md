@@ -161,6 +161,49 @@ already-merged API changes; they are recorded here rather than fixed, because fi
 migration task and touching them inside this PR would mix an unrelated authority change into a security
 adapter.
 
+## Review corrections (post-#557 review)
+
+Four findings from the owner review, all fixed and each with a discriminating test.
+
+**P1 — a token without `sub` produced HTTP 500.** The factory raised `IllegalStateException` and the
+resolver only translated the *subject-too-weird* case, so a signed token with no subject surfaced as a
+server fault. Fixed at the root rather than at the symptom: `UnsupportedOperatorSubjectException` now
+extends `InsufficientAuthenticationException`, the factory throws it for a missing issuer and a missing
+subject too, and the resolver's try/catch was deleted — enumerating failure cases in the resolver is how
+the next one gets missed. Test: signed token with no `sub` → **401**, handler never invoked.
+
+**P1 — a host `JwtDecoder` bean could become the operator decoder.** `@ConditionalOnMissingBean(JwtDecoder)`
+meant a consumer's decoder won and the adapter inherited a validation policy it did not control (the factory
+re-checks the issuer only). Fixed: the decoder bean is keyed on its own name, and the chain pins
+`.decoder(decoder)` through `@Qualifier("operatorJwtDecoder")`. Test: the test context holds a second,
+deliberately permissive decoder that trusts the *foreign* key and applies no validators — a forged token is
+still **401**.
+
+**P1 — a moved approval base path could fall outside the matcher.** `protected-paths` is configurable and so
+is `tramai.sovereign.ops.rest.base-path`, so protecting a fixed pattern could silently stop covering the
+control plane. Fixed with a fail-closed startup guard: the base path *and* a synthetic child of it must match
+some protected pattern, and an empty pattern list fails too. Tests: uncovered base path, empty list, and a
+pattern that matches the base path but not its children all fail startup with
+`tramai-operator-authentication-unprotected-control-plane`.
+
+**P2 — a missing `exp` was not demonstrated.** Spring's default timestamp validator compares a *claimed*
+expiry, so a token that omits `exp` was never rejected by a test. Added an explicit presence validator plus a
+test: signed token without `exp` → **401**.
+
+Correction campaign (each mutant applied to this tree, restored after, control run recorded):
+
+| Mutant | Result |
+|---|---|
+| N1 missing subject raises `IllegalStateException` again | killed by the 401-without-subject test |
+| N2 chain stops pinning `.decoder(...)` | killed by the permissive-host-decoder test |
+| N3 route-coverage guard removed | killed by the three startup-guard tests |
+| N4 `exp` presence validator removed | killed by the missing-exp test |
+
+Also documented, from the review's socratic point: `Jwt` is publicly constructible, so
+`OperatorPrincipalFactory.fromVerified` is a **trust precondition, not proof**. The REST entry path is the
+anchor because only the decoder mints the token that reaches the resolver; an in-process caller that hands
+the factory a home-made `Jwt` must not be treated as authenticated on the strength of the call.
+
 ## What authentication is now established, and what is not
 
 **Established:** requests to the protected paths must carry a valid RS256 JWT from the configured issuer for

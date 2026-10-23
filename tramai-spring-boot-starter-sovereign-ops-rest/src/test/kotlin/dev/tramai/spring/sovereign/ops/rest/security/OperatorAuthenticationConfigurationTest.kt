@@ -9,6 +9,10 @@ import org.junit.jupiter.api.Test
  * application, and the boundary must be off unless an operator turns it on.
  */
 class OperatorAuthenticationConfigurationTest {
+    private companion object {
+        const val APPROVAL_BASE = "/tramai/sovereign/approvals"
+    }
+
     private fun properties() =
         OperatorSecurityProperties().apply {
             enabled = true
@@ -19,14 +23,14 @@ class OperatorAuthenticationConfigurationTest {
 
     @Test
     fun `a complete configuration passes`() {
-        requireOperatorConfiguration(properties())
+        requireOperatorConfiguration(properties(), APPROVAL_BASE)
     }
 
     @Test
     fun `a missing JWKS URI is a startup failure`() {
         val incomplete = properties().apply { jwkSetUri = "" }
 
-        assertThatThrownBy { requireOperatorConfiguration(incomplete) }
+        assertThatThrownBy { requireOperatorConfiguration(incomplete, APPROVAL_BASE) }
             .isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("tramai-operator-authentication-incomplete-configuration")
             .hasMessageContaining("jwk-set-uri")
@@ -40,10 +44,36 @@ class OperatorAuthenticationConfigurationTest {
                 audience = " "
             }
 
-        assertThatThrownBy { requireOperatorConfiguration(incomplete) }
+        assertThatThrownBy { requireOperatorConfiguration(incomplete, APPROVAL_BASE) }
             .isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("issuer")
             .hasMessageContaining("audience")
+    }
+
+    @Test
+    fun `moving the control plane outside the protected paths is a startup failure`() {
+        assertThatThrownBy { requireOperatorConfiguration(properties(), "/ops/approvals") }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("tramai-operator-authentication-unprotected-control-plane")
+            .hasMessageContaining("/ops/approvals")
+    }
+
+    @Test
+    fun `an empty protected-path list is a startup failure, not an open boundary`() {
+        val empty = properties().apply { protectedPaths = emptyList() }
+
+        assertThatThrownBy { requireOperatorConfiguration(empty, APPROVAL_BASE) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("tramai-operator-authentication-unprotected-control-plane")
+    }
+
+    @Test
+    fun `a pattern that covers the base path but not its children is a startup failure`() {
+        val narrow = properties().apply { protectedPaths = listOf("/tramai/sovereign") }
+
+        assertThatThrownBy { requireOperatorConfiguration(narrow, APPROVAL_BASE) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("tramai-operator-authentication-unprotected-control-plane")
     }
 
     @Test

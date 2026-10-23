@@ -46,7 +46,12 @@ open class OperatorAuthTestApplication {
     @Bean
     open fun operatorTestController(sideEffects: SideEffectRecorder) = OperatorTestController(sideEffects)
 
-    @Bean
+    /**
+     * Stands in for the production decoder with a locally generated key pair, over the *same* validator
+     * set production uses. The bean name matters: it is the name the autoconfiguration's decoder backs
+     * off for, and a bean named anything else must not reach the operator chain.
+     */
+    @Bean("operatorJwtDecoder")
     open fun operatorTestJwtDecoder(
         keys: OperatorTestKeys,
         properties: OperatorSecurityProperties,
@@ -55,6 +60,14 @@ open class OperatorAuthTestApplication {
         decoder.setJwtValidator(operatorJwtValidators(properties.issuer, properties.audience))
         return decoder
     }
+
+    /**
+     * A deliberately permissive decoder of the kind a host application might define: it trusts the
+     * *foreign* key and applies no validators. The operator chain must ignore it.
+     */
+    @Bean
+    open fun permissiveHostJwtDecoder(keys: OperatorTestKeys): JwtDecoder =
+        NimbusJwtDecoder.withPublicKey(keys.foreignPair.public as RSAPublicKey).build()
 }
 
 /** Locally generated key pairs and token signing helpers; no network, fully deterministic. */
@@ -64,12 +77,14 @@ class OperatorTestKeys private constructor(
 ) {
     /** Valid-by-default token recipe; call sites use `copy(...)` to express only what they change. */
     data class TokenSpec(
-        val subject: String = "alice",
+        /** Null means "omit the sub claim entirely", which is its own rejection case. */
+        val subject: String? = "alice",
         val issuer: String = ISSUER,
         val audience: String = AUDIENCE,
         val roles: List<String> = listOf("approval-reviewer"),
         val issuedAt: Instant = Instant.parse("2026-02-28T00:00:00Z"),
-        val expiresAt: Instant = Instant.now().plusSeconds(600),
+        /** Null means "omit the exp claim entirely", which is its own rejection case. */
+        val expiresAt: Instant? = Instant.now().plusSeconds(600),
         val signedWith: KeyPair? = null,
         val extraClaims: Map<String, Any> = emptyMap(),
     )
@@ -79,10 +94,10 @@ class OperatorTestKeys private constructor(
             JWTClaimsSet
                 .Builder()
                 .issuer(spec.issuer)
-                .subject(spec.subject)
+                .apply { spec.subject?.let { subject(it) } }
                 .audience(spec.audience)
                 .issueTime(Date.from(spec.issuedAt))
-                .expirationTime(Date.from(spec.expiresAt))
+                .apply { spec.expiresAt?.let { expirationTime(Date.from(it)) } }
                 .claim("roles", spec.roles)
                 .apply { spec.extraClaims.forEach { (name, value) -> claim(name, value) } }
                 .build()

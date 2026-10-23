@@ -50,9 +50,10 @@ class OperatorPrincipalFactory(
      * principal for a foreign issuer would be the worse outcome.
      */
     private fun verifiedIdentity(jwt: Jwt): Pair<String, String> {
-        val issuer = jwt.issuer?.toString() ?: error("tramai-operator-token-missing-issuer")
+        val rawIssuer = jwt.issuer ?: throw UnsupportedOperatorSubjectException("tramai-operator-token-missing-issuer")
+        val issuer = rawIssuer.toString()
         check(issuer == properties.issuer) { "tramai-operator-token-unexpected-issuer" }
-        val subject = jwt.subject ?: error("tramai-operator-token-missing-subject")
+        val subject = jwt.subject ?: throw UnsupportedOperatorSubjectException("tramai-operator-token-missing-subject")
         return issuer to subject
     }
 }
