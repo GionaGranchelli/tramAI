@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.http.HttpHeaders
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
@@ -15,6 +17,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.time.Instant
+import java.util.Base64
 
 /**
  * HTTP behaviour of the operator authentication boundary (0.7.6c), driven through the real Spring
@@ -39,6 +42,19 @@ import java.time.Instant
     ],
 )
 class OperatorAuthenticationHttpTest {
+    companion object {
+        /**
+         * The operator boundary builds its decoder from configuration, not from a bean, so the suite pins
+         * the locally generated trusted key as the `public-key` property.
+         */
+        @JvmStatic
+        @DynamicPropertySource
+        fun operatorSecurityProperties(registry: DynamicPropertyRegistry) {
+            val publicKey = Base64.getEncoder().encodeToString(SharedTestKeys.keys.trustedPair.public.encoded)
+            registry.add("tramai.sovereign.ops.security.public-key") { publicKey }
+        }
+    }
+
     @Autowired
     private lateinit var mockMvc: MockMvc
 
@@ -98,6 +114,21 @@ class OperatorAuthenticationHttpTest {
 
         mockMvc
             .perform(get("/tramai/sovereign/test/whoami").header(HttpHeaders.AUTHORIZATION, "Bearer $token"))
+            .andExpect(status().isUnauthorized)
+
+        assertThat(sideEffects.invocations()).isZero()
+    }
+
+    @Test
+    fun `a permissive host decoder named exactly like the operator decoder is still ignored`() {
+        // Regression guard for the same-name override: the operator decoder used to be a bean guarded by
+        // @ConditionalOnMissingBean(name = "operatorJwtDecoder"), so a host declaring that name replaced
+        // it. It is now constructed inside the chain from configuration, so there is no bean to claim. The
+        // context still holds a permissive decoder under exactly that name.
+        val forged = keys.token(OperatorTestKeys.TokenSpec(signedWith = keys.foreignPair))
+
+        mockMvc
+            .perform(get("/tramai/sovereign/test/whoami").header(HttpHeaders.AUTHORIZATION, "Bearer $forged"))
             .andExpect(status().isUnauthorized)
 
         assertThat(sideEffects.invocations()).isZero()

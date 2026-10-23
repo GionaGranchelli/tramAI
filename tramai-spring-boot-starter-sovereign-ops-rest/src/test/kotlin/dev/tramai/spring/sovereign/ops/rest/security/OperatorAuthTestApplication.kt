@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicInteger
 open class OperatorAuthTestApplication {
     /** Local signing material: one trusted key pair, plus a foreign key to prove signature checks. */
     @Bean
-    open fun operatorTestKeys(): OperatorTestKeys = OperatorTestKeys.generate()
+    open fun operatorTestKeys(): OperatorTestKeys = SharedTestKeys.keys
 
     @Bean
     open fun sideEffectRecorder(): SideEffectRecorder = SideEffectRecorder()
@@ -47,27 +47,32 @@ open class OperatorAuthTestApplication {
     open fun operatorTestController(sideEffects: SideEffectRecorder) = OperatorTestController(sideEffects)
 
     /**
-     * Stands in for the production decoder with a locally generated key pair, over the *same* validator
-     * set production uses. The bean name matters: it is the name the autoconfiguration's decoder backs
-     * off for, and a bean named anything else must not reach the operator chain.
-     */
-    @Bean("operatorJwtDecoder")
-    open fun operatorTestJwtDecoder(
-        keys: OperatorTestKeys,
-        properties: OperatorSecurityProperties,
-    ): JwtDecoder {
-        val decoder = NimbusJwtDecoder.withPublicKey(keys.trustedPair.public as RSAPublicKey).build()
-        decoder.setJwtValidator(operatorJwtValidators(properties.issuer, properties.audience))
-        return decoder
-    }
-
-    /**
      * A deliberately permissive decoder of the kind a host application might define: it trusts the
-     * *foreign* key and applies no validators. The operator chain must ignore it.
+     * *foreign* key and applies no validators.
      */
     @Bean
     open fun permissiveHostJwtDecoder(keys: OperatorTestKeys): JwtDecoder =
         NimbusJwtDecoder.withPublicKey(keys.foreignPair.public as RSAPublicKey).build()
+
+    /**
+     * The same permissive decoder under the name an earlier revision reserved for the operator decoder.
+     * The operator boundary must ignore it too: its own decoder is constructed from configuration and is
+     * not a bean, so there is no name to claim.
+     */
+    @Bean("operatorJwtDecoder")
+    open fun permissiveHostJwtDecoderWithOperatorName(keys: OperatorTestKeys): JwtDecoder =
+        NimbusJwtDecoder.withPublicKey(keys.foreignPair.public as RSAPublicKey).build()
+}
+
+/**
+ * Process-wide key material for the suite, because `@DynamicPropertySource` runs before the application
+ * context exists and therefore cannot read the [OperatorTestKeys] bean. Generated locally, never on a
+ * network, and test-only.
+ */
+class SharedTestKeys private constructor() {
+    companion object {
+        val keys: OperatorTestKeys by lazy { OperatorTestKeys.generate() }
+    }
 }
 
 /** Locally generated key pairs and token signing helpers; no network, fully deterministic. */

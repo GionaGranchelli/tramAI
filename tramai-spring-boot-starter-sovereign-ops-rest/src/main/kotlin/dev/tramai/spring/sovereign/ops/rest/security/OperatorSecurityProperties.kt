@@ -46,6 +46,13 @@ class OperatorSecurityProperties {
      */
     var jwkSetUri: String = ""
 
+    /**
+     * Base64 (X.509 SubjectPublicKeyInfo) RSA public key, for deployments that pin a key instead of
+     * publishing a JWKS. Server-controlled configuration like every other value here: it is a property, not
+     * a bean, so a host application cannot substitute its own trust material.
+     */
+    var publicKey: String = ""
+
     /** Claim carrying the operator's roles. Absent or unrecognised claim values grant nothing. */
     var roleClaim: String = "roles"
 

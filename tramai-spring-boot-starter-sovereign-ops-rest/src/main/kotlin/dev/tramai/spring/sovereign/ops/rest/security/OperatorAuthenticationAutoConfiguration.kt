@@ -1,6 +1,5 @@
 package dev.tramai.spring.sovereign.ops.rest.security
 
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
@@ -29,8 +28,12 @@ import org.springframework.util.AntPathMatcher
 import org.springframework.util.ClassUtils
 import org.springframework.web.method.support.HandlerMethodArgumentResolver
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
+import java.security.KeyFactory
+import java.security.interfaces.RSAPublicKey
+import java.security.spec.X509EncodedKeySpec
 import java.time.Clock
 import java.time.Instant
+import java.util.Base64
 
 /**
  * Identity-provider-neutral operator authentication boundary for the sovereign-ops REST control plane
@@ -74,27 +77,6 @@ class OperatorAuthenticationAutoConfiguration {
         OperatorPrincipalResolver(principalFactory)
 
     /**
-     * Verifying decoder. Signature verification, expiry and not-before come from Spring's Nimbus
-     * decoder — no custom cryptography lives here. The issuer is pinned, the audience is required, and
-     * the JWKS location is configured rather than discovered from the token.
-     */
-    @Bean
-    @ConditionalOnMissingBean(name = ["operatorJwtDecoder"])
-    fun operatorJwtDecoder(
-        properties: OperatorSecurityProperties,
-        @Value("\${tramai.sovereign.ops.rest.base-path:/tramai/sovereign/approvals}") approvalBasePath: String,
-    ): JwtDecoder {
-        requireOperatorConfiguration(properties, approvalBasePath)
-        val decoder =
-            NimbusJwtDecoder
-                .withJwkSetUri(properties.jwkSetUri)
-                .jwsAlgorithm(SignatureAlgorithm.RS256)
-                .build()
-        decoder.setJwtValidator(operatorJwtValidators(properties.issuer, properties.audience))
-        return decoder
-    }
-
-    /**
      * Operator boundary for the sovereign-ops routes only, ordered ahead of any host chain so a
      * consumer configuration cannot accidentally leave them outside protection. Requests to those
      * paths must be authenticated; everything else is left to the host application's own chains.
@@ -104,10 +86,10 @@ class OperatorAuthenticationAutoConfiguration {
     fun operatorSecurityFilterChain(
         http: HttpSecurity,
         properties: OperatorSecurityProperties,
-        @Qualifier("operatorJwtDecoder") decoder: JwtDecoder,
         @Value("\${tramai.sovereign.ops.rest.base-path:/tramai/sovereign/approvals}") approvalBasePath: String,
     ): SecurityFilterChain {
         requireOperatorConfiguration(properties, approvalBasePath)
+        val decoder = operatorJwtDecoder(properties)
         // Widening cast keeps the element type exact without constructing a mutable collection: the
         // architecture gate treats mutable collection construction in production code as global state.
         val matchers: List<RequestMatcher> =
@@ -119,9 +101,8 @@ class OperatorAuthenticationAutoConfiguration {
             .sessionManagement { session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests { authorize -> authorize.anyRequest().authenticated() }
             .oauth2ResourceServer { server ->
-                // Pinned explicitly: a host application may define its own JwtDecoder bean, and the
-                // operator chain must not inherit a decoder whose validation policy this adapter does
-                // not control.
+                // The chain's own decoder, constructed two lines above from configuration. It is not a
+                // bean, so no host definition - whatever its name or qualifier - can replace it.
                 server.jwt { jwt ->
                     jwt
                         .decoder(decoder)
@@ -174,6 +155,41 @@ class OperatorPrincipalWebMvcConfigurer(
 }
 
 /**
+ * The operator boundary's own verifying decoder.
+ *
+ * Deliberately **not** a Spring bean. A bean - under any name, with any qualifier - can be replaced by a
+ * host definition, and `@ConditionalOnMissingBean(name = ...)` merely moves the collision rather than
+ * removing it: a host that declares a bean with this exact name wins and decides which signatures the
+ * operator boundary trusts. Building it here from configuration means ownership cannot be transferred, at
+ * the cost of not being overridable - which is the point.
+ *
+ * Signature verification, expiry and not-before come from Spring's Nimbus decoder; no custom cryptography
+ * lives here. The issuer is pinned, the audience and `exp` are required, and the trust material comes from
+ * configuration rather than from token discovery.
+ */
+internal fun operatorJwtDecoder(properties: OperatorSecurityProperties): JwtDecoder {
+    val decoder =
+        if (properties.publicKey.isNotBlank()) {
+            NimbusJwtDecoder
+                .withPublicKey(rsaPublicKey(properties.publicKey))
+                .signatureAlgorithm(SignatureAlgorithm.RS256)
+                .build()
+        } else {
+            NimbusJwtDecoder
+                .withJwkSetUri(properties.jwkSetUri)
+                .jwsAlgorithm(SignatureAlgorithm.RS256)
+                .build()
+        }
+    decoder.setJwtValidator(operatorJwtValidators(properties.issuer, properties.audience))
+    return decoder
+}
+
+private fun rsaPublicKey(encoded: String): RSAPublicKey {
+    val der = Base64.getMimeDecoder().decode(encoded)
+    return KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec(der)) as RSAPublicKey
+}
+
+/**
  * The claim validation the operator boundary applies to every token: default timestamp validation
  * (expiry, not-before) plus a **strict issuer** and a **required audience member**.
  *
@@ -205,7 +221,9 @@ internal fun requireOperatorConfiguration(
         buildList {
             if (properties.issuer.isBlank()) add("issuer")
             if (properties.audience.isBlank()) add("audience")
-            if (properties.jwkSetUri.isBlank()) add("jwk-set-uri")
+            if (properties.jwkSetUri.isBlank() && properties.publicKey.isBlank()) {
+                add("jwk-set-uri or public-key")
+            }
         }
     check(missing.isEmpty()) {
         "tramai-operator-authentication-incomplete-configuration: missing ${missing.joinToString(", ")}"

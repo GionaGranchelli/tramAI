@@ -204,11 +204,10 @@ public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorAuthent
 	public fun <init> ()V
 	public final fun operatorCapabilityMapping (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;)Ldev/tramai/spring/sovereign/ops/rest/security/OperatorCapabilityMapping;
 	public final fun operatorClock ()Ljava/time/Clock;
-	public final fun operatorJwtDecoder (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ljava/lang/String;)Lorg/springframework/security/oauth2/jwt/JwtDecoder;
 	public final fun operatorPrincipalFactory (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorCapabilityMapping;Ljava/time/Clock;)Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory;
 	public final fun operatorPrincipalResolver (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory;)Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalResolver;
 	public final fun operatorPrincipalWebMvcConfigurer (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalResolver;)Lorg/springframework/web/servlet/config/annotation/WebMvcConfigurer;
-	public final fun operatorSecurityFilterChain (Lorg/springframework/security/config/annotation/web/builders/HttpSecurity;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Lorg/springframework/security/oauth2/jwt/JwtDecoder;Ljava/lang/String;)Lorg/springframework/security/web/SecurityFilterChain;
+	public final fun operatorSecurityFilterChain (Lorg/springframework/security/config/annotation/web/builders/HttpSecurity;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ljava/lang/String;)Lorg/springframework/security/web/SecurityFilterChain;
 }
 
 public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorAuthenticationDependencyCheck {
@@ -255,6 +254,7 @@ public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorSecurit
 	public final fun getIssuer ()Ljava/lang/String;
 	public final fun getJwkSetUri ()Ljava/lang/String;
 	public final fun getProtectedPaths ()Ljava/util/List;
+	public final fun getPublicKey ()Ljava/lang/String;
 	public final fun getRoleClaim ()Ljava/lang/String;
 	public final fun getRoleMappings ()Ljava/util/Map;
 	public final fun setAudience (Ljava/lang/String;)V
@@ -262,6 +262,7 @@ public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorSecurit
 	public final fun setIssuer (Ljava/lang/String;)V
 	public final fun setJwkSetUri (Ljava/lang/String;)V
 	public final fun setProtectedPaths (Ljava/util/List;)V
+	public final fun setPublicKey (Ljava/lang/String;)V
 	public final fun setRoleClaim (Ljava/lang/String;)V
 	public final fun setRoleMappings (Ljava/util/Map;)V
 }

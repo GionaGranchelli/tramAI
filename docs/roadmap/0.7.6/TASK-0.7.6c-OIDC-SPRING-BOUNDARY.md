@@ -204,6 +204,47 @@ Also documented, from the review's socratic point: `Jwt` is publicly constructib
 anchor because only the decoder mints the token that reaches the resolver; an in-process caller that hands
 the factory a home-made `Jwt` must not be treated as authenticated on the strength of the call.
 
+## Second review pass: decoder ownership and chain precedence
+
+**P1 — the decoder was still claimable by name.** `@ConditionalOnMissingBean(name = ["operatorJwtDecoder"])`
+moved the collision rather than removing it: a host that declared a bean with exactly that name won, and the
+operator boundary trusted its validation policy. The previous test only covered a permissively-named bean with
+a *different* name, so it proved nothing about the reserved one.
+
+Fixed by removing the seam, not by renaming the test bean: **the decoder is no longer a bean.** The chain
+constructs it from configuration (`jwk-set-uri`, or a pinned `public-key`) two lines before using it, so there
+is no bean name to claim and no qualifier to satisfy. The cost is that it cannot be overridden — which is the
+point for a component that decides which signatures are trusted. Tests: a permissive host decoder named
+exactly `operatorJwtDecoder` (trusting the foreign key, no validators) is present in the context, and a
+foreign-key-signed token is still 401.
+
+**P1 — `@Order(1)` cannot stop a higher-precedence host chain.** Verified and accepted as a genuine
+limitation rather than claimed away. `OperatorChainShadowingTest` installs a host chain at `@Order(0)`
+matching `/tramai/sovereign/**` with `permitAll` and HTTP Basic, and records what actually happens.
+
+| Request against a shadowed operator route | Result |
+|---|---|
+| no token | 401, handler never invoked |
+| forged token | 401, handler never invoked |
+| **valid token** | **401** — the host chain consumed the request before the resource server ran |
+| HTTP Basic as the host's user | 401 — a non-JWT authentication is never promoted to an operator |
+
+So shadowing is a **denial** a host can cause, never an authorization bypass: the argument resolver only
+builds a principal from a verified `JwtAuthenticationToken`, and there is no other path to one. The
+integration contract is therefore explicit, and is what the module documentation now states:
+
+> Register no chain with higher precedence than the operator chain over the operator paths. The starter
+> cannot enforce ordering against an arbitrary `@Order` without owning the host's whole security
+> configuration. If a host does shadow those paths, legitimate operators are refused; they are never
+> silently authorized.
+
+Mutation evidence for the two findings:
+
+| Mutant | Result |
+|---|---|
+| M-C decoder back to a name-keyed bean, host same-name permissive decoder wins | killed by the same-name override test |
+| M-D any authenticated identity promoted to an operator (synthetic `Jwt` from the authentication name) | killed by the non-JWT-promotion test |
+
 ## What authentication is now established, and what is not
 
 **Established:** requests to the protected paths must carry a valid RS256 JWT from the configured issuer for
