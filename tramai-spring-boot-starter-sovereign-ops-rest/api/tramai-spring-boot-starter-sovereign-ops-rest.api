@@ -200,3 +200,75 @@ public final class dev/tramai/spring/sovereign/ops/rest/ResumeRequest {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorAuthenticationAutoConfiguration {
+	public fun <init> ()V
+	public final fun operatorCapabilityMapping (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;)Ldev/tramai/spring/sovereign/ops/rest/security/OperatorCapabilityMapping;
+	public final fun operatorClock ()Ljava/time/Clock;
+	public final fun operatorPrincipalFactory (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorCapabilityMapping;Ljava/time/Clock;)Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory;
+	public final fun operatorPrincipalResolver (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory;)Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalResolver;
+	public final fun operatorPrincipalWebMvcConfigurer (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalResolver;)Lorg/springframework/web/servlet/config/annotation/WebMvcConfigurer;
+	public final fun operatorSecurityFilterChain (Lorg/springframework/security/config/annotation/web/builders/HttpSecurity;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ljava/lang/String;)Lorg/springframework/security/web/SecurityFilterChain;
+}
+
+public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorAuthenticationDependencyCheck {
+	public fun <init> ()V
+}
+
+public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorAuthenticationDependencyCheckAutoConfiguration {
+	public fun <init> ()V
+	public final fun operatorAuthenticationDependencyCheck ()Ldev/tramai/spring/sovereign/ops/rest/security/OperatorAuthenticationDependencyCheck;
+}
+
+public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorCapabilityMapping {
+	public fun <init> (Ljava/lang/String;Ljava/util/Map;)V
+	public final fun capabilitiesFrom (Ljava/util/Map;)Ljava/util/Set;
+}
+
+public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalArgumentResolver : org/springframework/web/method/support/HandlerMethodArgumentResolver {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalResolver;)V
+	public fun resolveArgument (Lorg/springframework/core/MethodParameter;Lorg/springframework/web/method/support/ModelAndViewContainer;Lorg/springframework/web/context/request/NativeWebRequest;Lorg/springframework/web/bind/support/WebDataBinderFactory;)Ljava/lang/Object;
+	public fun supportsParameter (Lorg/springframework/core/MethodParameter;)Z
+}
+
+public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorCapabilityMapping;Ljava/time/Clock;)V
+	public final fun fromVerified (Lorg/springframework/security/oauth2/jwt/Jwt;Ljava/time/Instant;)Ldev/tramai/core/operator/OperatorPrincipal;
+	public static synthetic fun fromVerified$default (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory;Lorg/springframework/security/oauth2/jwt/Jwt;Ljava/time/Instant;ILjava/lang/Object;)Ldev/tramai/core/operator/OperatorPrincipal;
+}
+
+public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalResolver {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory;)V
+	public final fun resolve (Lorg/springframework/security/core/Authentication;)Ldev/tramai/core/operator/OperatorPrincipal;
+	public final fun resolveCurrent ()Ldev/tramai/core/operator/OperatorPrincipal;
+}
+
+public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalWebMvcConfigurer : org/springframework/web/servlet/config/annotation/WebMvcConfigurer {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalResolver;)V
+	public fun addArgumentResolvers (Ljava/util/List;)V
+}
+
+public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties {
+	public fun <init> ()V
+	public final fun getAudience ()Ljava/lang/String;
+	public final fun getEnabled ()Z
+	public final fun getIssuer ()Ljava/lang/String;
+	public final fun getJwkSetUri ()Ljava/lang/String;
+	public final fun getProtectedPaths ()Ljava/util/List;
+	public final fun getPublicKey ()Ljava/lang/String;
+	public final fun getRoleClaim ()Ljava/lang/String;
+	public final fun getRoleMappings ()Ljava/util/Map;
+	public final fun setAudience (Ljava/lang/String;)V
+	public final fun setEnabled (Z)V
+	public final fun setIssuer (Ljava/lang/String;)V
+	public final fun setJwkSetUri (Ljava/lang/String;)V
+	public final fun setProtectedPaths (Ljava/util/List;)V
+	public final fun setPublicKey (Ljava/lang/String;)V
+	public final fun setRoleClaim (Ljava/lang/String;)V
+	public final fun setRoleMappings (Ljava/util/Map;)V
+}
+
+public final class dev/tramai/spring/sovereign/ops/rest/security/UnsupportedOperatorSubjectException : org/springframework/security/authentication/InsufficientAuthenticationException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
