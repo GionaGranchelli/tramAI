@@ -2468,18 +2468,11 @@ public final class dev/tramai/core/operator/OperatorCapability$Companion {
 public final class dev/tramai/core/operator/OperatorPrincipal {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/util/Set;)V
 	public final fun authorize (Ldev/tramai/core/operator/OperatorCapability;)Ldev/tramai/core/operator/OperatorAuthorizationResult;
-	public final fun component1 ()Ljava/lang/String;
-	public final fun component2 ()Ljava/lang/String;
-	public final fun component3 ()Ljava/time/Instant;
-	public final fun component4 ()Ljava/util/Set;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/util/Set;)Ldev/tramai/core/operator/OperatorPrincipal;
-	public static synthetic fun copy$default (Ldev/tramai/core/operator/OperatorPrincipal;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/util/Set;ILjava/lang/Object;)Ldev/tramai/core/operator/OperatorPrincipal;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAuthenticatedAt ()Ljava/time/Instant;
 	public final fun getCapabilities ()Ljava/util/Set;
 	public final fun getIssuer ()Ljava/lang/String;
 	public final fun getSubject ()Ljava/lang/String;
-	public final fun hasCapability (Ldev/tramai/core/operator/OperatorCapability;)Z
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

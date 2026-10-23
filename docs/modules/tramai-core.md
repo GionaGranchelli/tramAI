@@ -59,6 +59,10 @@ Verify the full public surface against `tramai-core/api/tramai-core.api`.
   in this repository is operator-authorized — see `docs/roadmap/0.7.6/AUDIT-0.7.6a-SECURITY-CONTROL-BASELINE.md`.
 - express a runtime capability (tool, MCP operation, remote agent, model, provider, network destination) as an
   `OperatorCapability`. The two authorities are separate vocabularies and must stay that way.
+- claim IdP-neutral subject support without mapping first. `OperatorPrincipal.subject` is validated by
+  `SafeActorIdPolicy` (`[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}`), so Auth0-style `auth0|abc123` and URL-shaped
+  subjects are **rejected** — fail-closed on purpose, because this subject becomes the approval actor id.
+  0.7.6c must map such subjects into a recordable form or report the conflict, never widen the rule quietly.
 
 - Do not add provider/vendor, Spring, or framework dependencies here
 - Do not add new runtime event/reason-code string literals outside `RuntimeEventCatalogue`

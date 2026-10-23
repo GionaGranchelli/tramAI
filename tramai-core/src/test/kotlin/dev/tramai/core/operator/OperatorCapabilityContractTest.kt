@@ -110,6 +110,55 @@ class OperatorCapabilityContractTest {
     }
 
     @Test
+    fun `recordable real-world subject formats are accepted`() {
+        // ADFS object id and a Google service account: both recordable as an approval actor id.
+        assertThat(principal(subject = "S-1-5-21-3623811015-3361044348-30300820-1013").subject)
+            .isEqualTo("S-1-5-21-3623811015-3361044348-30300820-1013")
+        assertThat(principal(subject = "svc-claims@project-1.iam.gserviceaccount.com").subject)
+            .isEqualTo("svc-claims@project-1.iam.gserviceaccount.com")
+    }
+
+    @Test
+    fun `an Auth0-style or URL-shaped subject is rejected, and that limit is documented`() {
+        // Real IdP subjects that the approval path's actor-id rule cannot record. Fail-closed on
+        // purpose: 0.7.6c must map these into a recordable form, not widen this rule.
+        assertThatThrownBy { principal(subject = "auth0|64f1c2") }
+            .isInstanceOf(IllegalArgumentException::class.java)
+        assertThatThrownBy { principal(subject = "https://idp.example/alice") }
+            .isInstanceOf(IllegalArgumentException::class.java)
+    }
+
+    @Test
+    fun `mutating the caller's set after construction cannot change authority`() {
+        val grants = mutableSetOf(OperatorCapability.INSPECT_GOVERNANCE)
+        val operator = OperatorPrincipal("alice", "https://idp.example/", now, grants)
+
+        grants.add(OperatorCapability.DECIDE_APPROVAL)
+
+        assertThat(operator.capabilities).containsExactly(OperatorCapability.INSPECT_GOVERNANCE)
+        assertThat(operator.authorize(OperatorCapability.DECIDE_APPROVAL))
+            .isEqualTo(OperatorAuthorizationResult.Denied(OperatorCapability.DECIDE_APPROVAL))
+    }
+
+    @Test
+    fun `the exposed capability set cannot be modified`() {
+        // Built from a mutable set so the assertion discriminates: without the defensive snapshot the
+        // exposed set would still be the caller's mutable one and this add would succeed.
+        val operator =
+            OperatorPrincipal(
+                "alice",
+                "https://idp.example/",
+                now,
+                mutableSetOf(OperatorCapability.CANCEL_RUN),
+            )
+
+        assertThatThrownBy {
+            @Suppress("UNCHECKED_CAST")
+            (operator.capabilities as MutableSet<OperatorCapability>).add(OperatorCapability.DECIDE_APPROVAL)
+        }.isInstanceOf(UnsupportedOperationException::class.java)
+    }
+
+    @Test
     fun `a blank or whitespace-bearing issuer is rejected`() {
         assertThatThrownBy { principal(issuer = " ") }
             .isInstanceOf(IllegalArgumentException::class.java)
