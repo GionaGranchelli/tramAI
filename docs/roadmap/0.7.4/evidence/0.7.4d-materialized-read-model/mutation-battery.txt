@@ -1,0 +1,91 @@
+0.7.4d - phase 5 adversarial mutation battery
+==============================================================================
+measured at head e52f76e2017fb1aaa9134a7a9dbb88113238c2fd
+
+pristine JdbcGovernanceProjectionStore.kt: 497e73d3e41beaa7c56b3300cd04b04bb7245650b0412cdc26f2cb66cfb904a1
+pristine GovernanceProjectionReadModel.kt: 6b56b6e4e9d835dcaa6e773becd85daa07c732978590e1af574f290f6079b214
+
+CONTROL (unmutated)
+  exit=0 failures=0
+  verdict: control green, so a mutant failure below is attributable to the mutation
+
+M1 - Remove stale-update rejection: the ordered upsert accepts any candidate.
+  invariant: a candidate built from an older audit head must not replace the stored snapshot
+  verdict: INVALID - mutation did not apply (anchor not found); not counted as a kill
+
+M2 - Drop one coverage dimension: the unclassified position set is written as empty.
+  invariant: a stored decision coverage must carry every claim it was made with
+  verdict: INVALID - mutation did not apply (anchor not found); not counted as a kill
+
+M3 - Freshness always current: the audit assessment ignores the observed head it was given.
+  invariant: currency may only be claimed to the extent a fresh observation establishes it
+  application: applied
+  verdict: INVALID - did not compile; not counted as a kill
+  test exit=1 failures=0
+  restored=6b56b6e4e9d835dcaa6e773becd85daa07c732978590e1af574f290f6079b214 (identical)
+
+M4 - Ignore projection format incompatibility: the stored format version is not checked.
+  invariant: an unsupported stored format must be refused, never silently upgraded
+  application: applied
+  discriminator: a stored format this build does not write is refused, not upgraded()
+  verdict: KILLED - an unknown stored format loads as if it were this build's
+  test exit=1 failures=1
+  restored=497e73d3e41beaa7c56b3300cd04b04bb7245650b0412cdc26f2cb66cfb904a1 (identical)
+
+M5 - Accept mismatched head hashes: a contradictory candidate at the same ordering tuple is called current.
+  invariant: content that contradicts the stored snapshot is a conflict, not a no-op
+  application: applied
+  discriminator: a different head hash at the same position is a conflict, not an overwrite()
+  verdict: KILLED - a divergent head hash at the same position is reported as already current
+  test exit=1 failures=1
+  restored=497e73d3e41beaa7c56b3300cd04b04bb7245650b0412cdc26f2cb66cfb904a1 (identical)
+
+M6 - Bypass atomicity: the publish no longer runs inside a transaction.
+  invariant: an interrupted publish must leave the previous snapshot whole
+  application: applied
+  discriminator: a stored fact that violates the authority model is refused rather than reported(); applying the same snapshot twice changes nothing(); an unclassified position round-trips without being turned into a gap(); decision-record coverage survives persistence separately from the raw range()
+  verdict: KILLED - the header of the failed publish survives without its rows
+  test exit=1 failures=17
+  restored=497e73d3e41beaa7c56b3300cd04b04bb7245650b0412cdc26f2cb66cfb904a1 (identical)
+
+M7 - Stop withholding a decision claim from another classification revision.
+  invariant: a decision claim made under another revision may not be reported as current
+  verdict: INVALID - mutation did not apply (anchor not found); not counted as a kill
+
+tree=0
+
+------------------------------------------------------------------------------
+REQUALIFICATION of the four invalid anchors
+
+The attempts above are left in place: an unapplied mutation is not a kill and not a survivor,
+and deleting the record of it would hide the harness defect that produced it. The same four
+mutations are re-applied against the committed text with anchors derived from the file itself.
+
+M1 - Remove stale-update rejection: the ordered upsert accepts any candidate.
+  application: applied
+  discriminator: a stored fact that violates the authority model is refused rather than reported(); applying the same snapshot twice changes nothing(); an unclassified position round-trips without being turned into a gap()
+  verdict: KILLED - the older candidate replaces the stored snapshot and the head regresses
+  test exit=1 failures=17
+  restored=497e73d3e41beaa7c56b3300cd04b04bb7245650b0412cdc26f2cb66cfb904a1 (identical)
+
+M2 - Drop one coverage dimension: the unclassified position set is written empty.
+  application: applied
+  discriminator: an unclassified position round-trips without being turned into a gap()
+  verdict: KILLED - an unclassified position comes back as no claim at all
+  test exit=1 failures=1
+  restored=497e73d3e41beaa7c56b3300cd04b04bb7245650b0412cdc26f2cb66cfb904a1 (identical)
+
+M3 - Freshness always current: the audit assessment never reports STALE.
+  application: applied
+  discriminator: an advanced audit stream makes the snapshot stale without unmaking its verified range()
+  verdict: KILLED - a snapshot behind the stream reports CURRENT for audit
+  test exit=1 failures=1
+  restored=6b56b6e4e9d835dcaa6e773becd85daa07c732978590e1af574f290f6079b214 (identical)
+
+M7 - Stop withholding a decision claim made under another revision.
+  application: applied
+  discriminator: a stored decision claim is withheld when the classification revision moved on()
+  verdict: KILLED - a claim from another revision is reported as this build's
+  test exit=1 failures=1
+  restored=6b56b6e4e9d835dcaa6e773becd85daa07c732978590e1af574f290f6079b214 (identical)
+

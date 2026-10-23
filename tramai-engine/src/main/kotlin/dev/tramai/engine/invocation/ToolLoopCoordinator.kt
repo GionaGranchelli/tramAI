@@ -1,17 +1,22 @@
 @file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.engine.invocation
 
-
-import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.TokenBudgetExceededException
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.SecondaryFailureRecording
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
+import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
+import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.OperationDefinition
+import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.budget.TokenBudgetCoordinator
 import dev.tramai.engine.budget.TokenBudgetTracker
 import dev.tramai.engine.provider.AttemptCounter
@@ -21,10 +26,8 @@ import dev.tramai.engine.provider.ProviderExecutionRequest
 import dev.tramai.engine.tool.ToolCallBatchRequest
 import dev.tramai.engine.tool.ToolExposureCoordinator
 import dev.tramai.engine.tool.ToolReinjectionCoordinator
-import dev.tramai.engine.ToolRegistry
 import kotlinx.coroutines.CancellationException
-import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
-import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
+import kotlinx.coroutines.currentCoroutineContext
 
 /**
  * Runs the provider ↔ tool loop for one operation: at most five
@@ -39,39 +42,65 @@ internal class ToolLoopCoordinator(
     private val toolRegistry: ToolRegistry,
     private val toolReinjectionCoordinator: ToolReinjectionCoordinator,
 ) {
-    suspend fun execute(
+    /**
+     * One governed provider invocation for this turn, with the token budget enforced on its response.
+     * The budget refusal closes the observation and is rethrown unchanged; nothing is swallowed.
+     */
+    private suspend fun invokeAndEnforceBudget(
         context: ToolLoopContext,
+        messages: List<Message>,
+        attemptCounter: AttemptCounter,
+        governedRun: GovernedRunIdentity?,
     ): ProviderCallResult {
+        val result =
+            providerExecutionCoordinator.execute(
+                ProviderExecutionRequest(
+                    operation = context.operation,
+                    messages = messages,
+                    attemptCounter = attemptCounter,
+                    correlationId = context.correlationId,
+                    securityContext = context.securityContext,
+                    beforeRoute = {
+                        toolExposureCoordinator.enforce(
+                            context.operation,
+                            context.correlationId,
+                            context.securityContext,
+                        )
+                    },
+                    governedRun = governedRun,
+                ),
+            )
+        try {
+            tokenBudgetCoordinator.enforce(
+                tracker = context.tokenBudgetTracker,
+                response = result.response,
+                observation = result.observation,
+                providerId = result.providerId,
+                modelName = result.modelName,
+            )
+        } catch (error: TokenBudgetExceededException) {
+            result.observation.onCallCompleted(parseSuccess = null)
+            rethrowBudgetExceeded(error)
+        }
+        return result
+    }
+
+    /** Rethrows a budget refusal unchanged: the observation is closed first, the cause is not wrapped. */
+    private fun rethrowBudgetExceeded(error: TokenBudgetExceededException): Nothing = throw error
+
+    suspend fun execute(context: ToolLoopContext): ProviderCallResult {
         val operation = context.operation
         val messages = context.messages
         val tokenBudgetTracker = context.tokenBudgetTracker
         val correlationId = context.correlationId
         val securityContext = context.securityContext
+        // The governed run identity is the authoritative transport for the workload deployment; the
+        // execution path authorizes from it, so its absence is not a wider default but a refusal.
+        val governedRun = GovernedRunScope.resolve(currentCoroutineContext())
         val maxToolLoops = 5 // Guard against infinite tool loops
         val attemptCounter = AttemptCounter()
         repeat(maxToolLoops) {
-            val result = providerExecutionCoordinator.execute(
-                ProviderExecutionRequest(
-                    operation = operation,
-                    messages = messages,
-                    attemptCounter = attemptCounter,
-                    correlationId = correlationId,
-                    securityContext = securityContext,
-                    beforeRoute = { toolExposureCoordinator.enforce(operation, correlationId, securityContext) },
-                ),
-            )
-            try {
-                tokenBudgetCoordinator.enforce(
-                    tracker = tokenBudgetTracker,
-                    response = result.response,
-                    observation = result.observation,
-                    providerId = result.providerId,
-                    modelName = result.modelName,
-                )
-            } catch (error: TokenBudgetExceededException) {
-                result.observation.onCallCompleted(parseSuccess = null)
-                throw error
-            }
+            val result = invokeAndEnforceBudget(context, messages, attemptCounter, governedRun)
 
             val toolCalls = result.response.toolCalls
             if (toolCalls.isNullOrEmpty()) {
@@ -79,20 +108,22 @@ internal class ToolLoopCoordinator(
             }
 
             // Normalize unregistered tool calls: replace unknown names with safe placeholder
-            val normalizedToolCalls = toolCalls.map { toolCall ->
-                if (toolRegistry.resolve(toolCall.name) == null) {
-                    toolCall.copy(name = UNREGISTERED_TOOL_NAME, argumentsJson = "{}")
-                } else {
-                    toolCall
+            val normalizedToolCalls =
+                toolCalls.map { toolCall ->
+                    if (toolRegistry.resolve(toolCall.name) == null) {
+                        toolCall.copy(name = UNREGISTERED_TOOL_NAME, argumentsJson = "{}")
+                    } else {
+                        toolCall
+                    }
                 }
-            }
 
             // Append assistant message with normalized tool calls
-            messages += Message(
-                role = MessageRole.ASSISTANT,
-                content = result.response.content,
-                toolCalls = normalizedToolCalls,
-            )
+            messages +=
+                Message(
+                    role = MessageRole.ASSISTANT,
+                    content = result.response.content,
+                    toolCalls = normalizedToolCalls,
+                )
 
             // Tool execution must complete before the observation is finalised,
             // so that cancellation during tool execution calls onCallCancelled
@@ -136,6 +167,7 @@ internal class ToolLoopCoordinator(
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
     }
+
     private fun OperationObservation.completeCancellation(cancellation: CancellationException) {
         try {
             onCallCancelled()
@@ -143,6 +175,7 @@ internal class ToolLoopCoordinator(
             cancellation.addSuppressed(observerError)
         }
     }
+
     /**
      * Finalises tool-processing observation without a suspend boundary,
      * so the cancellation scanner does not flag a broad [Throwable] catch.
@@ -151,9 +184,7 @@ internal class ToolLoopCoordinator(
      * When it is null (successful tool processing), observer failure is
      * logged as a warning but does not invalidate the completed side effect.
      */
-    private fun OperationObservation.completeAfterToolProcessing(
-        primaryError: Throwable? = null,
-    ) {
+    private fun OperationObservation.completeAfterToolProcessing(primaryError: Throwable? = null) {
         try {
             onCallCompleted(parseSuccess = null)
         } catch (observerError: Exception) {

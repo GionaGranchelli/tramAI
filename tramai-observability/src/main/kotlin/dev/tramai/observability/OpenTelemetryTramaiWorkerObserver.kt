@@ -23,7 +23,6 @@ class OpenTelemetryTramaiWorkerObserver(
     private val tracer: Tracer,
     private val meter: Meter = OpenTelemetry.noop().getMeter("dev.tramai.observability"),
 ) : TramaiWorkerObserver {
-
     private val metrics = OpenTelemetryTramaiWorkerMetrics(meter)
     private val activeWorkerSpan = AtomicReference<Span>()
 
@@ -48,7 +47,11 @@ class OpenTelemetryTramaiWorkerObserver(
         }
     }
 
-    override fun onWorkerHeartbeat(workerId: String, uptimeMillis: Long, claimedCount: Int) {
+    override fun onWorkerHeartbeat(
+        workerId: String,
+        uptimeMillis: Long,
+        claimedCount: Int,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_HEARTBEAT) {
                 set(RuntimeAttributes.WORKER_ID, workerId)
@@ -56,51 +59,92 @@ class OpenTelemetryTramaiWorkerObserver(
                 set(RuntimeAttributes.WORKER_CLAIMED_COUNT, claimedCount.toLong())
             },
         )
-        metrics.heartbeats.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            RuntimeAttributes.WORKER_UPTIME_MS.name to uptimeMillis,
-        )))
+        metrics.heartbeats.add(
+            1,
+            workerAttributes(
+                workerId,
+                extraAttributes =
+                    mapOf(
+                        RuntimeAttributes.WORKER_UPTIME_MS.name to uptimeMillis,
+                    ),
+            ),
+        )
     }
 
-    override fun onLeaseAcquired(workflowId: String, workerId: String) {
+    override fun onLeaseAcquired(
+        workflowId: String,
+        workerId: String,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_LEASE_ACQUIRED) {
                 set(RuntimeAttributes.WORKER_WORKFLOW_ID, workflowId)
                 set(RuntimeAttributes.WORKER_ID, workerId)
             },
         )
-        metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            RuntimeAttributes.LEASE_OPERATION.name to "acquired",
-            RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
-        )))
+        metrics.leases.add(
+            1,
+            workerAttributes(
+                workerId,
+                extraAttributes =
+                    mapOf(
+                        RuntimeAttributes.LEASE_OPERATION.name to "acquired",
+                        RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
+                    ),
+            ),
+        )
     }
 
-    override fun onLeaseReleased(workflowId: String, workerId: String) {
+    override fun onLeaseReleased(
+        workflowId: String,
+        workerId: String,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_LEASE_RELEASED) {
                 set(RuntimeAttributes.WORKER_WORKFLOW_ID, workflowId)
                 set(RuntimeAttributes.WORKER_ID, workerId)
             },
         )
-        metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            RuntimeAttributes.LEASE_OPERATION.name to "released",
-            RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
-        )))
+        metrics.leases.add(
+            1,
+            workerAttributes(
+                workerId,
+                extraAttributes =
+                    mapOf(
+                        RuntimeAttributes.LEASE_OPERATION.name to "released",
+                        RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
+                    ),
+            ),
+        )
     }
 
-    override fun onLeaseExpired(workflowId: String, workerId: String) {
+    override fun onLeaseExpired(
+        workflowId: String,
+        workerId: String,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_LEASE_EXPIRED) {
                 set(RuntimeAttributes.WORKER_WORKFLOW_ID, workflowId)
                 set(RuntimeAttributes.WORKER_ID, workerId)
             },
         )
-        metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            RuntimeAttributes.LEASE_OPERATION.name to "expired",
-            RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
-        )))
+        metrics.leases.add(
+            1,
+            workerAttributes(
+                workerId,
+                extraAttributes =
+                    mapOf(
+                        RuntimeAttributes.LEASE_OPERATION.name to "expired",
+                        RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
+                    ),
+            ),
+        )
     }
 
-    override fun onLeaseRenewed(workflowId: String, workerId: String, newExpiry: Long) {
+    override fun onLeaseRenewed(
+        workflowId: String,
+        workerId: String,
+        newExpiry: Long,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_LEASE_RENEWED) {
                 set(RuntimeAttributes.WORKER_WORKFLOW_ID, workflowId)
@@ -108,13 +152,24 @@ class OpenTelemetryTramaiWorkerObserver(
                 set(RuntimeAttributes.LEASE_EXPIRY, newExpiry)
             },
         )
-        metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            RuntimeAttributes.LEASE_OPERATION.name to "renewed",
-            RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
-        )))
+        metrics.leases.add(
+            1,
+            workerAttributes(
+                workerId,
+                extraAttributes =
+                    mapOf(
+                        RuntimeAttributes.LEASE_OPERATION.name to "renewed",
+                        RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
+                    ),
+            ),
+        )
     }
 
-    override fun onLeaseContested(workflowId: String, claimantWorkerId: String, currentWorkerId: String) {
+    override fun onLeaseContested(
+        workflowId: String,
+        claimantWorkerId: String,
+        currentWorkerId: String,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_LEASE_CONTESTED) {
                 set(RuntimeAttributes.WORKER_WORKFLOW_ID, workflowId)
@@ -122,15 +177,26 @@ class OpenTelemetryTramaiWorkerObserver(
                 set(RuntimeAttributes.WORKER_CURRENT_OWNER, currentWorkerId)
             },
         )
-        metrics.leases.add(1, workerAttributes(claimantWorkerId, extraAttributes = mapOf(
-            RuntimeAttributes.LEASE_OPERATION.name to "contested",
-            RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
-            RuntimeAttributes.WORKER_CURRENT_OWNER.name to currentWorkerId,
-        )))
+        metrics.leases.add(
+            1,
+            workerAttributes(
+                claimantWorkerId,
+                extraAttributes =
+                    mapOf(
+                        RuntimeAttributes.LEASE_OPERATION.name to "contested",
+                        RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
+                        RuntimeAttributes.WORKER_CURRENT_OWNER.name to currentWorkerId,
+                    ),
+            ),
+        )
     }
 
-    override fun onLeaseRenewalFailed(workflowId: String, workerId: String, error: Throwable) {
-        activeWorkerSpan.get()?.recordException(error)
+    override fun onLeaseRenewalFailed(
+        workflowId: String,
+        workerId: String,
+        error: Throwable,
+    ) {
+        activeWorkerSpan.get()?.recordSafeException(error)
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_LEASE_RENEWAL_FAILED) {
                 set(RuntimeAttributes.WORKER_WORKFLOW_ID, workflowId)
@@ -138,14 +204,25 @@ class OpenTelemetryTramaiWorkerObserver(
                 set(RuntimeAttributes.ERROR_TYPE, error::class.simpleName ?: "Throwable")
             },
         )
-        metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            RuntimeAttributes.LEASE_OPERATION.name to "renewal_failed",
-            RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
-        )))
+        metrics.leases.add(
+            1,
+            workerAttributes(
+                workerId,
+                extraAttributes =
+                    mapOf(
+                        RuntimeAttributes.LEASE_OPERATION.name to "renewal_failed",
+                        RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
+                    ),
+            ),
+        )
     }
 
-    override fun onLeaseReleaseFailed(workflowId: String, workerId: String, error: Throwable) {
-        activeWorkerSpan.get()?.recordException(error)
+    override fun onLeaseReleaseFailed(
+        workflowId: String,
+        workerId: String,
+        error: Throwable,
+    ) {
+        activeWorkerSpan.get()?.recordSafeException(error)
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_LEASE_RELEASE_FAILED) {
                 set(RuntimeAttributes.WORKER_WORKFLOW_ID, workflowId)
@@ -153,14 +230,24 @@ class OpenTelemetryTramaiWorkerObserver(
                 set(RuntimeAttributes.ERROR_TYPE, error::class.simpleName ?: "Throwable")
             },
         )
-        metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            RuntimeAttributes.LEASE_OPERATION.name to "release_failed",
-            RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
-        )))
+        metrics.leases.add(
+            1,
+            workerAttributes(
+                workerId,
+                extraAttributes =
+                    mapOf(
+                        RuntimeAttributes.LEASE_OPERATION.name to "release_failed",
+                        RuntimeAttributes.WORKER_WORKFLOW_ID.name to workflowId,
+                    ),
+            ),
+        )
     }
 
-    override fun onPollFailed(workerId: String, error: Throwable) {
-        activeWorkerSpan.get()?.recordException(error)
+    override fun onPollFailed(
+        workerId: String,
+        error: Throwable,
+    ) {
+        activeWorkerSpan.get()?.recordSafeException(error)
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_POLL_FAILED) {
                 set(RuntimeAttributes.WORKER_ID, workerId)
@@ -169,7 +256,11 @@ class OpenTelemetryTramaiWorkerObserver(
         )
     }
 
-    override fun onWorkTakenOver(workflowId: String, previousWorkerId: String, newWorkerId: String) {
+    override fun onWorkTakenOver(
+        workflowId: String,
+        previousWorkerId: String,
+        newWorkerId: String,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_WORK_TAKEN_OVER) {
                 set(RuntimeAttributes.WORKER_WORKFLOW_ID, workflowId)
@@ -179,7 +270,12 @@ class OpenTelemetryTramaiWorkerObserver(
         )
     }
 
-    override fun onUnknownAttempt(runId: String, stepName: String, priorWorkerId: String, attemptTime: Long) {
+    override fun onUnknownAttempt(
+        runId: String,
+        stepName: String,
+        priorWorkerId: String,
+        attemptTime: Long,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_UNKNOWN_ATTEMPT) {
                 set(RuntimeAttributes.WORKER_RUN_ID, runId)
@@ -190,7 +286,12 @@ class OpenTelemetryTramaiWorkerObserver(
         )
     }
 
-    override fun onStepAttemptStarted(runId: String, stepName: String, attemptId: String, workerId: String) {
+    override fun onStepAttemptStarted(
+        runId: String,
+        stepName: String,
+        attemptId: String,
+        workerId: String,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_STEP_STARTED) {
                 set(RuntimeAttributes.WORKER_RUN_ID, runId)
@@ -201,7 +302,12 @@ class OpenTelemetryTramaiWorkerObserver(
         )
     }
 
-    override fun onStepAttemptCompleted(runId: String, stepName: String, attemptId: String, workerId: String) {
+    override fun onStepAttemptCompleted(
+        runId: String,
+        stepName: String,
+        attemptId: String,
+        workerId: String,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_STEP_COMPLETED) {
                 set(RuntimeAttributes.WORKER_RUN_ID, runId)
@@ -212,8 +318,14 @@ class OpenTelemetryTramaiWorkerObserver(
         )
     }
 
-    override fun onStepAttemptFailed(runId: String, stepName: String, attemptId: String, workerId: String, error: Throwable) {
-        activeWorkerSpan.get()?.recordException(error)
+    override fun onStepAttemptFailed(
+        runId: String,
+        stepName: String,
+        attemptId: String,
+        workerId: String,
+        error: Throwable,
+    ) {
+        activeWorkerSpan.get()?.recordSafeException(error)
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_STEP_FAILED) {
                 set(RuntimeAttributes.WORKER_RUN_ID, runId)
@@ -233,7 +345,11 @@ class OpenTelemetryTramaiWorkerObserver(
         )
     }
 
-    override fun onDrainProgress(workerId: String, done: Int, pending: Int) {
+    override fun onDrainProgress(
+        workerId: String,
+        done: Int,
+        pending: Int,
+    ) {
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_DRAIN_PROGRESS) {
                 set(RuntimeAttributes.WORKER_ID, workerId)
@@ -249,12 +365,24 @@ class OpenTelemetryTramaiWorkerObserver(
                 set(RuntimeAttributes.WORKER_ID, workerId)
             },
         )
-        metrics.shutdowns.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            RuntimeAttributes.WORKER_SHUTDOWN_OUTCOME.name to "complete",
-        )))
+        metrics.shutdowns.add(
+            1,
+            workerAttributes(
+                workerId,
+                extraAttributes =
+                    mapOf(
+                        RuntimeAttributes.WORKER_SHUTDOWN_OUTCOME.name to "complete",
+                    ),
+            ),
+        )
     }
 
-    override fun onWorkflowAbandoned(workflowId: String, workerId: String, lastStep: String?, timeoutMillis: Long) {
+    override fun onWorkflowAbandoned(
+        workflowId: String,
+        workerId: String,
+        lastStep: String?,
+        timeoutMillis: Long,
+    ) {
         activeWorkerSpan.get()?.setAttribute(RuntimeAttributes.WORKER_ABANDONED_WORKFLOW.name, workflowId)
         recordEvent(
             RuntimeEvent.of(RuntimeEvents.WORKER_WORKFLOW_ABANDONED) {
@@ -273,27 +401,34 @@ class OpenTelemetryTramaiWorkerObserver(
     private fun workerAttributes(
         workerId: String,
         extraAttributes: Map<String, Any?> = emptyMap(),
-    ): Attributes = buildMap<String, Any?> {
-        put(RuntimeAttributes.WORKER_ID.name, workerId)
-        putAll(extraAttributes)
-    }.toOpenTelemetryAttributes()
+    ): Attributes =
+        buildMap<String, Any?> {
+            put(RuntimeAttributes.WORKER_ID.name, workerId)
+            putAll(extraAttributes)
+        }.toOpenTelemetryAttributes()
 }
 
 private class OpenTelemetryTramaiWorkerMetrics(
     meter: Meter,
 ) {
-    val heartbeats: LongCounter = meter.counterBuilder(RuntimeMetrics.WORKER_HEARTBEATS.name)
-        .setDescription("Worker heartbeat events")
-        .setUnit("{heartbeat}")
-        .build()
+    val heartbeats: LongCounter =
+        meter
+            .counterBuilder(RuntimeMetrics.WORKER_HEARTBEATS.name)
+            .setDescription("Worker heartbeat events")
+            .setUnit("{heartbeat}")
+            .build()
 
-    val shutdowns: LongCounter = meter.counterBuilder(RuntimeMetrics.WORKER_SHUTDOWNS.name)
-        .setDescription("Worker shutdown events")
-        .setUnit("{shutdown}")
-        .build()
+    val shutdowns: LongCounter =
+        meter
+            .counterBuilder(RuntimeMetrics.WORKER_SHUTDOWNS.name)
+            .setDescription("Worker shutdown events")
+            .setUnit("{shutdown}")
+            .build()
 
-    val leases: LongCounter = meter.counterBuilder(RuntimeMetrics.WORKER_LEASES.name)
-        .setDescription("Worker lease operations (acquired, released, expired, renewed, contested, failed)")
-        .setUnit("{lease}")
-        .build()
+    val leases: LongCounter =
+        meter
+            .counterBuilder(RuntimeMetrics.WORKER_LEASES.name)
+            .setDescription("Worker lease operations (acquired, released, expired, renewed, contested, failed)")
+            .setUnit("{lease}")
+            .build()
 }
