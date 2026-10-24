@@ -353,7 +353,7 @@ class RegulatedClaimTriageJdbcE2ETest {
                         decisionCommand(
                             dev.tramai.core.approval.gateway
                                 .ApprovalId(result.approvalId!!),
-                            "medical-ops-reviewer",
+                            0L,
                             ApproverRole("medical-reviewer"),
                             "Medical necessity not established",
                             claimId,
@@ -409,7 +409,7 @@ class RegulatedClaimTriageJdbcE2ETest {
                     workflow.decisionControlPlane.approve(
                         decisionCommand(
                             ApprovalId(suspension.approvalId),
-                            "medical-ops-reviewer",
+                            0L,
                             ApproverRole("medical-reviewer"),
                             "Approved for regulated claim payout",
                             claimId,
@@ -1175,15 +1175,16 @@ private fun org.springframework.context.ApplicationContext.workflow(
 /** One-line command builder: the decision tests stay readable and inside the length ceiling. */
 private fun decisionCommand(
     approvalId: dev.tramai.core.approval.gateway.ApprovalId,
-    actorId: String,
+    expectedVersion: Long,
     actorRole: ApproverRole,
     comment: String? = null,
     correlationId: String? = null,
 ): ApprovalDecisionCommand =
     ApprovalDecisionCommand(
         approvalId = approvalId,
-        actorId = actorId,
+        actorId = "medical-ops-reviewer",
         actorRole = actorRole,
+        expectedVersion = expectedVersion,
         comment = comment,
         correlationId = correlationId,
     )

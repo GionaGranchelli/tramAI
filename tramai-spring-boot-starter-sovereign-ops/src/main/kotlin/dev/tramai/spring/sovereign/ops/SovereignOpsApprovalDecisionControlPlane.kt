@@ -3,6 +3,7 @@ package dev.tramai.spring.sovereign.ops
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalId
+import dev.tramai.core.exception.ApprovalStoreConflictException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
@@ -30,19 +31,42 @@ class SovereignOpsApprovalDecisionControlPlane(
     private val authorizer: ApprovalDecisionAuthorizer = AllowAllApprovalDecisionAuthorizer,
     private val clock: Clock = Clock.systemUTC(),
 ) : ApprovalDecisionControlPlane {
+    override suspend fun approve(command: ApprovalDecisionCommand): ApprovalDecisionResult = decideApprove(command)
 
-    override suspend fun approve(command: ApprovalDecisionCommand): ApprovalDecisionResult =
-        decide(command, ApprovalDecisionType.APPROVE)
+    override suspend fun deny(command: ApprovalDecisionCommand): ApprovalDecisionResult = decideDeny(command)
 
-    override suspend fun deny(command: ApprovalDecisionCommand): ApprovalDecisionResult =
-        decide(command, ApprovalDecisionType.DENY)
+    private suspend fun decideApprove(command: ApprovalDecisionCommand) = decide(command, ApprovalDecisionType.APPROVE)
+
+    private suspend fun decideDeny(command: ApprovalDecisionCommand) = decide(command, ApprovalDecisionType.DENY)
 
     private suspend fun decide(
         command: ApprovalDecisionCommand,
         decisionType: ApprovalDecisionType,
     ): ApprovalDecisionResult {
-        val approval = approvalStore.get(command.approvalId.value)
-            ?: return ApprovalDecisionResult.NotFound(command.approvalId)
+        val approval =
+            approvalStore.get(command.approvalId.value)
+                ?: return ApprovalDecisionResult.NotFound(command.approvalId)
+
+        // The caller's observed version is the concurrency precondition, checked before anything else. In
+        // particular it is checked before the terminal-state shortcuts below: a caller holding a stale
+        // version must learn that its precondition is stale, not receive an apparently successful
+        // "already decided" answer for a decision it did not make.
+        if (command.expectedVersion != approval.version) {
+            return ApprovalDecisionResult.Stale(
+                approvalId = command.approvalId,
+                expectedVersion = command.expectedVersion,
+                currentVersion = approval.version,
+            )
+        }
+
+        // A decision increments the version by one. Refusing at the top of the domain keeps that arithmetic
+        // from wrapping into a value that looks like a fresh approval.
+        if (approval.version == Long.MAX_VALUE) {
+            return ApprovalDecisionResult.Conflict(
+                approvalId = ApprovalId(approval.approvalId),
+                reason = "tramai-approval-version-exhausted",
+            )
+        }
 
         val now = clock.instant()
 
@@ -77,79 +101,114 @@ class SovereignOpsApprovalDecisionControlPlane(
             )
         }
 
-        val eventKey = when (decisionType) {
-            ApprovalDecisionType.APPROVE -> "approval-approved.${command.approvalId.value}"
-            ApprovalDecisionType.DENY -> "approval-denied.${command.approvalId.value}"
-        }
-        val auditIntent = SovereignOpsAuditOutboxRecord(
-            outboxId = UUID.randomUUID().toString(),
-            aggregateType = "approval",
-            operation = eventKey,
-            aggregateIdDigest = sha256Hex(command.approvalId.value),
-            eventKey = eventKey,
-            actor = command.actorId,
-            workflowRunId = approval.binding.workflowRunId,
-            correlationId = command.correlationId,
-            approvalStatus = when (decisionType) {
-                ApprovalDecisionType.APPROVE -> ApprovalStatus.APPROVED.name
-                ApprovalDecisionType.DENY -> ApprovalStatus.DENIED.name
-            },
-            approvalVersion = approval.version + 1,
-            reasonDigest = command.comment?.let { sha256Hex(it) } ?: sha256Hex(eventKey),
-            reasonLength = command.comment?.length ?: eventKey.length,
-            createdAt = now,
-            status = SovereignOpsAuditOutboxStatus.PREPARED,
-        )
+        val eventKey =
+            when (decisionType) {
+                ApprovalDecisionType.APPROVE -> "approval-approved.${command.approvalId.value}"
+                ApprovalDecisionType.DENY -> "approval-denied.${command.approvalId.value}"
+            }
+        val auditIntent =
+            SovereignOpsAuditOutboxRecord(
+                outboxId = UUID.randomUUID().toString(),
+                aggregateType = "approval",
+                operation = eventKey,
+                aggregateIdDigest = sha256Hex(command.approvalId.value),
+                eventKey = eventKey,
+                actor = command.actorId,
+                workflowRunId = approval.binding.workflowRunId,
+                correlationId = command.correlationId,
+                approvalStatus =
+                    when (decisionType) {
+                        ApprovalDecisionType.APPROVE -> ApprovalStatus.APPROVED.name
+                        ApprovalDecisionType.DENY -> ApprovalStatus.DENIED.name
+                    },
+                approvalVersion = approval.version + 1,
+                reasonDigest = command.comment?.let { sha256Hex(it) } ?: sha256Hex(eventKey),
+                reasonLength = command.comment?.length ?: eventKey.length,
+                createdAt = now,
+                status = SovereignOpsAuditOutboxStatus.PREPARED,
+            )
 
         return try {
-            val result = when (decisionType) {
-                ApprovalDecisionType.APPROVE ->
-                    mutationStore.approveApprovalWithAuditIntent(
-                        approvalId = approval.approvalId,
-                        expectedVersion = command.expectedVersion ?: approval.version,
-                        actor = command.actorId,
-                        reason = command.comment ?: eventKey,
-                        auditIntent = auditIntent,
-                    )
+            val result =
+                when (decisionType) {
+                    ApprovalDecisionType.APPROVE -> {
+                        mutationStore.approveApprovalWithAuditIntent(
+                            approvalId = approval.approvalId,
+                            expectedVersion = command.expectedVersion,
+                            actor = command.actorId,
+                            reason = command.comment ?: eventKey,
+                            auditIntent = auditIntent,
+                        )
+                    }
 
-                ApprovalDecisionType.DENY ->
-                    mutationStore.denyApprovalWithAuditIntent(
-                        approvalId = approval.approvalId,
-                        expectedVersion = command.expectedVersion ?: approval.version,
-                        actor = command.actorId,
-                        reason = command.comment ?: eventKey,
-                        auditIntent = auditIntent,
-                    )
-            }
+                    ApprovalDecisionType.DENY -> {
+                        mutationStore.denyApprovalWithAuditIntent(
+                            approvalId = approval.approvalId,
+                            expectedVersion = command.expectedVersion,
+                            actor = command.actorId,
+                            reason = command.comment ?: eventKey,
+                            auditIntent = auditIntent,
+                        )
+                    }
+                }
 
             when (decisionType) {
-                ApprovalDecisionType.APPROVE ->
+                ApprovalDecisionType.APPROVE -> {
                     ApprovalDecisionResult.Approved(
                         approvalId = ApprovalId(result.approval.approvalId),
                         decidedBy = result.approval.decidedBy ?: command.actorId,
                         decidedAt = result.approval.decidedAt ?: clock.instant(),
                         version = result.approval.version,
                     )
+                }
 
-                ApprovalDecisionType.DENY ->
+                ApprovalDecisionType.DENY -> {
                     ApprovalDecisionResult.Denied(
                         approvalId = ApprovalId(result.approval.approvalId),
                         decidedBy = result.approval.decidedBy ?: command.actorId,
                         decidedAt = result.approval.decidedAt ?: clock.instant(),
                         version = result.approval.version,
                     )
+                }
             }
+        } catch (conflict: ApprovalStoreConflictException) {
+            // Another writer won between our read and the compare-and-set. The store's CAS is the final
+            // authority, so the answer is derived from persisted state rather than from the read above.
+            staleOrConflict(command, conflict)
         } catch (e: IllegalApprovalTransitionException) {
-            ApprovalDecisionResult.Conflict(
-                approvalId = ApprovalId(approval.approvalId),
-                reason = e.message ?: "approval-illegal-transition",
-            )
+            staleOrConflict(command, e)
         } catch (_: ApprovalStoreNotFoundException) {
             ApprovalDecisionResult.NotFound(ApprovalId(approval.approvalId))
         } catch (e: IllegalStateException) {
             ApprovalDecisionResult.Conflict(
                 approvalId = ApprovalId(approval.approvalId),
                 reason = e.message ?: "approval-mutation-failure",
+            )
+        }
+    }
+
+    /**
+     * Re-reads authoritative state after a refused mutation and reports a [ApprovalDecisionResult.Stale]
+     * when the version moved. Anything else stays a [ApprovalDecisionResult.Conflict]: the version was
+     * current, so something other than concurrency refused the transition.
+     */
+    private suspend fun staleOrConflict(
+        command: ApprovalDecisionCommand,
+        refusal: Exception,
+    ): ApprovalDecisionResult {
+        val current =
+            approvalStore.get(command.approvalId.value)
+                ?: return ApprovalDecisionResult.NotFound(command.approvalId)
+        return if (current.version != command.expectedVersion) {
+            ApprovalDecisionResult.Stale(
+                approvalId = command.approvalId,
+                expectedVersion = command.expectedVersion,
+                currentVersion = current.version,
+            )
+        } else {
+            ApprovalDecisionResult.Conflict(
+                approvalId = command.approvalId,
+                reason = refusal.message ?: "approval-decision-conflict",
             )
         }
     }

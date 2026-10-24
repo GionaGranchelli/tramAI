@@ -181,7 +181,7 @@ class ApprovalResumeExampleTest {
             val approveResult =
                 runBlocking {
                     decisionPlane.approve(
-                        decisionCommand(approvalId, "manager-1", ApproverRole("manager"), "Approved"),
+                        decisionCommand(approvalId, 0L, ApproverRole("manager"), "Approved"),
                     )
                 }
             assertThat(approveResult).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
@@ -242,7 +242,7 @@ class ApprovalResumeExampleTest {
             val denyResult =
                 runBlocking {
                     decisionPlane.deny(
-                        decisionCommand(approvalId, "manager-1", ApproverRole("manager"), "Denied — over budget"),
+                        decisionCommand(approvalId, 0L, ApproverRole("manager"), "Denied — over budget"),
                     )
                 }
             assertThat(denyResult).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
@@ -523,15 +523,16 @@ object EmbeddedPgHolder {
 /** One-line command builder: the decision tests stay readable and inside the length ceiling. */
 private fun decisionCommand(
     approvalId: dev.tramai.core.approval.gateway.ApprovalId,
-    actorId: String,
+    expectedVersion: Long,
     actorRole: ApproverRole,
     comment: String? = null,
     correlationId: String? = null,
 ): ApprovalDecisionCommand =
     ApprovalDecisionCommand(
         approvalId = approvalId,
-        actorId = actorId,
+        actorId = "manager-1",
         actorRole = actorRole,
+        expectedVersion = expectedVersion,
         comment = comment,
         correlationId = correlationId,
     )
