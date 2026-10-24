@@ -48,7 +48,8 @@ Verify against `tramai-spring-boot-starter-sovereign-ops-rest/api/tramai-spring-
   - a verified token whose `sub` cannot be recorded as an approval actor id → **401**
     (`tramai-operator-subject-unsupported`), never a rewritten identity;
   - a verified operator without the required capability → **403** at the eventual control boundary (0.7.6e);
-  - `enabled=true` with a blank `issuer`, `audience` or `jwk-set-uri` → **startup failure**
+  - `enabled=true` with a blank `issuer`, `audience`, or neither `jwk-set-uri` nor `public-key` →
+    **startup failure**
     (`tramai-operator-authentication-incomplete-configuration`). There is no anonymous fallback, no
     trusted-header mode, and no principal constructed from request data;
   - the configured control plane (`tramai.sovereign.ops.rest.base-path`) not covered by `protected-paths`,
@@ -67,21 +68,37 @@ Verify against `tramai-spring-boot-starter-sovereign-ops-rest/api/tramai-spring-
 | `…security.issuer` | Expected `iss`; validated strictly on every token. |
 | `…security.audience` | Required `aud` member. |
 | `…security.jwk-set-uri` | JWKS endpoint for signature verification. Configured, never token-discovered. |
+| `…security.public-key` | Base64 X.509 `SubjectPublicKeyInfo` RSA key, for deployments that pin a key instead of publishing a JWKS. **Takes precedence over `jwk-set-uri`** when both are set. |
 | `…security.role-claim` | Claim carrying role values. Default `roles`. |
 | `…security.role-mappings.<role>` | Server-side list of `OperatorCapability` wire names a role grants. |
 | `…security.protected-paths` | Paths behind the boundary. Default `/tramai/sovereign/**`. |
 
-Semantics: signature (RS256 only), expiry, not-before, issuer and audience are all validated; capabilities come
+Semantics: signature (RS256 only), expiry presence and value, not-before, issuer and audience are all validated;
+trust material is `public-key` if set, otherwise `jwk-set-uri` (`operatorJwtDecoder(properties)`); capabilities come
 **only** from `role-mappings` — an absent, unknown or client-invented role (`admin`, `*`) grants nothing, and an
 unknown capability wire name in configuration is a startup failure. The grant set is an immutable snapshot.
 Identity is the exact `(issuer, subject)` pair; no subject is transformed. Auth0-style (`auth0|abc123`) and
 URL-shaped subjects are **rejected** (audit limitation A4) because the subject becomes the approval actor id.
 
-The chain is `@Order(1)` and scoped to `protected-paths`, so a consumer's own `SecurityFilterChain` can coexist;
-a consumer chain must not widen access to those paths.
+The decoder is **built by the chain**, not registered as a bean (`operatorJwtDecoder(properties)`), so no host
+`JwtDecoder` bean — under any name or qualifier — can become the operator decoder or weaken issuer, audience,
+algorithm, expiry or signature validation. The trade-off is accepted deliberately: an overridable trust source is
+worse than an unconfigurable one.
 
-**Host integration:** when the host application defines its own `SecurityFilterChain`, it must not remove the
-operator boundary from the protected paths. The starter's chain takes precedence for those matchers.
+**Host integration — ordering is the host's responsibility.** The chain is `@Order(1)` and scoped to
+`protected-paths`, which is enough to run before a Spring Boot default chain, but it **cannot outrank a host chain
+registered at a higher precedence**. That case is tested (`OperatorChainShadowingTest`) rather than assumed:
+
+- a host chain at `@Order(0)` matching the operator paths does shadow the operator chain;
+- every request to a shadowed route then gets **401**, including one carrying a **valid** token, because the wrong
+  chain consumed the request before the resource server could authenticate it;
+- a non-JWT identity established by the host chain (HTTP Basic) is **never** promoted to an operator.
+
+So shadowing is a **denial a host can cause, never an authorization bypass**. The contract: **register no chain
+with higher precedence than the operator chain over the operator paths.** The starter cannot enforce ordering
+against an arbitrary `@Order` without owning the host's whole security configuration. These shadowing tests
+establish fail-closed behaviour **for routes that consume an `OperatorPrincipal`**; they say nothing about the
+legacy approval endpoints, which still do not require a principal at all (0.7.6e).
 
 ### What this module does NOT enforce
 
