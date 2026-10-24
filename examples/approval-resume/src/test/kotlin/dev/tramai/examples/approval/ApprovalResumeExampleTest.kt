@@ -38,10 +38,6 @@ import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
 import dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres
-import java.nio.file.Path
-import java.sql.SQLException
-import java.util.Base64
-import javax.sql.DataSource
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
@@ -54,6 +50,10 @@ import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import java.nio.file.Path
+import java.sql.SQLException
+import java.util.Base64
+import javax.sql.DataSource
 
 /**
  * Minimal approval resume example test.
@@ -65,7 +65,6 @@ import org.springframework.context.annotation.Configuration
  */
 @Tag("e2e")
 class ApprovalResumeExampleTest {
-
     companion object {
         @JvmStatic
         @BeforeAll
@@ -104,12 +103,10 @@ class ApprovalResumeExampleTest {
                     ApprovalDecisionControlPlaneAutoConfiguration::class.java,
                     ApprovalResumeControlPlaneAutoConfiguration::class.java,
                 ),
-            )
-            .withUserConfiguration(
+            ).withUserConfiguration(
                 TestDataSourceConfig::class.java,
                 TestGatewayConfig::class.java,
-            )
-            .withPropertyValues(
+            ).withPropertyValues(
                 "tramai.profile=sovereign",
                 "tramai.sovereign.enabled=true",
                 "tramai.sovereign.persistence.type=jdbc",
@@ -131,9 +128,10 @@ class ApprovalResumeExampleTest {
     fun `low value expense completes without approval`() {
         createRunner().run { ctx ->
             val workflow = ctx.getBean(ExpenseApprovalWorkflow::class.java)
-            val result = runBlocking {
-                workflow.process(ExpenseClaim("e-1", "emp-1", 500, "Office supplies"))
-            }
+            val result =
+                runBlocking {
+                    workflow.process(ExpenseClaim("e-1", "emp-1", 500, "Office supplies"))
+                }
             assertThat(result).isInstanceOf(SovereignWorkflowResult.Completed::class.java)
             assertThat(result.toString()).contains("EXPENSE_REIMBURSED")
         }
@@ -143,9 +141,10 @@ class ApprovalResumeExampleTest {
     fun `high value expense suspends for approval`() {
         createRunner().run { ctx ->
             val workflow = ctx.getBean(ExpenseApprovalWorkflow::class.java)
-            val result = runBlocking {
-                workflow.process(ExpenseClaim("e-2", "emp-1", 1500, "Conference travel"))
-            }
+            val result =
+                runBlocking {
+                    workflow.process(ExpenseClaim("e-2", "emp-1", 1500, "Conference travel"))
+                }
             assertThat(result).isInstanceOf(SovereignWorkflowResult.SuspendedForApproval::class.java)
             val suspended = result as SovereignWorkflowResult.SuspendedForApproval
             assertThat(suspended.approvalId.value).isNotBlank()
@@ -165,39 +164,35 @@ class ApprovalResumeExampleTest {
             val service = runtime.create(ExpenseApprovalResumeService::class)
 
             // 2. Submit expense via service proxy — triggers approval-gated tool → suspension
-            val suspension = try {
-                runBlocking { service.reviewAndReimburse("e-3") }
-                error("Expected approval suspension")
-            } catch (e: ApprovalSuspendedException) {
-                e
-            }
+            val suspension =
+                try {
+                    runBlocking { service.reviewAndReimburse("e-3") }
+                    error("Expected approval suspension")
+                } catch (e: ApprovalSuspendedException) {
+                    e
+                }
 
             assertThat(ledger.executionCount).isZero()
 
             // 3. Manager approves
-            val approvalId = dev.tramai.core.approval.gateway.ApprovalId(suspension.approvalId)
-            val approveResult = runBlocking {
-                decisionPlane.approve(
-                    ApprovalDecisionCommand(
-                        approvalId = approvalId,
-                        actorId = "manager-1",
-                        actorRole = ApproverRole("manager"),
-                        comment = "Approved",
-                    ),
-                )
-            }
+            val approvalId =
+                dev.tramai.core.approval.gateway
+                    .ApprovalId(suspension.approvalId)
+            val approveResult =
+                runBlocking {
+                    decisionPlane.approve(
+                        decisionCommand(approvalId, "manager-1", ApproverRole("manager"), "Approved"),
+                    )
+                }
             assertThat(approveResult).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
 
             // 4. Resume the workflow
-            val resumeResult = runBlocking {
-                resumePlane.resume(
-                    ApprovalResumeCommand(
-                        approvalId = approvalId,
-                        resumeToken = dev.tramai.core.approval.gateway.ResumeToken(suspension.challenge.token.reveal()),
-                        resumedBy = "system",
-                    ),
-                )
-            }
+            val resumeResult =
+                runBlocking {
+                    resumePlane.resume(
+                        resumeCommand(approvalId, suspension.challenge.token.reveal()),
+                    )
+                }
             assertThat(resumeResult).isInstanceOf(ApprovalResumeResult.Resumed::class.java)
             val resumed = resumeResult as ApprovalResumeResult.Resumed
             assertThat(resumed.result).isEqualTo("EXPENSE_REIMBURSED")
@@ -207,17 +202,12 @@ class ApprovalResumeExampleTest {
             assertThat(ledger.isReimbursed("e-3")).isTrue
 
             // 6. Duplicate resume does not duplicate the side effect
-            val secondResume = runBlocking {
-                resumePlane.resume(
-                    ApprovalResumeCommand(
-                        approvalId = approvalId,
-                        resumeToken = dev.tramai.core.approval.gateway.ResumeToken(suspension.challenge.token.reveal()),
-                        resumedBy = "system",
-                        expectedApprovalVersion = 1,
-                        expectedContinuationVersion = 1,
-                    ),
-                )
-            }
+            val secondResume =
+                runBlocking {
+                    resumePlane.resume(
+                        resumeCommand(approvalId, suspension.challenge.token.reveal(), 1, 1),
+                    )
+                }
             assertThat(secondResume).isInstanceOf(ApprovalResumeResult.AlreadyCompleted::class.java)
             assertThat(ledger.executionCount).isOne
         }
@@ -235,39 +225,35 @@ class ApprovalResumeExampleTest {
             val service = runtime.create(ExpenseApprovalResumeService::class)
 
             // 2. Submit expense via service proxy — triggers approval-gated tool → suspension
-            val suspension = try {
-                runBlocking { service.reviewAndReimburse("e-4") }
-                error("Expected approval suspension")
-            } catch (e: ApprovalSuspendedException) {
-                e
-            }
+            val suspension =
+                try {
+                    runBlocking { service.reviewAndReimburse("e-4") }
+                    error("Expected approval suspension")
+                } catch (e: ApprovalSuspendedException) {
+                    e
+                }
 
             assertThat(ledger.executionCount).isZero()
 
             // 3. Manager denies
-            val approvalId = dev.tramai.core.approval.gateway.ApprovalId(suspension.approvalId)
-            val denyResult = runBlocking {
-                decisionPlane.deny(
-                    ApprovalDecisionCommand(
-                        approvalId = approvalId,
-                        actorId = "manager-1",
-                        actorRole = ApproverRole("manager"),
-                        comment = "Denied — over budget",
-                    ),
-                )
-            }
+            val approvalId =
+                dev.tramai.core.approval.gateway
+                    .ApprovalId(suspension.approvalId)
+            val denyResult =
+                runBlocking {
+                    decisionPlane.deny(
+                        decisionCommand(approvalId, "manager-1", ApproverRole("manager"), "Denied — over budget"),
+                    )
+                }
             assertThat(denyResult).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
 
             // 4. Attempt resume — should fail because approval is denied
-            val resumeResult = runBlocking {
-                resumePlane.resume(
-                    ApprovalResumeCommand(
-                        approvalId = approvalId,
-                        resumeToken = dev.tramai.core.approval.gateway.ResumeToken(suspension.challenge.token.reveal()),
-                        resumedBy = "system",
-                    ),
-                )
-            }
+            val resumeResult =
+                runBlocking {
+                    resumePlane.resume(
+                        resumeCommand(approvalId, suspension.challenge.token.reveal()),
+                    )
+                }
             assertThat(resumeResult).isInstanceOf(ApprovalResumeResult.NotApproved::class.java)
 
             // 5. Side effect was NOT executed
@@ -289,7 +275,7 @@ fun interface ExpenseApprovalResumeService {
         """
         Review the expense and execute reimbursement when approved.
         Expense ID: {expenseId}
-        """
+        """,
     )
     suspend fun reviewAndReimburse(expenseId: String): String
 }
@@ -297,7 +283,9 @@ fun interface ExpenseApprovalResumeService {
 // ── Deterministic provider (produces tool call on first invocation) ──
 
 class ExpenseResumeDemoProvider : ModelProvider {
-    private val calls = java.util.concurrent.atomic.AtomicInteger(0)
+    private val calls =
+        java.util.concurrent.atomic
+            .AtomicInteger(0)
 
     override fun providerId(): String = "expense-provider"
 
@@ -308,13 +296,14 @@ class ExpenseResumeDemoProvider : ModelProvider {
             val expenseId = extractExpenseId(request)
             return ModelResponse(
                 content = "Expense reimbursement requires tool execution.",
-                toolCalls = listOf(
-                    ToolCall(
-                        id = "call-expense-reimbursement-001",
-                        name = "expense-reimbursement",
-                        argumentsJson = """{"expenseId":"$expenseId"}""",
+                toolCalls =
+                    listOf(
+                        ToolCall(
+                            id = "call-expense-reimbursement-001",
+                            name = "expense-reimbursement",
+                            argumentsJson = """{"expenseId":"$expenseId"}""",
+                        ),
                     ),
-                ),
                 finishReason = FinishReason.OTHER,
             )
         }
@@ -326,7 +315,11 @@ class ExpenseResumeDemoProvider : ModelProvider {
     }
 
     private fun extractExpenseId(request: ModelRequest): String {
-        val content = request.messages.lastOrNull()?.content.orEmpty()
+        val content =
+            request.messages
+                .lastOrNull()
+                ?.content
+                .orEmpty()
         return Regex("Expense ID: ([^\\s]+)")
             .find(content)
             ?.groupValues
@@ -337,8 +330,14 @@ class ExpenseResumeDemoProvider : ModelProvider {
 
 // ── Approval-gated reimbursement tool ────────────────────────────────
 
-data class ExpenseReimbursementInput(val expenseId: String)
-data class ExpenseReimbursementResult(val expenseId: String, val status: String)
+data class ExpenseReimbursementInput(
+    val expenseId: String,
+)
+
+data class ExpenseReimbursementResult(
+    val expenseId: String,
+    val status: String,
+)
 
 class ExpenseReimbursementTool(
     private val ledger: InMemoryExpenseLedger,
@@ -348,13 +347,14 @@ class ExpenseReimbursementTool(
     override val inputType = ExpenseReimbursementInput::class
     override val idempotent: Boolean = true
     override val sideEffectLevel: SideEffectLevel = SideEffectLevel.WRITE
-    override val security: ToolSecurityMetadata = ToolSecurityMetadata(
-        permission = "expense.reimburse",
-        risk = RiskLevel.HIGH,
-        approval = ApprovalMode.HUMAN_REQUIRED,
-        managedNetworkEgress = ManagedNetworkEgress.DENY,
-        audit = AuditDetail.FULL,
-    )
+    override val security: ToolSecurityMetadata =
+        ToolSecurityMetadata(
+            permission = "expense.reimburse",
+            risk = RiskLevel.HIGH,
+            approval = ApprovalMode.HUMAN_REQUIRED,
+            managedNetworkEgress = ManagedNetworkEgress.DENY,
+            audit = AuditDetail.FULL,
+        )
 
     override suspend fun execute(
         input: ExpenseReimbursementInput,
@@ -372,7 +372,6 @@ class ExpenseReimbursementTool(
 
 @Configuration
 class TestDataSourceConfig {
-
     @Bean(destroyMethod = "close")
     fun testDataSource(): javax.sql.DataSource {
         val ds = com.zaxxer.hikari.HikariDataSource()
@@ -386,7 +385,6 @@ class TestDataSourceConfig {
 
 @Configuration
 class TestGatewayConfig {
-
     @Bean
     fun expenseLedger(): InMemoryExpenseLedger = InMemoryExpenseLedger()
 
@@ -409,16 +407,18 @@ class TestGatewayConfig {
         clock: java.time.Clock,
         ledger: InMemoryExpenseLedger,
     ): SovereignTramai {
-        val builder = SovereignTramai.builder()
-            .profile(profile)
-            .modelRegistry(modelRegistry)
-            .auditStore(auditStore)
-            .provider(ExpenseResumeDemoProvider(), name = "expense-provider", default = true)
-            .model("expense-model", "expense-provider")
-            .tools(ExpenseReimbursementTool(ledger))
-            .approvalContinuationStore(infrastructure.approvalContinuationStore)
-            .approvalGateCoordinator(infrastructure.approvalGateCoordinator)
-            .clock(clock)
+        val builder =
+            SovereignTramai
+                .builder()
+                .profile(profile)
+                .modelRegistry(modelRegistry)
+                .auditStore(auditStore)
+                .provider(ExpenseResumeDemoProvider(), name = "expense-provider", default = true)
+                .model("expense-model", "expense-provider")
+                .tools(ExpenseReimbursementTool(ledger))
+                .approvalContinuationStore(infrastructure.approvalContinuationStore)
+                .approvalGateCoordinator(infrastructure.approvalGateCoordinator)
+                .clock(clock)
 
         infrastructure.suspendedInvocationStore?.let { builder.suspendedInvocationStore(it) }
         infrastructure.toolArgumentsDigester?.let { builder.toolArgumentsDigester(it) }
@@ -461,18 +461,22 @@ object EmbeddedPgHolder {
     }
 
     private fun applyMigrations(ds: DataSource) {
-        val migrations = listOf(
-            "/tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql",
-            "/tramai/persistence/jdbc/postgres/V2__approval_continuations.sql",
-            "/tramai/persistence/jdbc/postgres/V3__audit_events_hardening.sql",
-            "/tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
-            "/tramai/persistence/jdbc/postgres/V5__worker_leases_hardening.sql",
-            "/tramai/persistence/jdbc/postgres/V6__approval_resume_credential_custody.sql",
-        )
+        val migrations =
+            listOf(
+                "/tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql",
+                "/tramai/persistence/jdbc/postgres/V2__approval_continuations.sql",
+                "/tramai/persistence/jdbc/postgres/V3__audit_events_hardening.sql",
+                "/tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
+                "/tramai/persistence/jdbc/postgres/V5__worker_leases_hardening.sql",
+                "/tramai/persistence/jdbc/postgres/V6__approval_resume_credential_custody.sql",
+            )
         for (resource in migrations) {
-            val sql = EmbeddedPgHolder::class.java.getResourceAsStream(resource)
-                ?.bufferedReader()?.readText()
-                ?: throw IllegalStateException("Migration not found: $resource")
+            val sql =
+                EmbeddedPgHolder::class.java
+                    .getResourceAsStream(resource)
+                    ?.bufferedReader()
+                    ?.readText()
+                    ?: throw IllegalStateException("Migration not found: $resource")
             ds.connection.use { conn ->
                 conn.autoCommit = false
                 try {
@@ -515,3 +519,36 @@ object EmbeddedPgHolder {
         return statements
     }
 }
+
+/** One-line command builder: the decision tests stay readable and inside the length ceiling. */
+private fun decisionCommand(
+    approvalId: dev.tramai.core.approval.gateway.ApprovalId,
+    actorId: String,
+    actorRole: ApproverRole,
+    comment: String,
+    correlationId: String? = null,
+): ApprovalDecisionCommand =
+    ApprovalDecisionCommand(
+        approvalId = approvalId,
+        actorId = actorId,
+        actorRole = actorRole,
+        comment = comment,
+        correlationId = correlationId,
+    )
+
+/** Keeps the resume examples short: one line instead of a seven-line command. */
+private fun resumeCommand(
+    approvalId: dev.tramai.core.approval.gateway.ApprovalId,
+    token: String,
+    expectedApprovalVersion: Long? = null,
+    expectedContinuationVersion: Long? = null,
+): ApprovalResumeCommand =
+    ApprovalResumeCommand(
+        approvalId = approvalId,
+        resumeToken =
+            dev.tramai.core.approval.gateway
+                .ResumeToken(token),
+        resumedBy = "system",
+        expectedApprovalVersion = expectedApprovalVersion,
+        expectedContinuationVersion = expectedContinuationVersion,
+    )
