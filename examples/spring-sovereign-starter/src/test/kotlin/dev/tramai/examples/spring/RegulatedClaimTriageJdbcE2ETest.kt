@@ -1177,7 +1177,7 @@ private fun decisionCommand(
     approvalId: dev.tramai.core.approval.gateway.ApprovalId,
     actorId: String,
     actorRole: ApproverRole,
-    comment: String,
+    comment: String? = null,
     correlationId: String? = null,
 ): ApprovalDecisionCommand =
     ApprovalDecisionCommand(

@@ -439,11 +439,11 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
             val deny1 =
                 controlPlane.deny(
-                    decisionCommand(id1, requiredRole, "c1", actorId = "reviewer"),
+                    decisionCommand(id1, requiredRole, correlationId = "c1", actorId = "reviewer"),
                 )
             val deny2 =
                 controlPlane.deny(
-                    decisionCommand(id2, requiredRole, "c2", actorId = "reviewer"),
+                    decisionCommand(id2, requiredRole, correlationId = "c2", actorId = "reviewer"),
                 )
 
             assertThat(deny1).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
@@ -453,6 +453,14 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             val outbox2 = outboxStore.findByEventKey("approval-denied.${id2.value}")
             assertThat(outbox1).isNotNull
             assertThat(outbox2).isNotNull
+            // The correlation id must reach the outbox unchanged, and with no comment the reason
+            // digest/length keep their event-key derivation (a comment would change both).
+            assertThat(outbox1!!.correlationId).isEqualTo("c1")
+            assertThat(outbox2!!.correlationId).isEqualTo("c2")
+            assertThat(outbox1.reasonLength).isEqualTo(outbox1.eventKey.length)
+            assertThat(outbox1.reasonDigest).isEqualTo("sha256:${sha256Hex(outbox1.eventKey)}")
+            assertThat(outbox2.reasonLength).isEqualTo(outbox2.eventKey.length)
+            assertThat(outbox2.reasonDigest).isEqualTo("sha256:${sha256Hex(outbox2.eventKey)}")
         }
     }
 
@@ -630,19 +638,13 @@ private class JdbcTestApprovalGatewayRequestFactory : ApprovalGatewayRequestFact
             resumeToken = ResumeToken("resume-$approvalId"),
         )
     }
-
-    private fun sha256Hex(input: String): String {
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-        val hash = digest.digest(input.toByteArray(Charsets.UTF_8))
-        return hash.joinToString("") { "%02x".format(it) }
-    }
 }
 
 /** One-line command builder: the decision tests stay readable and inside the length ceiling. */
 private fun decisionCommand(
     approvalId: dev.tramai.core.approval.gateway.ApprovalId,
     actorRole: ApproverRole,
-    comment: String,
+    comment: String? = null,
     correlationId: String? = null,
     actorId: String = "medical-ops-reviewer",
 ): ApprovalDecisionCommand =
@@ -653,3 +655,10 @@ private fun decisionCommand(
         comment = comment,
         correlationId = correlationId,
     )
+
+/** Shared by the nested fixture and the tests: hex SHA-256 of the given input. */
+private fun sha256Hex(input: String): String {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    val hash = digest.digest(input.toByteArray(Charsets.UTF_8))
+    return hash.joinToString("") { "%02x".format(it) }
+}
