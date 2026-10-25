@@ -98,12 +98,42 @@ which are never read even if a client still sends them. Rejected alternatives, r
 re-proposed: an overridable principal supplier; comparing a body `actorId` against the principal;
 `@PreAuthorize` alone (an annotation on one method is bypassed by every other caller of that method).
 
-### L2 — Control plane: authority required, capability checked before state
+### L2 — Control plane: authority required, capability checked before state, and the actor is derived
 
 `ApprovalDecisionControlPlane.approve/deny` take `(command, OperatorAuthority)`. The domain method
 requires the handle, then checks `principal.authorize(OperatorCapability.DECIDE_APPROVAL)`, before reading
 authoritative state. No overload accepts a decision without a handle. The framework-neutral layer enforces
 this because the controller is only one caller.
+
+**The effective actor comes from the authority, never from the command.** Removing `actorId` and
+`actorRole` from the HTTP DTO is not enough on its own: `ApprovalDecisionCommand` still carries both, and
+`SovereignOpsApprovalDecisionControlPlane` currently feeds them into three places — the authorization
+policy (`authorizer.canDecide(approval, command.actorId, command.actorRole, decisionType)`), the audit
+intent (`auditIntent.actor`), and the authoritative mutation (`actor = command.actorId`). Passing an
+`OperatorAuthority` alongside does not automatically eliminate any of them. The rule:
+
+> Once authority is verified, the control plane derives the effective actor, the approver role and the
+> policy identity **exclusively** from that authority. No supported path may let command-supplied identity
+> values override, supplement or shadow verified identity.
+
+Enforcement, in order of preference:
+
+1. **Remove `actorId` and `actorRole` from `ApprovalDecisionCommand`.** They carry nothing the authority
+   does not, and a field that still exists is a field the next change reads. The constructor already
+   changes in this task, so removing them costs nothing extra and makes the rule structural rather than
+   disciplinary. Authorization, `auditIntent.actor` and the store's `actor` all take the authority's
+   subject; the approver role comes from the authority's verified approver roles.
+2. If implementation review decides to retain the fields for source compatibility, they must be
+   **explicitly ignored** for authorization, audit attribution and persistence — read once at construction
+   and discarded, never forwarded — and the discriminator below becomes mandatory.
+
+**Discriminator (required either way).** Invoke the control plane **directly** — not through the
+controller — with a legitimate `OperatorAuthority` and a command deliberately naming a different actor:
+assert the policy receives the verified identity, `decidedBy` and the outbox attribution record the
+verified subject, and the store's `actor` is the verified subject. With option 1 the equivalent
+discriminator is that the mismatching field cannot be supplied at all: the command carries no actor, so a
+caller wanting to act as someone else has nowhere to put it.
+
 
 ### L3 — Per-approval role requirement (unchanged from revision 2)
 
@@ -157,10 +187,22 @@ for `ApprovalStore.transition(` cannot see calls through a variable, and also ma
 (`fallbackGate.transition(`, `walk.transition(` both exist today). So:
 
 - **Preferred mechanism:** mark the authority-free transitions with Kotlin's `@RequiresOptIn`
-  (`DirectApprovalMutation`). Every call site — control plane, persistence adapter, example — must then
-  opt in explicitly. That is enforced by the compiler, visible in review, and greppable as a small,
-  reliable set of opt-in sites rather than an open-ended text pattern. This is an additive annotation,
-  not a signature change.
+  (`DirectApprovalMutation`). Every Kotlin call site — control plane, persistence adapter, example — must
+  then opt in explicitly. **This is a compile-time acknowledgement and reviewability mechanism, not access
+  control.** Its limits, stated so no later claim can widen them:
+  - a Kotlin caller can add `@OptIn(DirectApprovalMutation::class)` anywhere, including in a
+    non-privileged module — the marker makes the call *visible in review*, it does not forbid it;
+  - **Java source callers are not checked at all**: the released JVM API exposes `ApprovalStore.transition`
+    and Java-callable constructors for `ApprovalTransition.Approve`/`Deny`. Kotlin's opt-in is documented
+    as explicit-consent enforced by the Kotlin compiler, not as cross-language authorization;
+  - no project-wide compiler opt-in flag may be enabled, because a global `-opt-in` would hide every
+    individual call site and destroy the only thing the marker provides.
+
+  What the marker buys: every direct mutation is named in a diff, and an unannotated Kotlin call fails
+  compilation (the discriminator asserts exactly that, nothing stronger).
+- **Accepted residuals, recorded rather than defended:** Java invocation of `ApprovalStore.transition`,
+  and Kotlin invocation that explicitly opts in. Both are inside the shared-process trust domain described
+  at the top of this document.
 - **Fallback if the opt-in proves invasive:** a source scan over production modules only (examples
   excluded by construction), documented as **heuristic**, with its blind spot named: aliasing through a
   variable or a wrapper defeats it.
@@ -233,9 +275,16 @@ assumptions:
 9. **F2 preserved** — authorized + stale version → 409 `STALE`, status/version/outbox untouched;
    authorized concurrent approve-vs-deny → exactly one commit, in memory and on PostgreSQL.
 10. **Two issuers, same subject** — policy distinguishes them.
-11. **Direct `ApprovalStore.transition(Approve)` from a non-privileged production module** — compiler
-    opt-in marker (preferred) or heuristic scan (fallback) fails the build; the example is exempt and
-    documented.
+11. **Direct `ApprovalStore.transition(Approve)` from a non-privileged production module** — an
+    unannotated Kotlin call fails compilation under the opt-in marker (preferred), or the heuristic scan
+    fails the build (fallback). The discriminator asserts *compilation failure for an unannotated Kotlin
+    call*, not that every caller is blocked: Java invocation and explicitly opted-in Kotlin invocation are
+    accepted residuals (§2 L4).
+12. **Actor derived from authority, not from the command** — invoke the control plane **directly** with a
+    legitimate `OperatorAuthority` and a command naming a different actor: the policy receives the verified
+    `(issuer, subject)`, `decidedBy` and the outbox attribution record the verified subject, and the store's
+    `actor` is the verified subject. If the command's identity fields are removed (§2 L2 option 1), the
+    equivalent assertion is that no command-carried actor exists to mismatch.
 
 ## 6. Carry-forward: F3 items this task does not close
 
@@ -284,6 +333,8 @@ implementable. The rule is narrowed to what the type and configuration can actua
 
 - `ApprovalDecisionControlPlane.approve/deny` take `(command, OperatorAuthority)` — deliberate break, no
   identity-free overload.
+- `ApprovalDecisionCommand` loses `actorId` and `actorRole` (preferred per §2 L2): the authority is the only
+  source of effective identity. Call sites that named an actor move to naming the authority.
 - `ApprovalDecisionAuthorizer.canDecide` takes `OperatorIdentity` + verified approver roles — break of a
   public fun interface.
 - `ApproveDenyRequest` loses `actorId` and `actorRole` — REST contract break.
