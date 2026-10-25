@@ -8,23 +8,23 @@ public abstract interface class dev/tramai/spring/sovereign/ops/ApprovalDecision
 }
 
 public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionCommand {
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1-3qC8wes ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3-lKvXBlk ()Ljava/lang/String;
-	public final fun component4 ()Ljava/lang/String;
-	public final fun component5 ()Ljava/lang/Long;
+	public final fun component4 ()J
+	public final fun component5 ()Ljava/lang/String;
 	public final fun component6 ()Ljava/lang/String;
-	public final fun copy-UbcWY0Q (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
-	public static synthetic fun copy-UbcWY0Q$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
+	public final fun copy-UbcWY0Q (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
+	public static synthetic fun copy-UbcWY0Q$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getActorId ()Ljava/lang/String;
 	public final fun getActorRole-lKvXBlk ()Ljava/lang/String;
 	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
 	public final fun getComment ()Ljava/lang/String;
 	public final fun getCorrelationId ()Ljava/lang/String;
-	public final fun getExpectedVersion ()Ljava/lang/Long;
+	public final fun getExpectedVersion ()J
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -139,6 +139,21 @@ public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionResult$NotFou
 	public static synthetic fun copy-F3nxyi0$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$NotFound;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$NotFound;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Stale : dev/tramai/spring/sovereign/ops/ApprovalDecisionResult {
+	public synthetic fun <init> (Ljava/lang/String;JJLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-3qC8wes ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun copy-0RvLICw (Ljava/lang/String;JJ)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Stale;
+	public static synthetic fun copy-0RvLICw$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Stale;Ljava/lang/String;JJILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Stale;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public final fun getCurrentVersion ()J
+	public final fun getExpectedVersion ()J
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

@@ -127,3 +127,18 @@ describe these operations as authorization-safe.
 ### Related architecture
 
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) — framework-integrations layer
+
+## Approval precondition contract (0.7.6d)
+
+| Request | Response |
+|---|---|
+| `expectedVersion` absent | **400** `INVALID_PRECONDITION`, `tramai-approval-expected-version-required` |
+| `"expectedVersion": null` | **400**, same code — never substituted |
+| negative | **400**, `tramai-approval-invalid-expected-version` |
+| stale | **409** `STALE` with `expectedVersion` and `currentVersion` |
+| current | unchanged (`200`/`404`/`409` per existing semantics) |
+
+The JSON body field is the single precondition representation; no `If-Match` header was introduced that could
+disagree with it. A rejected precondition never becomes a control-plane command, so it cannot reach the mutation
+store. Error bodies carry a stable code and no approval metadata, token material or stack trace. `actorId` and
+`actorRole` remain untrusted claims (0.7.6e).

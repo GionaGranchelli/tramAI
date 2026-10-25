@@ -142,7 +142,13 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
             val result =
                 controlPlane.approve(
-                    decisionCommand(approvalId, requiredRole, "Medical necessity established", "corr-approve-evidence"),
+                    decisionCommand(
+                        approvalId,
+                        0L,
+                        requiredRole,
+                        "Medical necessity established",
+                        "corr-approve-evidence",
+                    ),
                 )
 
             assertThat(result).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
@@ -205,6 +211,7 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
                 controlPlane.deny(
                     decisionCommand(
                         approvalId,
+                        0L,
                         requiredRole,
                         "Denied because evidence is incomplete",
                         "corr-deny-evidence",
@@ -269,7 +276,7 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
             val rawComment = "This claim contains sensitive medical details"
             controlPlane.approve(
-                decisionCommand(approvalId, requiredRole, rawComment, "corr-sanitised", actorId = "reviewer"),
+                decisionCommand(approvalId, 0L, requiredRole, rawComment, "corr-sanitised").copy(actorId = "reviewer"),
             )
 
             val outbox = outboxStore.findByEventKey("approval-approved.${approvalId.value}")
@@ -312,7 +319,7 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             // First approve — creates evidence
             val firstResult =
                 controlPlane.approve(
-                    decisionCommand(approvalId, requiredRole, "Approved", actorId = "reviewer-1"),
+                    decisionCommand(approvalId, 0L, requiredRole, "Approved").copy(actorId = "reviewer-1"),
                 )
             assertThat(firstResult).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
 
@@ -322,7 +329,7 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             // Second approve — returns AlreadyApproved, no duplicate evidence
             val secondResult =
                 controlPlane.approve(
-                    decisionCommand(approvalId, requiredRole, "Approved again", actorId = "reviewer-2"),
+                    decisionCommand(approvalId, 1L, requiredRole, "Approved again").copy(actorId = "reviewer-2"),
                 )
             assertThat(secondResult).isInstanceOf(ApprovalDecisionResult.AlreadyApproved::class.java)
 
@@ -363,7 +370,7 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             // First deny — creates evidence
             val firstResult =
                 controlPlane.deny(
-                    decisionCommand(approvalId, requiredRole, "Denied", actorId = "reviewer-1"),
+                    decisionCommand(approvalId, 0L, requiredRole, "Denied").copy(actorId = "reviewer-1"),
                 )
             assertThat(firstResult).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
 
@@ -373,7 +380,7 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             // Second deny — returns AlreadyDenied, no duplicate evidence
             val secondResult =
                 controlPlane.deny(
-                    decisionCommand(approvalId, requiredRole, "Denied again", actorId = "reviewer-2"),
+                    decisionCommand(approvalId, 1L, requiredRole, "Denied again").copy(actorId = "reviewer-2"),
                 )
             assertThat(secondResult).isInstanceOf(ApprovalDecisionResult.AlreadyDenied::class.java)
 
@@ -439,11 +446,11 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
             val deny1 =
                 controlPlane.deny(
-                    decisionCommand(id1, requiredRole, correlationId = "c1", actorId = "reviewer"),
+                    decisionCommand(id1, 0L, requiredRole, correlationId = "c1").copy(actorId = "reviewer"),
                 )
             val deny2 =
                 controlPlane.deny(
-                    decisionCommand(id2, requiredRole, correlationId = "c2", actorId = "reviewer"),
+                    decisionCommand(id2, 0L, requiredRole, correlationId = "c2").copy(actorId = "reviewer"),
                 )
 
             assertThat(deny1).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
@@ -462,6 +469,129 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             assertThat(outbox2.reasonLength).isEqualTo(outbox2.eventKey.length)
             assertThat(outbox2.reasonDigest).isEqualTo("sha256:${sha256Hex(outbox2.eventKey)}")
         }
+    }
+
+    @Test
+    fun `a stale observed version leaves the database and the outbox untouched`() {
+        runBlocking {
+            val requiredRole = ApproverRole("medical-reviewer")
+            val requestResult =
+                gateway.requestApproval(
+                    subject = ApprovalSubject("test-stale-precondition"),
+                    recommendation =
+                        ApprovalRecommendation(
+                            type = "claim-review",
+                            summary = "stale attempt",
+                            payload = mapOf("amount" to "100"),
+                        ),
+                    requiredRole = requiredRole,
+                    workflowRunId = WorkflowRunId("wf-test-stale-precondition"),
+                )
+            val approvalId = (requestResult as ApprovalRequestResult.Suspended).approvalId
+            val controlPlane: ApprovalDecisionControlPlane =
+                SovereignOpsApprovalDecisionControlPlane(
+                    approvalStore = approvalStore,
+                    mutationStore = mutationStore,
+                    authorizer = AllowAllApprovalDecisionAuthorizer,
+                    clock = clock,
+                )
+            val decided =
+                controlPlane.approve(
+                    decisionCommand(approvalId, 0L, requiredRole, "approved once", "corr-stale-1"),
+                )
+            assertThat(decided).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
+
+            val stale =
+                controlPlane.deny(
+                    decisionCommand(approvalId, 0L, requiredRole, "stale deny", "corr-stale-2"),
+                )
+
+            assertThat(stale).isEqualTo(
+                ApprovalDecisionResult.Stale(
+                    approvalId = approvalId,
+                    expectedVersion = 0L,
+                    currentVersion = 1L,
+                ),
+            )
+            val persisted =
+                jdbcTemplate.queryForMap(
+                    "SELECT status, version FROM approvals WHERE approval_id = ?",
+                    approvalId.value,
+                )
+            assertThat(persisted["status"]).isEqualTo("APPROVED")
+            assertThat((persisted["version"] as Number).toLong()).isEqualTo(1L)
+            assertThat(outboxStore.listByStatus(SovereignOpsAuditOutboxStatus.PENDING, 10)).hasSize(1)
+            assertThat(outboxStore.listByStatus(SovereignOpsAuditOutboxStatus.PREPARED, 10)).isEmpty()
+        }
+    }
+
+    @Test
+    fun `concurrent approve and deny on one observed version commit a single decision`() {
+        runBlocking {
+            val requiredRole = ApproverRole("medical-reviewer")
+            val requestResult =
+                gateway.requestApproval(
+                    subject = ApprovalSubject("test-concurrent-decision"),
+                    recommendation =
+                        ApprovalRecommendation(
+                            type = "claim-review",
+                            summary = "racing decisions",
+                            payload = mapOf("amount" to "250"),
+                        ),
+                    requiredRole = requiredRole,
+                    workflowRunId = WorkflowRunId("wf-test-concurrent-decision"),
+                )
+            val approvalId = (requestResult as ApprovalRequestResult.Suspended).approvalId
+            val controlPlane: ApprovalDecisionControlPlane =
+                SovereignOpsApprovalDecisionControlPlane(
+                    approvalStore = approvalStore,
+                    mutationStore = mutationStore,
+                    authorizer = AllowAllApprovalDecisionAuthorizer,
+                    clock = clock,
+                )
+            val approve =
+                decisionCommand(approvalId, 0L, requiredRole, "approve", "corr-race-a")
+            val deny =
+                decisionCommand(approvalId, 0L, requiredRole, "deny", "corr-race-b")
+            val pool =
+                java.util.concurrent.Executors
+                    .newFixedThreadPool(2)
+            try {
+                val approveResult =
+                    pool.submit(java.util.concurrent.Callable { runBlocking { controlPlane.approve(approve) } })
+                val denyResult = pool.submit(java.util.concurrent.Callable { runBlocking { controlPlane.deny(deny) } })
+                val results =
+                    listOf(
+                        approveResult.get(60, java.util.concurrent.TimeUnit.SECONDS),
+                        denyResult.get(60, java.util.concurrent.TimeUnit.SECONDS),
+                    )
+
+                val committed =
+                    results.filter {
+                        it is ApprovalDecisionResult.Approved || it is ApprovalDecisionResult.Denied
+                    }
+                assertThat(committed).describedAs("exactly one committed decision").hasSize(1)
+                assertThat(results.filterIsInstance<ApprovalDecisionResult.Stale>())
+                    .describedAs("the losing command is stale, not silently applied")
+                    .hasSize(1)
+                assertSingleCommittedDecision(approvalId)
+            } finally {
+                pool.shutdownNow()
+            }
+        }
+    }
+
+    /** The racing pair must leave one increment and exactly one dispatchable audit intent. */
+    private suspend fun assertSingleCommittedDecision(approvalId: dev.tramai.core.approval.gateway.ApprovalId) {
+        val persisted =
+            jdbcTemplate.queryForMap(
+                "SELECT status, version FROM approvals WHERE approval_id = ?",
+                approvalId.value,
+            )
+        assertThat((persisted["version"] as Number).toLong()).isEqualTo(1L)
+        val pending = outboxStore.listByStatus(SovereignOpsAuditOutboxStatus.PENDING, 10)
+        assertThat(pending).describedAs("one dispatchable audit intent").hasSize(1)
+        assertThat(outboxStore.listByStatus(SovereignOpsAuditOutboxStatus.PREPARED, 10)).isEmpty()
     }
 
     companion object {
@@ -643,15 +773,16 @@ private class JdbcTestApprovalGatewayRequestFactory : ApprovalGatewayRequestFact
 /** One-line command builder: the decision tests stay readable and inside the length ceiling. */
 private fun decisionCommand(
     approvalId: dev.tramai.core.approval.gateway.ApprovalId,
+    expectedVersion: Long,
     actorRole: ApproverRole,
     comment: String? = null,
     correlationId: String? = null,
-    actorId: String = "medical-ops-reviewer",
 ): ApprovalDecisionCommand =
     ApprovalDecisionCommand(
         approvalId = approvalId,
-        actorId = actorId,
+        actorId = "medical-ops-reviewer",
         actorRole = actorRole,
+        expectedVersion = expectedVersion,
         comment = comment,
         correlationId = correlationId,
     )
