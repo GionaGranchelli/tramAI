@@ -124,6 +124,19 @@ authoritative state and outbox records, not only the response:
 | D9 no authority confusion | the command API has no principal/authentication parameter; a forged `OperatorPrincipal` changes nothing |
 | D10 no second authority | a capture wrapper proves the mutation authority receives `0L` verbatim, and receives **nothing at all** for a stale command |
 
+## API migration registry
+
+The registry's ACTIVE/LANDED lifecycle is respected: the two landed entries are preserved verbatim and the
+0.7.6d transitions are appended as new ACTIVE entries, so history is never rewritten in place.
+
+| Module | Landed (unchanged) | Appended ACTIVE (0.7.6d) |
+|---|---|---|
+| `:tramai-spring-boot-starter-sovereign-ops` | `7100484d… → 5e773044…` (0.7.1d run attribution) | `5e773044… → fc86f30f…` |
+| `:tramai-spring-boot-starter-sovereign-ops-rest` | `557d7bc5… → 7f3e38e6…` (0.7.6c OIDC boundary) | `7f3e38e6… → c9bb77f9…` |
+
+Hashes were recomputed from the committed dumps, not copied:
+`sha256(git show 5ebfd497:<module>/api/<module>.api)` and `sha256(<module>/api/<module>.api)`.
+
 ## Mutation evidence
 
 Applied to this tree, restored after each, control run recorded at the end.
