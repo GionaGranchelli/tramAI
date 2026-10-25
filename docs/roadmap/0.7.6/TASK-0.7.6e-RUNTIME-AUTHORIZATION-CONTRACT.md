@@ -1,37 +1,61 @@
 # 0.7.6e — Runtime Authorization Enforcement (architecture and enforcement contract)
 
-**Status:** revision 2 for review. Supersedes revision 1 (`26d0d95f`). No production code changed.
+**Status:** revision 3 for review. Supersedes revision 2 (`7b0b02fa`). No production code changed.
 
 Base: `release/0.7.0` at `57ea33ebaff8ac847a2088bfb1b54c952028fd1d` (0.7.6d merged).
 
-Revision 2 answers the five blocking questions from review — what verified authority is, which paths
-are trusted, where the per-approval role requirement comes from, which operations this task secures,
-and what fails at startup — and narrows the claim instead of strengthening the prose. Where a guarantee
-cannot be enforced in this task, it is marked **UNRESOLVED** and carried forward, not reworded.
+Revision 3 changes exactly four things review asked for — the authority issuance model, the L4
+enforcement specification, the Spring wiring acceptance tests, and two factual errors — and leaves the
+agreed parts untouched: principal-resolver reuse, authenticate-before-authorize ordering, F2 guarantees,
+`policyVersion`-based role checks, and the F3/F5 carry-forward.
 
-## Scope of this contract
+**Trust model, stated before anything else so no later paragraph can overpromise:** this task secures a
+**shared Spring/JVM process**, and in a shared process every privileged bean is reachable by code running
+inside it. The guarantee is therefore about **paths, not code**: no *supported* path lets an
+unauthenticated request, or an identity carried on the wire, reach an authoritative approval mutation.
+Any in-process component that can inject the authentication adapter or mint its own authority is **inside
+the trust domain and outside the guarantee** — that is recorded as an accepted limitation, not defended
+by custom cryptography.
+
+## Scope
 
 This task secures **one** privileged operation family: approval decisions (`approve` / `deny`). Every
-other F3 surface is inventoried in §6 and carried forward as explicitly **UNRESOLVED**. F3 is therefore
-**partially addressed** by 0.7.6e, and the epic must not record it as closed.
+other F3 surface is inventoried in §6 and carried forward as explicitly **UNRESOLVED**, so the epic must
+record F3 as *partially addressed*.
 
 **Invariant, scoped to what is enforced:**
 
-> No approval decision reaches authoritative mutation without a verified operator identity, a verified
-> authority handle, a sufficient capability, a satisfied per-approval role requirement, and a valid
-> version precondition.
+> No approval decision reaches authoritative mutation through a supported path without a verified
+> operator identity, the `DECIDE_APPROVAL` capability, a satisfied per-approval role requirement, and a
+> valid version precondition.
 
-## 1. What counts as verified authority (Q1)
+## 1. Authority issuance: bounded in-process trust model (option A)
 
-### 1.1 The boundary today is not pinned
+Revision 2 proposed an HMAC handle and claimed a forging boundary it could not establish: the minter was a
+Spring bean (any component could inject it), MAC validity proved only that *the minter* produced the
+contents, and no replay mechanism existed to back the "consumed exactly once" claim. Custom cryptography
+made an in-process type *look* unforgeable without changing who can reach it. **Dropped.**
 
-`OperatorAuthenticationAutoConfiguration` marks four beans `@ConditionalOnMissingBean`:
-`operatorCapabilityMapping`, `operatorClock`, `operatorPrincipalFactory`, `operatorPrincipalResolver`.
-A host application can therefore substitute the role→capability mapping or the principal factory and
-silently own the whole principal-to-authority conversion. The 0.7.6c chain pins its JWT decoder by
-building it in-chain; it does not pin what happens after the token is verified. **This is the gap.**
+### 1.1 What replaces it
 
-### 1.2 Classified components
+`OperatorAuthority` is the boundary's statement of a verified identity:
+
+- **Contents:** `OperatorIdentity(issuer, subject)`, `authenticatedAt`, verified `capabilities`, verified
+  `approverRoles`, and the verifying boundary's id. Plain data, no signature, no secret.
+- **Issuance:** exactly one component — the 0.7.6c authentication adapter — produces it, immediately after
+  JWT verification and principal resolution, inside the request-scoped argument resolver path. There is no
+  second minting site, and a structural check (§5, test 1b) asserts that no other production code
+  constructs one.
+- **What it is worth:** it is not proof. Its value is that identity never travels on the wire, that the
+  only *supported* producer is the adapter, and that the control plane refuses to act without one.
+- **Replay is not a security property, and is no longer claimed as one.** A handle is minted per request
+  and not stored. Re-deciding with a replayed handle is prevented by 0.7.6d's version precondition and
+  CAS — a second decision on the same observed version returns `Stale` — not by the token. If a
+  deployment threat model needs replay-resistant capability tokens (restricted issuance, expiry,
+  operation scope, binding to a request nonce), that is a separate design with its own review; it is not
+  smuggled into this task.
+
+### 1.2 Trust-boundary classification
 
 | Component | Classification | Change |
 |---|---|---|
@@ -40,174 +64,146 @@ building it in-chain; it does not pin what happens after the token is verified. 
 | `OperatorCapabilityMapping` | immutable trust boundary | **drop `@ConditionalOnMissingBean`** |
 | `OperatorPrincipalFactory` | immutable trust boundary | **drop `@ConditionalOnMissingBean`** |
 | `OperatorPrincipalResolver` | immutable trust boundary | **drop `@ConditionalOnMissingBean`** |
-| `OperatorAuthorityMinter` / `OperatorAuthorityVerifier` (new) | immutable trust boundary | plain `@Bean`, never conditional |
 | `OperatorApprovalPolicy` (new) | immutable trust boundary | plain `@Bean`, never conditional |
 | `Clock` for `authenticatedAt` | substitutable, documented | keeps `@ConditionalOnMissingBean` |
 | `ApprovalDecisionAuthorizer` | policy, must be explicit | required bean when options enabled; no permissive default in production wiring |
 
-Dropping `@ConditionalOnMissingBean` does not make substitution silently succeed — it converts it into a
-bean-definition conflict or an ambiguous-injection startup failure. That is the intent: fail closed,
-loudly, at startup rather than run with a substituted authority source. A **hostile-host-bean test** must
-prove it: a test context that defines its own `OperatorCapabilityMapping` and `OperatorPrincipalFactory`
-must fail to start, or must be proven to still receive the built-in beans. Reflection is not involved;
-this is a plain application-context discriminator.
-
-### 1.3 A principal is still data (Q2)
-
-`OperatorPrincipal` has a public constructor and accepts arbitrary capabilities. Passing it to the control
-plane and calling `principal.authorize(...)` would make the claimed invariant false for an ordinary
-in-process caller — no reflection required, just `OperatorPrincipal(subject, issuer, now, setOf(DECIDE_APPROVAL))`.
-Revision 1 made that mistake. The fix is a handle, not a parameter type:
-
-**`OperatorAuthority` — an opaque, verifiable authority handle.**
-
-- **Data:** `principal` (issuer, subject, authenticatedAt, capabilities, approverRoles), `provenance`
-  (verifier id + verification instant), and `mac` — an HMAC-SHA256 over the canonical encoding of that
-  data, keyed by a **per-process random key** generated when `OperatorAuthorityMinter` is constructed.
-- **Construction policy:** the only supported constructor is `internal` to the minting component; the
-  minter bean is created by the authentication boundary and is not exposed for injection into application
-  code. There is no public factory, no `copy`, no defaulted form.
-- **Lifecycle:** one handle per authenticated request, minted immediately after JWT verification and
-  principal resolution, consumed by exactly one control-plane call, never stored, never serialized,
-  never logged.
-- **Verification:** the control plane holds the `OperatorAuthorityVerifier` (same key) and calls
-  `verify(handle)` before reading authoritative state. A handle whose MAC does not verify, whose
-  provenance is unknown, or that was minted by a different process is rejected as
-  `Unauthorized(reason = authority-unverifiable)` — never silently upgraded to a denial of the business
-  decision.
-- **What this buys, precisely:** forging authority now requires extracting the process key or substituting
-  the verifier bean — both explicit hostile-host actions, the second caught by the bean substituion test.
-  Forging by calling a data-class constructor no longer works.
-- **What it does not buy:** hostile code already executing inside the same JVM with reflective access to
-  private fields. That remains **out of scope and documented**, as it was in revision 1 — but it is no
-  longer the *shortest* path to authority.
-
-### 1.4 Identity is (issuer, subject), everywhere
-
-`OperatorPrincipal` already distinguishes operators by `(issuer, subject)`. The authorization policy and
-the attribution rule must use both: `ApprovalDecisionAuthorizer.canDecide` changes from
-`actorId: String` to a verified `OperatorIdentity(issuer: String, subject: String)` plus the verified
-approver roles. Two identity providers issuing the same subject are two different operators, and the
-policy must be able to see that. This is a declared public-API break of the authorizer fun interface.
+Removing `@ConditionalOnMissingBean` is a **necessary but insufficient** step: a differently *named* bean
+with `@Primary`, or a qualifier, can still change resolution. §3 makes that an executable requirement
+rather than an assumption about Spring's behaviour.
 
 ## 2. Enforcement layers
 
-Ordering is part of the contract because it is observable:
+Ordering is observable and fixed:
 
 ```
 0.7.6c filter chain (JWT verified)
-  → L1  principal resolved from SecurityContextHolder → authority handle minted
-  → L2  handle verified, DECIDE_APPROVAL capability required        [403 authority-unverifiable / MISSING_CAPABILITY]
-  → L3  per-approval role requirement satisfied                     [403 APPROVAL_POLICY_UNAVAILABLE / ROLE_NOT_PERMITTED]
-  →     version precondition vs authoritative state                 [409 STALE]
-  →     terminal-state shortcuts (Already*)                         [200]
-  →     CAS mutation + audit outbox                                 [200]
+  → L1  principal resolved from SecurityContextHolder → OperatorAuthority produced by the adapter
+  → L2  DECIDE_APPROVAL capability required                          [403 MISSING_CAPABILITY]
+  → L3  per-approval role requirement (policyVersion → roles)        [403 APPROVAL_POLICY_UNAVAILABLE / ROLE_NOT_PERMITTED]
+  →     version precondition vs authoritative state                  [409 STALE]
+  →     terminal-state shortcuts (Already*)                          [200]
+  →     CAS mutation + audit outbox                                  [200]
 ```
 
 Authorization precedes the version precondition so an unauthorized caller learns nothing about approval
-state. **F2 is untouched**: the version check still precedes the terminal shortcuts and any mutation, and
+state. **F2 is untouched:** the version check still precedes the terminal shortcuts and any mutation, and
 a losing concurrent command still yields `Stale` with no outbox fact.
 
-### L1 — Controller: authority injected, never read
+### L1 — Controller: identity from the context, never from the body
 
-`OperatorPrincipal` continues to arrive through the existing `OperatorPrincipalArgumentResolver`, but the
-controller does not pass it to the control plane: it passes the **authority handle** minted by the
-boundary. The request body carries no identity at all — `actorId` and `actorRole` are removed from
-`ApproveDenyRequest` and are never read, even if a client still sends them.
+`OperatorPrincipal` arrives through the existing `OperatorPrincipalArgumentResolver`; the controller passes
+on the `OperatorAuthority` produced by the adapter. `ApproveDenyRequest` loses `actorId` and `actorRole`,
+which are never read even if a client still sends them. Rejected alternatives, recorded so they are not
+re-proposed: an overridable principal supplier; comparing a body `actorId` against the principal;
+`@PreAuthorize` alone (an annotation on one method is bypassed by every other caller of that method).
 
-### L2 — Control plane: verifier before state
+### L2 — Control plane: authority required, capability checked before state
 
-`ApprovalDecisionControlPlane.approve/deny` take `(command, OperatorAuthority)`. First statement of the
-domain method: `authorityVerifier.verify(handle)` → verified principal, or typed `Unauthorized`. Only then
-`principal.authorize(OperatorCapability.DECIDE_APPROVAL)`. The control plane never trusts a bare
-`OperatorPrincipal`. No overload accepts a decision without a handle.
+`ApprovalDecisionControlPlane.approve/deny` take `(command, OperatorAuthority)`. The domain method
+requires the handle, then checks `principal.authorize(OperatorCapability.DECIDE_APPROVAL)`, before reading
+authoritative state. No overload accepts a decision without a handle. The framework-neutral layer enforces
+this because the controller is only one caller.
 
-### L3 — Per-approval role requirement (Q3)
+### L3 — Per-approval role requirement (unchanged from revision 2)
 
-Revision 1 was wrong to call F5 closed by trusting the operator's role: proving an operator holds
-`medical-reviewer` says nothing about whether *this approval* accepts that role, and
-`ApprovalRequest`/`ApprovalBinding` carry no required role (verified).
-
-**Authoritative source for this task:** server-side configuration keyed by the approval's own persisted
-binding — `policyVersion`. The approval already stores it, so no schema change is needed:
+No required role is persisted (verified absent from `ApprovalRequest` and `ApprovalBinding`), so trusting
+the operator's role does not prove *this approval* accepts it. The authoritative source for this task is
+server configuration keyed by the approval's own persisted `policyVersion`:
 
 ```yaml
-tramai:
-  sovereign:
-    ops:
-      security:
-        role-mappings:                      # existing 0.7.6c shape, unchanged
-          approval-reviewer: [decide-approval]
-        approver-role-mappings:             # NEW: role claim value -> verified approver roles
-          approval-reviewer: [medical-reviewer]
-        approval-policies:                  # NEW: approval policyVersion -> required approver roles
-          2024-06-medical-v3: [medical-reviewer]
+tramai.sovereign.ops.security:
+  role-mappings:                    # existing 0.7.6c shape, unchanged
+    approval-reviewer: [decide-approval]
+  approver-role-mappings:           # NEW, same shape: role claim value -> verified approver roles
+    approval-reviewer: [medical-reviewer]
+  approval-policies:                # NEW: approval policyVersion -> required approver roles
+    2024-06-medical-v3: [medical-reviewer]
 ```
 
-- The approver-role mapping uses the **same shape** as the existing `role-mappings` (map of exact string
-  key → list of exact values), so the review-thread configuration defect is fixed by construction rather
-  than by inventing a second format. Names are matched exactly; there is no prefix, wildcard or case
-  folding. An unknown `ApproverRole` value in configuration is a **startup failure**.
-- **Multiple-role semantics:** `approver-role-mappings` yields the **union** of approver roles across all
-  role-claim values the principal asserts (mirroring how capabilities are unioned). `approval-policies`
-  entries are **intersection requirements**: a decision is permitted when the principal's verified
-  approver roles ∩ the approval's required roles is non-empty. An approval with an empty required set is
-  a configuration error, not "allow all".
-- **Fail-closed when the requirement is unavailable:** no `approval-policies` entry for the approval's
-  `policyVersion` → `Unauthorized(reason = approval-policy-unavailable)`. Never default to allow, never
-  default to "any verified approver".
+- **Multi-role semantics:** `approver-role-mappings` yields the **union** of approver roles across asserted
+  role-claim values (mirroring capability union); `approval-policies` entries are **intersection
+  requirements** — permitted when verified approver roles ∩ required roles is non-empty.
+- **Fail-closed:** no `approval-policies` entry for the approval's `policyVersion` →
+  `Unauthorized(approval-policy-unavailable)`. Never default to allow, never "any verified approver". An
+  empty required list is a startup failure.
 
-**F5 status: PARTIALLY ADDRESSED.** What is closed: client-asserted roles, permissive default policy,
-unverified approver identity. What stays open: the requirement is deployment configuration keyed by
-`policyVersion`, so it is only as per-approval as that key is. A durable requirement captured at
-approval-request time needs a persistence change and an ADR; that is **not** in this task and F5 must not
-be recorded as fully closed.
+**F5 status: PARTIALLY ADDRESSED.** Closed: client-asserted roles, permissive default policy, unverified
+approver identity. Open: the requirement is deployment configuration keyed by `policyVersion`, so it is
+only as per-approval as that key is; a durable requirement captured at request time is a persistence
+change needing an ADR. F5 must not be recorded as fully closed.
 
-### L4 — Store paths and the residual exposure (Q4)
+### L4 — Store paths: bounded, gated, and honestly limited
 
-Inventory of approval-mutation paths in production code:
-
-| # | Path | Externally reachable | Decision |
+| # | Path | Reachable | Decision |
 |---|---|---|---|
-| 1 | REST `POST /{id}/approve`, `/{id}/deny` → control plane → mutation store | **yes** | secured by L1–L3 |
-| 2 | `ApprovalDecisionControlPlane` interface (public API, injectable bean) | in-process | requires a valid authority handle (L2) |
-| 3 | `SovereignOpsApprovalMutationStore` (public bean) `approveApprovalWithAuditIntent` / `denyApprovalWithAuditIntent` | in-process | decision methods require an `AuthorizedDecision` produced only after L2/L3 |
-| 4 | `ApprovalStore.transition(approvalId, expectedVersion, ApprovalTransition.Approve/Deny)` — public **core** SPI | in-process | **trusted infrastructure port. Residual exposure recorded, not claimed closed.** |
-| 5 | REST `POST /{id}/resume` (body `resumedBy`) | **yes** | **UNRESOLVED** — carried forward (§6) |
+| 1 | REST `POST /{id}/approve`, `/{id}/deny` → control plane → mutation store | external | secured (§2 L1–L3) |
+| 2 | `ApprovalDecisionControlPlane` bean (public API) | in-process | requires an `OperatorAuthority` (L2) |
+| 3 | `SovereignOpsApprovalMutationStore` decision methods | in-process | require `AuthorizedDecision`, minted only after L2/L3 |
+| 4 | `ApprovalStore.transition(approvalId, expectedVersion, ApprovalTransition.Approve/Deny)` — public **core** SPI | in-process | **trusted infrastructure port. Bounded, not closed.** |
+| 5 | REST `POST /{id}/resume` (body `resumedBy`) | external | **UNRESOLVED** (§6) |
 
-Path 4 is the honest hole. `ApprovalStore` is a core SPI implemented by persistence adapters and called
-by the control plane; putting an operator authority in its signature would drag a framework/operator
-concept into `tramai-core` and break every adapter and test double. It is therefore classified as a
-**trusted infrastructure port** — not an authority API — and the *supported*-path claim is narrowed
-accordingly.
+Path 4 is the real hole and revision 2 overstated what a text scan proves. Two corrections:
 
-The enforceable part of that classification, which this task will implement:
+**(a) Examples are explicitly exempt, and named.** `examples/**` is demonstration code, not the library's
+authority surface. Verified existing call outside any allowlist:
+`examples/sovereign-document-intelligence/src/main/kotlin/dev/tramai/examples/sovereign/DocumentIntelligenceExampleSupport.kt:136`
+calls `approvalStore.transition(..., ApprovalTransition.Approve(decidedBy = "demo-operator", ...))`. It
+stays exempt, and gains a one-line comment stating that it auto-approves without operator authority
+because it is a demonstration. Any future *production* module is in scope.
 
-- a **source-scan discriminator test** that fails the build if production code outside the approval
-  control plane and the persistence adapters calls `ApprovalStore.transition(` with an
-  `Approve`/`Deny` transition. That converts "we promise nobody calls it" into a gate;
-- the residual — arbitrary in-process code with a Spring context and reflective access — is recorded
-  here as **accepted exposure** and must be repeated in the task's completion report. L4 is
-  **not** claimed complete; it is claimed *bounded and gated*.
+**(b) The gate is compiler-backed where possible, heuristic where not, and says which.** A textual scan
+for `ApprovalStore.transition(` cannot see calls through a variable, and also matches unrelated types
+(`fallbackGate.transition(`, `walk.transition(` both exist today). So:
 
-## 3. What fails at startup (Q1 continued)
+- **Preferred mechanism:** mark the authority-free transitions with Kotlin's `@RequiresOptIn`
+  (`DirectApprovalMutation`). Every call site — control plane, persistence adapter, example — must then
+  opt in explicitly. That is enforced by the compiler, visible in review, and greppable as a small,
+  reliable set of opt-in sites rather than an open-ended text pattern. This is an additive annotation,
+  not a signature change.
+- **Fallback if the opt-in proves invasive:** a source scan over production modules only (examples
+  excluded by construction), documented as **heuristic**, with its blind spot named: aliasing through a
+  variable or a wrapper defeats it.
+
+L4's status is **bounded and gated**, never "closed". The residual — in-process code that injects a store
+bean or uses reflection — is accepted exposure and must be repeated in the completion report.
+
+### Attribution boundary
+
+Authorization policy receives `(issuer, subject)`. The approval record and outbox store only an actor
+string, so **durable issuer attribution is 0.7.6f**, unless a separate supported encoding is designed.
+This task does not silently widen the recorded actor format.
+
+## 3. Spring wiring: executable acceptance requirements
+
+Removing `@ConditionalOnMissingBean` proves nothing by itself. The following are **tests**, not
+assumptions:
+
+1. A host context defining an alternative `OperatorCapabilityMapping` (same type, different bean **name**)
+   must fail startup or be provably ignored.
+2. The same with `@Primary` on the hostility bean.
+3. The same with a `@Qualifier` on the injection point and no matching bean → startup failure.
+4. Each security-sensitive collaborator resolves to the intended implementation: a test asserts the bean
+   actually injected into the filter chain, resolver and control plane is the framework-built instance
+   (identity assertion, not type assertion).
+5. Ambiguous or unexpected wiring fails startup with a message naming the collaborator.
+6. Every row of the startup matrix below is asserted in a context test.
 
 | Condition | Result |
 |---|---|
-| `security.enabled=true` and issuer/audience/jwks missing | startup failure (exists today) |
-| `security.enabled=true` and control-plane path not covered by `protected-paths` | startup failure (exists today) |
-| `rest-control-plane-enabled=true` and `security.enabled=false` | **new startup failure** — a privileged endpoint may not exist outside the operator boundary (`security.enabled` defaults to false today) |
-| `rest-control-plane-enabled=true`, security enabled, no `ApprovalDecisionAuthorizer` bean | **new startup failure** — `AllowAllApprovalDecisionAuthorizer` becomes a test double only |
-| `approver-role-mappings` names an unknown `ApproverRole` | **new startup failure** |
-| `approval-policies` entry has an empty role list, or a `policyVersion` has no entry | **new startup failure for the empty list**; denial (`approval-policy-unavailable`) at request time for a missing entry |
-| host defines its own `OperatorCapabilityMapping` / `OperatorPrincipalFactory` / resolver / verifier / policy bean | **new startup failure** (bean conflict / ambiguous injection) |
+| `security.enabled=true`, issuer/audience/jwks missing | startup failure (exists) |
+| `security.enabled=true`, control-plane path not covered by `protected-paths` | startup failure (exists) |
+| `rest-control-plane-enabled=true`, `security.enabled=false` (today's default) | **new startup failure** |
+| `rest-control-plane-enabled=true`, security enabled, no `ApprovalDecisionAuthorizer` bean | **new startup failure** |
+| `approval-policies` entry with an empty role list | **new startup failure** |
+| `approver-role-mappings` or `approval-policies` names a **blank or malformed** approver role | **new startup failure** (see §7.2) |
+| host bean substitution per tests 1–3 | **startup failure** |
 
 ## 4. Failure semantics
 
 | Situation | Result | HTTP |
 |---|---|---|
 | no verified identity | filter chain rejects | 401 |
-| unverifiable authority handle | `Unauthorized(authority-unverifiable)` | 403 |
 | authenticated, missing `DECIDE_APPROVAL` | `Unauthorized(MISSING_CAPABILITY)` | 403 |
 | no approval policy for the approval's `policyVersion` | `Unauthorized(APPROVAL_POLICY_UNAVAILABLE)` | 403 |
 | verified roles do not satisfy the approval's required roles | `Unauthorized(ROLE_NOT_PERMITTED)` | 403 |
@@ -218,68 +214,96 @@ The enforceable part of that classification, which this task will implement:
 
 `Denied` never expresses an authorization failure.
 
-## 5. Discriminator tests this contract requires
+## 5. Discriminator tests
 
-Each must be mutation-verified (break the guard, observe the failure, restore):
-
-1. **Forged principal handle** — construct `OperatorAuthority` data with `DECIDE_APPROVAL` without the
-   minter (or with a wrong MAC) → 403 `authority-unverifiable`, no store interaction.
-2. **Hostile host bean** — a context defining its own `OperatorCapabilityMapping` and
-   `OperatorPrincipalFactory` → startup failure (or provably the built-in beans are injected).
-3. **Body-supplied identity ignored** — send `actorId`/`actorRole` naming a different operator; recorded
-   `decidedBy` is the principal subject **and** the policy sees the principal's issuer.
+1. **No authority, no mutation** — a control-plane call without an `OperatorAuthority` does not compile;
+   the runtime path that bypasses the adapter (direct invocation with a self-built handle) is asserted to
+   be *outside the supported set* by test 1b.
+2. **1b — single minting site** — structural check: only the authentication adapter constructs
+   `OperatorAuthority`; any other production construction fails the check. Declared heuristic; its blind
+   spot is named.
+3. **Body identity ignored** — send `actorId`/`actorRole` naming another operator; the recorded
+   `decidedBy` is the principal subject and the policy sees the principal's issuer.
 4. **Wrong approval role** — policy requires `medical-reviewer`, principal verified as `finance-reviewer`
-   → 403 `ROLE_NOT_PERMITTED`, no mutation, no outbox record.
+   → 403, no mutation, no outbox record.
 5. **Missing policy for `policyVersion`** → 403 `APPROVAL_POLICY_UNAVAILABLE`, no mutation.
-6. **Direct `ApprovalStore.transition(Approve)`** from a non-privileged module → source-scan guard fails.
-7. **Unauthenticated decision** → 401 and zero control-plane interaction.
-8. **Startup matrix** — each row of §3 asserted, including `rest-control-plane-enabled` with security
-   disabled.
-9. **F2 preserved** — authorized + stale version → 409 `STALE` with status/version/outbox untouched;
+6. **Stacked wiring** — tests 1–5 of §3.
+7. **Unauthenticated decision** → 401 with zero control-plane interaction.
+8. **Startup matrix** — every row of §3 asserted.
+9. **F2 preserved** — authorized + stale version → 409 `STALE`, status/version/outbox untouched;
    authorized concurrent approve-vs-deny → exactly one commit, in memory and on PostgreSQL.
-10. **Two issuers, same subject** — policy distinguishes them; the authorizer receives `(issuer, subject)`.
+10. **Two issuers, same subject** — policy distinguishes them.
+11. **Direct `ApprovalStore.transition(Approve)` from a non-privileged production module** — compiler
+    opt-in marker (preferred) or heuristic scan (fallback) fails the build; the example is exempt and
+    documented.
 
-## 6. Carry-forward: F3 items this task does not close (Q5)
+## 6. Carry-forward: F3 items this task does not close
 
 | Surface | Status after 0.7.6e |
 |---|---|
 | `POST /{id}/approve`, `/{id}/deny` | **closed** by this task |
 | `POST /{id}/resume` (body `resumedBy`) | **UNRESOLVED** — same F1 defect, different endpoint |
-| Workload administration (`ADMINISTER_WORKLOAD` paths) | **UNRESOLVED** — capability declared, not enforced |
+| Workload administration (`ADMINISTER_WORKLOAD`) | **UNRESOLVED** |
 | Workflow run operations, cancellation (`CANCEL_RUN`) | **UNRESOLVED** |
 | `ApprovalStore.transition` direct port | **bounded and gated** (§2 L4), not closed |
 
-The epic must record F3 as *partially addressed*. The follow-up task for the rows above is not started
-here and must not be folded into 0.7.6f (attribution provenance) or 0.7.6g (adversarial campaign) by
-assumption; it needs its own scope decision from the owner.
+The epic must record F3 as *partially addressed*. A follow-up task for the rows above needs its own scope
+decision from the owner and must not be folded into 0.7.6f or 0.7.6g by assumption.
 
-## 7. Declared compatibility impact
+## 7. Compatibility impact (corrected)
+
+### 7.1 `OperatorPrincipal` — public constructor, so additive means additive
+
+Revision 2 wrongly claimed the primary constructor is private. Verified in `tramai-core/api/tramai-core.api`
+at `release/0.7.0`:
+
+```
+public final class dev/tramai/core/operator/OperatorPrincipal {
+  public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/util/Set;)V
+```
+
+That is an ordinary public JVM constructor, callable from Java. Adding `approverRoles` therefore changes
+its signature unless compatibility is kept explicitly: **retain the 4-argument constructor** delegating to
+`approverRoles = emptySet()` and add a 5-argument form. Additive, no binary break, no migration entry for
+this type.
+
+### 7.2 `ApproverRole` — no closed vocabulary, so no "unknown role" rule
+
+Verified: `@JvmInline value class ApproverRole(val value: String)` with `require(value.isNotBlank())` and
+nothing else. There is no registry of valid roles, so "unknown approver role is a startup failure" is not
+implementable. The rule is narrowed to what the type and configuration can actually decide:
+
+- **blank** → rejected (already true of the type);
+- **malformed** → rejected by a shape policy defined in this task (non-blank, no control characters, no
+  whitespace, bounded length) with the exact rule stated where it is implemented;
+- **unconfigured reference** → an approver role named in `approval-policies` that appears in no
+  `approver-role-mappings` value is a **startup failure**, because no principal could ever satisfy it.
+  That is self-consistency, not a vocabulary claim.
+
+### 7.3 Other declared breaks
 
 - `ApprovalDecisionControlPlane.approve/deny` take `(command, OperatorAuthority)` — deliberate break, no
   identity-free overload.
 - `ApprovalDecisionAuthorizer.canDecide` takes `OperatorIdentity` + verified approver roles — break of a
   public fun interface.
-- `OperatorPrincipal` gains `approverRoles` — binary break for Java callers (the primary constructor is
-  private and the public one is the synthetic default-args bridge; Java cannot construct it either way).
 - `ApproveDenyRequest` loses `actorId` and `actorRole` — REST contract break.
 - `OperatorSecurityProperties` gains `approver-role-mappings` and `approval-policies`.
-- New types: `OperatorAuthority`, `OperatorIdentity` (if not already present), `OperatorAuthorityMinter`,
-  `OperatorAuthorityVerifier`, `OperatorApprovalPolicy`, `AuthorizedDecision`,
-  `ApprovalDecisionResult.Unauthorized`.
+- New types: `OperatorAuthority`, `OperatorIdentity`, `OperatorApprovalPolicy`, `AuthorizedDecision`,
+  `ApprovalDecisionResult.Unauthorized`, and the `@RequiresOptIn` marker `DirectApprovalMutation`.
 - LANDED-preserving append entries in `config/quality/api-migrations.yml` for every affected published
   module, hashes recomputed from the committed dumps.
 
 ## 8. Non-goals
 
-- **0.7.6f** — provenance/attribution contract for recorded audit facts.
-- **0.7.6g** — comprehensive adversarial campaign across all privileged paths.
-- **0.7.7** — durable resume fencing. The resume path keeps its nullable-version fallback
-  (`SovereignOpsApprovalResumeControlPlane.kt:89`), unchanged and pre-existing, recorded as a 0.7.7
-  architectural concern rather than a 0.7.6d defect.
-- Persistence schema changes (including a stored per-approval required role) — requires an ADR first.
+- **0.7.6f** — durable attribution provenance (including issuer encoding in records).
+- **0.7.6g** — comprehensive adversarial campaign.
+- **0.7.7** — durable resume fencing; the resume path keeps its nullable-version fallback
+  (`SovereignOpsApprovalResumeControlPlane.kt:89`), recorded as a 0.7.7 architectural concern.
+- Persistence schema changes, including a stored per-approval required role — ADR first.
+- Replay-resistant capability tokens — separate design if a threat model requires it.
 
 ## 9. Stop conditions
 
 Stop and report if enforcement requires: changing a quality gate, adding a suppression, baselining a new
-finding, a persisted schema change, an overridable identity seam, or touching 0.7.7 fencing — or if the
-authority-handle design cannot be verified cheaply enough to justify it over recording a narrower claim.
+finding, a persisted schema change, an overridable identity seam, touching 0.7.7 fencing, or if the
+`@RequiresOptIn` gate proves invasive enough to force a core SPI signature change.
