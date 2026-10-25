@@ -59,7 +59,8 @@ data class ApprovalDecisionCommand(
   is exactly how the unsafe path would survive: any overload that accepts "no version" must either fail (so it
   is not a convenience) or substitute (so it is the defect). The safe contract and the convenience contract
   cannot coexist, so only the safe one ships.
-- `expectedVersion` sits before the optional fields so Java callers keep a sensible positional constructor.
+- `expectedVersion` is the fourth parameter, between `actorRole` and the optional fields, so it is a required positional argument in Kotlin while `comment` and `correlationId` keep their defaults.
+- There is no Java-callable constructor: the real constructor is private, the only public one is Kotlin's synthetic default-arguments bridge (`int` mask + `DefaultConstructorMarker`), and `ApprovalId`/`ApproverRole` are inline value classes erased to `String` with name-mangled accessors. A command is built from Kotlin or handed to Java by existing code.
 - Negative versions are rejected at construction: the approval version domain starts at 0, so a negative
   precondition can never be satisfied and must not become a mutation attempt.
 - The actor fields are documented as **untrusted claims**. Holding a `OperatorPrincipal` from 0.7.6c is not
