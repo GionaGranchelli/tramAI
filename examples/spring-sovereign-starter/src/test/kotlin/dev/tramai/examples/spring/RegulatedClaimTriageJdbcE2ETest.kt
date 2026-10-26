@@ -41,6 +41,9 @@ import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.SovereignTramaiRuntime
 import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
+import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.core.operator.OperatorPrincipal
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
@@ -354,10 +357,10 @@ class RegulatedClaimTriageJdbcE2ETest {
                             dev.tramai.core.approval.gateway
                                 .ApprovalId(result.approvalId!!),
                             0L,
-                            ApproverRole("medical-reviewer"),
                             "Medical necessity not established",
                             claimId,
                         ),
+                        exampleAuthority(),
                     )
 
                 assertThat(decisionResult).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
@@ -410,10 +413,10 @@ class RegulatedClaimTriageJdbcE2ETest {
                         decisionCommand(
                             ApprovalId(suspension.approvalId),
                             0L,
-                            ApproverRole("medical-reviewer"),
                             "Approved for regulated claim payout",
                             claimId,
                         ),
+                        exampleAuthority(),
                     )
 
                 assertThat(approvalResult).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
@@ -647,10 +650,6 @@ class RegulatedClaimTriageJdbcE2ETest {
         @Bean
         fun regulatedClaimTriageApprovalGatewayAuditIntentFactory(): ApprovalGatewayAuditIntentFactory =
             RegulatedClaimTriageApprovalGatewayAuditIntentFactory()
-
-        @Bean
-        fun regulatedClaimTriageApprovalDecisionControlPlaneAuthorizer(): RegulatedClaimTriageApprovalDecisionControlPlaneAuthorizer =
-            RegulatedClaimTriageApprovalDecisionControlPlaneAuthorizer()
 
         @Bean
         fun regulatedClaimTriageApprovalInboxMetadataFactory(): ApprovalInboxMetadataFactory =
@@ -1176,17 +1175,33 @@ private fun org.springframework.context.ApplicationContext.workflow(
 private fun decisionCommand(
     approvalId: dev.tramai.core.approval.gateway.ApprovalId,
     expectedVersion: Long,
-    actorRole: ApproverRole,
     comment: String? = null,
     correlationId: String? = null,
 ): ApprovalDecisionCommand =
     ApprovalDecisionCommand(
         approvalId = approvalId,
-        actorId = "medical-ops-reviewer",
-        actorRole = actorRole,
         expectedVersion = expectedVersion,
         comment = comment,
         correlationId = correlationId,
+    )
+
+/**
+ * The verified operator the example decides under (0.7.6e). The example used to name the reviewer inside the
+ * command and let an allow-all authorizer accept it; it now passes the identity the authentication boundary
+ * would issue, against a configured per-approval role requirement.
+ */
+private fun exampleAuthority(
+    subject: String = "medical-ops-reviewer",
+    approverRoles: Set<ApproverRole> = setOf(ApproverRole("medical-reviewer")),
+): OperatorAuthority =
+    OperatorAuthority(
+        OperatorPrincipal(
+            subject = subject,
+            issuer = "https://issuer.example",
+            authenticatedAt = java.time.Instant.parse("2026-10-25T09:00:00Z"),
+            capabilities = setOf(OperatorCapability.DECIDE_APPROVAL),
+            approverRoles = approverRoles,
+        ),
     )
 
 /** Resume command for the regulated-claim workflow, one line at the call sites. */

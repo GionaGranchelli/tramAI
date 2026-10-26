@@ -457,4 +457,34 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
                 ),
             )
     }
+    /**
+     * A host that supplies a valid policy but leaves authentication off must not get an accessible endpoint.
+     *
+     * This is the boundary between two different trust questions: an in-process host is allowed to wire its own
+     * trusted collaborators, but the requirement under test is about *external requests*. A configured policy
+     * alone must not be enough to publish approve/deny routes, because those routes would then be reachable
+     * without any authenticated identity at all.
+     */
+    @Test
+    fun `a host-supplied policy cannot make an unauthenticated control plane reachable`() {
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(
+                TestControlPlanesConfig::class.java,
+                TestStoresConfig::class.java,
+                SecurityPolicyConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+                "tramai.sovereign.ops.security.enabled=false",
+            )
+            .run { context ->
+                assertThat(context).hasFailed()
+                assertThat(context.startupFailure)
+                    .hasMessageContaining("tramai-rest-control-plane-requires-operator-security")
+            }
+    }
+
 }
