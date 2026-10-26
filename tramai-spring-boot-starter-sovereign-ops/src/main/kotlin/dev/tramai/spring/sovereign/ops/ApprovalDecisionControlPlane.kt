@@ -19,21 +19,25 @@ interface ApprovalDecisionControlPlane {
      * Approve a pending approval request.
      * @return typed [ApprovalDecisionResult] indicating outcome.
      */
-    suspend fun approve(command: ApprovalDecisionCommand): ApprovalDecisionResult
+    suspend fun approve(
+        command: ApprovalDecisionCommand,
+        authority: OperatorAuthority,
+    ): ApprovalDecisionResult
 
     /**
      * Deny a pending approval request.
      * @return typed [ApprovalDecisionResult] indicating outcome.
      */
-    suspend fun deny(command: ApprovalDecisionCommand): ApprovalDecisionResult
+    suspend fun deny(
+        command: ApprovalDecisionCommand,
+        authority: OperatorAuthority,
+    ): ApprovalDecisionResult
 }
 
 /**
  * Command to approve or deny a pending approval request.
  *
  * @param approvalId The approval to decide on.
- * @param actorId The identity of the actor making the decision.
- * @param actorRole The role of the actor making the decision.
  * @param expectedVersion The approval version the caller observed, **required**. It is the command's
  * concurrency precondition, not a hint: the decision is applied only if authoritative state is still at
  * this version, and a mismatch returns [ApprovalDecisionResult.Stale] without mutating anything. There is
@@ -45,15 +49,13 @@ interface ApprovalDecisionControlPlane {
  * The audit outbox stores only digest/length metadata.
  * @param correlationId Optional correlation ID for the decision audit trail.
  *
- * A command is **not** authentication evidence. [actorId] and [actorRole] are claims carried from the
- * caller; the trusted [dev.tramai.core.operator.OperatorPrincipal] produced by the 0.7.6c boundary is not
- * accepted here and cannot be, because holding one is not proof that this command came from its operator.
- * Operator authorization over these commands is 0.7.6e.
+ * A command is **not** authentication evidence, and since 0.7.6e it carries no identity at all: the actor,
+ * the approver role and the policy identity are derived exclusively from the [OperatorAuthority] the
+ * authentication boundary issued (contract §2 L2). The former `actorId`/`actorRole` fields were removed
+ * rather than ignored, because a field that still exists is a field the next change reads.
  */
 data class ApprovalDecisionCommand(
     val approvalId: ApprovalId,
-    val actorId: String,
-    val actorRole: ApproverRole,
     val expectedVersion: Long,
     val comment: String? = null,
     val correlationId: String? = null,
@@ -164,3 +166,12 @@ enum class ApprovalUnauthorizedReason(
     /** The verified approver roles do not intersect the roles this approval accepts. */
     ROLE_NOT_PERMITTED("role-not-permitted"),
 }
+
+/**
+ * Which privileged transition a decision performs.
+ *
+ * Kept next to the control plane because it is the control plane's own distinction: authorization no
+ * longer switches on it — the capability and the per-approval role requirement are decision-type
+ * independent — but the audit event key and the resulting status still are.
+ */
+enum class ApprovalDecisionType { APPROVE, DENY }

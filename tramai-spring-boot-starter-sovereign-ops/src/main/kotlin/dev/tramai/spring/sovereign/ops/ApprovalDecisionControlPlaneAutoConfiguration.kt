@@ -15,11 +15,13 @@ import org.springframework.context.annotation.Bean
  * Creates a [SovereignOpsApprovalDecisionControlPlane] bean when
  * [SovereignOpsApprovalMutationStore] and [ApprovalStore] are available.
  *
- * An optional [ApprovalDecisionAuthorizer] bean can be provided to customise
- * decision authorization; otherwise [AllowAllApprovalDecisionAuthorizer] is used.
+ * A [OperatorApprovalPolicy] bean is **required**. The former optional `ApprovalDecisionAuthorizer` hook
+ * is gone: an arbitrary policy object could answer `true` for every approval while every startup check
+ * still passed, so the per-approval requirement is now deployment configuration keyed by the approval's
+ * persisted `policyVersion` and cannot be replaced by a permissive bean.
  *
  * @see SovereignOpsApprovalDecisionControlPlane
- * @see ApprovalDecisionAuthorizer
+ * @see OperatorApprovalPolicy
  */
 @AutoConfiguration(after = [SovereignOpsAutoConfiguration::class])
 @ConditionalOnProperty(
@@ -40,11 +42,15 @@ class ApprovalDecisionControlPlaneAutoConfiguration {
     fun sovereignOpsApprovalDecisionControlPlane(
         approvalStore: ApprovalStore,
         mutationStore: SovereignOpsApprovalMutationStore,
-        authorizer: ObjectProvider<ApprovalDecisionAuthorizer>,
+        approvalPolicy: ObjectProvider<OperatorApprovalPolicy>,
     ): ApprovalDecisionControlPlane =
         SovereignOpsApprovalDecisionControlPlane(
             approvalStore = approvalStore,
             mutationStore = mutationStore,
-            authorizer = authorizer.ifAvailable ?: AllowAllApprovalDecisionAuthorizer,
+            approvalPolicy =
+                requireNotNull(approvalPolicy.ifAvailable) {
+                    "tramai-approval-policy-missing: no OperatorApprovalPolicy is configured, so no privileged " +
+                        "decision could be authorized; configure the approval-policies requirement"
+                },
         )
 }
