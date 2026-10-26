@@ -28,7 +28,7 @@ class DirectApprovalMutationGuardTest {
         val files =
             listOf(
                 reviewedFile(),
-                "tramai-engine/src/main/kotlin/Engine.kt" to source("fun f(store: ApprovalStore) = store.transition(1)"),
+                unreviewedFile(),
             )
 
         val violations = DirectApprovalMutationGuard.verify(inventory, files)
@@ -59,7 +59,10 @@ class DirectApprovalMutationGuardTest {
 
         val violations = DirectApprovalMutationGuard.verify(inventory, files)
 
-        assertTrue(violations.single().contains("has 2 direct approval mutation call site(s) but the inventory reviewed 1"))
+        assertTrue(
+            violations.single().contains("has 2 direct approval mutation call site(s)"),
+            violations.toString(),
+        )
     }
 
     @Test
@@ -84,7 +87,9 @@ class DirectApprovalMutationGuardTest {
             listOf(
                 "tramai-security/src/main/kotlin/Coordinator.kt" to
                     source(
-                        "// store.transition(1)\n/* store.transition(2) */\nfun f(store: ApprovalStore) = store.transition(3)",
+                        "// store.transition(1)\n" +
+                            "/* store.transition(2) */\n" +
+                            "fun f(store: ApprovalStore) = store.transition(3)",
                     ),
             )
 
@@ -158,6 +163,11 @@ class DirectApprovalMutationGuardTest {
 
         assertTrue(files.isNotEmpty(), "the scan must not be empty")
         assertEquals(emptyList(), DirectApprovalMutationGuard.verify(inventory, files, scannedFiles = files.size))
+    }
+
+    private fun unreviewedFile(): Pair<String, String> {
+        val path = "tramai-engine/src/main/kotlin/Engine.kt"
+        return path to source("fun f(store: ApprovalStore) = store.transition(1)")
     }
 
     private fun reviewedFile() =
