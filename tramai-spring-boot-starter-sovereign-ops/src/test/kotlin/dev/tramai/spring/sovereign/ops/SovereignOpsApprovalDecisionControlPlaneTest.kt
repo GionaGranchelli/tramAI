@@ -8,9 +8,9 @@ import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ApprovalId
+import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.operator.OperatorCapability
 import dev.tramai.core.operator.OperatorPrincipal
-import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord

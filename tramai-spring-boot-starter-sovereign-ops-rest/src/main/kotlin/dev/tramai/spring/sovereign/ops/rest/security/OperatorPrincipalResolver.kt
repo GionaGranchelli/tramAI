@@ -54,8 +54,7 @@ class OperatorPrincipalResolver(
      * the principal first. A controller that built its own authority from a method argument would be a
      * second construction site and would quietly restore the old "caller decides who they are" path.
      */
-    fun issueAuthority(authentication: Authentication?): OperatorAuthority =
-        OperatorAuthority(resolve(authentication))
+    fun issueAuthority(authentication: Authentication?): OperatorAuthority = OperatorAuthority(resolve(authentication))
 
     /** Issues the authority of the current request's verified authentication. */
     fun issueCurrentAuthority(): OperatorAuthority = issueAuthority(SecurityContextHolder.getContext().authentication)

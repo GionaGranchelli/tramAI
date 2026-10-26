@@ -3,10 +3,10 @@ package dev.tramai.spring.sovereign.ops
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalId
-import dev.tramai.core.operator.OperatorCapability
 import dev.tramai.core.exception.ApprovalStoreConflictException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
+import dev.tramai.core.operator.OperatorCapability
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus

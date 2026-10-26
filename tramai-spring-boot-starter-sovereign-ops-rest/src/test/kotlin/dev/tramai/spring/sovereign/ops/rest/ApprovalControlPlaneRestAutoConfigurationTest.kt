@@ -4,31 +4,31 @@ import dev.tramai.core.approval.ApprovalConsumptionReceipt
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalRequest
+import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.ClaimedApprovalContinuation
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
-import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
-import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQueryService
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxPage
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQuery
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQueryService
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxWorkItem
-import dev.tramai.core.approval.ApprovalStatus
-import dev.tramai.core.approval.gateway.ApprovalId
-import java.time.Instant
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import java.time.Instant
 
 /**
  * Verifies the auto-configuration guards for
@@ -40,25 +40,24 @@ import org.springframework.context.annotation.Configuration
  * duplicated here.
  */
 class ApprovalControlPlaneRestAutoConfigurationTest {
+    private val contextRunner =
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
+            ).withUserConfiguration(
+                TestControlPlanesConfig::class.java,
+                TestStoresConfig::class.java,
+            )
 
-    private val contextRunner = ApplicationContextRunner()
-        .withConfiguration(
-            AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
-        )
-        .withUserConfiguration(
-            TestControlPlanesConfig::class.java,
-            TestStoresConfig::class.java,
-        )
-
-    private val contextRunnerWithInbox = ApplicationContextRunner()
-        .withConfiguration(
-            AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
-        )
-        .withUserConfiguration(
-            TestControlPlanesConfig::class.java,
-            TestStoresConfig::class.java,
-            TestInboxQueryServiceConfig::class.java,
-        )
+    private val contextRunnerWithInbox =
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
+            ).withUserConfiguration(
+                TestControlPlanesConfig::class.java,
+                TestStoresConfig::class.java,
+                TestInboxQueryServiceConfig::class.java,
+            )
 
     // ── Control plane controller ──────────────────────────────────
 
@@ -81,8 +80,11 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     @Test
     fun `rest-control-plane-enabled true with all dependencies creates controller`() {
         contextRunner
-            .withPropertyValues("tramai.sovereign.ops.rest-control-plane-enabled=true")
-            .run { ctx ->
+            .withPropertyValues(
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalControlPlaneController::class.java)
             }
     }
@@ -99,8 +101,11 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     @Test
     fun `inbox controller created when property enabled and query service exists`() {
         contextRunnerWithInbox
-            .withPropertyValues("tramai.sovereign.ops.rest-control-plane-enabled=true")
-            .run { ctx ->
+            .withPropertyValues(
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalInboxController::class.java)
             }
     }
@@ -108,8 +113,11 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     @Test
     fun `inbox controller not created when query service missing`() {
         contextRunner // no TestInboxQueryServiceConfig
-            .withPropertyValues("tramai.sovereign.ops.rest-control-plane-enabled=true")
-            .run { ctx ->
+            .withPropertyValues(
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+            ).run { ctx ->
                 assertThat(ctx).doesNotHaveBean(ApprovalInboxController::class.java)
             }
     }
@@ -119,15 +127,16 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         ApplicationContextRunner()
             .withConfiguration(
                 AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
-            )
-            .withUserConfiguration(
+            ).withUserConfiguration(
                 TestControlPlanesConfig::class.java,
                 TestStoresConfig::class.java,
                 TestInboxQueryServiceConfig::class.java,
                 CustomInboxControllerConfig::class.java,
-            )
-            .withPropertyValues("tramai.sovereign.ops.rest-control-plane-enabled=true")
-            .run { ctx ->
+            ).withPropertyValues(
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalInboxController::class.java)
                 // only the custom bean should exist (back-off works)
             }
@@ -139,6 +148,7 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     open class TestControlPlanesConfig {
         @Bean
         open fun testDecisionControlPlane(): ApprovalDecisionControlPlane = DecisionControlPlaneStub()
+
         @Bean
         open fun testResumeControlPlane(): ApprovalResumeControlPlane = ResumeControlPlaneStub()
     }
@@ -147,6 +157,7 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     open class TestStoresConfig {
         @Bean
         open fun testApprovalStore(): ApprovalStore = ApprovalStoreStub()
+
         @Bean
         open fun testApprovalContinuationStore(): ApprovalContinuationStore = ApprovalContinuationStoreStub()
     }
@@ -170,10 +181,13 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
 
         @Bean
         open fun testDecisionControlPlane(): ApprovalDecisionControlPlane = DecisionControlPlaneStub()
+
         @Bean
         open fun testResumeControlPlane(): ApprovalResumeControlPlane = ResumeControlPlaneStub()
+
         @Bean
         open fun testApprovalStore(): ApprovalStore = ApprovalStoreStub()
+
         @Bean
         open fun testApprovalContinuationStore(): ApprovalContinuationStore = ApprovalContinuationStoreStub()
     }
@@ -181,8 +195,7 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     @Configuration
     open class CustomInboxControllerConfig {
         @Bean
-        open fun customApprovalInboxController(): ApprovalInboxController =
-            ApprovalInboxController(InboxQueryServiceStub())
+        open fun customApprovalInboxController(): ApprovalInboxController = ApprovalInboxController(InboxQueryServiceStub())
     }
 
     // -- stub implementations --
@@ -191,13 +204,12 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         override suspend fun approve(
             command: ApprovalDecisionCommand,
             authority: OperatorAuthority,
-        ): ApprovalDecisionResult =
-            ApprovalDecisionResult.NotFound(command.approvalId)
+        ): ApprovalDecisionResult = ApprovalDecisionResult.NotFound(command.approvalId)
+
         override suspend fun deny(
             command: ApprovalDecisionCommand,
             authority: OperatorAuthority,
-        ): ApprovalDecisionResult =
-            ApprovalDecisionResult.NotFound(command.approvalId)
+        ): ApprovalDecisionResult = ApprovalDecisionResult.NotFound(command.approvalId)
     }
 
     private class ResumeControlPlaneStub : ApprovalResumeControlPlane {
@@ -207,31 +219,71 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
 
     private class ApprovalStoreStub : ApprovalStore {
         override suspend fun create(request: ApprovalRequest): ApprovalRequest = request
+
         override suspend fun get(approvalId: String): ApprovalRequest? = null
+
         override suspend fun transition(
-            approvalId: String, expectedVersion: Long, transition: ApprovalTransition,
+            approvalId: String,
+            expectedVersion: Long,
+            transition: ApprovalTransition,
         ): ApprovalRequest = throw UnsupportedOperationException()
+
         override suspend fun consumeApprovedOrReplay(
-            approvalId: String, expectedVersion: Long,
-            presentedTokenDigest: Sha256Digest, consumedBy: String,
+            approvalId: String,
+            expectedVersion: Long,
+            presentedTokenDigest: Sha256Digest,
+            consumedBy: String,
         ): ApprovalConsumptionReceipt = throw UnsupportedOperationException()
     }
 
     private class ApprovalContinuationStoreStub : ApprovalContinuationStore {
-        override suspend fun create(continuation: ApprovalContinuation, arguments: SensitiveToolArguments): ApprovalContinuation = continuation
+        override suspend fun create(
+            continuation: ApprovalContinuation,
+            arguments: SensitiveToolArguments,
+        ): ApprovalContinuation = continuation
+
         override suspend fun get(approvalId: String): ApprovalContinuation? = null
-        override suspend fun claimForExecution(approvalId: String, expectedVersion: Long, claimedBy: String): ClaimedApprovalContinuation = throw UnsupportedOperationException()
-        override suspend fun complete(approvalId: String, expectedVersion: Long, completedBy: String): ApprovalContinuation = throw UnsupportedOperationException()
-        override suspend fun expire(approvalId: String, expectedVersion: Long): ApprovalContinuation = throw UnsupportedOperationException()
-        override suspend fun cancel(approvalId: String, expectedVersion: Long): ApprovalContinuation = throw UnsupportedOperationException()
-        override suspend fun findStaleClaimed(claimedBefore: Instant, limit: Int): List<ApprovalContinuation> = emptyList()
-        override suspend fun forceCancelClaimed(approvalId: String, expectedVersion: Long, cancelledBy: String, reasonCode: String): ApprovalContinuation = throw UnsupportedOperationException()
+
+        override suspend fun claimForExecution(
+            approvalId: String,
+            expectedVersion: Long,
+            claimedBy: String,
+        ): ClaimedApprovalContinuation = throw UnsupportedOperationException()
+
+        override suspend fun complete(
+            approvalId: String,
+            expectedVersion: Long,
+            completedBy: String,
+        ): ApprovalContinuation = throw UnsupportedOperationException()
+
+        override suspend fun expire(
+            approvalId: String,
+            expectedVersion: Long,
+        ): ApprovalContinuation = throw UnsupportedOperationException()
+
+        override suspend fun cancel(
+            approvalId: String,
+            expectedVersion: Long,
+        ): ApprovalContinuation = throw UnsupportedOperationException()
+
+        override suspend fun findStaleClaimed(
+            claimedBefore: Instant,
+            limit: Int,
+        ): List<ApprovalContinuation> = emptyList()
+
+        override suspend fun forceCancelClaimed(
+            approvalId: String,
+            expectedVersion: Long,
+            cancelledBy: String,
+            reasonCode: String,
+        ): ApprovalContinuation = throw UnsupportedOperationException()
+
         override suspend fun sweepExpired(): Int = 0
     }
 
     private class InboxQueryServiceStub : ApprovalInboxQueryService {
-        override suspend fun search(query: ApprovalInboxQuery): ApprovalInboxPage =
-            ApprovalInboxPage(emptyList())
+        override suspend fun search(query: ApprovalInboxQuery): ApprovalInboxPage = ApprovalInboxPage(emptyList())
+
         override suspend fun getWorkItem(approvalId: ApprovalId): ApprovalInboxWorkItem? = null
     }
 
@@ -242,8 +294,11 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     @Test
     fun `reviewer UI disabled by default`() {
         contextRunnerWithInbox
-            .withPropertyValues("tramai.sovereign.ops.rest-control-plane-enabled=true")
-            .run { ctx ->
+            .withPropertyValues(
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+            ).run { ctx ->
                 assertThat(ctx).doesNotHaveBean(ApprovalReviewerUiController::class.java)
             }
     }
@@ -254,8 +309,7 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
             .withPropertyValues(
                 "tramai.sovereign.ops.reviewer-ui-enabled=true",
                 "tramai.sovereign.ops.rest-control-plane-enabled=false",
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).doesNotHaveBean(ApprovalReviewerUiController::class.java)
             }
     }
@@ -265,17 +319,15 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         ApplicationContextRunner()
             .withConfiguration(
                 AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
-            )
-            .withUserConfiguration(
+            ).withUserConfiguration(
                 TestControlPlanesConfig::class.java,
                 TestStoresConfig::class.java,
                 TestInboxQueryServiceConfig::class.java,
-            )
-            .withPropertyValues(
+            ).withPropertyValues(
                 "tramai.sovereign.ops.reviewer-ui-enabled=true",
                 "tramai.sovereign.ops.rest-control-plane-enabled=true",
-            )
-            .run { ctx ->
+                "tramai.sovereign.ops.security.enabled=true",
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalReviewerUiController::class.java)
             }
     }
@@ -285,18 +337,16 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         ApplicationContextRunner()
             .withConfiguration(
                 AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
-            )
-            .withUserConfiguration(
+            ).withUserConfiguration(
                 TestControlPlanesConfig::class.java,
                 TestStoresConfig::class.java,
                 TestInboxQueryServiceConfig::class.java,
                 CustomReviewerUiControllerConfig::class.java,
-            )
-            .withPropertyValues(
+            ).withPropertyValues(
                 "tramai.sovereign.ops.reviewer-ui-enabled=true",
                 "tramai.sovereign.ops.rest-control-plane-enabled=true",
-            )
-            .run { ctx ->
+                "tramai.sovereign.ops.security.enabled=true",
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalReviewerUiController::class.java)
             }
     }
@@ -324,8 +374,8 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
             .withPropertyValues(
                 "tramai.sovereign.ops.reviewer-ui-enabled=true",
                 "tramai.sovereign.ops.rest-control-plane-enabled=true",
-            )
-            .run { ctx ->
+                "tramai.sovereign.ops.security.enabled=true",
+            ).run { ctx ->
                 assertThat(ctx).doesNotHaveBean(ApprovalReviewerUiController::class.java)
             }
     }
@@ -333,8 +383,7 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     @Configuration
     open class CustomReviewerUiControllerConfig {
         @Bean
-        open fun customApprovalReviewerUiController(): ApprovalReviewerUiController =
-            ApprovalReviewerUiController()
+        open fun customApprovalReviewerUiController(): ApprovalReviewerUiController = ApprovalReviewerUiController()
     }
 
     @Configuration
@@ -347,5 +396,65 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     open class TestDecisionControlPlaneOnlyConfig {
         @Bean
         open fun testDecisionControlPlane(): ApprovalDecisionControlPlane = DecisionControlPlaneStub()
+    }
+
+    /**
+     * Startup matrix row 1 (0.7.6e): the control plane may not exist without the operator boundary.
+     *
+     * This is the fail-open combination the epic exists to remove — endpoints that mutate approvals reachable
+     * with authentication and authorization both off — so the context must refuse to start and must name the
+     * configuration keys rather than dying later on a missing dependency.
+     */
+    @Test
+    fun `rest control plane enabled without operator security fails startup`() {
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
+            ).withUserConfiguration(TestControlPlanesConfig::class.java, TestStoresConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+                "tramai.sovereign.ops.security.enabled=false",
+            ).run { context ->
+                assertThat(context).hasFailed()
+                assertThat(context.startupFailure)
+                    .hasMessageContaining("tramai-rest-control-plane-requires-operator-security")
+            }
+    }
+
+    /**
+     * Startup matrix row 5: authentication on, policy configured, everything wired — the controller exists.
+     * Without this the previous test could pass by never creating the controller at all.
+     */
+    @Test
+    fun `rest control plane enabled with operator security and a decision service starts`() {
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
+            ).withUserConfiguration(
+                TestControlPlanesConfig::class.java,
+                TestStoresConfig::class.java,
+                SecurityPolicyConfig::class.java,
+            ).withPropertyValues(
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+                "tramai.sovereign.ops.security.enabled=true",
+            ).run { context ->
+                assertThat(context).hasNotFailed()
+                assertThat(context).hasSingleBean(ApprovalControlPlaneController::class.java)
+            }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    class SecurityPolicyConfig {
+        @Bean
+        fun operatorApprovalPolicy(): dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy =
+            dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy(
+                mapOf(
+                    "v1" to
+                        setOf(
+                            dev.tramai.core.approval.gateway
+                                .ApproverRole("medical-reviewer"),
+                        ),
+                ),
+            )
     }
 }

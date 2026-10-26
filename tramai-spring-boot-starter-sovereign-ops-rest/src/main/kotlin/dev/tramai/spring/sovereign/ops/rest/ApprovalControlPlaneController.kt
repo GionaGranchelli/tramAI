@@ -6,12 +6,12 @@ import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
-import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import kotlinx.coroutines.runBlocking
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty

@@ -12,15 +12,15 @@ import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
+import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.core.operator.OperatorPrincipal
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
-import dev.tramai.core.operator.OperatorPrincipal
-import dev.tramai.core.operator.OperatorCapability
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
-import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.doReturn
@@ -64,8 +64,7 @@ class ApprovalControlPlaneControllerTest {
                         approvalStore = approvalStore,
                         approvalContinuationStore = approvalContinuationStore,
                     ),
-                )
-                .setCustomArgumentResolvers(operatorAuthorityResolver())
+                ).setCustomArgumentResolvers(operatorAuthorityResolver())
                 .build()
     }
 

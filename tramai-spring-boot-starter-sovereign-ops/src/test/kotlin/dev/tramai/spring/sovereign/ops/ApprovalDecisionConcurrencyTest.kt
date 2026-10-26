@@ -102,7 +102,7 @@ class ApprovalDecisionConcurrencyTest {
         fixture: Fixture,
         mutations: SovereignOpsApprovalMutationStore = fixture.mutations,
     ) = SovereignOpsApprovalDecisionControlPlane(
-                    approvalPolicy = testApprovalPolicy,
+        approvalPolicy = testApprovalPolicy,
         approvalStore = fixture.approvals,
         mutationStore = mutations,
         clock = clock,

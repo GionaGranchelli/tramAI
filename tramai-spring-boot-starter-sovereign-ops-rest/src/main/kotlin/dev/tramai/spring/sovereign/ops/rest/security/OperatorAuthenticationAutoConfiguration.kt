@@ -97,8 +97,7 @@ class OperatorAuthenticationAutoConfiguration {
         capabilityMapping: OperatorCapabilityMapping,
         approverRoleMapping: OperatorApproverRoleMapping,
         clock: Clock,
-    ): OperatorPrincipalFactory =
-        OperatorPrincipalFactory(properties, capabilityMapping, approverRoleMapping, clock)
+    ): OperatorPrincipalFactory = OperatorPrincipalFactory(properties, capabilityMapping, approverRoleMapping, clock)
 
     @Bean
     @ConditionalOnMissingBean
