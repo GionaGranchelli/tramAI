@@ -201,6 +201,10 @@ gradlePlugin {
             id = "tramai.static-safety-guards"
             implementationClass = "dev.tramai.build.quality.StaticSafetyGuardsPlugin"
         }
+        create("directApprovalMutationGuard") {
+            id = "tramai.direct-approval-mutation-guard"
+            implementationClass = "dev.tramai.build.quality.DirectApprovalMutationGuardPlugin"
+        }
         create("tramaiSupplyChain") {
             id = "tramai.supply-chain"
             implementationClass = "dev.tramai.build.supplychain.TramaiSupplyChainPlugin"
