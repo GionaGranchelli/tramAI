@@ -86,9 +86,25 @@ Ordering is observable and fixed:
   →     CAS mutation + audit outbox                                  [200]
 ```
 
-Authorization precedes the version precondition so an unauthorized caller learns nothing about approval
-state. **F2 is untouched:** the version check still precedes the terminal shortcuts and any mutation, and
-a losing concurrent command still yields `Stale` with no outbox fact.
+Authorization precedes the version precondition. **Precisely what that hides, and what it does not:** the
+capability check (L2) runs before any state lookup, so a caller lacking `DECIDE_APPROVAL` receives a 403
+that is identical whether or not the approval exists — that path discloses nothing. The per-approval role
+check (L3) needs the approval's `policyVersion`, so it runs **after** the internal lookup; a caller that
+*does* hold `DECIDE_APPROVAL` can therefore distinguish an existing approval (403 `ROLE_NOT_PERMITTED` or
+403 `APPROVAL_POLICY_UNAVAILABLE`) from a nonexistent one (404 `NotFound`). That is a **limited
+existence disclosure, accepted and documented**, not eliminated.
+
+It is accepted because it adds nothing to what a capability-holding operator can already learn: the
+existing read endpoint `GET /{approvalId}` returns approval status and decision metadata for any
+authenticated caller and is itself still unauthorized (§6). Uniform-outcome alternatives were considered
+and rejected: answering 403 for a nonexistent approval means fabricating a policy decision for a record
+that does not exist, and answering 404 for an existing-but-wrong-role approval merges two distinct
+failures into one that no client can act on. If a deployment needs uniform outcomes, the correct fix is to
+authorize the read endpoint and treat approval identifiers as unguessable — a scope decision for §6, not a
+silent behaviour change here.
+
+**F2 is untouched:** the version check still precedes the terminal shortcuts and any mutation, and a
+losing concurrent command still yields `Stale` with no outbox fact.
 
 ### L1 — Controller: identity from the context, never from the body
 
@@ -248,6 +264,7 @@ assumptions:
 | no verified identity | filter chain rejects | 401 |
 | authenticated, missing `DECIDE_APPROVAL` | `Unauthorized(MISSING_CAPABILITY)` | 403 |
 | no approval policy for the approval's `policyVersion` | `Unauthorized(APPROVAL_POLICY_UNAVAILABLE)` | 403 |
+| capability held, approval absent | `NotFound` (discloses existence to capability holders — §2, accepted) | 404 |
 | verified roles do not satisfy the approval's required roles | `Unauthorized(ROLE_NOT_PERMITTED)` | 403 |
 | authorized, stale supplied version | `Stale(expected, current)` | 409 |
 | authorized, target missing | `NotFound` | 404 |
@@ -280,11 +297,18 @@ assumptions:
     fails the build (fallback). The discriminator asserts *compilation failure for an unannotated Kotlin
     call*, not that every caller is blocked: Java invocation and explicitly opted-in Kotlin invocation are
     accepted residuals (§2 L4).
-12. **Actor derived from authority, not from the command** — invoke the control plane **directly** with a
-    legitimate `OperatorAuthority` and a command naming a different actor: the policy receives the verified
-    `(issuer, subject)`, `decidedBy` and the outbox attribution record the verified subject, and the store's
-    `actor` is the verified subject. If the command's identity fields are removed (§2 L2 option 1), the
-    equivalent assertion is that no command-carried actor exists to mismatch.
+12. **Attribution sinks receive the verified identity** — required regardless of whether the command keeps
+    or drops its identity fields. Invoke the control plane **directly**, with a legitimate
+    `OperatorAuthority`, and assert all four sinks:
+    - the policy receives the verified `(issuer, subject)` **and** the verified approver roles;
+    - `decidedBy` equals the verified subject;
+    - the outbox record's actor equals the verified subject;
+    - the mutation store receives the verified subject as its `actor`.
+
+    When the command fields are removed (§2 L2 option 1), the absence of a mismatched field is *not* a
+    substitute for these assertions — the sinks are checked against an authority whose identity differs
+    from every other string in the fixture, so a control plane that fell back to a literal, a default or a
+    stale field still fails.
 
 ## 6. Carry-forward: F3 items this task does not close
 
@@ -292,6 +316,7 @@ assumptions:
 |---|---|
 | `POST /{id}/approve`, `/{id}/deny` | **closed** by this task |
 | `POST /{id}/resume` (body `resumedBy`) | **UNRESOLVED** — same F1 defect, different endpoint |
+| `GET /{approvalId}` (approval status, decider, continuation status) | **UNRESOLVED** — unauthenticated-for-authorization read; discloses existence and decision metadata to any authenticated caller and is the reason the §2 disclosure is acceptable |
 | Workload administration (`ADMINISTER_WORKLOAD`) | **UNRESOLVED** |
 | Workflow run operations, cancellation (`CANCEL_RUN`) | **UNRESOLVED** |
 | `ApprovalStore.transition` direct port | **bounded and gated** (§2 L4), not closed |
