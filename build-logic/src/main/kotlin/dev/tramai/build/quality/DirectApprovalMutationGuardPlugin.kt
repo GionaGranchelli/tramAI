@@ -28,19 +28,27 @@ import java.io.File
  */
 class DirectApprovalMutationGuardPlugin : Plugin<Project> {
     override fun apply(project: Project) {
+        val configFile =
+            project.layout.projectDirectory.file("config/quality/direct-approval-mutation-inventory.yml")
+        // scanRoots are authoritative: the declared task inputs are derived from the same configuration the task
+        // reads, so a configured root cannot diverge from what CI scans, and a cached run cannot hide a new file.
+        val inventory =
+            DirectApprovalMutationInventoryParser.parse(
+                project.providers
+                    .fileContents(configFile)
+                    .asText
+                    .get(),
+            )
         val sources =
             project.fileTree(project.rootDir) {
-                include("*/src/main/kotlin/**/*.kt", "*/src/main/java/**/*.java")
-                exclude("build/**", "*/build/**", "build-logic/**", "examples/**", "**/.gradle/**")
+                include(inventory.scanRoots.flatMap { listOf("$it/**/*.kt", "$it/**/*.java") })
+                exclude(inventory.exclusions.map { "${it.path.trimEnd('/')}/**" })
             }
         val guard =
             project.tasks.register<VerifyDirectApprovalMutationsTask>("verifyDirectApprovalMutations") {
                 group = "verification"
-                description =
-                    "Fails when production code introduces an unreviewed direct approval mutation."
-                configFile.set(
-                    project.layout.projectDirectory.file("config/quality/direct-approval-mutation-inventory.yml"),
-                )
+                description = "Fails when production code introduces an unreviewed direct approval mutation."
+                this.configFile.set(configFile)
                 sourceFiles.from(sources)
                 repositoryRoot.set(project.rootDir.absolutePath)
             }
@@ -79,11 +87,13 @@ abstract class VerifyDirectApprovalMutationsTask : DefaultTask() {
                             .toString()
                             .replace(File.separatorChar, '/')
                     relative to file.readText()
-                }.filterNot { (relative, _) -> inventory.excludes(relative) }
-        val violations = DirectApprovalMutationGuard.verify(inventory, files, scannedFiles = scanned.size)
+                }
+        // Exclusions are applied by the guard itself, so the non-vacuity check judges the population actually scanned.
+        val violations = DirectApprovalMutationGuard.verify(inventory, files)
         if (violations.isNotEmpty()) throw GradleException(violations.joinToString("\n"))
         logger.lifecycle(
-            "direct-approval-mutation-guard: ${files.size} file(s) scanned, " +
+            "direct-approval-mutation-guard: ${DirectApprovalMutationGuard.included(inventory, files).size} " +
+                "file(s) scanned from ${files.size} selected, " +
                 "${inventory.entries.sumOf { it.callSites }} reviewed call site(s).",
         )
     }

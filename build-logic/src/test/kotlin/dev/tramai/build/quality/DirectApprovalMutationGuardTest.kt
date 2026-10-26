@@ -23,30 +23,53 @@ class DirectApprovalMutationGuardTest {
 
     private fun source(body: String) = "package x\n\nimport dev.tramai.core.approval.ApprovalStore\n\n$body\n"
 
+    private fun reviewedFile() =
+        "tramai-security/src/main/kotlin/Coordinator.kt" to source("fun f(store: ApprovalStore) = store.transition(1)")
+
+    private fun unreviewedFile(): Pair<String, String> {
+        val path = "tramai-engine/src/main/kotlin/Engine.kt"
+        return path to source("fun f(store: ApprovalStore) = store.transition(1)")
+    }
+
     @Test
     fun `an introduced direct approval mutation is detected`() {
-        val files =
-            listOf(
-                reviewedFile(),
-                unreviewedFile(),
-            )
-
-        val violations = DirectApprovalMutationGuard.verify(inventory, files)
+        val violations = DirectApprovalMutationGuard.verify(inventory, listOf(reviewedFile(), unreviewedFile()))
 
         assertEquals(1, violations.size, violations.toString())
         assertTrue(violations.single().contains("unreviewed direct approval mutation in tramai-engine"))
         assertTrue(violations.single().contains("1 call site(s)"))
     }
 
+    /** The receiver may be spelled with a fully qualified type; no `import` statement is required. */
+    @Test
+    fun `a fully qualified approval store call site is detected`() {
+        val path = "tramai-engine/src/main/kotlin/FullyQualified.kt"
+        val text =
+            """
+            package x
+
+            suspend fun mutate(
+                store: dev.tramai.core.approval.ApprovalStore,
+                id: String,
+                version: Long,
+            ) {
+                store.transition(
+                    id,
+                    version,
+                    dev.tramai.core.approval.ApprovalTransition.Approve("actor"),
+                )
+            }
+            """.trimIndent()
+
+        val violations = DirectApprovalMutationGuard.verify(inventory, listOf(reviewedFile(), path to text))
+
+        assertEquals(1, violations.size, violations.toString())
+        assertTrue(violations.single().contains("unreviewed direct approval mutation in $path"))
+    }
+
     @Test
     fun `existing reviewed infrastructure mutations remain allowed`() {
-        val files =
-            listOf(
-                "tramai-security/src/main/kotlin/Coordinator.kt" to
-                    source("fun f(store: ApprovalStore) = store.transition(1)"),
-            )
-
-        assertEquals(emptyList(), DirectApprovalMutationGuard.verify(inventory, files))
+        assertEquals(emptyList(), DirectApprovalMutationGuard.verify(inventory, listOf(reviewedFile())))
     }
 
     @Test
@@ -69,20 +92,22 @@ class DirectApprovalMutationGuardTest {
     fun `unrelated transition methods do not produce false positives`() {
         val unrelatedCall =
             "package x\n\nimport dev.tramai.engine.Workflow\n\nfun f(w: Workflow) = w.transition(State.DONE)\n"
-        val unrelatedNoApprovalImport =
+        val unrelatedCallInApprovalAwareFile =
             "package x\n\nimport dev.tramai.core.approval.ApprovalStore\n\nfun f(w: Workflow) = w.transition(1)\n"
 
         assertEquals(
             emptyList(),
             DirectApprovalMutationGuard.verify(inventory, listOf(reviewedFile(), "a/b/C.kt" to unrelatedCall)),
         )
-        // The scanner cannot resolve receivers: a file that imports approval types and calls *some* transition
-        // is treated as a candidate. That is the documented blind spot, and it errs toward review, not silence.
-        assertTrue(DirectApprovalMutationGuard.detect(listOf("a/b/D.kt" to unrelatedNoApprovalImport)).isNotEmpty())
+        // The scanner cannot resolve receivers: a file that mentions approval types and calls *some* transition is
+        // treated as a candidate. That is the documented blind spot, and it errs toward review, not silence.
+        assertTrue(
+            DirectApprovalMutationGuard.detect(listOf("a/b/D.kt" to unrelatedCallInApprovalAwareFile)).isNotEmpty(),
+        )
     }
 
     @Test
-    fun `a commented out call is not a call site`() {
+    fun `commented out calls are not call sites`() {
         val files =
             listOf(
                 "tramai-security/src/main/kotlin/Coordinator.kt" to
@@ -97,28 +122,65 @@ class DirectApprovalMutationGuardTest {
         assertEquals(emptyList(), DirectApprovalMutationGuard.verify(inventory, files))
     }
 
+    /** A trailing comment is as good a hiding place as a commented-out line, and as common. */
+    @Test
+    fun `trailing inline comments are not call sites`() {
+        val files =
+            listOf(
+                "tramai-security/src/main/kotlin/Coordinator.kt" to
+                    source("val x = 1 // store.transition(1)\nfun f(store: ApprovalStore) = store.transition(2)"),
+            )
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(files).single().callSites)
+        assertEquals(emptyList(), DirectApprovalMutationGuard.verify(inventory, files))
+    }
+
+    /** A string literal is not a comment: stripping a URL suffix must not delete the rest of the line. */
+    @Test
+    fun `double slash inside a string literal is not treated as a comment`() {
+        val files =
+            listOf(
+                "tramai-security/src/main/kotlin/Coordinator.kt" to
+                    source("val url = \"https://example.test\"\nfun f(store: ApprovalStore) = store.transition(1)"),
+            )
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(files).single().callSites)
+    }
+
     @Test
     fun `a vacuous scan fails instead of passing`() {
-        val violations = DirectApprovalMutationGuard.verify(inventory, files = emptyList(), scannedFiles = 0)
+        val violations = DirectApprovalMutationGuard.verify(inventory, files = emptyList())
 
-        assertTrue(violations.any { it.contains("scanned 0 files") }, violations.toString())
+        assertTrue(violations.any { it.contains("scanned 0 production files") }, violations.toString())
+    }
+
+    /** Excluding the whole population is the same failure as selecting nothing. */
+    @Test
+    fun `a configuration that excludes every selected file fails`() {
+        val everything =
+            inventory.copy(
+                exclusions = listOf(DirectApprovalMutationExclusion("tramai-security", "everything is excluded")),
+            )
+
+        val violations = DirectApprovalMutationGuard.verify(everything, listOf(reviewedFile()))
+
+        assertTrue(violations.any { it.contains("scanned 0 production files") }, violations.toString())
+        assertTrue(violations.any { it.contains("1 selected, 1 excluded") }, violations.toString())
     }
 
     @Test
     fun `a stale inventory entry fails`() {
-        val violations = DirectApprovalMutationGuard.verify(inventory, files = emptyList(), scannedFiles = 42)
+        val violations = DirectApprovalMutationGuard.verify(inventory, files = emptyList())
 
-        assertTrue(violations.single().contains("stale inventory entry"), violations.toString())
+        assertTrue(violations.any { it.contains("stale inventory entry") }, violations.toString())
     }
 
     @Test
     fun `an entry without a rationale fails`() {
         val unrationalised =
-            inventory.copy(
-                entries = listOf(DirectApprovalMutationEntry("a/B.kt", 1, "  ")),
-            )
+            inventory.copy(entries = listOf(DirectApprovalMutationEntry("a/B.kt", 1, "  ")))
 
-        val violations = DirectApprovalMutationGuard.verify(unrationalised, files = emptyList(), scannedFiles = 3)
+        val violations = DirectApprovalMutationGuard.verify(unrationalised, listOf(reviewedFile()))
 
         assertTrue(violations.any { it.contains("has no rationale") }, violations.toString())
     }
@@ -162,16 +224,8 @@ class DirectApprovalMutationGuardTest {
                 }.filterNot { (relative, _) -> inventory.excludes(relative) }
 
         assertTrue(files.isNotEmpty(), "the scan must not be empty")
-        assertEquals(emptyList(), DirectApprovalMutationGuard.verify(inventory, files, scannedFiles = files.size))
+        assertEquals(emptyList(), DirectApprovalMutationGuard.verify(inventory, files))
     }
-
-    private fun unreviewedFile(): Pair<String, String> {
-        val path = "tramai-engine/src/main/kotlin/Engine.kt"
-        return path to source("fun f(store: ApprovalStore) = store.transition(1)")
-    }
-
-    private fun reviewedFile() =
-        "tramai-security/src/main/kotlin/Coordinator.kt" to source("fun f(store: ApprovalStore) = store.transition(1)")
 
     private fun repositoryInventoryFile(): File {
         val candidates =
