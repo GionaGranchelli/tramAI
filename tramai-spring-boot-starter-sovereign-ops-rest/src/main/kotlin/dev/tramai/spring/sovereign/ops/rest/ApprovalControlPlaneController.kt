@@ -233,6 +233,18 @@ class ApprovalControlPlaneController(
                 staleResponse(result, approvalId)
             }
 
+            // 0.7.6e: an authorization refusal is not a business denial and not a conflict. 403 names the
+            // exact reason so a client can distinguish a missing capability from an unmet role requirement.
+            is ApprovalDecisionResult.Unauthorized -> {
+                ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                    ApprovalControlPlaneResponse(
+                        status = "UNAUTHORIZED",
+                        approvalId = approvalId,
+                        message = result.reason.wireName,
+                    ),
+                )
+            }
+
             is ApprovalDecisionResult.Expired -> {
                 ResponseEntity.status(HttpStatus.CONFLICT).body(
                     ApprovalControlPlaneResponse(

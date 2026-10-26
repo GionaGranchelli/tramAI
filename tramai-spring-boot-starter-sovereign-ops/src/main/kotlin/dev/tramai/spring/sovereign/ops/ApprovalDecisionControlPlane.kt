@@ -131,4 +131,36 @@ sealed interface ApprovalDecisionResult {
         val approvalId: ApprovalId,
         val reason: String,
     ) : ApprovalDecisionResult
+
+    /**
+     * The caller's verified authority does not permit this decision (0.7.6e).
+     *
+     * Distinct from [Denied], which is a *successful* business decision to deny an approval, and from
+     * [Conflict], which is an illegal transition. [reason] names the specific refusal so a caller and a
+     * test can tell a missing capability from an unmet per-approval role requirement without inferring
+     * it from a message.
+     */
+    data class Unauthorized(
+        val approvalId: ApprovalId,
+        val reason: ApprovalUnauthorizedReason,
+    ) : ApprovalDecisionResult
+}
+
+/**
+ * Why an otherwise well-formed decision was refused (0.7.6e).
+ *
+ * Every member is a refusal that happens **before** any authoritative mutation, so none of them can be
+ * confused with a business outcome.
+ */
+enum class ApprovalUnauthorizedReason(
+    val wireName: String,
+) {
+    /** The verified operator does not hold `OperatorCapability.DECIDE_APPROVAL`. */
+    MISSING_CAPABILITY("missing-capability"),
+
+    /** No approval policy is configured for the approval's `policyVersion`, so the requirement is unknown. */
+    APPROVAL_POLICY_UNAVAILABLE("approval-policy-unavailable"),
+
+    /** The verified approver roles do not intersect the roles this approval accepts. */
+    ROLE_NOT_PERMITTED("role-not-permitted"),
 }
