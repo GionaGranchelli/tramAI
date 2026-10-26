@@ -1,26 +1,13 @@
-public final class dev/tramai/spring/sovereign/ops/AllowAllApprovalDecisionAuthorizer : dev/tramai/spring/sovereign/ops/ApprovalDecisionAuthorizer {
-	public static final field INSTANCE Ldev/tramai/spring/sovereign/ops/AllowAllApprovalDecisionAuthorizer;
-	public fun canDecide-zxm_F4Y (Ldev/tramai/core/approval/ApprovalRequest;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/ApprovalDecisionType;)Z
-}
-
-public abstract interface class dev/tramai/spring/sovereign/ops/ApprovalDecisionAuthorizer {
-	public abstract fun canDecide-zxm_F4Y (Ldev/tramai/core/approval/ApprovalRequest;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/ApprovalDecisionType;)Z
-}
-
 public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionCommand {
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1-3qC8wes ()Ljava/lang/String;
-	public final fun component2 ()Ljava/lang/String;
-	public final fun component3-lKvXBlk ()Ljava/lang/String;
-	public final fun component4 ()J
-	public final fun component5 ()Ljava/lang/String;
-	public final fun component6 ()Ljava/lang/String;
-	public final fun copy-UbcWY0Q (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
-	public static synthetic fun copy-UbcWY0Q$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy-_sU59ic (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
+	public static synthetic fun copy-_sU59ic$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getActorId ()Ljava/lang/String;
-	public final fun getActorRole-lKvXBlk ()Ljava/lang/String;
 	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
 	public final fun getComment ()Ljava/lang/String;
 	public final fun getCorrelationId ()Ljava/lang/String;
@@ -30,13 +17,13 @@ public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionCommand {
 }
 
 public abstract interface class dev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlane {
-	public abstract fun approve (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun deny (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun approve (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun deny (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlaneAutoConfiguration {
 	public fun <init> ()V
-	public final fun sovereignOpsApprovalDecisionControlPlane (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlane;
+	public final fun sovereignOpsApprovalDecisionControlPlane (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Ldev/tramai/spring/sovereign/ops/OperatorApprovalPolicy;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlane;
 }
 
 public abstract interface class dev/tramai/spring/sovereign/ops/ApprovalDecisionResult {
@@ -548,7 +535,7 @@ public final class dev/tramai/spring/sovereign/ops/OperatorApprovalPolicy {
 }
 
 public final class dev/tramai/spring/sovereign/ops/OperatorAuthority {
-	public fun <init> (Ldev/tramai/core/operator/OperatorPrincipal;Ljava/util/Set;)V
+	public fun <init> (Ldev/tramai/core/operator/OperatorPrincipal;)V
 	public final fun authorize (Ldev/tramai/core/operator/OperatorCapability;)Ldev/tramai/core/operator/OperatorAuthorizationResult;
 	public final fun getApproverRoles ()Ljava/util/Set;
 	public final fun getIssuer ()Ljava/lang/String;
@@ -640,10 +627,10 @@ public final class dev/tramai/spring/sovereign/ops/SovereignAuditOperations$Defa
 }
 
 public final class dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane : dev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlane {
-	public fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Ldev/tramai/spring/sovereign/ops/ApprovalDecisionAuthorizer;Ljava/time/Clock;)V
-	public synthetic fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Ldev/tramai/spring/sovereign/ops/ApprovalDecisionAuthorizer;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun approve (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun deny (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Ldev/tramai/spring/sovereign/ops/OperatorApprovalPolicy;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Ldev/tramai/spring/sovereign/ops/OperatorApprovalPolicy;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun approve (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deny (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/SovereignOpsApprovalResumeControlPlane : dev/tramai/spring/sovereign/ops/ApprovalResumeControlPlane {
