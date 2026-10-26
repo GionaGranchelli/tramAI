@@ -36,6 +36,7 @@ class OperatorSubjectPolicyTest {
         OperatorPrincipalFactory(
             properties,
             OperatorCapabilityMapping(properties.roleClaim, properties.roleMappings),
+            OperatorApproverRoleMapping(properties.roleClaim, properties.approverRoleMappings),
             clock,
         )
 

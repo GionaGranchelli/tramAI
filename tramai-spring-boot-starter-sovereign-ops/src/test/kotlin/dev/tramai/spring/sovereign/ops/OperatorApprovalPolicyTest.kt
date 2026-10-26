@@ -24,8 +24,7 @@ class OperatorApprovalPolicyTest {
         capabilities: Set<OperatorCapability> = setOf(OperatorCapability.DECIDE_APPROVAL),
         approverRoles: Set<ApproverRole> = setOf(ApproverRole("medical-reviewer")),
     ) = OperatorAuthority(
-        principal = OperatorPrincipal(subject, issuer, now, capabilities),
-        approverRoles = approverRoles,
+        OperatorPrincipal(subject, issuer, now, capabilities, approverRoles),
     )
 
     private fun policy(vararg entries: Pair<String, Set<ApproverRole>>) = OperatorApprovalPolicy(entries.toMap())
@@ -124,10 +123,7 @@ class OperatorApprovalPolicyTest {
     fun `the authority snapshots approver roles instead of aliasing the caller collection`() {
         val mutableRoles = mutableSetOf(ApproverRole("medical-reviewer"))
         val authority =
-            OperatorAuthority(
-                OperatorPrincipal("operator-1", "https://issuer.example", now, emptySet()),
-                mutableRoles,
-            )
+            OperatorAuthority(OperatorPrincipal("operator-1", "https://issuer.example", now, emptySet(), mutableRoles))
 
         mutableRoles.add(ApproverRole("finance-reviewer"))
 

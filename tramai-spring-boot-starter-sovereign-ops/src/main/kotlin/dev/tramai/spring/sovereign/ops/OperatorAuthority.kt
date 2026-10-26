@@ -14,18 +14,16 @@ import dev.tramai.core.operator.OperatorPrincipal
  * [OperatorAuthority] or inject the adapter; that is inside the trust domain and outside the guarantee,
  * recorded rather than defended with cryptography (`TASK-0.7.6e-RUNTIME-AUTHORIZATION-CONTRACT.md` §1).
  *
- * [principal] carries the identity — `(issuer, subject)`, never a bare subject — and the capabilities the
- * authentication boundary resolved server-side. [approverRoles] carries the approver roles the same
- * boundary resolved for this operator, which is what a per-approval role requirement is checked against.
- *
- * Both collections are copied into immutable snapshots: a grant that can change after the boundary
- * produced it is not a snapshot of anything.
+ * [principal] carries the identity — `(issuer, subject)`, never a bare subject — plus the capabilities
+ * **and** approver roles the authentication boundary resolved server-side. The authority keeps no grant
+ * collection of its own: a second copy could disagree with the principal it claims to describe, and the
+ * principal already snapshots both sets immutably.
  */
 class OperatorAuthority(
     val principal: OperatorPrincipal,
-    approverRoles: Set<ApproverRole>,
 ) {
-    val approverRoles: Set<ApproverRole> = java.util.Collections.unmodifiableSet(LinkedHashSet(approverRoles))
+    /** The verified approver roles, read from the principal this authority wraps. */
+    val approverRoles: Set<ApproverRole> get() = principal.approverRoles
 
     /** The recorded actor for everything this authority decides: the verified identity provider subject. */
     val subject: String get() = principal.subject

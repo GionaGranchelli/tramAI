@@ -27,6 +27,7 @@ import java.time.Instant
 class OperatorPrincipalFactory(
     private val properties: OperatorSecurityProperties,
     private val capabilityMapping: OperatorCapabilityMapping,
+    private val approverRoleMapping: OperatorApproverRoleMapping,
     private val clock: Clock,
 ) {
     /** Converts a verified [jwt] into an immutable operator principal. */
@@ -41,6 +42,7 @@ class OperatorPrincipalFactory(
             issuer = issuer,
             authenticatedAt = verifiedAt,
             capabilities = capabilityMapping.capabilitiesFrom(jwt.claims),
+            approverRoles = approverRoleMapping.approverRolesFrom(jwt.claims),
         )
     }
 

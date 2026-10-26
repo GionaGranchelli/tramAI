@@ -13,8 +13,6 @@ import java.time.Instant
  * such; operator authorization is 0.7.6e.
  */
 data class ApproveDenyRequest(
-    val actorId: String,
-    val actorRole: String,
     val expectedVersion: Long? = null,
     val comment: String? = null,
     val correlationId: String? = null,

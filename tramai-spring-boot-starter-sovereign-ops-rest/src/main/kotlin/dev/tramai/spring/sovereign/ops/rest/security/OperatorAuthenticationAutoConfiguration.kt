@@ -1,5 +1,7 @@
 package dev.tramai.spring.sovereign.ops.rest.security
 
+import dev.tramai.core.approval.gateway.ApproverRole
+import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
@@ -61,6 +63,31 @@ class OperatorAuthenticationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    fun operatorApproverRoleMapping(properties: OperatorSecurityProperties): OperatorApproverRoleMapping =
+        OperatorApproverRoleMapping(properties.roleClaim, properties.approverRoleMappings)
+
+    /**
+     * The per-approval approver-role requirement (0.7.6e), keyed by an approval's persisted `policyVersion`.
+     *
+     * Deliberately **not** `@ConditionalOnMissingBean`: an alternative bean of this type is an
+     * ambiguous-injection startup failure rather than a quiet override, which is what keeps a host from
+     * installing an allow-all policy behind a green pipeline.
+     *
+     * Fails startup when authentication is enabled but no `approval-policies` entry exists, because an
+     * authorization boundary that cannot express a single requirement would authorize nothing while looking
+     * configured.
+     */
+    @Bean
+    fun operatorApprovalPolicy(properties: OperatorSecurityProperties): OperatorApprovalPolicy =
+        OperatorApprovalPolicy(
+            requireNotNull(properties.approvalPolicies.takeIf { it.isNotEmpty() }) {
+                "tramai-approval-policies-missing: tramai.sovereign.ops.security.enabled is true but no " +
+                    "approval-policies entry is configured, so no approval decision could be authorized"
+            }.mapValues { (_, roles) -> roles.map { ApproverRole(it) }.toSet() },
+        )
+
+    @Bean
+    @ConditionalOnMissingBean
     fun operatorClock(): Clock = Clock.systemUTC()
 
     @Bean
@@ -68,8 +95,10 @@ class OperatorAuthenticationAutoConfiguration {
     fun operatorPrincipalFactory(
         properties: OperatorSecurityProperties,
         capabilityMapping: OperatorCapabilityMapping,
+        approverRoleMapping: OperatorApproverRoleMapping,
         clock: Clock,
-    ): OperatorPrincipalFactory = OperatorPrincipalFactory(properties, capabilityMapping, clock)
+    ): OperatorPrincipalFactory =
+        OperatorPrincipalFactory(properties, capabilityMapping, approverRoleMapping, clock)
 
     @Bean
     @ConditionalOnMissingBean

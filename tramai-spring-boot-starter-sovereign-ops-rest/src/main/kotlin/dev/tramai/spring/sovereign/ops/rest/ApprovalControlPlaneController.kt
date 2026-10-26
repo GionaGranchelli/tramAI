@@ -6,6 +6,7 @@ import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
@@ -77,6 +78,7 @@ class ApprovalControlPlaneController(
     fun approve(
         @PathVariable approvalId: String,
         @RequestBody request: ApproveDenyRequest,
+        authority: OperatorAuthority,
     ): ResponseEntity<ApprovalControlPlaneResponse> =
         runBlocking {
             val expectedVersion = request.expectedVersion
@@ -87,12 +89,11 @@ class ApprovalControlPlaneController(
                 decisionControlPlane.approve(
                     ApprovalDecisionCommand(
                         approvalId = parseOrBadRequest { ApprovalId(approvalId) },
-                        actorId = request.actorId,
-                        actorRole = parseOrBadRequest { ApproverRole(request.actorRole) },
                         expectedVersion = expectedVersion,
                         comment = request.comment,
                         correlationId = request.correlationId,
                     ),
+                    authority,
                 )
             mapDecisionResult(result, approvalId)
         }
@@ -101,6 +102,7 @@ class ApprovalControlPlaneController(
     fun deny(
         @PathVariable approvalId: String,
         @RequestBody request: ApproveDenyRequest,
+        authority: OperatorAuthority,
     ): ResponseEntity<ApprovalControlPlaneResponse> =
         runBlocking {
             val expectedVersion = request.expectedVersion
@@ -111,12 +113,11 @@ class ApprovalControlPlaneController(
                 decisionControlPlane.deny(
                     ApprovalDecisionCommand(
                         approvalId = parseOrBadRequest { ApprovalId(approvalId) },
-                        actorId = request.actorId,
-                        actorRole = parseOrBadRequest { ApproverRole(request.actorRole) },
                         expectedVersion = expectedVersion,
                         comment = request.comment,
                         correlationId = request.correlationId,
                     ),
+                    authority,
                 )
             mapDecisionResult(result, approvalId)
         }

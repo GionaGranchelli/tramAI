@@ -44,6 +44,26 @@ class ApprovalDecisionConcurrencyTest {
     private val now: Instant = Instant.parse("2026-06-25T10:15:30Z")
     private val clock: Clock = Clock.fixed(now, ZoneOffset.UTC)
 
+    /**
+     * The authority the migrated tests decide under: authenticated, holding DECIDE_APPROVAL, and holding the
+     * approver role the fixture approvals require. Every decision call passes it explicitly, because the
+     * control plane no longer accepts identity from the command.
+     */
+    private val operatorAuthority =
+        OperatorAuthority(
+            OperatorPrincipal(
+                subject = "test-operator",
+                issuer = "https://issuer.example",
+                authenticatedAt = Instant.parse("2026-10-25T09:00:00Z"),
+                capabilities = setOf(OperatorCapability.DECIDE_APPROVAL),
+                approverRoles = setOf(ApproverRole("medical-reviewer")),
+            ),
+        )
+
+    /** Requirement for the fixture approvals, which are all recorded at `policyVersion = "v1"`. */
+    private val testApprovalPolicy =
+        OperatorApprovalPolicy(mapOf("v1" to setOf(ApproverRole("medical-reviewer"))))
+
     private fun digest(seed: String): Sha256Digest = Sha256Digest.of("sha256:${seed.repeat(64).take(64)}")
 
     private fun pending(version: Long = 0L): ApprovalRequest =
@@ -73,8 +93,6 @@ class ApprovalDecisionConcurrencyTest {
     private fun command(expectedVersion: Long): ApprovalDecisionCommand =
         ApprovalDecisionCommand(
             approvalId = ApprovalId("approval-1"),
-            actorId = "reviewer-1",
-            actorRole = ApproverRole("medical-reviewer"),
             expectedVersion = expectedVersion,
             comment = "review complete",
             correlationId = "corr-1",
@@ -84,6 +102,7 @@ class ApprovalDecisionConcurrencyTest {
         fixture: Fixture,
         mutations: SovereignOpsApprovalMutationStore = fixture.mutations,
     ) = SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
         approvalStore = fixture.approvals,
         mutationStore = mutations,
         clock = clock,
@@ -94,10 +113,10 @@ class ApprovalDecisionConcurrencyTest {
         runBlocking {
             val fixture = Fixture(pending(version = 0L))
             val decisions = controlPlane(fixture)
-            assertThat(decisions.approve(command(0L)))
+            assertThat(decisions.approve(command(0L), operatorAuthority))
                 .isInstanceOf(ApprovalDecisionResult.Approved::class.java)
 
-            val stale = decisions.deny(command(0L))
+            val stale = decisions.deny(command(0L), operatorAuthority)
 
             assertThat(stale).isEqualTo(
                 ApprovalDecisionResult.Stale(
@@ -122,11 +141,11 @@ class ApprovalDecisionConcurrencyTest {
         runBlocking {
             val fixture = Fixture(pending(version = 0L))
             val decisions = controlPlane(fixture)
-            decisions.approve(command(0L))
+            decisions.approve(command(0L), operatorAuthority)
 
             // A caller holding version 0 never made the earlier decision, so it must not be told
             // "already approved" as though its own command had succeeded.
-            assertThat(decisions.approve(command(0L)))
+            assertThat(decisions.approve(command(0L), operatorAuthority))
                 .isEqualTo(
                     ApprovalDecisionResult.Stale(
                         approvalId = ApprovalId("approval-1"),
@@ -144,11 +163,11 @@ class ApprovalDecisionConcurrencyTest {
         runBlocking {
             val fixture = Fixture(pending(version = 0L))
             val decisions = controlPlane(fixture)
-            decisions.approve(command(0L))
+            decisions.approve(command(0L), operatorAuthority)
 
-            assertThat(decisions.approve(command(1L)))
+            assertThat(decisions.approve(command(1L), operatorAuthority))
                 .isInstanceOf(ApprovalDecisionResult.AlreadyApproved::class.java)
-            assertThat(decisions.deny(command(1L)))
+            assertThat(decisions.deny(command(1L), operatorAuthority))
                 .isInstanceOf(ApprovalDecisionResult.AlreadyApproved::class.java)
             assertThat(requireNotNull(fixture.approvals.get("approval-1")).version).isEqualTo(1L)
         }
@@ -159,7 +178,7 @@ class ApprovalDecisionConcurrencyTest {
         runBlocking {
             val fixture = Fixture(pending())
 
-            assertThat(controlPlane(fixture).approve(command(0L).copy(approvalId = ApprovalId("nonexistent"))))
+            assertThat(controlPlane(fixture).approve(command(0L).copy(approvalId = ApprovalId("nonexistent")), operatorAuthority))
                 .isEqualTo(ApprovalDecisionResult.NotFound(ApprovalId("nonexistent")))
             assertThat(requireNotNull(fixture.approvals.get("approval-1")).version).isZero()
             assertThat(fixture.outbox.listByStatus(SovereignOpsAuditOutboxStatus.PENDING, 10)).isEmpty()
@@ -172,7 +191,7 @@ class ApprovalDecisionConcurrencyTest {
             val expired = pending().copy(expiresAt = now.minusSeconds(1))
             val fixture = Fixture(expired)
 
-            assertThat(controlPlane(fixture).approve(command(0L)))
+            assertThat(controlPlane(fixture).approve(command(0L), operatorAuthority))
                 .isEqualTo(ApprovalDecisionResult.Expired(ApprovalId("approval-1"), expired.expiresAt))
             assertThat(requireNotNull(fixture.approvals.get("approval-1")).status)
                 .isEqualTo(ApprovalStatus.PENDING)
@@ -189,8 +208,8 @@ class ApprovalDecisionConcurrencyTest {
         val decisions = controlPlane(fixture)
         val pool = Executors.newFixedThreadPool(2)
         try {
-            val approve = pool.submit(Callable { runBlocking { decisions.approve(command(0L)) } })
-            val deny = pool.submit(Callable { runBlocking { decisions.deny(command(0L)) } })
+            val approve = pool.submit(Callable { runBlocking { decisions.approve(command(0L), operatorAuthority) } })
+            val deny = pool.submit(Callable { runBlocking { decisions.deny(command(0L), operatorAuthority) } })
             val results = listOf(approve.get(30, TimeUnit.SECONDS), deny.get(30, TimeUnit.SECONDS))
 
             val committed =
@@ -223,7 +242,7 @@ class ApprovalDecisionConcurrencyTest {
             val fixture = Fixture(pending(version = 0L))
             val recording = VersionCapturingMutationStore(fixture.mutations)
 
-            controlPlane(fixture, recording).approve(command(0L))
+            controlPlane(fixture, recording).approve(command(0L), operatorAuthority)
 
             assertThat(recording.expectedVersions).containsExactly(0L)
         }
@@ -235,7 +254,7 @@ class ApprovalDecisionConcurrencyTest {
             val fixture = Fixture(pending(version = 3L))
             val recording = VersionCapturingMutationStore(fixture.mutations)
 
-            assertThat(controlPlane(fixture, recording).approve(command(0L)))
+            assertThat(controlPlane(fixture, recording).approve(command(0L), operatorAuthority))
                 .isInstanceOf(ApprovalDecisionResult.Stale::class.java)
             assertThat(recording.expectedVersions)
                 .describedAs("no mutation attempt for a stale command")
@@ -249,8 +268,6 @@ class ApprovalDecisionConcurrencyTest {
             assertThrows<IllegalArgumentException> {
                 ApprovalDecisionCommand(
                     approvalId = ApprovalId("approval-1"),
-                    actorId = "reviewer-1",
-                    actorRole = ApproverRole("medical-reviewer"),
                     expectedVersion = -1L,
                 )
             }
@@ -273,7 +290,7 @@ class ApprovalDecisionConcurrencyTest {
                 )
             val fixture = Fixture(pending(version = 0L))
 
-            assertThat(controlPlane(fixture).approve(command(0L)))
+            assertThat(controlPlane(fixture).approve(command(0L), operatorAuthority))
                 .isInstanceOf(ApprovalDecisionResult.Approved::class.java)
             assertThat(
                 ApprovalDecisionCommand::class.java.constructors

@@ -10,6 +10,7 @@ import dev.tramai.core.approval.ClaimedApprovalContinuation
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
@@ -187,9 +188,15 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     // -- stub implementations --
 
     private class DecisionControlPlaneStub : ApprovalDecisionControlPlane {
-        override suspend fun approve(command: ApprovalDecisionCommand): ApprovalDecisionResult =
+        override suspend fun approve(
+            command: ApprovalDecisionCommand,
+            authority: OperatorAuthority,
+        ): ApprovalDecisionResult =
             ApprovalDecisionResult.NotFound(command.approvalId)
-        override suspend fun deny(command: ApprovalDecisionCommand): ApprovalDecisionResult =
+        override suspend fun deny(
+            command: ApprovalDecisionCommand,
+            authority: OperatorAuthority,
+        ): ApprovalDecisionResult =
             ApprovalDecisionResult.NotFound(command.approvalId)
     }
 
