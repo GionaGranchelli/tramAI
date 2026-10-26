@@ -147,6 +147,83 @@ class DirectApprovalMutationGuardTest {
         assertEquals(1, DirectApprovalMutationGuard.detect(files).single().callSites)
     }
 
+    /**
+     * Scanner integrity: a block-comment opener written inside a line comment must stay text. Otherwise the opener
+     * swallows the rest of the file and a real, unreviewed call becomes invisible - the exact false negative this
+     * guard exists to prevent.
+     */
+    @Test
+    fun `a line comment containing a block comment opener cannot hide a call`() {
+        val hiding =
+            """
+            package x
+
+            import dev.tramai.core.approval.ApprovalStore
+
+            // /* legacy note
+            suspend fun decide(store: ApprovalStore) {
+                store.transition(/* actual arguments */ 1)
+            }
+            """.trimIndent()
+        val files = listOf(reviewedFile(), "tramai-engine/src/main/kotlin/Hidden.kt" to hiding)
+
+        val violations = DirectApprovalMutationGuard.verify(inventory, files)
+
+        assertEquals(1, violations.size, violations.toString())
+        assertTrue(violations.single().contains("unreviewed direct approval mutation in tramai-engine"))
+        assertEquals(1, DirectApprovalMutationGuard.detect(files).single { it.path.endsWith("Hidden.kt") }.callSites)
+    }
+
+    /** The mirrored case: a line-comment marker inside a block comment must not end the block early or hide code. */
+    @Test
+    fun `a block comment containing a line comment marker does not hide a call`() {
+        val hiding =
+            """
+            package x
+
+            import dev.tramai.core.approval.ApprovalStore
+
+            /* legacy // note */
+            suspend fun decide(store: ApprovalStore) {
+                store.transition(1)
+            }
+            """.trimIndent()
+
+        val sites = DirectApprovalMutationGuard.detect(listOf("tramai-engine/src/main/kotlin/Hidden2.kt" to hiding))
+
+        assertEquals(1, sites.single().callSites)
+    }
+
+    /** A quote inside a comment must not open a literal, and a comment inside a literal must not open a comment. */
+    @Test
+    fun `quotes and comments do not leak across constructs`() {
+        val quotedComment =
+            source(
+                "val s = \"// not a comment /* nor this */\"\n" +
+                    "fun f(store: ApprovalStore) = store.transition(1)",
+            )
+        val commentQuote = source("// a stray \" in a comment\nfun f(store: ApprovalStore) = store.transition(1)")
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/Q.kt" to quotedComment)).single().callSites)
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/R.kt" to commentQuote)).single().callSites)
+    }
+
+    /** A character literal holding a quote must not be read as the start of a string. */
+    @Test
+    fun `a quote character literal does not open a string`() {
+        val text = source("val q = '\"'\nfun f(store: ApprovalStore) = store.transition(1)")
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/S.kt" to text)).single().callSites)
+    }
+
+    /** A call spelled inside a string literal is not a call site. */
+    @Test
+    fun `a call inside a string literal is not a call site`() {
+        val text = source("val s = \"store.transition(1)\"\nfun f(store: ApprovalStore) { }")
+
+        assertEquals(emptyList(), DirectApprovalMutationGuard.detect(listOf("a/T.kt" to text)))
+    }
+
     @Test
     fun `a vacuous scan fails instead of passing`() {
         val violations = DirectApprovalMutationGuard.verify(inventory, files = emptyList())

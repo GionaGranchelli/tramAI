@@ -31,6 +31,7 @@ object DirectApprovalMutationGuard {
      * ordinary fully qualified call site visible; it deliberately over-selects (see the class KDoc).
      */
     private val approvalReference = Regex("""dev\.tramai\.core\.approval""")
+    private val charLiteral = Regex("""'(\\.|[^'\\\n])'""")
 
     /** One production file that calls the direct mutation path, with the number of call sites in it. */
     data class DetectedSite(
@@ -39,97 +40,91 @@ object DirectApprovalMutationGuard {
     )
 
     /**
-     * Removes line, trailing and block comments so a commented-out call is not counted. String literals are copied
-     * through untouched, so a URL in a string cannot be mistaken for a comment; triple-quoted raw strings are not
-     * modelled (a `//` inside one may be stripped).
+     * Removes comments in a single lexical pass, so no construct can be mistaken for another: a block-comment opener
+     * written inside a line comment is text, and both comment forms are inert inside a quoted literal. String contents
+     * are dropped (quotes kept) so a `transition` spelled inside a literal is not a call site. Triple-quoted raw
+     * strings are not modelled: their interior is treated as code.
      */
-    internal fun stripComments(source: String): String = stripLineComments(stripBlockComments(source))
-
-    private fun stripBlockComments(source: String): String {
+    internal fun stripComments(source: String): String {
         val out = StringBuilder(source.length)
         var index = 0
-        var inString = false
-        var inBlock = false
         while (index < source.length) {
-            val current = source[index]
-            val next = source.getOrNull(index + 1) ?: '\u0000'
-            when {
-                inBlock -> {
-                    if (current == '*' && next == '/') {
-                        inBlock = false
-                        index++
-                    } else if (current == '\n') {
-                        out.append('\n')
-                    }
+            index =
+                when {
+                    source.startsWith("//", index) -> skipLineComment(source, index, out)
+                    source.startsWith("/*", index) -> skipBlockComment(source, index, out)
+                    source[index] == '"' -> skipStringLiteral(source, index, out)
+                    source[index] == '\'' -> copyCharLiteral(source, index, out)
+                    else -> appendCode(source, index, out)
                 }
-
-                inString -> {
-                    out.append(current)
-                    index = consumeEscape(source, index, out, current)
-                    if (current == '"') inString = false
-                }
-
-                current == '"' -> {
-                    inString = true
-                    out.append(current)
-                }
-
-                current == '/' && next == '*' -> {
-                    inBlock = true
-                    index++
-                }
-
-                else -> {
-                    out.append(current)
-                }
-            }
-            index++
         }
         return out.toString()
     }
 
-    private fun stripLineComments(source: String): String {
-        val out = StringBuilder(source.length)
-        var index = 0
-        var inString = false
-        while (index < source.length) {
-            val current = source[index]
-            val next = source.getOrNull(index + 1) ?: '\u0000'
-            when {
-                inString -> {
-                    out.append(current)
-                    index = consumeEscape(source, index, out, current)
-                    if (current == '"') inString = false
-                }
-
-                current == '"' -> {
-                    inString = true
-                    out.append(current)
-                }
-
-                current == '/' && next == '/' -> {
-                    while (index < source.length && source[index] != '\n') index++
-                    out.append('\n')
-                }
-
-                else -> {
-                    out.append(current)
-                }
-            }
-            index++
-        }
-        return out.toString()
+    /** Consumes `//` to end of line; the newline is preserved so nothing downstream depends on line joining. */
+    private fun skipLineComment(
+        source: String,
+        start: Int,
+        out: StringBuilder,
+    ): Int {
+        var index = start
+        while (index < source.length && source[index] != '\n') index++
+        out.append('\n')
+        return index + 1
     }
 
-    /** Copies an escaped character verbatim; returns the index it consumed (unchanged when not an escape). */
-    private fun consumeEscape(
+    /** Consumes a block comment to its terminator, preserving newlines. An unterminated one consumes the rest. */
+    private fun skipBlockComment(
+        source: String,
+        start: Int,
+        out: StringBuilder,
+    ): Int {
+        var index = start + 2
+        while (index < source.length) {
+            if (source.startsWith("*/", index)) return index + 2
+            if (source[index] == '\n') out.append('\n')
+            index++
+        }
+        return index
+    }
+
+    /** Consumes a quoted literal, keeping only its quotes. */
+    private fun skipStringLiteral(
+        source: String,
+        start: Int,
+        out: StringBuilder,
+    ): Int {
+        out.append("\"\"")
+        var index = start + 1
+        while (index < source.length) {
+            val current = source[index]
+            if (current == '"') return index + 1
+            index += if (current == '\\') 2 else 1
+        }
+        return index
+    }
+
+    /** Copies a character literal verbatim (a quote character must not open a string); anything else is code. */
+    private fun copyCharLiteral(
+        source: String,
+        start: Int,
+        out: StringBuilder,
+    ): Int {
+        val literal = charLiteral.find(source, start)?.takeIf { it.range.first == start }
+        if (literal == null) {
+            out.append(source[start])
+            return start + 1
+        }
+        out.append(literal.value)
+        return literal.range.last + 1
+    }
+
+    private fun appendCode(
         source: String,
         index: Int,
         out: StringBuilder,
-        current: Char,
     ): Int {
-        if (current != '\\') return index
-        source.getOrNull(index + 1)?.let { out.append(it) }
+        out.append(source[index])
         return index + 1
     }
 
