@@ -15,6 +15,8 @@ import dev.tramai.core.model.SideEffectLevel
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.TramaiTool
+import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.core.operator.OperatorPrincipal
 import dev.tramai.core.policy.ApprovalMode
 import dev.tramai.core.policy.AuditDetail
 import dev.tramai.core.policy.ManagedNetworkEgress
@@ -26,12 +28,7 @@ import dev.tramai.engine.approval.testing.TestApprovalGatewayRequestFactory
 import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.SovereignTramaiRuntime
 import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
-import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
-import dev.tramai.core.operator.OperatorCapability
-import dev.tramai.core.operator.OperatorPrincipal
-import dev.tramai.spring.sovereign.ops.OperatorAuthority
-import java.time.Instant
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
@@ -40,6 +37,8 @@ import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
+import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres
@@ -57,6 +56,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import java.nio.file.Path
 import java.sql.SQLException
+import java.time.Instant
 import java.util.Base64
 import javax.sql.DataSource
 
@@ -526,8 +526,6 @@ object EmbeddedPgHolder {
         if (current.isNotBlank()) statements.add(current.toString())
         return statements
     }
-
-
 }
 
 /** One-line command builder: the decision tests stay readable and inside the length ceiling. */

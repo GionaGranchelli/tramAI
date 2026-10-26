@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.ops
 
+import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalId
@@ -7,6 +8,7 @@ import dev.tramai.core.exception.ApprovalStoreConflictException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
@@ -59,123 +61,29 @@ class SovereignOpsApprovalDecisionControlPlane(
         authority: OperatorAuthority,
         decisionType: ApprovalDecisionType,
     ): ApprovalDecisionResult {
-        // L2, before any state is read: a caller without the capability learns nothing about the approval,
-        // not even whether it exists. This is the only layer whose refusal is existence-blind.
-        if (!authority.holds(OperatorCapability.DECIDE_APPROVAL)) {
-            return ApprovalDecisionResult.Unauthorized(
-                approvalId = command.approvalId,
-                reason = ApprovalUnauthorizedReason.MISSING_CAPABILITY,
-            )
+        // The capability gate runs before the lookup; everything after it necessarily follows a read.
+        capabilityRefusal(command, authority)?.let { return it }
+        val approval = approvalStore.get(command.approvalId.value)
+        return if (approval == null) {
+            ApprovalDecisionResult.NotFound(command.approvalId)
+        } else {
+            approvalRefusal(approval, approvalPolicy, authority)
+                ?: preconditionRefusal(command, approval, clock)
+                ?: mutate(command, approval, authority, decisionType)
         }
+    }
 
-        val approval =
-            approvalStore.get(command.approvalId.value)
-                ?: return ApprovalDecisionResult.NotFound(command.approvalId)
-
-        // L3, after the lookup because the requirement is keyed by the approval's own persisted
-        // policyVersion. A capability holder can therefore distinguish exists-and-role-denied from absent;
-        // that disclosure is accepted and recorded in the contract (section 2).
-        approvalPolicy.evaluate(approval.binding.policyVersion, authority)?.let { refusal ->
-            return ApprovalDecisionResult.Unauthorized(approvalId = ApprovalId(approval.approvalId), reason = refusal)
-        }
-
-        // The caller's observed version is the concurrency precondition, checked before anything else. In
-        // particular it is checked before the terminal-state shortcuts below: a caller holding a stale
-        // version must learn that its precondition is stale, not receive an apparently successful
-        // "already decided" answer for a decision it did not make.
-        if (command.expectedVersion != approval.version) {
-            return ApprovalDecisionResult.Stale(
-                approvalId = command.approvalId,
-                expectedVersion = command.expectedVersion,
-                currentVersion = approval.version,
-            )
-        }
-
-        // A decision increments the version by one. Refusing at the top of the domain keeps that arithmetic
-        // from wrapping into a value that looks like a fresh approval.
-        if (approval.version == Long.MAX_VALUE) {
-            return ApprovalDecisionResult.Conflict(
-                approvalId = ApprovalId(approval.approvalId),
-                reason = "tramai-approval-version-exhausted",
-            )
-        }
-
+    private suspend fun mutate(
+        command: ApprovalDecisionCommand,
+        approval: ApprovalRequest,
+        authority: OperatorAuthority,
+        decisionType: ApprovalDecisionType,
+    ): ApprovalDecisionResult {
         val now = clock.instant()
-
-        if (approval.status == ApprovalStatus.APPROVED) {
-            return ApprovalDecisionResult.AlreadyApproved(
-                approvalId = ApprovalId(approval.approvalId),
-                decidedBy = requireNotNull(approval.decidedBy) { "already approved but no decider" },
-                decidedAt = requireNotNull(approval.decidedAt) { "already approved but no timestamp" },
-            )
-        }
-        if (approval.status == ApprovalStatus.DENIED) {
-            return ApprovalDecisionResult.AlreadyDenied(
-                approvalId = ApprovalId(approval.approvalId),
-                decidedBy = requireNotNull(approval.decidedBy) { "already denied but no decider" },
-                decidedAt = requireNotNull(approval.decidedAt) { "already denied but no timestamp" },
-            )
-        }
-        if (approval.status != ApprovalStatus.PENDING) {
-            return ApprovalDecisionResult.Conflict(
-                approvalId = ApprovalId(approval.approvalId),
-                reason = "approval-invalid-status-${approval.status.name}",
-            )
-        }
-        if (!approval.expiresAt.isAfter(now)) {
-            return ApprovalDecisionResult.Expired(command.approvalId, approval.expiresAt)
-        }
-
-        val eventKey =
-            when (decisionType) {
-                ApprovalDecisionType.APPROVE -> "approval-approved.${command.approvalId.value}"
-                ApprovalDecisionType.DENY -> "approval-denied.${command.approvalId.value}"
-            }
-        val auditIntent =
-            SovereignOpsAuditOutboxRecord(
-                outboxId = UUID.randomUUID().toString(),
-                aggregateType = "approval",
-                operation = eventKey,
-                aggregateIdDigest = sha256Hex(command.approvalId.value),
-                eventKey = eventKey,
-                actor = authority.subject,
-                workflowRunId = approval.binding.workflowRunId,
-                correlationId = command.correlationId,
-                approvalStatus =
-                    when (decisionType) {
-                        ApprovalDecisionType.APPROVE -> ApprovalStatus.APPROVED.name
-                        ApprovalDecisionType.DENY -> ApprovalStatus.DENIED.name
-                    },
-                approvalVersion = approval.version + 1,
-                reasonDigest = command.comment?.let { sha256Hex(it) } ?: sha256Hex(eventKey),
-                reasonLength = command.comment?.length ?: eventKey.length,
-                createdAt = now,
-                status = SovereignOpsAuditOutboxStatus.PREPARED,
-            )
+        val auditIntent = auditIntentFor(command, approval, authority, decisionType, now)
 
         return try {
-            val result =
-                when (decisionType) {
-                    ApprovalDecisionType.APPROVE -> {
-                        mutationStore.approveApprovalWithAuditIntent(
-                            approvalId = approval.approvalId,
-                            expectedVersion = command.expectedVersion,
-                            actor = authority.subject,
-                            reason = command.comment ?: eventKey,
-                            auditIntent = auditIntent,
-                        )
-                    }
-
-                    ApprovalDecisionType.DENY -> {
-                        mutationStore.denyApprovalWithAuditIntent(
-                            approvalId = approval.approvalId,
-                            expectedVersion = command.expectedVersion,
-                            actor = authority.subject,
-                            reason = command.comment ?: eventKey,
-                            auditIntent = auditIntent,
-                        )
-                    }
-                }
+            val result = applyMutation(mutationStore, command, authority, decisionType, auditIntent)
 
             when (decisionType) {
                 ApprovalDecisionType.APPROVE -> {
@@ -244,3 +152,159 @@ class SovereignOpsApprovalDecisionControlPlane(
         return "sha256:${hash.joinToString("") { "%02x".format(it) }}"
     }
 }
+
+/**
+ * L2: the capability gate, evaluated **before any state is read**.
+ *
+ * This is the only refusal in the system that is existence-blind: a caller without `DECIDE_APPROVAL`
+ * receives the same answer whether or not the approval exists, so the endpoint cannot be used to probe for
+ * approvals. Every later refusal necessarily follows a lookup and therefore discloses existence, which the
+ * contract accepts and records.
+ */
+/** Digest helper shared by the audit-intent construction. */
+private fun sha256Hex(input: String): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val hash = digest.digest(input.toByteArray(Charsets.UTF_8))
+    return "sha256:${hash.joinToString("") { "%02x".format(it) }}"
+}
+
+private fun capabilityRefusal(
+    command: ApprovalDecisionCommand,
+    authority: OperatorAuthority,
+): ApprovalDecisionResult? =
+    if (authority.holds(OperatorCapability.DECIDE_APPROVAL)) {
+        null
+    } else {
+        ApprovalDecisionResult.Unauthorized(command.approvalId, ApprovalUnauthorizedReason.MISSING_CAPABILITY)
+    }
+
+/**
+ * L3: the per-approval role requirement, evaluated after the lookup because it is keyed by the approval's
+ * own persisted `policyVersion`.
+ */
+private fun approvalRefusal(
+    approval: ApprovalRequest,
+    approvalPolicy: OperatorApprovalPolicy,
+    authority: OperatorAuthority,
+): ApprovalDecisionResult? =
+    approvalPolicy.evaluate(approval.binding.policyVersion, authority)?.let { refusal ->
+        ApprovalDecisionResult.Unauthorized(ApprovalId(approval.approvalId), refusal)
+    }
+
+/**
+ * The 0.7.6d preconditions, in their committed order.
+ *
+ * The caller's observed version is checked before the terminal-state shortcuts: a caller holding a stale
+ * version must learn that its precondition is stale, not receive an apparently successful "already decided"
+ * answer for a decision it did not make. Version exhaustion is refused at the top of the domain so the
+ * increment cannot wrap into a value that looks like a fresh approval.
+ */
+private fun preconditionRefusal(
+    command: ApprovalDecisionCommand,
+    approval: ApprovalRequest,
+    clock: Clock,
+): ApprovalDecisionResult? {
+    val approvalId = ApprovalId(approval.approvalId)
+    val now = clock.instant()
+    return when {
+        command.expectedVersion != approval.version ->
+            ApprovalDecisionResult.Stale(command.approvalId, command.expectedVersion, approval.version)
+
+        approval.version == Long.MAX_VALUE ->
+            ApprovalDecisionResult.Conflict(approvalId, "tramai-approval-version-exhausted")
+
+        approval.status == ApprovalStatus.APPROVED ->
+            ApprovalDecisionResult.AlreadyApproved(
+                approvalId,
+                requireNotNull(approval.decidedBy) { "already approved but no decider" },
+                requireNotNull(approval.decidedAt) { "already approved but no timestamp" },
+            )
+
+        approval.status == ApprovalStatus.DENIED ->
+            ApprovalDecisionResult.AlreadyDenied(
+                approvalId,
+                requireNotNull(approval.decidedBy) { "already denied but no decider" },
+                requireNotNull(approval.decidedAt) { "already denied but no timestamp" },
+            )
+
+        approval.status != ApprovalStatus.PENDING ->
+            ApprovalDecisionResult.Conflict(approvalId, "approval-invalid-status-${approval.status.name}")
+
+        !approval.expiresAt.isAfter(now) ->
+            ApprovalDecisionResult.Expired(command.approvalId, approval.expiresAt)
+
+        else -> null
+    }
+}
+
+/** The audit event key for a decision; derived, never carried on the command. */
+private fun eventKeyFor(
+    command: ApprovalDecisionCommand,
+    decisionType: ApprovalDecisionType,
+): String =
+    when (decisionType) {
+        ApprovalDecisionType.APPROVE -> "approval-approved.${command.approvalId.value}"
+        ApprovalDecisionType.DENY -> "approval-denied.${command.approvalId.value}"
+    }
+
+/**
+ * Dispatch to the authoritative mutation store.
+ *
+ * Extracted so the decision path reads as guards-then-write, and so the deny/approve symmetry is one
+ * `when` rather than two copies of five arguments inside a try block.
+ */
+private suspend fun applyMutation(
+    mutationStore: SovereignOpsApprovalMutationStore,
+    command: ApprovalDecisionCommand,
+    authority: OperatorAuthority,
+    decisionType: ApprovalDecisionType,
+    auditIntent: SovereignOpsAuditOutboxRecord,
+): SovereignOpsApprovalMutationResult =
+    when (decisionType) {
+        ApprovalDecisionType.APPROVE ->
+            mutationStore.approveApprovalWithAuditIntent(
+                approvalId = command.approvalId.value,
+                expectedVersion = command.expectedVersion,
+                actor = authority.subject,
+                reason = command.comment ?: eventKeyFor(command, decisionType),
+                auditIntent = auditIntent,
+            )
+
+        ApprovalDecisionType.DENY ->
+            mutationStore.denyApprovalWithAuditIntent(
+                approvalId = command.approvalId.value,
+                expectedVersion = command.expectedVersion,
+                actor = authority.subject,
+                reason = command.comment ?: eventKeyFor(command, decisionType),
+                auditIntent = auditIntent,
+            )
+    }
+
+/** Builds the PREPARED audit intent for this decision. Kept separate so the write path stays readable. */
+private fun auditIntentFor(
+    command: ApprovalDecisionCommand,
+    approval: ApprovalRequest,
+    authority: OperatorAuthority,
+    decisionType: ApprovalDecisionType,
+    now: java.time.Instant,
+): SovereignOpsAuditOutboxRecord =
+        SovereignOpsAuditOutboxRecord(
+            outboxId = UUID.randomUUID().toString(),
+            aggregateType = "approval",
+            operation = eventKeyFor(command, decisionType),
+            aggregateIdDigest = sha256Hex(command.approvalId.value),
+            eventKey = eventKeyFor(command, decisionType),
+            actor = authority.subject,
+            workflowRunId = approval.binding.workflowRunId,
+            correlationId = command.correlationId,
+            approvalStatus =
+                when (decisionType) {
+                    ApprovalDecisionType.APPROVE -> ApprovalStatus.APPROVED.name
+                    ApprovalDecisionType.DENY -> ApprovalStatus.DENIED.name
+                },
+            approvalVersion = approval.version + 1,
+            reasonDigest = command.comment?.let { sha256Hex(it) } ?: sha256Hex(eventKeyFor(command, decisionType)),
+            reasonLength = command.comment?.length ?: eventKeyFor(command, decisionType).length,
+            createdAt = now,
+            status = SovereignOpsAuditOutboxStatus.PREPARED,
+        )

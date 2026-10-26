@@ -195,7 +195,10 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     @Configuration
     open class CustomInboxControllerConfig {
         @Bean
-        open fun customApprovalInboxController(): ApprovalInboxController = ApprovalInboxController(InboxQueryServiceStub())
+        open fun customApprovalInboxController(): ApprovalInboxController {
+            val controller = ApprovalInboxController(InboxQueryServiceStub())
+            return controller
+        }
     }
 
     // -- stub implementations --
@@ -457,6 +460,7 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
                 ),
             )
     }
+
     /**
      * A host that supplies a valid policy but leaves authentication off must not get an accessible endpoint.
      *
@@ -470,21 +474,17 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         ApplicationContextRunner()
             .withConfiguration(
                 AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
-            )
-            .withUserConfiguration(
+            ).withUserConfiguration(
                 TestControlPlanesConfig::class.java,
                 TestStoresConfig::class.java,
                 SecurityPolicyConfig::class.java,
-            )
-            .withPropertyValues(
+            ).withPropertyValues(
                 "tramai.sovereign.ops.rest-control-plane-enabled=true",
                 "tramai.sovereign.ops.security.enabled=false",
-            )
-            .run { context ->
+            ).run { context ->
                 assertThat(context).hasFailed()
                 assertThat(context.startupFailure)
                     .hasMessageContaining("tramai-rest-control-plane-requires-operator-security")
             }
     }
-
 }

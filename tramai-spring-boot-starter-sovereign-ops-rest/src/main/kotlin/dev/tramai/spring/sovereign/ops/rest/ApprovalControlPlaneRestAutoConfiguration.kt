@@ -51,27 +51,27 @@ class ApprovalControlPlaneRestAutoConfiguration {
     ): ApprovalControlPlaneController {
         // Startup matrix, in the order the failure must be reported: authentication first, because a
         // missing policy is a configuration gap while a missing boundary is an open door.
-        if (!operatorSecurity.enabled) {
-            throw IllegalStateException(
-                "tramai-rest-control-plane-requires-operator-security: " +
-                    "tramai.sovereign.ops.rest-control-plane-enabled=true while " +
-                    "tramai.sovereign.ops.security.enabled=false; the approve/deny endpoints would be reachable " +
-                    "without verified identity. Enable the operator security boundary or disable the control plane.",
-            )
-        }
+        // takeIf matters: a raw `false` is a non-null value, which would sail through a null check and leave
+        // the gate a no-op. The disabled case must reach the helper as absence.
+        requireConfiguration(
+            operatorSecurity.enabled.takeIf { it },
+            "tramai-rest-control-plane-requires-operator-security",
+        )
         val decisionControlPlane =
-            decisionControlPlaneProvider.ifAvailable
-                ?: throw IllegalStateException(
-                    "tramai-rest-control-plane-requires-approval-policy: no approval decision control plane is " +
-                        "active, which means no OperatorApprovalPolicy is configured; configure " +
-                        "tramai.sovereign.ops.security.approval-policies",
-                )
+            requireConfiguration(
+                decisionControlPlaneProvider.ifAvailable,
+                "tramai-rest-control-plane-requires-approval-policy",
+            )
         val approvalStore =
-            approvalStoreProvider.ifAvailable
-                ?: throw IllegalStateException("tramai-sovereign-approval-rest-missing-approval-store")
+            requireConfiguration(
+                approvalStoreProvider.ifAvailable,
+                "tramai-sovereign-approval-rest-missing-approval-store",
+            )
         val approvalContinuationStore =
-            approvalContinuationStoreProvider.ifAvailable
-                ?: throw IllegalStateException("tramai-sovereign-approval-rest-missing-continuation-store")
+            requireConfiguration(
+                approvalContinuationStoreProvider.ifAvailable,
+                "tramai-sovereign-approval-rest-missing-continuation-store",
+            )
         return ApprovalControlPlaneController(
             decisionControlPlane = decisionControlPlane,
             resumeControlPlane = resumeControlPlane,
@@ -80,10 +80,27 @@ class ApprovalControlPlaneRestAutoConfiguration {
         )
     }
 
+    /**
+     * Fails startup with a named reason instead of letting a missing collaborator surface as a Spring
+     * no-such-bean message that names neither the configuration key nor why it matters.
+     */
+    private fun <T : Any> requireConfiguration(
+        value: T?,
+        reason: String,
+    ): T =
+        value ?: throw IllegalStateException(
+            "$reason: see tramai.sovereign.ops.rest-control-plane-enabled and " +
+                "tramai.sovereign.ops.security.enabled; an approval endpoint cannot be published without both the " +
+                "operator security boundary and an active approval policy",
+        )
+
     @Bean
     @ConditionalOnMissingBean(ApprovalInboxController::class)
     @ConditionalOnBean(ApprovalInboxQueryService::class)
-    fun approvalInboxController(queryService: ApprovalInboxQueryService): ApprovalInboxController = ApprovalInboxController(queryService)
+    fun approvalInboxController(queryService: ApprovalInboxQueryService): ApprovalInboxController {
+        val controller = ApprovalInboxController(queryService)
+        return controller
+    }
 
     @Bean
     @ConditionalOnMissingBean(ApprovalReviewerUiController::class)

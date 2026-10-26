@@ -51,6 +51,7 @@ class ApprovalDecisionControlPlaneAutoConfiguration {
     fun sovereignOpsApprovalDecisionControlPlane(
         approvalStore: ApprovalStore,
         mutationStore: SovereignOpsApprovalMutationStore,
+        @org.springframework.beans.factory.annotation.Qualifier("operatorApprovalPolicy")
         approvalPolicy: OperatorApprovalPolicy,
     ): ApprovalDecisionControlPlane =
         SovereignOpsApprovalDecisionControlPlane(

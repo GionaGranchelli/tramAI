@@ -14,6 +14,8 @@ import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
+import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.core.operator.OperatorPrincipal
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ResumeOperationReference
@@ -22,15 +24,13 @@ import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
-import dev.tramai.core.operator.OperatorCapability
-import dev.tramai.core.operator.OperatorPrincipal
-import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
-import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
+import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.SovereignOpsApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
@@ -570,8 +570,12 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
                     .newFixedThreadPool(2)
             try {
                 val approveResult =
-                    pool.submit(java.util.concurrent.Callable { runBlocking { controlPlane.approve(approve, authority()) } })
-                val denyResult = pool.submit(java.util.concurrent.Callable { runBlocking { controlPlane.deny(deny, authority()) } })
+                    pool.submit(
+                        java.util.concurrent.Callable { runBlocking { controlPlane.approve(approve, authority()) } },
+                    )
+                val denyTask =
+                    java.util.concurrent.Callable { runBlocking { controlPlane.deny(deny, authority()) } }
+                val denyResult = pool.submit(denyTask)
                 val results =
                     listOf(
                         approveResult.get(60, java.util.concurrent.TimeUnit.SECONDS),
@@ -819,9 +823,10 @@ private fun authority(
     )
 
 /** The requirement for the fixture approvals, which the gateway records at `policyVersion = "v1"`. */
-private fun fixturePolicy(
-    requiredRoles: Set<ApproverRole> = setOf(ApproverRole("medical-reviewer")),
-): OperatorApprovalPolicy = OperatorApprovalPolicy(mapOf("v1" to requiredRoles))
+private val FIXTURE_REQUIRED_ROLES: Set<ApproverRole> = setOf(ApproverRole("medical-reviewer"))
+
+private fun fixturePolicy(requiredRoles: Set<ApproverRole> = FIXTURE_REQUIRED_ROLES): OperatorApprovalPolicy =
+    OperatorApprovalPolicy(mapOf("v1" to requiredRoles))
 
 /** Shared by the nested fixture and the tests: hex SHA-256 of the given input. */
 private fun sha256Hex(input: String): String {

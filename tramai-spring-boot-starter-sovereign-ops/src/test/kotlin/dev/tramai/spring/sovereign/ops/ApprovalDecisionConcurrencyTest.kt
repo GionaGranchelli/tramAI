@@ -178,7 +178,8 @@ class ApprovalDecisionConcurrencyTest {
         runBlocking {
             val fixture = Fixture(pending())
 
-            assertThat(controlPlane(fixture).approve(command(0L).copy(approvalId = ApprovalId("nonexistent")), operatorAuthority))
+            val unknown = command(0L).copy(approvalId = ApprovalId("nonexistent"))
+            assertThat(controlPlane(fixture).approve(unknown, operatorAuthority))
                 .isEqualTo(ApprovalDecisionResult.NotFound(ApprovalId("nonexistent")))
             assertThat(requireNotNull(fixture.approvals.get("approval-1")).version).isZero()
             assertThat(fixture.outbox.listByStatus(SovereignOpsAuditOutboxStatus.PENDING, 10)).isEmpty()
