@@ -16,6 +16,7 @@ plugins {
     id("tramai.compiler-warnings")
     id("tramai.dependency-hygiene")
     id("tramai.static-safety-guards")
+    id("tramai.direct-approval-mutation-guard")
     alias(libs.plugins.spotless)
 }
 
