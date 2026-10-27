@@ -310,7 +310,12 @@ class DirectApprovalMutationGuardTest {
 
         assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/B1.kt" to plain)).single().callSites)
         assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/B2.kt" to escaped)).single().callSites)
-        assertEquals(2, DirectApprovalMutationGuard.detect(listOf("a/B3.kt" to (plain + escaped))).single().callSites)
+        val both =
+            source(
+                "fun f(store: ApprovalStore) = store.transition(1)\n" +
+                    "fun g(store: ApprovalStore) = store.`transition`(2)",
+            )
+        assertEquals(2, DirectApprovalMutationGuard.detect(listOf("a/B3.kt" to both)).single().callSites)
     }
 
     /** Kotlin nests block comments: a call inside the outer comment is not executable. */
