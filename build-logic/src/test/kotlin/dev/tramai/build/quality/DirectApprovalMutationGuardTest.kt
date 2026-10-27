@@ -302,6 +302,17 @@ class DirectApprovalMutationGuardTest {
         assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/NQ.kt" to text)).single().callSites)
     }
 
+    /** A backtick-escaped call is the same call; the identifier is compared by name, not by source text. */
+    @Test
+    fun `a backtick escaped transition call is detected`() {
+        val plain = source("fun f(store: ApprovalStore) = store.transition(1)")
+        val escaped = source("fun g(store: ApprovalStore) = store.`transition`(1)")
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/B1.kt" to plain)).single().callSites)
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/B2.kt" to escaped)).single().callSites)
+        assertEquals(2, DirectApprovalMutationGuard.detect(listOf("a/B3.kt" to (plain + escaped))).single().callSites)
+    }
+
     /** Kotlin nests block comments: a call inside the outer comment is not executable. */
     @Test
     fun `a call inside a nested block comment is not a call site`() {

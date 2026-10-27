@@ -9,6 +9,7 @@ import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtQualifiedExpression
 import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
@@ -74,10 +75,14 @@ object DirectApprovalMutationGuard {
         ): KtFile = factory.createFile(path.substringAfterLast('/'), text)
     }
 
-    /** Call expressions named `transition` with a receiver, as the parser sees them. */
+    /**
+     * Call expressions named `transition` with a receiver, as the parser sees them. The referenced name is used rather
+     * than the source text, so a backtick-escaped call (`store.`transition`(1)`) is the same call as an unescaped one.
+     */
     private fun transitionCalls(file: KtFile): Int =
         file.collectDescendantsOfType<KtCallExpression>().count { call ->
-            call.calleeExpression?.text == MUTATION_METHOD && call.parent is KtQualifiedExpression
+            (call.calleeExpression as? KtNameReferenceExpression)?.getReferencedName() == MUTATION_METHOD &&
+                call.parent is KtQualifiedExpression
         }
 
     private fun isCandidate(text: String): Boolean = approvalReference.containsMatchIn(text)
