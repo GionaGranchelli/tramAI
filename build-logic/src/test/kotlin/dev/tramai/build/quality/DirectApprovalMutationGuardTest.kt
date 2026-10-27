@@ -216,12 +216,85 @@ class DirectApprovalMutationGuardTest {
         assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/S.kt" to text)).single().callSites)
     }
 
-    /** A call spelled inside a string literal is not a call site. */
+    /** Literal contents are kept, so text spelled inside a string counts: over-selection, never silence. */
     @Test
-    fun `a call inside a string literal is not a call site`() {
+    fun `a call spelled inside a string literal is counted rather than dropped`() {
         val text = source("val s = \"store.transition(1)\"\nfun f(store: ApprovalStore) { }")
 
-        assertEquals(emptyList(), DirectApprovalMutationGuard.detect(listOf("a/T.kt" to text)))
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/T.kt" to text)).single().callSites)
+    }
+
+    /** Kotlin templates execute real code, so an interpolated call must be a call site. */
+    @Test
+    fun `string interpolation counts as a call site`() {
+        val template = "\"" + "${'$'}{store.transition(1)}" + "\""
+        val text = source("fun f(store: ApprovalStore) =\n    " + template)
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/U.kt" to text)).single().callSites)
+    }
+
+    /** Kotlin escapes execute too: `\${...}` is literal text but counting it errs toward review. */
+    @Test
+    fun `an escaped interpolation is counted rather than dropped`() {
+        val text = source("val s = \"\\${'$'}{store.transition(1)}\"\nfun f(store: ApprovalStore) { }")
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/V.kt" to text)).single().callSites)
+    }
+
+    /** A raw string may hold a quote and a block-comment marker; neither may swallow the code that follows. */
+    @Test
+    fun `a raw string containing a quote cannot hide the code that follows`() {
+        val text =
+            """
+            package x
+
+            import dev.tramai.core.approval.ApprovalStore
+
+            val sample = ${'"'}${'"'}${'"'}A quote " and /* literal text ${'"'}${'"'}${'"'}
+
+            fun f(store: ApprovalStore) =
+                store.transition(1)
+            """.trimIndent()
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/W.kt" to text)).single().callSites)
+    }
+
+    /**
+     * The discriminating raw-string case: the misparse used to swallow a terminated region between the two raw strings,
+     * so the call in between vanished. Raw strings must close at their own terminator.
+     */
+    @Test
+    fun `a raw string is closed at its own terminator`() {
+        val text =
+            """
+            package x
+
+            import dev.tramai.core.approval.ApprovalStore
+
+            val sample = ${'"'}${'"'}${'"'}A quote " and /* marker${'"'}${'"'}${'"'}
+            fun f(store: ApprovalStore) = store.transition(1)
+            val closer = ${'"'}${'"'}${'"'}done*/${'"'}${'"'}${'"'}
+            """.trimIndent()
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/Y.kt" to text)).single().callSites)
+    }
+
+    /** An unclosed block comment cannot discard the rest of the file: the remainder stays code. */
+    @Test
+    fun `an unterminated block comment cannot hide a call`() {
+        val text =
+            """
+            package x
+
+            import dev.tramai.core.approval.ApprovalStore
+
+            /* unterminated note
+
+            fun f(store: ApprovalStore) =
+                store.transition(1)
+            """.trimIndent()
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/X.kt" to text)).single().callSites)
     }
 
     @Test

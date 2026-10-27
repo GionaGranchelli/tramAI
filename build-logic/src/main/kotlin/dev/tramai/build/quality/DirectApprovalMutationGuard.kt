@@ -31,6 +31,7 @@ object DirectApprovalMutationGuard {
      * ordinary fully qualified call site visible; it deliberately over-selects (see the class KDoc).
      */
     private val approvalReference = Regex("""dev\.tramai\.core\.approval""")
+    private const val RAW_STRING_DELIMITER = "\"\"\""
     private val charLiteral = Regex("""'(\\.|[^'\\\n])'""")
 
     /** One production file that calls the direct mutation path, with the number of call sites in it. */
@@ -41,9 +42,10 @@ object DirectApprovalMutationGuard {
 
     /**
      * Removes comments in a single lexical pass, so no construct can be mistaken for another: a block-comment opener
-     * written inside a line comment is text, and both comment forms are inert inside a quoted literal. String contents
-     * are dropped (quotes kept) so a `transition` spelled inside a literal is not a call site. Triple-quoted raw
-     * strings are not modelled: their interior is treated as code.
+     * written inside a line comment is text, and both comment forms are inert inside a quoted literal or a raw string.
+     * Literal contents are kept, because Kotlin templates execute real code; the price is deliberate over-selection,
+     * since text spelled inside a literal counts too. A construct the scan cannot close - an unterminated block
+     * comment - keeps the remainder as code instead of discarding it.
      */
     internal fun stripComments(source: String): String {
         val out = StringBuilder(source.length)
@@ -53,7 +55,8 @@ object DirectApprovalMutationGuard {
                 when {
                     source.startsWith("//", index) -> skipLineComment(source, index, out)
                     source.startsWith("/*", index) -> skipBlockComment(source, index, out)
-                    source[index] == '"' -> skipStringLiteral(source, index, out)
+                    source.startsWith(RAW_STRING_DELIMITER, index) -> copyRawString(source, index, out)
+                    source[index] == '"' -> copyStringLiteral(source, index, out)
                     source[index] == '\'' -> copyCharLiteral(source, index, out)
                     else -> appendCode(source, index, out)
                 }
@@ -73,7 +76,10 @@ object DirectApprovalMutationGuard {
         return index + 1
     }
 
-    /** Consumes a block comment to its terminator, preserving newlines. An unterminated one consumes the rest. */
+    /**
+     * Consumes a block comment to its terminator, preserving newlines. An unterminated block comment keeps the rest of
+     * the file as code: a broken comment must not be able to hide a mutation.
+     */
     private fun skipBlockComment(
         source: String,
         start: Int,
@@ -85,23 +91,46 @@ object DirectApprovalMutationGuard {
             if (source[index] == '\n') out.append('\n')
             index++
         }
-        return index
+        out.append(source, start, source.length)
+        return source.length
     }
 
-    /** Consumes a quoted literal, keeping only its quotes. */
-    private fun skipStringLiteral(
+    /**
+     * Copies a quoted literal verbatim. Contents are kept because Kotlin string templates execute real code
+     * (`"${store.transition(1)}"`), so dropping them would undercount. The consequence is deliberate over-selection:
+     * a call spelled as plain literal text, and an escaped interpolation, are counted too - the guard asks for review
+     * rather than risk silence.
+     */
+    private fun copyStringLiteral(
         source: String,
         start: Int,
         out: StringBuilder,
     ): Int {
-        out.append("\"\"")
-        var index = start + 1
+        var index = start
         while (index < source.length) {
             val current = source[index]
-            if (current == '"') return index + 1
-            index += if (current == '\\') 2 else 1
+            out.append(current)
+            if (current == '"' && index > start) return index + 1
+            if (current != '\\') {
+                index++
+                continue
+            }
+            source.getOrNull(index + 1)?.let { out.append(it) }
+            index += 2
         }
         return index
+    }
+
+    /** Copies a triple-quoted raw string verbatim, quotes and comment markers inside it included. */
+    private fun copyRawString(
+        source: String,
+        start: Int,
+        out: StringBuilder,
+    ): Int {
+        val terminator = source.indexOf(RAW_STRING_DELIMITER, start + RAW_STRING_DELIMITER.length)
+        val stop = if (terminator < 0) source.length else terminator + RAW_STRING_DELIMITER.length
+        out.append(source, start, stop)
+        return stop
     }
 
     /** Copies a character literal verbatim (a quote character must not open a string); anything else is code. */
