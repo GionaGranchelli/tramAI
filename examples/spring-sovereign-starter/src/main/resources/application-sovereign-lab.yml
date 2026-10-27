@@ -51,6 +51,37 @@ tramai:
       approval-gateway:
         non-transactional-fallback-enabled: false
 
+      # ── Operator security (mandatory with the REST control plane since 0.7.6e) ──
+      #
+      # 0.7.6e fails startup when rest-control-plane-enabled=true and operator security is off, because a
+      # reachable approve/deny route without verified identity is the privilege escalation the epic exists
+      # to remove. The lab profile therefore configures the boundary: point the issuer and JWKS at your own
+      # identity provider, and keep the mappings below in step with the approver roles your approvals use.
+      #
+      # The three parts are interlocked on purpose:
+      #   role-mappings            role claim value -> capabilities (may the operator call the endpoint)
+      #   approver-role-mappings   role claim value -> approver roles (what the token can grant at all)
+      #   approval-policies        persisted policyVersion -> roles permitted to decide it
+      # Every role named under approval-policies must appear in approver-role-mappings, or startup fails:
+      # a requirement no verified operator can satisfy is a configuration error, not a silent deny.
+      security:
+        enabled: true
+        issuer: ${TRAMAI_OPERATOR_ISSUER:https://lab-idp.local/}
+        audience: ${TRAMAI_OPERATOR_AUDIENCE:tramai-sovereign-lab}
+        jwk-set-uri: ${TRAMAI_OPERATOR_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
+        role-claim: roles
+        role-mappings:
+          approval-reviewer: [decide-approval]
+          governance-reader: [inspect-governance]
+        approver-role-mappings:
+          approval-reviewer: [medical-reviewer, reviewer]
+        approval-policies:
+          # Keyed by the policyVersion the sovereign gateway actually persists on an approval, which is
+          # 0.4.0-preview today (0.7.6e F5 residual: the requirement is keyed by that persisted version, not
+          # by the requiredRole the gateway was called with). A key that does not match denies every
+          # decision with APPROVAL_POLICY_UNAVAILABLE.
+          "0.4.0-preview": [medical-reviewer, reviewer]
+
   providers:
     local-lab-provider:
       type: openai

@@ -28,14 +28,22 @@ class OperatorApproverRoleMapping(
     init {
         require(roleClaim.isNotBlank()) { "operator role claim must not be blank" }
         roleMappings.forEach { (role, approverRoles) ->
-            require(role.isNotBlank()) { "approver-role mapping key must not be blank" }
+            requireApproverRoleShape(role, "an approver-role-mappings key")
             approverRoles.forEach { value ->
-                require(value.isNotBlank()) { "approver role for role '$role' must not be blank" }
+                requireApproverRoleShape(value, "an approver-role-mappings value for role '$role'")
             }
         }
         approverRolesByRole =
             roleMappings.mapValues { (_, values) -> values.map { ApproverRole(it) }.toSet() }
     }
+
+    /**
+     * Every approver role this configuration can grant, whatever role the token asserts.
+     *
+     * Used for start-up self-consistency (§7.2): a role named in `approval-policies` that appears in no
+     * mapping value is a requirement no verified operator could ever satisfy.
+     */
+    fun grantableApproverRoles(): Set<ApproverRole> = approverRolesByRole.values.flatten().toSet()
 
     /** Approver roles granted by the roles asserted in [claims]. Absent or unknown roles grant nothing. */
     fun approverRolesFrom(claims: Map<String, Any?>): Set<ApproverRole> {
@@ -49,5 +57,43 @@ class OperatorApproverRoleMapping(
             .asSequence()
             .flatMap { role -> approverRolesByRole[role].orEmpty().asSequence() }
             .toSet()
+    }
+}
+
+/**
+ * Bounded length for a configured approver role.
+ *
+ * A label, not a document: the longest role name any identity provider in this epic's examples emits is
+ * well under this, and an unbounded value would end up in audit records and outbox rows.
+ */
+internal const val MAX_APPROVER_ROLE_LENGTH: Int = 64
+
+/**
+ * Shape policy for configured approver-role values (§7.2).
+ *
+ * [ApproverRole] itself only rejects blank, and there is no registry of valid roles, so "unknown role" is
+ * not decidable. This is what *is* decidable from configuration alone, and it is enforced at start-up
+ * rather than at decision time:
+ *
+ * - non-blank;
+ * - no whitespace — a role typed as `medical reviewer` would never equal the `medical-reviewer` a token
+ *   asserts, so the configuration would deny everything while looking correct;
+ * - no control characters — those cannot come from a claim and only ever arrive from a malformed paste;
+ * - at most [MAX_APPROVER_ROLE_LENGTH] characters.
+ *
+ * The rule is stated here, where it is implemented, because it is a task-local policy rather than
+ * something the value type guarantees.
+ */
+internal fun requireApproverRoleShape(
+    value: String,
+    where: String,
+) {
+    require(value.isNotBlank()) { "tramai-approver-role-malformed: $where must not be blank" }
+    require(value.length <= MAX_APPROVER_ROLE_LENGTH) {
+        "tramai-approver-role-malformed: $where exceeds $MAX_APPROVER_ROLE_LENGTH characters"
+    }
+    require(value.none { it.isWhitespace() }) { "tramai-approver-role-malformed: $where '$value' contains whitespace" }
+    require(value.none { it.isISOControl() }) {
+        "tramai-approver-role-malformed: $where '$value' contains a control character"
     }
 }

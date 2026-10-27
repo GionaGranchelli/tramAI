@@ -53,6 +53,7 @@ import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
+import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
 import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.SovereignOpsTransactionalApprovalGateway
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataFactory
@@ -643,6 +644,24 @@ class RegulatedClaimTriageJdbcE2ETest {
 
     @Configuration
     class RegulatedClaimTriageGatewayConfig {
+        /**
+         * The approver-role requirement for the policy version these approvals actually persist (0.7.6e).
+         *
+         * The decision plane only publishes with an [OperatorApprovalPolicy], and 0.7.6e deleted the
+         * permissive authorizer that used to stand in for it, so the example supplies a real, configured
+         * requirement: a HIGH-risk claim asks for `medical-reviewer`, the low-risk path for `reviewer`.
+         *
+         * The key is `0.4.0-preview` because that is the policy version the sovereign gateway stamps on an
+         * approval (0.7.6e F5 residual: the requirement is keyed by the persisted version, not by the
+         * requested role). A test that keyed this map to a different version would deny every decision with
+         * APPROVAL_POLICY_UNAVAILABLE, which is exactly what the first attempt did.
+         */
+        @Bean
+        fun operatorApprovalPolicy(): OperatorApprovalPolicy =
+            OperatorApprovalPolicy(
+                mapOf("0.4.0-preview" to setOf(ApproverRole("medical-reviewer"), ApproverRole("reviewer"))),
+            )
+
         @Bean
         fun regulatedClaimTriageApprovalGatewayRequestFactory(): ApprovalGatewayRequestFactory =
             RegulatedClaimTriageApprovalGatewayRequestFactory()
