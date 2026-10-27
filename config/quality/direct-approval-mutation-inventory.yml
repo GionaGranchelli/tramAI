@@ -1,0 +1,38 @@
+# L4 — Direct approval mutation guard (0.7.6e)
+#
+# Every production call to ApprovalStore.transition(...) must be reviewed here with an exact call-site
+# count and a rationale. The guard fails on a new call site, a new call inside an already-reviewed
+# file, a stale entry, and on a vacuous scan.
+#
+# This is a source-level reviewability mechanism, not authorization enforcement. The scanner does not
+# resolve receiver types, does not follow aliases, extension functions, reflection or wrapper calls,
+# and does not see Java callers that reach the store through such a wrapper. It does not close the
+# public ApprovalStore.transition bypass.
+schemaVersion: 1
+scanRoots:
+  - "*/src/main/kotlin"
+  - "*/src/main/java"
+exclusions:
+  - path: examples
+    rationale: >-
+      Deliberate exclusion: examples are demonstration code, not shipped governance infrastructure. Their
+      direct mutations are covered by the example suites that assert the resulting approval state, and
+      holding examples to an inventory ratchet would make every example edit an inventory ceremony.
+  - path: build-logic
+    rationale: >-
+      Build tooling, not runtime code. The guard itself lives here, and the scanner that names the rule must
+      not be subject to it.
+inventory:
+  - path: tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt
+    callSites: 1
+    rationale: >-
+      Framework-neutral cancellation/expiry path. It transitions an approval on behalf of the workflow runtime
+      (system-initiated cancel), not on behalf of an operator decision, so there is no operator identity to
+      verify. Inputs are validated and the transition is version-fenced by ApprovalStore optimistic concurrency.
+  - path: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsApprovalMutationStore.kt
+    callSites: 1
+    rationale: >-
+      Reviewed infrastructure mutation path behind ApprovalDecisionControlPlane for the in-memory profile: the
+      control plane verifies operator authority and capability before this store is reached, and the store writes
+      the audit outbox before the transition. The durable JDBC store performs the equivalent write in SQL and
+      therefore does not appear as a call site.
