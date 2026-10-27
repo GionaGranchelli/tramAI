@@ -77,19 +77,27 @@ object DirectApprovalMutationGuard {
     }
 
     /**
-     * Consumes a block comment to its terminator, preserving newlines. An unterminated block comment keeps the rest of
-     * the file as code: a broken comment must not be able to hide a mutation.
+     * Consumes a block comment to its matching terminator, preserving newlines. Kotlin nests block comments, so the
+     * depth is tracked: closing at the first terminator would end the comment early and read the rest of the comment
+     * as code. An unterminated comment keeps the remainder of the file as code, so it cannot hide a mutation.
      */
     private fun skipBlockComment(
         source: String,
         start: Int,
         out: StringBuilder,
     ): Int {
-        var index = start + 2
+        var index = start
+        var depth = 0
         while (index < source.length) {
-            if (source.startsWith("*/", index)) return index + 2
-            if (source[index] == '\n') out.append('\n')
-            index++
+            val opens = source.startsWith("/*", index)
+            val closes = !opens && source.startsWith("*/", index)
+            when {
+                opens -> depth++
+                closes -> depth--
+                source[index] == '\n' -> out.append('\n')
+            }
+            index += if (opens || closes) 2 else 1
+            if (closes && depth == 0) return index
         }
         out.append(source, start, source.length)
         return source.length

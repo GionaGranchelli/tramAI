@@ -279,6 +279,55 @@ class DirectApprovalMutationGuardTest {
         assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/Y.kt" to text)).single().callSites)
     }
 
+    /** Kotlin nests block comments: a call inside the outer comment is not executable. */
+    @Test
+    fun `a call inside a nested block comment is not a call site`() {
+        val text =
+            """
+            package x
+
+            import dev.tramai.core.approval.ApprovalStore
+
+            /* outer /* inner */
+            fun f(store: ApprovalStore) = store.transition(1)
+            */
+            """.trimIndent()
+
+        assertEquals(emptyList(), DirectApprovalMutationGuard.detect(listOf("a/N1.kt" to text)))
+    }
+
+    /** The mirror direction: code after a closed nested comment is code. */
+    @Test
+    fun `a nested block comment does not swallow the code that follows`() {
+        val text =
+            """
+            package x
+
+            import dev.tramai.core.approval.ApprovalStore
+
+            /* outer /* inner */ tail */
+            fun f(store: ApprovalStore) = store.transition(1)
+            """.trimIndent()
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/N2.kt" to text)).single().callSites)
+    }
+
+    /** An unterminated nested comment keeps the remainder as code rather than discarding it. */
+    @Test
+    fun `an unterminated nested block comment cannot hide a call`() {
+        val text =
+            """
+            package x
+
+            import dev.tramai.core.approval.ApprovalStore
+
+            /* outer /* inner */ still open
+            fun f(store: ApprovalStore) = store.transition(1)
+            """.trimIndent()
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/N3.kt" to text)).single().callSites)
+    }
+
     /** An unclosed block comment cannot discard the rest of the file: the remainder stays code. */
     @Test
     fun `an unterminated block comment cannot hide a call`() {
