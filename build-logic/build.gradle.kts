@@ -30,6 +30,9 @@ dependencies {
     implementation(kotlin("stdlib"))
     implementation(kotlin("reflect"))
     implementation(kotlin("gradle-plugin", version = "2.3.0"))
+    // L4 guard: Kotlin's own parser (PSI) instead of a hand-written lexer. Same version as the plugin above, so no
+    // second compiler stack enters the build.
+    implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.3.0")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.3")
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.3")

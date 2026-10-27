@@ -1,38 +1,47 @@
 package dev.tramai.build.quality
 
+import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
+import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
+import org.jetbrains.kotlin.com.intellij.openapi.Disposable
+import org.jetbrains.kotlin.com.intellij.openapi.util.Disposer
+import org.jetbrains.kotlin.com.intellij.psi.PsiErrorElement
+import org.jetbrains.kotlin.config.CommonConfigurationKeys
+import org.jetbrains.kotlin.config.CompilerConfiguration
+import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtPsiFactory
+import org.jetbrains.kotlin.psi.KtQualifiedExpression
+import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
+
 /**
- * Source-level guard for direct, authority-free approval mutations.
+ * Source-level guard for direct, authority-free approval mutations, driven by Kotlin's own parser.
  *
  * ## What this proves
  *
- * Every production call to `ApprovalStore.transition(...)` must appear in the reviewed inventory in
- * `config/quality/direct-approval-mutation-inventory.yml`, with a rationale and an exact call-site
- * count. A new production call site, a new call inside an already-reviewed file, and a stale inventory
- * entry all fail the guard.
+ * Every production call expression named `transition` in a file that mentions the
+ * `dev.tramai.core.approval` package must appear in the reviewed inventory in
+ * `config/quality/direct-approval-mutation-inventory.yml`, with a rationale and an exact call-site count. A new call
+ * site, a new call inside an already-reviewed file, a stale entry, an unrationalised entry, a vacuous scan and a file
+ * the parser cannot read all fail the guard.
+ *
+ * Executable calls only: comments (nested included), inert string text and raw strings cannot produce a call site,
+ * while a call inside a string template (`"${store.transition(1)}"`) can, because the compiler executes it. This is
+ * Kotlin's grammar, not an approximation of it.
  *
  * ## What this does not prove
  *
- * This is a text scanner, not a type checker. It does **not** resolve receivers, so it cannot tell an
- * `ApprovalStore` from any other type with a `transition` method; it does not follow aliases or local
- * variables, extension functions, reflection, or calls made through a wrapper that itself calls
- * `transition`, and a call spelled without a receiver dot (for example inside the store implementation
- * itself) is not a call site and is deliberately not counted. Candidate files are selected by any
- * mention of the `dev.tramai.core.approval` package - an import or a fully qualified type - which
- * over-selects on purpose: ordinary fully qualified call sites stay visible. It is a reviewability
- * mechanism that makes the *visible* population explicit and ratcheted. It is **not** Kotlin or Java
- * authorization enforcement, and it does not close the public `ApprovalStore.transition` bypass.
+ * There is no type resolution. The receiver of a counted call is not checked, so a `transition` method on any other
+ * type inside an approval-aware file is counted too - the guard asks for review rather than risk silence. Files are
+ * pre-filtered by a textual mention of the approval package, so a call in a file that reaches the store through a
+ * fully qualified name it never spells would not be a candidate. Aliases, extension functions, reflection and wrapper
+ * functions that call the store internally are invisible.
+ *
+ * It is therefore a reviewability ratchet over a *visible population*, not Kotlin or Java authorization enforcement,
+ * and it does not close the public `ApprovalStore.transition` bypass.
  */
 object DirectApprovalMutationGuard {
-    private val callPattern = Regex("""\.transition\s*\(""")
-
-    /**
-     * Candidate rule: the file mentions the approval package at all - an import, or a fully qualified type such as
-     * `dev.tramai.core.approval.ApprovalStore`. Matching the package rather than an `import` statement keeps an
-     * ordinary fully qualified call site visible; it deliberately over-selects (see the class KDoc).
-     */
+    private const val MUTATION_METHOD = "transition"
     private val approvalReference = Regex("""dev\.tramai\.core\.approval""")
-    private const val RAW_STRING_DELIMITER = "\"\"\""
-    private val charLiteral = Regex("""'(\\.|[^'\\\n])'""")
 
     /** One production file that calls the direct mutation path, with the number of call sites in it. */
     data class DetectedSite(
@@ -40,144 +49,62 @@ object DirectApprovalMutationGuard {
         val callSites: Int,
     )
 
-    /**
-     * Removes comments in a single lexical pass, so no construct can be mistaken for another: a block-comment opener
-     * written inside a line comment is text, and both comment forms are inert inside a quoted literal or a raw string.
-     * Literal contents are kept, because Kotlin templates execute real code; the price is deliberate over-selection,
-     * since text spelled inside a literal counts too. A construct the scan cannot close - an unterminated block
-     * comment - keeps the remainder as code instead of discarding it.
-     */
-    internal fun stripComments(source: String): String {
-        val out = StringBuilder(source.length)
-        var index = 0
-        while (index < source.length) {
-            index =
-                when {
-                    source.startsWith("//", index) -> skipLineComment(source, index, out)
-                    source.startsWith("/*", index) -> skipBlockComment(source, index, out)
-                    source.startsWith(RAW_STRING_DELIMITER, index) -> copyRawString(source, index, out)
-                    source[index] == '"' -> copyStringLiteral(source, index, out)
-                    source[index] == '\'' -> copyCharLiteral(source, index, out)
-                    else -> appendCode(source, index, out)
-                }
+    /** Lazily created once per build JVM; parsing needs a project, not a compilation. */
+    private val parsing: Parsing by lazy { Parsing() }
+
+    private class Parsing {
+        private val disposable: Disposable = Disposer.newDisposable("direct-approval-mutation-guard")
+        private val factory: KtPsiFactory
+
+        init {
+            val configuration = CompilerConfiguration()
+            configuration.put(CommonConfigurationKeys.MODULE_NAME, "direct-approval-mutation-guard")
+            val environment =
+                KotlinCoreEnvironment.createForProduction(
+                    disposable,
+                    configuration,
+                    EnvironmentConfigFiles.JVM_CONFIG_FILES,
+                )
+            factory = KtPsiFactory(environment.project, markGenerated = false)
         }
-        return out.toString()
+
+        fun parse(
+            path: String,
+            text: String,
+        ): KtFile = factory.createFile(path.substringAfterLast('/'), text)
     }
 
-    /** Consumes `//` to end of line; the newline is preserved so nothing downstream depends on line joining. */
-    private fun skipLineComment(
-        source: String,
-        start: Int,
-        out: StringBuilder,
-    ): Int {
-        var index = start
-        while (index < source.length && source[index] != '\n') index++
-        out.append('\n')
-        return index + 1
-    }
-
-    /**
-     * Consumes a block comment to its matching terminator, preserving newlines. Kotlin nests block comments, so the
-     * depth is tracked: closing at the first terminator would end the comment early and read the rest of the comment
-     * as code. An unterminated comment keeps the remainder of the file as code, so it cannot hide a mutation.
-     */
-    private fun skipBlockComment(
-        source: String,
-        start: Int,
-        out: StringBuilder,
-    ): Int {
-        var index = start
-        var depth = 0
-        while (index < source.length) {
-            val opens = source.startsWith("/*", index)
-            val closes = !opens && source.startsWith("*/", index)
-            when {
-                opens -> depth++
-                closes -> depth--
-                source[index] == '\n' -> out.append('\n')
-            }
-            index += if (opens || closes) 2 else 1
-            if (closes && depth == 0) return index
+    /** Call expressions named `transition` with a receiver, as the parser sees them. */
+    private fun transitionCalls(file: KtFile): Int =
+        file.collectDescendantsOfType<KtCallExpression>().count { call ->
+            call.calleeExpression?.text == MUTATION_METHOD && call.parent is KtQualifiedExpression
         }
-        out.append(source, start, source.length)
-        return source.length
-    }
 
-    /**
-     * Copies a quoted literal verbatim. Contents are kept because Kotlin string templates execute real code
-     * (`"${store.transition(1)}"`), so dropping them would undercount. The consequence is deliberate over-selection:
-     * a call spelled as plain literal text, and an escaped interpolation, are counted too - the guard asks for review
-     * rather than risk silence.
-     */
-    private fun copyStringLiteral(
-        source: String,
-        start: Int,
-        out: StringBuilder,
-    ): Int {
-        var index = start
-        while (index < source.length) {
-            val current = source[index]
-            out.append(current)
-            if (current == '"' && index > start) return index + 1
-            if (current != '\\') {
-                index++
-                continue
-            }
-            source.getOrNull(index + 1)?.let { out.append(it) }
-            index += 2
-        }
-        return index
-    }
+    private fun isCandidate(text: String): Boolean = approvalReference.containsMatchIn(text)
 
-    /** Copies a triple-quoted raw string verbatim, quotes and comment markers inside it included. */
-    private fun copyRawString(
-        source: String,
-        start: Int,
-        out: StringBuilder,
-    ): Int {
-        val terminator = source.indexOf(RAW_STRING_DELIMITER, start + RAW_STRING_DELIMITER.length)
-        val stop = if (terminator < 0) source.length else terminator + RAW_STRING_DELIMITER.length
-        out.append(source, start, stop)
-        return stop
-    }
+    /** Candidate files the parser could not read. They fail the guard rather than being silently skipped. */
+    private fun hasParseError(file: KtFile): Boolean = file.collectDescendantsOfType<PsiErrorElement>().isNotEmpty()
 
-    /** Copies a character literal verbatim (a quote character must not open a string); anything else is code. */
-    private fun copyCharLiteral(
-        source: String,
-        start: Int,
-        out: StringBuilder,
-    ): Int {
-        val literal = charLiteral.find(source, start)?.takeIf { it.range.first == start }
-        if (literal == null) {
-            out.append(source[start])
-            return start + 1
-        }
-        out.append(literal.value)
-        return literal.range.last + 1
-    }
+    fun unparsable(files: List<Pair<String, String>>): List<String> =
+        files
+            .filter { (_, text) -> isCandidate(text) }
+            .filter { (path, text) -> hasParseError(parsing.parse(path, text)) }
+            .map { (path, _) -> path }
+            .sorted()
 
-    private fun appendCode(
-        source: String,
-        index: Int,
-        out: StringBuilder,
-    ): Int {
-        out.append(source[index])
-        return index + 1
-    }
+    fun detect(files: List<Pair<String, String>>): List<DetectedSite> =
+        files
+            .filter { (_, text) -> isCandidate(text) }
+            .map { (path, text) -> path to transitionCalls(parsing.parse(path, text)) }
+            .filter { (_, count) -> count > 0 }
+            .map { (path, count) -> DetectedSite(path, count) }
+            .sortedBy { it.path }
 
     /** Drops the files the inventory excludes, so the task judges and counts the population it actually scanned. */
     fun included(
         inventory: DirectApprovalMutationInventory,
         files: List<Pair<String, String>>,
     ): List<Pair<String, String>> = files.filterNot { (path, _) -> inventory.excludes(path) }
-
-    fun detect(files: List<Pair<String, String>>): List<DetectedSite> =
-        files
-            .filter { (_, text) -> approvalReference.containsMatchIn(text) }
-            .map { (path, text) -> path to callPattern.findAll(stripComments(text)).count() }
-            .filter { (_, count) -> count > 0 }
-            .map { (path, count) -> DetectedSite(path, count) }
-            .sortedBy { it.path }
 
     /**
      * Returns every reason the population is not exactly the reviewed one. An empty list is a pass.
@@ -199,6 +126,12 @@ object DirectApprovalMutationGuard {
                 "config/quality/direct-approval-mutation-inventory.yml."
         }
         inventory.problems.forEach { violations += "direct-approval-mutation-guard: inventory: $it" }
+
+        for (path in unparsable(population)) {
+            violations +=
+                "direct-approval-mutation-guard: cannot parse $path safely, so its mutation call sites cannot be " +
+                "counted. Fix the syntax; the guard fails closed rather than assuming there is no call."
+        }
 
         val detected = detect(population).associateBy { it.path }
         for ((path, site) in detected) {

@@ -216,12 +216,12 @@ class DirectApprovalMutationGuardTest {
         assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/S.kt" to text)).single().callSites)
     }
 
-    /** Literal contents are kept, so text spelled inside a string counts: over-selection, never silence. */
+    /** Inert literal text is not executable, and the parser knows the difference. */
     @Test
-    fun `a call spelled inside a string literal is counted rather than dropped`() {
+    fun `a call spelled inside a string literal is not a call site`() {
         val text = source("val s = \"store.transition(1)\"\nfun f(store: ApprovalStore) { }")
 
-        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/T.kt" to text)).single().callSites)
+        assertEquals(emptyList(), DirectApprovalMutationGuard.detect(listOf("a/T.kt" to text)))
     }
 
     /** Kotlin templates execute real code, so an interpolated call must be a call site. */
@@ -233,12 +233,12 @@ class DirectApprovalMutationGuardTest {
         assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/U.kt" to text)).single().callSites)
     }
 
-    /** Kotlin escapes execute too: `\${...}` is literal text but counting it errs toward review. */
+    /** An escaped interpolation is literal text, not a call. */
     @Test
-    fun `an escaped interpolation is counted rather than dropped`() {
+    fun `an escaped interpolation is not a call site`() {
         val text = source("val s = \"\\${'$'}{store.transition(1)}\"\nfun f(store: ApprovalStore) { }")
 
-        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/V.kt" to text)).single().callSites)
+        assertEquals(emptyList(), DirectApprovalMutationGuard.detect(listOf("a/V.kt" to text)))
     }
 
     /** A raw string may hold a quote and a block-comment marker; neither may swallow the code that follows. */
@@ -279,6 +279,29 @@ class DirectApprovalMutationGuardTest {
         assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/Y.kt" to text)).single().callSites)
     }
 
+    /**
+     * Fifth discriminator: a quoted literal *inside* a string template. The template contains `/*` as data and the next
+     * line closes with `*/` as data, but the call between them is executable and must be counted.
+     */
+    @Test
+    fun `nested quotes inside an interpolation cannot hide a call`() {
+        val quote = "\""
+        val text =
+            """
+            package x
+
+            import dev.tramai.core.approval.ApprovalStore
+
+            fun f(store: ApprovalStore) {
+                val template = "${'$'}{$quote/*$quote}"
+                store.transition(1)
+                val closer = $quote*/$quote
+            }
+            """.trimIndent()
+
+        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/NQ.kt" to text)).single().callSites)
+    }
+
     /** Kotlin nests block comments: a call inside the outer comment is not executable. */
     @Test
     fun `a call inside a nested block comment is not a call site`() {
@@ -312,9 +335,9 @@ class DirectApprovalMutationGuardTest {
         assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/N2.kt" to text)).single().callSites)
     }
 
-    /** An unterminated nested comment keeps the remainder as code rather than discarding it. */
+    /** An unterminated nested comment is a parse error, so it fails closed too. */
     @Test
-    fun `an unterminated nested block comment cannot hide a call`() {
+    fun `an unterminated nested block comment fails closed instead of hiding a call`() {
         val text =
             """
             package x
@@ -325,12 +348,14 @@ class DirectApprovalMutationGuardTest {
             fun f(store: ApprovalStore) = store.transition(1)
             """.trimIndent()
 
-        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/N3.kt" to text)).single().callSites)
+        val violations = DirectApprovalMutationGuard.verify(inventory, listOf(reviewedFile(), "a/N3.kt" to text))
+
+        assertTrue(violations.any { it.contains("cannot parse a/N3.kt safely") }, violations.toString())
     }
 
-    /** An unclosed block comment cannot discard the rest of the file: the remainder stays code. */
+    /** An unclosed block comment leaves the file unparsable, which fails the guard rather than hiding the call. */
     @Test
-    fun `an unterminated block comment cannot hide a call`() {
+    fun `an unterminated block comment fails closed instead of hiding a call`() {
         val text =
             """
             package x
@@ -343,7 +368,9 @@ class DirectApprovalMutationGuardTest {
                 store.transition(1)
             """.trimIndent()
 
-        assertEquals(1, DirectApprovalMutationGuard.detect(listOf("a/X.kt" to text)).single().callSites)
+        val violations = DirectApprovalMutationGuard.verify(inventory, listOf(reviewedFile(), "a/X.kt" to text))
+
+        assertTrue(violations.any { it.contains("cannot parse a/X.kt safely") }, violations.toString())
     }
 
     @Test
