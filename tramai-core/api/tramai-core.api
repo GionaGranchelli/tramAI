@@ -2467,8 +2467,10 @@ public final class dev/tramai/core/operator/OperatorCapability$Companion {
 
 public final class dev/tramai/core/operator/OperatorPrincipal {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/util/Set;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/util/Set;Ljava/util/Set;)V
 	public final fun authorize (Ldev/tramai/core/operator/OperatorCapability;)Ldev/tramai/core/operator/OperatorAuthorizationResult;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApproverRoles ()Ljava/util/Set;
 	public final fun getAuthenticatedAt ()Ljava/time/Instant;
 	public final fun getCapabilities ()Ljava/util/Set;
 	public final fun getIssuer ()Ljava/lang/String;

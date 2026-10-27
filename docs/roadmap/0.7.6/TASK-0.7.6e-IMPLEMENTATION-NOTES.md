@@ -77,36 +77,33 @@ The requirement key is the value actually persisted, which is not always the val
 approval-resume example records `0.4.0-preview`, and two plausible guesses (`v1`, then the test-fixture default
 `1.0`) were refused with `APPROVAL_POLICY_UNAVAILABLE` before the stored value was read.
 
-## Direct-mutation opt-in (L4) — BLOCKED, not implemented
+## Direct-mutation guard (L4) — delivered as a build-level check
 
-The contract's L4 mechanism is `@RequiresOptIn DirectApprovalMutation` on `ApprovalStore.transition(...)`. It was
-implemented, made the whole tree compile with every direct caller declaring intent, and was then **reverted**. It
-is not in this change.
+The contract's L4 mechanism was an `@RequiresOptIn DirectApprovalMutation` marker on
+`ApprovalStore.transition(...)`. It was implemented, made the whole tree compile with every direct caller declaring
+intent, and was then **reverted**: Kotlin requires the opt-in on every *override* as well as every call site, which
+touches 15 legacy files, and Spotless then rewrites each touched file completely (`ApprovalResumeEngineTest.kt`
+alone: 1745 insertions / 1370 deletions) with 26 `MaxLineLength` and a set of `LongMethod` findings behind it.
+Clearing those needs a formatting migration or a ceiling change, and this task may touch neither.
 
-**Why.** Kotlin requires the opt-in on every *override* as well as every call site, which means touching 15 legacy
-test files and fixtures (fake stores in `DefaultApprovalGateCoordinatorTest`, `InMemoryApprovalStoreTest`, the TCK,
-the persistence suites). Spotless reformats a changed file completely, so each touch produced a whole-file rewrite —
-`ApprovalResumeEngineTest.kt` alone became 1745 insertions / 1370 deletions of unrelated formatting — and the
-reformatting then produced two cascades of new detekt findings: 26 `MaxLineLength` (121-140 column lines that a
-formatter rejoins) and a set of `LongMethod` findings where reformatted test bodies crossed the 60-line threshold.
+**Delivered instead, in its own PR (#561, squash `a6bac10b`):** `verifyDirectApprovalMutations`, a build-level guard
+attached to `verifyStaticSafetyGuards` (so `check`, `verifyPr` and CI run it with no workflow change). It inventories
+the reviewed production direct-mutation sites with an exact call-site count and a rationale, and fails on a new site, a
+new call inside a reviewed file, a stale or unrationalised entry, and a vacuous scan.
 
-Those findings cannot be cleared without either rewriting large legacy tests or changing a quality ceiling, and
-this task is not allowed to touch ceilings. Two attempts at mechanical wrapping produced broken syntax before
-converging, which is the point at which this stops being a change to the authorization work and becomes a
-formatting migration of its own.
+- Detection uses **Kotlin's own parser** (PSI), not a text scanner: the parser is `compileOnly` and loaded in an
+  isolated Worker classloader, so it never joins the build's plugin classpath.
+- The reviewed population is two sites: `DefaultApprovalGateCoordinator` (system-initiated cancellation, not an
+  operator decision) and the in-memory sovereign mutation store behind the control plane. The durable JDBC store
+  writes in SQL and is not a call site.
+- `examples/**` is excluded as inventory data with its rationale, not by a scanning omission.
 
-**Options for the owner, in preference order:**
-
-1. Land a separate formatting-normalization change first (repo-wide `spotlessApply` plus the finding fixes), then
-   apply the marker in its own commit. The marker itself is small; the prerequisite is not.
-2. Replace the marker with a build-level check (analyzer change, which repository policy requires in a separate PR
-   from runtime changes).
-3. Accept 0.7.6e without the marker and record L4 as documented-only.
-
-**What remains true regardless of the mechanism.** The enforced path is `ApprovalDecisionControlPlane`; the
-authorization boundary does not depend on the marker existing. The residual is unchanged and undocumented-by-tooling:
-`ApprovalStore.transition(...)` is a public JVM SPI, Java callers are never checked, and a Kotlin caller can opt in
-anywhere. The marker would have made that residual visible in review; it would not have closed it.
+**What L4 does and does not prove.** It is a reviewability ratchet over a *visible* population: candidate files are
+selected by a textual mention of `dev.tramai.core.approval`, there is no receiver-type resolution, and aliases,
+extension functions, reflection and wrapper calls are invisible. It does not close the public
+`ApprovalStore.transition` bypass, Java callers are not analysed (a Java candidate file fails closed rather than
+passing silently), and the enforced path remains `ApprovalDecisionControlPlane`. The authorization boundary does not
+depend on L4 existing.
 
 ## Concurrency (F2) unchanged
 
