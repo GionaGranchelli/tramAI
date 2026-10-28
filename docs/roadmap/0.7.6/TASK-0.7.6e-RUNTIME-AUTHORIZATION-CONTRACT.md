@@ -1,6 +1,6 @@
 # 0.7.6e — Runtime Authorization Enforcement (architecture and enforcement contract)
 
-**Status:** revision 3 for review. Supersedes revision 2 (`7b0b02fa`). No production code changed.
+**Status:** revision 5, merged as the implementation baseline (`0757a620`). Implemented against this document; §5 test 12 is the controlling attribution requirement and must not be weakened.
 
 Base: `release/0.7.0` at `57ea33ebaff8ac847a2088bfb1b54c952028fd1d` (0.7.6d merged).
 
@@ -143,12 +143,10 @@ Enforcement, in order of preference:
    **explicitly ignored** for authorization, audit attribution and persistence — read once at construction
    and discarded, never forwarded — and the discriminator below becomes mandatory.
 
-**Discriminator (required either way).** Invoke the control plane **directly** — not through the
-controller — with a legitimate `OperatorAuthority` and a command deliberately naming a different actor:
-assert the policy receives the verified identity, `decidedBy` and the outbox attribution record the
-verified subject, and the store's `actor` is the verified subject. With option 1 the equivalent
-discriminator is that the mismatching field cannot be supplied at all: the command carries no actor, so a
-caller wanting to act as someone else has nowhere to put it.
+**Discriminator.** Invoke the control plane **directly** — not through the controller — with a legitimate
+`OperatorAuthority`, and assert every attribution sink named in §5 test 12. Removing the command fields
+does **not** replace those assertions: a control plane that fell back to a literal, a default or a stale
+field would still pass a field-absence check. §5 test 12 is the controlling requirement.
 
 
 ### L3 — Per-approval role requirement (unchanged from revision 2)

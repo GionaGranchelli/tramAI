@@ -9,6 +9,8 @@ import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApproverRole
+import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.core.operator.OperatorPrincipal
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
@@ -23,6 +25,26 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
     private val now: Instant = Instant.parse("2026-06-25T10:15:30Z")
     private val clock: Clock = Clock.fixed(now, ZoneOffset.UTC)
 
+    /**
+     * The authority the migrated tests decide under: authenticated, holding DECIDE_APPROVAL, and holding the
+     * approver role the fixture approvals require. Every decision call passes it explicitly, because the
+     * control plane no longer accepts identity from the command.
+     */
+    private val operatorAuthority =
+        OperatorAuthority(
+            OperatorPrincipal(
+                subject = "test-operator",
+                issuer = "https://issuer.example",
+                authenticatedAt = Instant.parse("2026-10-25T09:00:00Z"),
+                capabilities = setOf(OperatorCapability.DECIDE_APPROVAL),
+                approverRoles = setOf(ApproverRole("medical-reviewer")),
+            ),
+        )
+
+    /** Requirement for the fixture approvals, which are all recorded at `policyVersion = "v1"`. */
+    private val testApprovalPolicy =
+        OperatorApprovalPolicy(mapOf("v1" to setOf(ApproverRole("medical-reviewer"))))
+
     @Test
     fun `approve pending approval returns Approved`() {
         runBlocking {
@@ -30,17 +52,20 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             val mutationStore = StubApprovalMutationStore(store)
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = mutationStore,
                     clock = clock,
                 )
 
-            val result = controlPlane.approve(decisionCommand("approval-1"))
+            val result = controlPlane.approve(decisionCommand("approval-1"), operatorAuthority)
 
             assertThat(result).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
             val approved = result as ApprovalDecisionResult.Approved
             assertThat(approved.approvalId.value).isEqualTo("approval-1")
-            assertThat(approved.decidedBy).isEqualTo("reviewer-1")
+            // The recorded decider is the verified authority subject, not any value the command carried:
+            // the command has no actor field left to carry one.
+            assertThat(approved.decidedBy).isEqualTo("test-operator")
             assertThat(approved.decidedAt).isEqualTo(now)
             assertThat(approved.version).isEqualTo(1L)
         }
@@ -53,17 +78,18 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             val mutationStore = StubApprovalMutationStore(store)
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = mutationStore,
                     clock = clock,
                 )
 
-            val result = controlPlane.deny(decisionCommand("approval-1"))
+            val result = controlPlane.deny(decisionCommand("approval-1"), operatorAuthority)
 
             assertThat(result).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
             val denied = result as ApprovalDecisionResult.Denied
             assertThat(denied.approvalId.value).isEqualTo("approval-1")
-            assertThat(denied.decidedBy).isEqualTo("reviewer-1")
+            assertThat(denied.decidedBy).isEqualTo("test-operator")
             assertThat(denied.decidedAt).isEqualTo(now)
             assertThat(denied.version).isEqualTo(1L)
         }
@@ -80,12 +106,13 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
                 )
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = StubApprovalMutationStore(store),
                     clock = clock,
                 )
 
-            val result = controlPlane.approve(decisionCommand("approval-1", expectedVersion = 1L))
+            val result = controlPlane.approve(decisionCommand("approval-1", expectedVersion = 1L), operatorAuthority)
 
             assertThat(result).isEqualTo(
                 ApprovalDecisionResult.AlreadyApproved(
@@ -108,12 +135,13 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
                 )
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = StubApprovalMutationStore(store),
                     clock = clock,
                 )
 
-            val result = controlPlane.deny(decisionCommand("approval-1", expectedVersion = 1L))
+            val result = controlPlane.deny(decisionCommand("approval-1", expectedVersion = 1L), operatorAuthority)
 
             assertThat(result).isEqualTo(
                 ApprovalDecisionResult.AlreadyDenied(
@@ -134,12 +162,13 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
                 )
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = StubApprovalMutationStore(store),
                     clock = clock,
                 )
 
-            val result = controlPlane.deny(decisionCommand("approval-1"))
+            val result = controlPlane.deny(decisionCommand("approval-1"), operatorAuthority)
 
             assertThat(result).isEqualTo(
                 ApprovalDecisionResult.Expired(
@@ -166,12 +195,13 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
                 )
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = StubApprovalMutationStore(store),
                     clock = clock,
                 )
 
-            val result = controlPlane.deny(decisionCommand("approval-1", expectedVersion = 1L))
+            val result = controlPlane.deny(decisionCommand("approval-1", expectedVersion = 1L), operatorAuthority)
 
             assertThat(result).isEqualTo(
                 ApprovalDecisionResult.AlreadyApproved(
@@ -199,12 +229,13 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
                 )
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = StubApprovalMutationStore(store),
                     clock = clock,
                 )
 
-            val result = controlPlane.approve(decisionCommand("approval-1", expectedVersion = 1L))
+            val result = controlPlane.approve(decisionCommand("approval-1", expectedVersion = 1L), operatorAuthority)
 
             assertThat(result).isEqualTo(
                 ApprovalDecisionResult.AlreadyDenied(
@@ -222,35 +253,39 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             val store = MutableApprovalStore()
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = StubApprovalMutationStore(store),
                     clock = clock,
                 )
 
-            val result = controlPlane.deny(decisionCommand("approval-404"))
+            val result = controlPlane.deny(decisionCommand("approval-404"), operatorAuthority)
 
             assertThat(result).isEqualTo(ApprovalDecisionResult.NotFound(ApprovalId("approval-404")))
         }
     }
 
     @Test
-    fun `unauthorized actor returns Conflict`() {
+    fun `an operator without the required approver role is refused with a typed Unauthorized`() {
         runBlocking {
             val store = MutableApprovalStore(mutableMapOf("approval-1" to pendingApproval("approval-1")))
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
                     approvalStore = store,
                     mutationStore = StubApprovalMutationStore(store),
-                    authorizer = ApprovalDecisionAuthorizer { _, _, _, _ -> false },
+                    // A policy that accepts only a role this operator does not hold. The former
+                    // permissive authorizer hook would have answered this with a Conflict; the refusal is
+                    // now a typed Unauthorized naming the role requirement.
+                    approvalPolicy = OperatorApprovalPolicy(mapOf("v1" to setOf(ApproverRole("finance-reviewer")))),
                     clock = clock,
                 )
 
-            val result = controlPlane.approve(decisionCommand("approval-1"))
+            val result = controlPlane.approve(decisionCommand("approval-1"), operatorAuthority)
 
             assertThat(result).isEqualTo(
-                ApprovalDecisionResult.Conflict(
+                ApprovalDecisionResult.Unauthorized(
                     approvalId = ApprovalId("approval-1"),
-                    reason = "approval-unauthorized-decision",
+                    reason = ApprovalUnauthorizedReason.ROLE_NOT_PERMITTED,
                 ),
             )
         }
@@ -267,12 +302,13 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
                 )
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = StubApprovalMutationStore(store),
                     clock = clock,
                 )
 
-            val result = controlPlane.approve(decisionCommand("approval-1", expectedVersion = 1L))
+            val result = controlPlane.approve(decisionCommand("approval-1", expectedVersion = 1L), operatorAuthority)
 
             assertThat(result).isEqualTo(
                 ApprovalDecisionResult.AlreadyDenied(
@@ -295,12 +331,13 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
                 )
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = StubApprovalMutationStore(store),
                     clock = clock,
                 )
 
-            val result = controlPlane.deny(decisionCommand("approval-1", expectedVersion = 1L))
+            val result = controlPlane.deny(decisionCommand("approval-1", expectedVersion = 1L), operatorAuthority)
 
             assertThat(result).isEqualTo(
                 ApprovalDecisionResult.AlreadyApproved(
@@ -319,6 +356,7 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             val mutationStore = StubApprovalMutationStore(store)
             val controlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = testApprovalPolicy,
                     approvalStore = store,
                     mutationStore = mutationStore,
                     clock = clock,
@@ -327,6 +365,7 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             val result =
                 controlPlane.approve(
                     decisionCommand("approval-1", expectedVersion = 99L),
+                    operatorAuthority,
                 )
 
             // F2 fix: a caller-observed version that does not match authoritative state is a stale
@@ -349,8 +388,6 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
     ): ApprovalDecisionCommand =
         ApprovalDecisionCommand(
             approvalId = ApprovalId(approvalId),
-            actorId = "reviewer-1",
-            actorRole = ApproverRole("medical-reviewer"),
             expectedVersion = expectedVersion,
             comment = "review complete",
             correlationId = "corr-1",

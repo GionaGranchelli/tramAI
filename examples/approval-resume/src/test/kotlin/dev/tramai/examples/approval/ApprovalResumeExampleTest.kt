@@ -15,6 +15,8 @@ import dev.tramai.core.model.SideEffectLevel
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.TramaiTool
+import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.core.operator.OperatorPrincipal
 import dev.tramai.core.policy.ApprovalMode
 import dev.tramai.core.policy.AuditDetail
 import dev.tramai.core.policy.ManagedNetworkEgress
@@ -35,6 +37,8 @@ import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
+import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres
@@ -52,6 +56,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import java.nio.file.Path
 import java.sql.SQLException
+import java.time.Instant
 import java.util.Base64
 import javax.sql.DataSource
 
@@ -106,6 +111,7 @@ class ApprovalResumeExampleTest {
             ).withUserConfiguration(
                 TestDataSourceConfig::class.java,
                 TestGatewayConfig::class.java,
+                ExampleApprovalPolicyConfig::class.java,
             ).withPropertyValues(
                 "tramai.profile=sovereign",
                 "tramai.sovereign.enabled=true",
@@ -181,7 +187,8 @@ class ApprovalResumeExampleTest {
             val approveResult =
                 runBlocking {
                     decisionPlane.approve(
-                        decisionCommand(approvalId, 0L, ApproverRole("manager"), "Approved"),
+                        decisionCommand(approvalId, 0L, "Approved"),
+                        exampleAuthority(),
                     )
                 }
             assertThat(approveResult).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
@@ -242,7 +249,8 @@ class ApprovalResumeExampleTest {
             val denyResult =
                 runBlocking {
                     decisionPlane.deny(
-                        decisionCommand(approvalId, 0L, ApproverRole("manager"), "Denied — over budget"),
+                        decisionCommand(approvalId, 0L, "Denied — over budget"),
+                        exampleAuthority(),
                     )
                 }
             assertThat(denyResult).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
@@ -524,17 +532,32 @@ object EmbeddedPgHolder {
 private fun decisionCommand(
     approvalId: dev.tramai.core.approval.gateway.ApprovalId,
     expectedVersion: Long,
-    actorRole: ApproverRole,
     comment: String? = null,
     correlationId: String? = null,
 ): ApprovalDecisionCommand =
     ApprovalDecisionCommand(
         approvalId = approvalId,
-        actorId = "manager-1",
-        actorRole = actorRole,
         expectedVersion = expectedVersion,
         comment = comment,
         correlationId = correlationId,
+    )
+
+/**
+ * The verified operator these examples decide under (0.7.6e). The examples used to name `manager-1` inside
+ * the command; they now pass the identity the authentication boundary would issue.
+ */
+internal fun exampleAuthority(
+    subject: String = "manager-1",
+    approverRoles: Set<ApproverRole> = setOf(ApproverRole("manager")),
+): OperatorAuthority =
+    OperatorAuthority(
+        OperatorPrincipal(
+            subject = subject,
+            issuer = "https://issuer.example",
+            authenticatedAt = Instant.parse("2026-10-25T09:00:00Z"),
+            capabilities = setOf(OperatorCapability.DECIDE_APPROVAL),
+            approverRoles = approverRoles,
+        ),
     )
 
 /** Keeps the resume examples short: one line instead of a seven-line command. */
@@ -553,3 +576,22 @@ private fun resumeCommand(
         expectedApprovalVersion = expectedApprovalVersion,
         expectedContinuationVersion = expectedContinuationVersion,
     )
+
+/**
+ * The per-approval role requirement this example operates under (0.7.6e).
+ *
+ * Without it the decision control plane is deliberately not published — mutation infrastructure may run
+ * without operator authentication, but an approval *decision* service may not. The example decides
+ * approvals, so it configures the requirement, and every decision then needs an operator holding a role the
+ * approval's policy version accepts.
+ */
+@org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+class ExampleApprovalPolicyConfig {
+    @org.springframework.context.annotation.Bean
+    fun operatorApprovalPolicy(): OperatorApprovalPolicy =
+        OperatorApprovalPolicy(
+            // "0.4.0-preview" is the policy version the sovereign gateway actually persists on these
+            // approvals: read from the stored approval, not assumed from a test-fixture default.
+            mapOf("0.4.0-preview" to setOf(ApproverRole("manager"))),
+        )
+}

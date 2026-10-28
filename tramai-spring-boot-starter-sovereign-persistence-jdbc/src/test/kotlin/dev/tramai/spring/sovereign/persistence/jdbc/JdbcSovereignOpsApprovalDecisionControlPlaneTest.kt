@@ -14,6 +14,8 @@ import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
+import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.core.operator.OperatorPrincipal
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ResumeOperationReference
@@ -22,12 +24,13 @@ import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
-import dev.tramai.spring.sovereign.ops.AllowAllApprovalDecisionAuthorizer
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
+import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.SovereignOpsApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
@@ -134,9 +137,9 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
             val controlPlane: ApprovalDecisionControlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = fixturePolicy(),
                     approvalStore = approvalStore,
                     mutationStore = mutationStore,
-                    authorizer = AllowAllApprovalDecisionAuthorizer,
                     clock = clock,
                 )
 
@@ -145,10 +148,10 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
                     decisionCommand(
                         approvalId,
                         0L,
-                        requiredRole,
                         "Medical necessity established",
                         "corr-approve-evidence",
                     ),
+                    authority(),
                 )
 
             assertThat(result).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
@@ -201,9 +204,9 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
             val controlPlane: ApprovalDecisionControlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = fixturePolicy(),
                     approvalStore = approvalStore,
                     mutationStore = mutationStore,
-                    authorizer = AllowAllApprovalDecisionAuthorizer,
                     clock = clock,
                 )
 
@@ -212,10 +215,10 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
                     decisionCommand(
                         approvalId,
                         0L,
-                        requiredRole,
                         "Denied because evidence is incomplete",
                         "corr-deny-evidence",
                     ),
+                    authority(),
                 )
 
             assertThat(result).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
@@ -268,15 +271,16 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
             val controlPlane: ApprovalDecisionControlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = fixturePolicy(),
                     approvalStore = approvalStore,
                     mutationStore = mutationStore,
-                    authorizer = AllowAllApprovalDecisionAuthorizer,
                     clock = clock,
                 )
 
             val rawComment = "This claim contains sensitive medical details"
             controlPlane.approve(
-                decisionCommand(approvalId, 0L, requiredRole, rawComment, "corr-sanitised").copy(actorId = "reviewer"),
+                decisionCommand(approvalId, 0L, rawComment, "corr-sanitised"),
+                authority("reviewer"),
             )
 
             val outbox = outboxStore.findByEventKey("approval-approved.${approvalId.value}")
@@ -310,16 +314,17 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
             val controlPlane: ApprovalDecisionControlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = fixturePolicy(),
                     approvalStore = approvalStore,
                     mutationStore = mutationStore,
-                    authorizer = AllowAllApprovalDecisionAuthorizer,
                     clock = clock,
                 )
 
             // First approve — creates evidence
             val firstResult =
                 controlPlane.approve(
-                    decisionCommand(approvalId, 0L, requiredRole, "Approved").copy(actorId = "reviewer-1"),
+                    decisionCommand(approvalId, 0L, "Approved"),
+                    authority("reviewer-1"),
                 )
             assertThat(firstResult).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
 
@@ -329,7 +334,8 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             // Second approve — returns AlreadyApproved, no duplicate evidence
             val secondResult =
                 controlPlane.approve(
-                    decisionCommand(approvalId, 1L, requiredRole, "Approved again").copy(actorId = "reviewer-2"),
+                    decisionCommand(approvalId, 1L, "Approved again"),
+                    authority("reviewer-2"),
                 )
             assertThat(secondResult).isInstanceOf(ApprovalDecisionResult.AlreadyApproved::class.java)
 
@@ -361,16 +367,17 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
             val controlPlane: ApprovalDecisionControlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = fixturePolicy(),
                     approvalStore = approvalStore,
                     mutationStore = mutationStore,
-                    authorizer = AllowAllApprovalDecisionAuthorizer,
                     clock = clock,
                 )
 
             // First deny — creates evidence
             val firstResult =
                 controlPlane.deny(
-                    decisionCommand(approvalId, 0L, requiredRole, "Denied").copy(actorId = "reviewer-1"),
+                    decisionCommand(approvalId, 0L, "Denied"),
+                    authority("reviewer-1"),
                 )
             assertThat(firstResult).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
 
@@ -380,7 +387,8 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             // Second deny — returns AlreadyDenied, no duplicate evidence
             val secondResult =
                 controlPlane.deny(
-                    decisionCommand(approvalId, 1L, requiredRole, "Denied again").copy(actorId = "reviewer-2"),
+                    decisionCommand(approvalId, 1L, "Denied again"),
+                    authority("reviewer-2"),
                 )
             assertThat(secondResult).isInstanceOf(ApprovalDecisionResult.AlreadyDenied::class.java)
 
@@ -438,19 +446,21 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
             val controlPlane: ApprovalDecisionControlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = fixturePolicy(),
                     approvalStore = approvalStore,
                     mutationStore = mutationStore,
-                    authorizer = AllowAllApprovalDecisionAuthorizer,
                     clock = clock,
                 )
 
             val deny1 =
                 controlPlane.deny(
-                    decisionCommand(id1, 0L, requiredRole, correlationId = "c1").copy(actorId = "reviewer"),
+                    decisionCommand(id1, 0L, correlationId = "c1"),
+                    authority("reviewer"),
                 )
             val deny2 =
                 controlPlane.deny(
-                    decisionCommand(id2, 0L, requiredRole, correlationId = "c2").copy(actorId = "reviewer"),
+                    decisionCommand(id2, 0L, correlationId = "c2"),
+                    authority("reviewer"),
                 )
 
             assertThat(deny1).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
@@ -490,20 +500,22 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             val approvalId = (requestResult as ApprovalRequestResult.Suspended).approvalId
             val controlPlane: ApprovalDecisionControlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = fixturePolicy(),
                     approvalStore = approvalStore,
                     mutationStore = mutationStore,
-                    authorizer = AllowAllApprovalDecisionAuthorizer,
                     clock = clock,
                 )
             val decided =
                 controlPlane.approve(
-                    decisionCommand(approvalId, 0L, requiredRole, "approved once", "corr-stale-1"),
+                    decisionCommand(approvalId, 0L, "approved once", "corr-stale-1"),
+                    authority(),
                 )
             assertThat(decided).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
 
             val stale =
                 controlPlane.deny(
-                    decisionCommand(approvalId, 0L, requiredRole, "stale deny", "corr-stale-2"),
+                    decisionCommand(approvalId, 0L, "stale deny", "corr-stale-2"),
+                    authority(),
                 )
 
             assertThat(stale).isEqualTo(
@@ -544,22 +556,26 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             val approvalId = (requestResult as ApprovalRequestResult.Suspended).approvalId
             val controlPlane: ApprovalDecisionControlPlane =
                 SovereignOpsApprovalDecisionControlPlane(
+                    approvalPolicy = fixturePolicy(),
                     approvalStore = approvalStore,
                     mutationStore = mutationStore,
-                    authorizer = AllowAllApprovalDecisionAuthorizer,
                     clock = clock,
                 )
             val approve =
-                decisionCommand(approvalId, 0L, requiredRole, "approve", "corr-race-a")
+                decisionCommand(approvalId, 0L, "approve", "corr-race-a")
             val deny =
-                decisionCommand(approvalId, 0L, requiredRole, "deny", "corr-race-b")
+                decisionCommand(approvalId, 0L, "deny", "corr-race-b")
             val pool =
                 java.util.concurrent.Executors
                     .newFixedThreadPool(2)
             try {
                 val approveResult =
-                    pool.submit(java.util.concurrent.Callable { runBlocking { controlPlane.approve(approve) } })
-                val denyResult = pool.submit(java.util.concurrent.Callable { runBlocking { controlPlane.deny(deny) } })
+                    pool.submit(
+                        java.util.concurrent.Callable { runBlocking { controlPlane.approve(approve, authority()) } },
+                    )
+                val denyTask =
+                    java.util.concurrent.Callable { runBlocking { controlPlane.deny(deny, authority()) } }
+                val denyResult = pool.submit(denyTask)
                 val results =
                     listOf(
                         approveResult.get(60, java.util.concurrent.TimeUnit.SECONDS),
@@ -774,18 +790,43 @@ private class JdbcTestApprovalGatewayRequestFactory : ApprovalGatewayRequestFact
 private fun decisionCommand(
     approvalId: dev.tramai.core.approval.gateway.ApprovalId,
     expectedVersion: Long,
-    actorRole: ApproverRole,
     comment: String? = null,
     correlationId: String? = null,
 ): ApprovalDecisionCommand =
     ApprovalDecisionCommand(
         approvalId = approvalId,
-        actorId = "medical-ops-reviewer",
-        actorRole = actorRole,
         expectedVersion = expectedVersion,
         comment = comment,
         correlationId = correlationId,
     )
+
+/**
+ * The verified authority a decision runs under (0.7.6e).
+ *
+ * These tests used to name the decider inside the command and let an allow-all authorizer accept it. They now
+ * name a *verified operator*, so the subject asserted in the outbox and in the approval record is the one the
+ * boundary issued — and two calls that must be attributed to different operators pass two different
+ * authorities, exactly as two authenticated requests would.
+ */
+private fun authority(
+    subject: String = "medical-ops-reviewer",
+    approverRoles: Set<ApproverRole> = setOf(ApproverRole("medical-reviewer")),
+): OperatorAuthority =
+    OperatorAuthority(
+        OperatorPrincipal(
+            subject = subject,
+            issuer = "https://issuer.example",
+            authenticatedAt = Instant.parse("2026-10-25T09:00:00Z"),
+            capabilities = setOf(OperatorCapability.DECIDE_APPROVAL),
+            approverRoles = approverRoles,
+        ),
+    )
+
+/** The requirement for the fixture approvals, which the gateway records at `policyVersion = "v1"`. */
+private val FIXTURE_REQUIRED_ROLES: Set<ApproverRole> = setOf(ApproverRole("medical-reviewer"))
+
+private fun fixturePolicy(requiredRoles: Set<ApproverRole> = FIXTURE_REQUIRED_ROLES): OperatorApprovalPolicy =
+    OperatorApprovalPolicy(mapOf("v1" to requiredRoles))
 
 /** Shared by the nested fixture and the tests: hex SHA-256 of the given input. */
 private fun sha256Hex(input: String): String {

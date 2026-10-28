@@ -13,6 +13,7 @@ import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
 import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueStatusStore
+import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
 import dev.tramai.spring.sovereign.ops.SovereignOpsApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.SovereignOpsApprovedContinuationResumeWorker
 import dev.tramai.spring.sovereign.ops.actuator.ApprovedContinuationResumeWorkerMetricsObserver
@@ -56,6 +57,18 @@ import javax.sql.DataSource
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ApprovedResumeLifecycleJdbcE2ETest {
+    /** The verified operator this end-to-end decision runs under (0.7.6e). */
+    private val testAuthority =
+        dev.tramai.spring.sovereign.ops.OperatorAuthority(
+            dev.tramai.core.operator.OperatorPrincipal(
+                subject = "jdbc-e2e-reviewer",
+                issuer = "https://issuer.example",
+                authenticatedAt = java.time.Instant.parse("2026-10-25T09:00:00Z"),
+                capabilities = setOf(dev.tramai.core.operator.OperatorCapability.DECIDE_APPROVAL),
+                approverRoles = setOf(ApproverRole("medical-reviewer")),
+            ),
+        )
+
     companion object {
         private const val POSTGRES_IMAGE = "postgres:17-alpine"
         private val postgres =
@@ -112,6 +125,7 @@ class ApprovedResumeLifecycleJdbcE2ETest {
         val mutationStore = InMemorySovereignOpsApprovalMutationStore(approvalStore, outboxStore)
         decisionControlPlane =
             SovereignOpsApprovalDecisionControlPlane(
+                approvalPolicy = OperatorApprovalPolicy(mapOf("v1" to setOf(ApproverRole("medical-reviewer")))),
                 approvalStore = approvalStore,
                 mutationStore = mutationStore,
                 clock = clock,
@@ -192,11 +206,10 @@ class ApprovedResumeLifecycleJdbcE2ETest {
                     ApprovalDecisionCommand(
                         approvalId = approvalId,
                         expectedVersion = 0L,
-                        actorId = "e2e-test-actor",
-                        actorRole = ApproverRole("admin"),
                         comment = "E2E test approval",
                         correlationId = "corr-lifecycle-002",
                     ),
+                    testAuthority,
                 )
             }
         assertThat(approveResult)

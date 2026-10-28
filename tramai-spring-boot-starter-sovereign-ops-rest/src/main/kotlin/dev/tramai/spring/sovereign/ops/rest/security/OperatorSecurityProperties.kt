@@ -66,6 +66,23 @@ class OperatorSecurityProperties {
     var roleMappings: Map<String, List<String>> = emptyMap()
 
     /**
+     * Server-controlled role-to-approver-role mapping (0.7.6e). Same shape and the same rule as
+     * [roleMappings]: the keys are role values the identity provider may assert, the values are
+     * [dev.tramai.core.approval.gateway.ApproverRole] values, and a role value that is absent here grants
+     * **no** approver role. Declaring capabilities without declaring approver roles produces an operator who
+     * may call the endpoint and is still refused by every per-approval role requirement — a refusal, never a
+     * silent grant.
+     */
+    var approverRoleMappings: Map<String, List<String>> = emptyMap()
+
+    /**
+     * Per-approval approver-role requirement (0.7.6e): key is the approval's persisted `policyVersion`,
+     * value is the set of approver roles that may decide it. A `policyVersion` absent from this map refuses
+     * every decision for that approval rather than defaulting to "any verified approver".
+     */
+    var approvalPolicies: Map<String, List<String>> = emptyMap()
+
+    /**
      * Request paths protected by the operator boundary. Defaults to every sovereign-ops route the
      * REST starter publishes. Narrowing this list is a security decision, not a convenience.
      */

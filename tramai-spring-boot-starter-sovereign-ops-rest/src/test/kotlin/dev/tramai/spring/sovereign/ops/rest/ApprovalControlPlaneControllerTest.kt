@@ -12,12 +12,15 @@ import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
+import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.core.operator.OperatorPrincipal
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.doReturn
@@ -61,8 +64,38 @@ class ApprovalControlPlaneControllerTest {
                         approvalStore = approvalStore,
                         approvalContinuationStore = approvalContinuationStore,
                     ),
-                ).build()
+                ).setCustomArgumentResolvers(operatorAuthorityResolver())
+                .build()
     }
+
+    /**
+     * The authority the controller must receive. In production it comes from
+     * `OperatorPrincipalResolver.issueCurrentAuthority()` after JWT verification; here it is a fixture, and
+     * the only thing the test asserts about it is that the controller passes it through untouched.
+     */
+    private val fixtureAuthority =
+        OperatorAuthority(
+            OperatorPrincipal(
+                subject = "medical-ops-reviewer",
+                issuer = "https://issuer.example",
+                authenticatedAt = Instant.parse("2026-06-26T08:00:00Z"),
+                capabilities = setOf(OperatorCapability.DECIDE_APPROVAL),
+                approverRoles = setOf(ApproverRole("medical-reviewer")),
+            ),
+        )
+
+    private fun operatorAuthorityResolver() =
+        object : org.springframework.web.method.support.HandlerMethodArgumentResolver {
+            override fun supportsParameter(parameter: org.springframework.core.MethodParameter) =
+                parameter.parameterType == OperatorAuthority::class.java
+
+            override fun resolveArgument(
+                parameter: org.springframework.core.MethodParameter,
+                mavContainer: org.springframework.web.method.support.ModelAndViewContainer?,
+                webRequest: org.springframework.web.context.request.NativeWebRequest,
+                binderFactory: org.springframework.web.bind.support.WebDataBinderFactory?,
+            ): Any = fixtureAuthority
+        }
 
     @Autowired
     private lateinit var objectMapper: ObjectMapper
@@ -98,7 +131,7 @@ class ApprovalControlPlaneControllerTest {
                     decidedAt = now,
                     version = 1L,
                 ),
-            ).`when`(decisionControlPlane).approve(expectedCommand)
+            ).`when`(decisionControlPlane).approve(expectedCommand, fixtureAuthority)
 
             mockMvc
                 .perform(
@@ -107,8 +140,6 @@ class ApprovalControlPlaneControllerTest {
                         .content(
                             objectMapper.writeValueAsString(
                                 ApproveDenyRequest(
-                                    actorId = "medical-ops-reviewer",
-                                    actorRole = "medical-reviewer",
                                     comment = "Approved",
                                     expectedVersion = 0L,
                                     correlationId = "claim-1",
@@ -121,7 +152,7 @@ class ApprovalControlPlaneControllerTest {
                 .andExpect(jsonPath("$.actorId").value("medical-ops-reviewer"))
                 .andExpect(jsonPath("$.version").value(1))
 
-            verify(decisionControlPlane).approve(expectedCommand)
+            verify(decisionControlPlane).approve(expectedCommand, fixtureAuthority)
         }
     }
 
@@ -137,6 +168,7 @@ class ApprovalControlPlaneControllerTest {
                 ),
             ).`when`(decisionControlPlane).deny(
                 approveCommand(approvalId = "approval-1", comment = "Denied"),
+                fixtureAuthority,
             )
 
             mockMvc
@@ -146,8 +178,6 @@ class ApprovalControlPlaneControllerTest {
                         .content(
                             objectMapper.writeValueAsString(
                                 ApproveDenyRequest(
-                                    actorId = "medical-ops-reviewer",
-                                    actorRole = "medical-reviewer",
                                     expectedVersion = 0L,
                                     comment = "Denied",
                                 ),
@@ -215,6 +245,7 @@ class ApprovalControlPlaneControllerTest {
                 ),
             ).`when`(decisionControlPlane).approve(
                 approveCommand("approval-1"),
+                fixtureAuthority,
             )
 
             mockMvc
@@ -224,8 +255,6 @@ class ApprovalControlPlaneControllerTest {
                         .content(
                             objectMapper.writeValueAsString(
                                 ApproveDenyRequest(
-                                    actorId = "medical-ops-reviewer",
-                                    actorRole = "medical-reviewer",
                                     expectedVersion = 0L,
                                 ),
                             ),
@@ -243,6 +272,7 @@ class ApprovalControlPlaneControllerTest {
                 ApprovalDecisionResult.NotFound(ApprovalId("approval-404")),
             ).`when`(decisionControlPlane).deny(
                 approveCommand("approval-404"),
+                fixtureAuthority,
             )
 
             mockMvc
@@ -252,8 +282,6 @@ class ApprovalControlPlaneControllerTest {
                         .content(
                             objectMapper.writeValueAsString(
                                 ApproveDenyRequest(
-                                    actorId = "medical-ops-reviewer",
-                                    actorRole = "medical-reviewer",
                                     expectedVersion = 0L,
                                 ),
                             ),
@@ -356,6 +384,7 @@ class ApprovalControlPlaneControllerTest {
                 ),
             ).`when`(decisionControlPlane).approve(
                 approveCommand("approval-1"),
+                fixtureAuthority,
             )
 
             mockMvc
@@ -365,8 +394,6 @@ class ApprovalControlPlaneControllerTest {
                         .content(
                             objectMapper.writeValueAsString(
                                 ApproveDenyRequest(
-                                    actorId = "medical-ops-reviewer",
-                                    actorRole = "medical-reviewer",
                                     expectedVersion = 0L,
                                 ),
                             ),
@@ -434,6 +461,7 @@ class ApprovalControlPlaneControllerTest {
                 ),
             ).`when`(decisionControlPlane).approve(
                 approveCommand("approval-1"),
+                fixtureAuthority,
             )
 
             mockMvc
@@ -443,8 +471,6 @@ class ApprovalControlPlaneControllerTest {
                         .content(
                             objectMapper.writeValueAsString(
                                 ApproveDenyRequest(
-                                    actorId = "medical-ops-reviewer",
-                                    actorRole = "medical-reviewer",
                                     expectedVersion = 0L,
                                 ),
                             ),
@@ -563,7 +589,7 @@ class ApprovalControlPlaneControllerTest {
                     expectedVersion = 0L,
                     currentVersion = 1L,
                 ),
-            ).`when`(decisionControlPlane).approve(expectedCommand)
+            ).`when`(decisionControlPlane).approve(expectedCommand, fixtureAuthority)
 
             mockMvc
                 .perform(
@@ -572,8 +598,6 @@ class ApprovalControlPlaneControllerTest {
                         .content(
                             objectMapper.writeValueAsString(
                                 ApproveDenyRequest(
-                                    actorId = "medical-ops-reviewer",
-                                    actorRole = "medical-reviewer",
                                     comment = "stale",
                                     expectedVersion = 0L,
                                 ),
@@ -585,7 +609,7 @@ class ApprovalControlPlaneControllerTest {
                 .andExpect(jsonPath("$.currentVersion").value(1))
                 .andExpect(jsonPath("$.version").doesNotExist())
 
-            verify(decisionControlPlane).approve(expectedCommand)
+            verify(decisionControlPlane).approve(expectedCommand, fixtureAuthority)
         }
     }
 
@@ -599,8 +623,6 @@ class ApprovalControlPlaneControllerTest {
     ): ApprovalDecisionCommand =
         ApprovalDecisionCommand(
             approvalId = ApprovalId(approvalId),
-            actorId = "medical-ops-reviewer",
-            actorRole = ApproverRole("medical-reviewer"),
             expectedVersion = expectedVersion,
             comment = comment,
             correlationId = correlationId,

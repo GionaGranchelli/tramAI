@@ -1,7 +1,7 @@
 public final class dev/tramai/spring/sovereign/ops/rest/ApprovalControlPlaneController {
 	public fun <init> (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlane;Ldev/tramai/spring/sovereign/ops/ApprovalResumeControlPlane;Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/core/approval/ApprovalContinuationStore;)V
-	public final fun approve (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest;)Lorg/springframework/http/ResponseEntity;
-	public final fun deny (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest;)Lorg/springframework/http/ResponseEntity;
+	public final fun approve (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;)Lorg/springframework/http/ResponseEntity;
+	public final fun deny (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;)Lorg/springframework/http/ResponseEntity;
 	public final fun getApproval (Ljava/lang/String;)Lorg/springframework/http/ResponseEntity;
 	public final fun resume (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/rest/ResumeRequest;)Lorg/springframework/http/ResponseEntity;
 }
@@ -32,7 +32,7 @@ public final class dev/tramai/spring/sovereign/ops/rest/ApprovalControlPlaneResp
 
 public final class dev/tramai/spring/sovereign/ops/rest/ApprovalControlPlaneRestAutoConfiguration {
 	public fun <init> ()V
-	public final fun approvalControlPlaneController (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlane;Ldev/tramai/spring/sovereign/ops/ApprovalResumeControlPlane;Lorg/springframework/beans/factory/ObjectProvider;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/spring/sovereign/ops/rest/ApprovalControlPlaneController;
+	public final fun approvalControlPlaneController (Lorg/springframework/beans/factory/ObjectProvider;Ldev/tramai/spring/sovereign/ops/ApprovalResumeControlPlane;Lorg/springframework/beans/factory/ObjectProvider;Lorg/springframework/beans/factory/ObjectProvider;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;)Ldev/tramai/spring/sovereign/ops/rest/ApprovalControlPlaneController;
 	public final fun approvalInboxController (Ldev/tramai/spring/sovereign/ops/inbox/ApprovalInboxQueryService;)Ldev/tramai/spring/sovereign/ops/rest/ApprovalInboxController;
 	public final fun approvalReviewerUiController ()Ldev/tramai/spring/sovereign/ops/rest/ApprovalReviewerUiController;
 }
@@ -167,18 +167,15 @@ public final class dev/tramai/spring/sovereign/ops/rest/ApprovalWorkItemResponse
 }
 
 public final class dev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest {
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Long;
 	public final fun component2 ()Ljava/lang/String;
-	public final fun component3 ()Ljava/lang/Long;
-	public final fun component4 ()Ljava/lang/String;
-	public final fun component5 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest;
-	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/rest/ApproveDenyRequest;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getActorId ()Ljava/lang/String;
-	public final fun getActorRole ()Ljava/lang/String;
 	public final fun getComment ()Ljava/lang/String;
 	public final fun getCorrelationId ()Ljava/lang/String;
 	public final fun getExpectedVersion ()Ljava/lang/Long;
@@ -204,13 +201,17 @@ public final class dev/tramai/spring/sovereign/ops/rest/ResumeRequest {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorApproverRoleMapping {
+	public fun <init> (Ljava/lang/String;Ljava/util/Map;)V
+	public final fun approverRolesFrom (Ljava/util/Map;)Ljava/util/Set;
+	public final fun grantableApproverRoles ()Ljava/util/Set;
+}
+
 public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorAuthenticationAutoConfiguration {
 	public fun <init> ()V
-	public final fun operatorCapabilityMapping (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;)Ldev/tramai/spring/sovereign/ops/rest/security/OperatorCapabilityMapping;
+	public final fun operatorApprovalPolicy (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;)Ldev/tramai/spring/sovereign/ops/OperatorApprovalPolicy;
 	public final fun operatorClock ()Ljava/time/Clock;
-	public final fun operatorPrincipalFactory (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorCapabilityMapping;Ljava/time/Clock;)Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory;
-	public final fun operatorPrincipalResolver (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory;)Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalResolver;
-	public final fun operatorPrincipalWebMvcConfigurer (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalResolver;)Lorg/springframework/web/servlet/config/annotation/WebMvcConfigurer;
+	public final fun operatorPrincipalWebMvcConfigurer (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ljava/time/Clock;)Lorg/springframework/web/servlet/config/annotation/WebMvcConfigurer;
 	public final fun operatorSecurityFilterChain (Lorg/springframework/security/config/annotation/web/builders/HttpSecurity;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ljava/lang/String;)Lorg/springframework/security/web/SecurityFilterChain;
 }
 
@@ -235,13 +236,15 @@ public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorPrincip
 }
 
 public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory {
-	public fun <init> (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorCapabilityMapping;Ljava/time/Clock;)V
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorCapabilityMapping;Ldev/tramai/spring/sovereign/ops/rest/security/OperatorApproverRoleMapping;Ljava/time/Clock;)V
 	public final fun fromVerified (Lorg/springframework/security/oauth2/jwt/Jwt;Ljava/time/Instant;)Ldev/tramai/core/operator/OperatorPrincipal;
 	public static synthetic fun fromVerified$default (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory;Lorg/springframework/security/oauth2/jwt/Jwt;Ljava/time/Instant;ILjava/lang/Object;)Ldev/tramai/core/operator/OperatorPrincipal;
 }
 
 public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalResolver {
 	public fun <init> (Ldev/tramai/spring/sovereign/ops/rest/security/OperatorPrincipalFactory;)V
+	public final fun issueAuthority (Lorg/springframework/security/core/Authentication;)Ldev/tramai/spring/sovereign/ops/OperatorAuthority;
+	public final fun issueCurrentAuthority ()Ldev/tramai/spring/sovereign/ops/OperatorAuthority;
 	public final fun resolve (Lorg/springframework/security/core/Authentication;)Ldev/tramai/core/operator/OperatorPrincipal;
 	public final fun resolveCurrent ()Ldev/tramai/core/operator/OperatorPrincipal;
 }
@@ -253,6 +256,8 @@ public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorPrincip
 
 public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorSecurityProperties {
 	public fun <init> ()V
+	public final fun getApprovalPolicies ()Ljava/util/Map;
+	public final fun getApproverRoleMappings ()Ljava/util/Map;
 	public final fun getAudience ()Ljava/lang/String;
 	public final fun getEnabled ()Z
 	public final fun getIssuer ()Ljava/lang/String;
@@ -261,6 +266,8 @@ public final class dev/tramai/spring/sovereign/ops/rest/security/OperatorSecurit
 	public final fun getPublicKey ()Ljava/lang/String;
 	public final fun getRoleClaim ()Ljava/lang/String;
 	public final fun getRoleMappings ()Ljava/util/Map;
+	public final fun setApprovalPolicies (Ljava/util/Map;)V
+	public final fun setApproverRoleMappings (Ljava/util/Map;)V
 	public final fun setAudience (Ljava/lang/String;)V
 	public final fun setEnabled (Z)V
 	public final fun setIssuer (Ljava/lang/String;)V

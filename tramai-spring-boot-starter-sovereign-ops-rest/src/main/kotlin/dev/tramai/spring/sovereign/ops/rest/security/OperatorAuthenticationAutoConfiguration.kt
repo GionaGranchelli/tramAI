@@ -1,5 +1,8 @@
 package dev.tramai.spring.sovereign.ops.rest.security
 
+import dev.tramai.core.approval.gateway.ApproverRole
+import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
+import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
@@ -49,32 +52,89 @@ import java.util.Base64
  * audience or JWKS URI raises at startup instead of degrading to anonymous access. There is no
  * trusted-header mode and no principal-from-request path — a caller cannot establish its own identity.
  */
-@AutoConfiguration
+@AutoConfiguration(before = [ApprovalDecisionControlPlaneAutoConfiguration::class])
 @ConditionalOnClass(name = ["org.springframework.security.oauth2.jwt.JwtDecoder"])
 @ConditionalOnProperty(prefix = "tramai.sovereign.ops.security", name = ["enabled"], havingValue = "true")
 @EnableConfigurationProperties(OperatorSecurityProperties::class)
 class OperatorAuthenticationAutoConfiguration {
+    /**
+     * The per-approval approver-role requirement (0.7.6e), keyed by an approval's persisted `policyVersion`.
+     *
+     * Deliberately **not** `@ConditionalOnMissingBean`: an alternative bean of this type is an
+     * ambiguous-injection startup failure rather than a quiet override, which is what keeps a host from
+     * installing an allow-all policy behind a green pipeline.
+     *
+     * Fails startup when authentication is enabled but no `approval-policies` entry exists, because an
+     * authorization boundary that cannot express a single requirement would authorize nothing while looking
+     * configured. Also fails startup on a **malformed** role (§7.2 shape policy) and on a policy role that
+     * no `approver-role-mappings` value can grant — that requirement could never be satisfied by any
+     * verified operator, so accepting it would trade a start-up error for a permanent silent deny.
+     */
     @Bean
-    @ConditionalOnMissingBean
-    fun operatorCapabilityMapping(properties: OperatorSecurityProperties): OperatorCapabilityMapping =
-        OperatorCapabilityMapping(properties.roleClaim, properties.roleMappings)
+    fun operatorApprovalPolicy(properties: OperatorSecurityProperties): OperatorApprovalPolicy {
+        val configured =
+            requireNotNull(properties.approvalPolicies.takeIf { it.isNotEmpty() }) {
+                "tramai-approval-policies-missing: tramai.sovereign.ops.security.enabled is true but no " +
+                    "approval-policies entry is configured, so no approval decision could be authorized"
+            }
+        val requirement =
+            configured.mapValues { (policyVersion, roles) ->
+                roles.forEach { role -> requireApproverRoleShape(role, "an approval-policies '$policyVersion' role") }
+                roles.map { role -> ApproverRole(role) }.toSet()
+            }
+        val grantable = approverRoleMapping(properties).grantableApproverRoles()
+        val unsatisfiable =
+            requirement.values
+                .flatten()
+                .filterNot { it in grantable }
+                .map { it.value }
+                .distinct()
+        require(unsatisfiable.isEmpty()) {
+            "tramai-approval-policy-unsatisfiable: ${unsatisfiable.joinToString(", ")} named by approval-policies " +
+                "is granted by no approver-role-mappings value, so no verified operator could ever satisfy it"
+        }
+        return OperatorApprovalPolicy(requirement)
+    }
 
     @Bean
     @ConditionalOnMissingBean
     fun operatorClock(): Clock = Clock.systemUTC()
 
+    /**
+     * The operator identity chain (0.7.6e §1.2/§3), constructed in one place from configuration.
+     *
+     * Deliberately **one** bean rather than four: the capability mapping, the approver-role mapping, the
+     * principal factory and the resolver each decide what a verified caller is allowed to be, so a host
+     * definition of any of those types would be a trust substitution — the same reason the JWT decoder below
+     * is not a bean. `@ConditionalOnMissingBean` would not have closed that: a `@Primary` hostile bean still
+     * wins type-based injection. Built inline, there is no injection point to substitute, so a host bean of
+     * those types is inert; `OperatorTrustBoundarySubstitutionTest` declares permissive versions of all four
+     * and proves they change no issued capability or approver role.
+     *
+     * Limitation, recorded rather than implied: a host that registers its own `WebMvcConfigurer` or
+     * `HandlerMethodArgumentResolver` runs arbitrary in-process code and is outside what a Spring boundary can
+     * defend against. The guarantee is about *bean substitution of the trusted types*, not about code that
+     * already owns the application context.
+     */
     @Bean
-    @ConditionalOnMissingBean
-    fun operatorPrincipalFactory(
+    fun operatorPrincipalWebMvcConfigurer(
         properties: OperatorSecurityProperties,
-        capabilityMapping: OperatorCapabilityMapping,
         clock: Clock,
-    ): OperatorPrincipalFactory = OperatorPrincipalFactory(properties, capabilityMapping, clock)
+    ): WebMvcConfigurer =
+        OperatorPrincipalWebMvcConfigurer(
+            OperatorPrincipalResolver(
+                OperatorPrincipalFactory(
+                    properties,
+                    OperatorCapabilityMapping(properties.roleClaim, properties.roleMappings),
+                    approverRoleMapping(properties),
+                    clock,
+                ),
+            ),
+        )
 
-    @Bean
-    @ConditionalOnMissingBean
-    fun operatorPrincipalResolver(principalFactory: OperatorPrincipalFactory): OperatorPrincipalResolver =
-        OperatorPrincipalResolver(principalFactory)
+    /** Shape-validated approver-role mapping, shared by the policy bean and the identity chain. */
+    private fun approverRoleMapping(properties: OperatorSecurityProperties): OperatorApproverRoleMapping =
+        OperatorApproverRoleMapping(properties.roleClaim, properties.approverRoleMappings)
 
     /**
      * Operator boundary for the sovereign-ops routes only, ordered ahead of any host chain so a
@@ -110,10 +170,6 @@ class OperatorAuthenticationAutoConfiguration {
                 }
             }.build()
     }
-
-    @Bean
-    fun operatorPrincipalWebMvcConfigurer(principalResolver: OperatorPrincipalResolver): WebMvcConfigurer =
-        OperatorPrincipalWebMvcConfigurer(principalResolver)
 }
 
 /**

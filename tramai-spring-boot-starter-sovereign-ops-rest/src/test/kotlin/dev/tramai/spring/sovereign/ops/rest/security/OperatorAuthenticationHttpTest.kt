@@ -39,6 +39,8 @@ import java.util.Base64
         "tramai.sovereign.ops.security.role-claim=roles",
         "tramai.sovereign.ops.security.role-mappings.governance-reader=inspect-governance",
         "tramai.sovereign.ops.security.role-mappings.approval-reviewer=decide-approval",
+        "tramai.sovereign.ops.security.approver-role-mappings.approval-reviewer=medical-reviewer",
+        "tramai.sovereign.ops.security.approval-policies.v1=medical-reviewer",
     ],
 )
 class OperatorAuthenticationHttpTest {

@@ -3,7 +3,6 @@ package dev.tramai.spring.sovereign.ops.rest
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalId
-import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
@@ -11,6 +10,7 @@ import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import kotlinx.coroutines.runBlocking
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -77,6 +77,7 @@ class ApprovalControlPlaneController(
     fun approve(
         @PathVariable approvalId: String,
         @RequestBody request: ApproveDenyRequest,
+        authority: OperatorAuthority,
     ): ResponseEntity<ApprovalControlPlaneResponse> =
         runBlocking {
             val expectedVersion = request.expectedVersion
@@ -87,12 +88,11 @@ class ApprovalControlPlaneController(
                 decisionControlPlane.approve(
                     ApprovalDecisionCommand(
                         approvalId = parseOrBadRequest { ApprovalId(approvalId) },
-                        actorId = request.actorId,
-                        actorRole = parseOrBadRequest { ApproverRole(request.actorRole) },
                         expectedVersion = expectedVersion,
                         comment = request.comment,
                         correlationId = request.correlationId,
                     ),
+                    authority,
                 )
             mapDecisionResult(result, approvalId)
         }
@@ -101,6 +101,7 @@ class ApprovalControlPlaneController(
     fun deny(
         @PathVariable approvalId: String,
         @RequestBody request: ApproveDenyRequest,
+        authority: OperatorAuthority,
     ): ResponseEntity<ApprovalControlPlaneResponse> =
         runBlocking {
             val expectedVersion = request.expectedVersion
@@ -111,12 +112,11 @@ class ApprovalControlPlaneController(
                 decisionControlPlane.deny(
                     ApprovalDecisionCommand(
                         approvalId = parseOrBadRequest { ApprovalId(approvalId) },
-                        actorId = request.actorId,
-                        actorRole = parseOrBadRequest { ApproverRole(request.actorRole) },
                         expectedVersion = expectedVersion,
                         comment = request.comment,
                         correlationId = request.correlationId,
                     ),
+                    authority,
                 )
             mapDecisionResult(result, approvalId)
         }
@@ -231,6 +231,18 @@ class ApprovalControlPlaneController(
 
             is ApprovalDecisionResult.Stale -> {
                 staleResponse(result, approvalId)
+            }
+
+            // 0.7.6e: an authorization refusal is not a business denial and not a conflict. 403 names the
+            // exact reason so a client can distinguish a missing capability from an unmet role requirement.
+            is ApprovalDecisionResult.Unauthorized -> {
+                ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                    ApprovalControlPlaneResponse(
+                        status = "UNAUTHORIZED",
+                        approvalId = approvalId,
+                        message = result.reason.wireName,
+                    ),
+                )
             }
 
             is ApprovalDecisionResult.Expired -> {

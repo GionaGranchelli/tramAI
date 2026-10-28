@@ -1,6 +1,7 @@
 package dev.tramai.spring.sovereign.ops.rest.security
 
 import dev.tramai.core.operator.OperatorPrincipal
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import org.springframework.core.MethodParameter
 import org.springframework.security.authentication.InsufficientAuthenticationException
 import org.springframework.security.core.Authentication
@@ -44,6 +45,19 @@ class OperatorPrincipalResolver(
 
     /** Resolves the principal of the current request's verified authentication. */
     fun resolveCurrent(): OperatorPrincipal = resolve(SecurityContextHolder.getContext().authentication)
+
+    /**
+     * Issues the [OperatorAuthority] a privileged command runs under (0.7.6e).
+     *
+     * This is the **only** production construction site for authority: it sits one step below
+     * [OperatorPrincipalResolver.resolve], so authority cannot exist without a verified JWT having produced
+     * the principal first. A controller that built its own authority from a method argument would be a
+     * second construction site and would quietly restore the old "caller decides who they are" path.
+     */
+    fun issueAuthority(authentication: Authentication?): OperatorAuthority = OperatorAuthority(resolve(authentication))
+
+    /** Issues the authority of the current request's verified authentication. */
+    fun issueCurrentAuthority(): OperatorAuthority = issueAuthority(SecurityContextHolder.getContext().authentication)
 }
 
 /**
@@ -54,18 +68,27 @@ class OperatorPrincipalResolver(
  * fun approve(operator: OperatorPrincipal, ...) = ...
  * ```
  *
- * A handler that declares an [OperatorPrincipal] parameter therefore cannot be reached unauthenticated:
- * the resolver throws before the handler body runs.
+ * A handler that declares an [OperatorPrincipal] or an [OperatorAuthority] parameter therefore cannot be
+ * reached unauthenticated: the resolver throws before the handler body runs. The authority form is what
+ * 0.7.6e controllers declare, so the identity a decision is attributed to is produced by this boundary and
+ * by nothing else.
  */
 class OperatorPrincipalArgumentResolver(
     private val principalResolver: OperatorPrincipalResolver,
 ) : HandlerMethodArgumentResolver {
-    override fun supportsParameter(param: MethodParameter) = param.parameterType == OperatorPrincipal::class.java
+    override fun supportsParameter(param: MethodParameter) =
+        param.parameterType == OperatorPrincipal::class.java ||
+            param.parameterType == OperatorAuthority::class.java
 
     override fun resolveArgument(
         parameter: MethodParameter,
         mavContainer: ModelAndViewContainer?,
         webRequest: NativeWebRequest,
         binderFactory: WebDataBinderFactory?,
-    ): Any = principalResolver.resolveCurrent()
+    ): Any =
+        if (parameter.parameterType == OperatorAuthority::class.java) {
+            principalResolver.issueCurrentAuthority()
+        } else {
+            principalResolver.resolveCurrent()
+        }
 }

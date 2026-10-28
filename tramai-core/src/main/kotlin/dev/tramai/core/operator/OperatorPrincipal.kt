@@ -1,6 +1,7 @@
 package dev.tramai.core.operator
 
 import dev.tramai.core.approval.SafeActorIdPolicy
+import dev.tramai.core.approval.gateway.ApproverRole
 import java.time.Instant
 import java.util.Collections
 import java.util.LinkedHashSet
@@ -42,14 +43,37 @@ import java.util.LinkedHashSet
  *   policy is applied here; callers that need one compare it to their own clock.
  * @property capabilities the operator capabilities granted server-side, as an immutable snapshot. An
  *   empty set is valid and means "authenticated, authorized for nothing".
+ * @property approverRoles the approver roles granted server-side, resolved from the same verified claims by
+ *   the same boundary (0.7.6e). They live here rather than on a wrapper for one reason: capabilities and
+ *   approver roles are both *grants the boundary resolved*, and keeping them apart invited a second
+ *   collection that could disagree with this one. An empty set is valid and means "authenticated, approver
+ *   for nothing", which refuses every per-approval role requirement rather than permitting it.
  */
 class OperatorPrincipal(
     val subject: String,
     val issuer: String,
     val authenticatedAt: Instant,
     capabilities: Set<OperatorCapability>,
+    approverRoles: Set<ApproverRole>,
 ) {
     val capabilities: Set<OperatorCapability> = Collections.unmodifiableSet(LinkedHashSet(capabilities))
+
+    val approverRoles: Set<ApproverRole> = Collections.unmodifiableSet(LinkedHashSet(approverRoles))
+
+    /**
+     * Compatibility constructor for the 0.7.6c published API — a real four-argument JVM constructor, not a
+     * Kotlin default-argument bridge, so an already-compiled Java or Kotlin consumer keeps linking.
+     *
+     * An operator built this way holds no approver role and is therefore refused by every per-approval role
+     * requirement: the 0.7.6c shape can express capabilities only, and an absent grant must never be read as
+     * "no requirement".
+     */
+    constructor(
+        subject: String,
+        issuer: String,
+        authenticatedAt: Instant,
+        capabilities: Set<OperatorCapability>,
+    ) : this(subject, issuer, authenticatedAt, capabilities, emptySet())
 
     init {
         SafeActorIdPolicy.validateActorId(subject, "subject")
@@ -78,7 +102,8 @@ class OperatorPrincipal(
         return subject == other.subject &&
             issuer == other.issuer &&
             authenticatedAt == other.authenticatedAt &&
-            capabilities == other.capabilities
+            capabilities == other.capabilities &&
+            approverRoles == other.approverRoles
     }
 
     override fun hashCode(): Int {
@@ -86,10 +111,11 @@ class OperatorPrincipal(
         result = 31 * result + issuer.hashCode()
         result = 31 * result + authenticatedAt.hashCode()
         result = 31 * result + capabilities.hashCode()
+        result = 31 * result + approverRoles.hashCode()
         return result
     }
 
     override fun toString(): String =
         "OperatorPrincipal(subject=$subject, issuer=$issuer, authenticatedAt=$authenticatedAt, " +
-            "capabilities=$capabilities)"
+            "capabilities=$capabilities, approverRoles=$approverRoles)"
 }
