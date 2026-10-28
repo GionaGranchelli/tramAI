@@ -50,7 +50,7 @@ Two boundaries are separate, and the fourth row is the reason the split exists:
 | --- | --- |
 | REST control plane enabled, security disabled | FAIL — `tramai-rest-control-plane-requires-operator-security` |
 | REST control plane enabled, security enabled, approval policy absent | FAIL — `tramai-rest-control-plane-requires-approval-policy` |
-| Decision control plane active, policy bean absent | FAIL — `tramai-approval-policy-missing` |
+| Decision control plane active, policy bean absent | NO DECISION SERVICE — the plane is not published, so callers see no bean rather than a startup failure |
 | Mutations enabled, REST disabled, security disabled | ALLOW — infrastructure only, no decision service published |
 | Security enabled, valid policy, decision boundary active | ALLOW |
 

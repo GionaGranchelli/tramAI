@@ -83,7 +83,6 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
             .withPropertyValues(
                 "tramai.sovereign.ops.rest-control-plane-enabled=true",
                 "tramai.sovereign.ops.security.enabled=true",
-                "tramai.sovereign.ops.security.enabled=true",
             ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalControlPlaneController::class.java)
             }
@@ -104,7 +103,6 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
             .withPropertyValues(
                 "tramai.sovereign.ops.rest-control-plane-enabled=true",
                 "tramai.sovereign.ops.security.enabled=true",
-                "tramai.sovereign.ops.security.enabled=true",
             ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalInboxController::class.java)
             }
@@ -115,7 +113,6 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         contextRunner // no TestInboxQueryServiceConfig
             .withPropertyValues(
                 "tramai.sovereign.ops.rest-control-plane-enabled=true",
-                "tramai.sovereign.ops.security.enabled=true",
                 "tramai.sovereign.ops.security.enabled=true",
             ).run { ctx ->
                 assertThat(ctx).doesNotHaveBean(ApprovalInboxController::class.java)
@@ -134,7 +131,6 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
                 CustomInboxControllerConfig::class.java,
             ).withPropertyValues(
                 "tramai.sovereign.ops.rest-control-plane-enabled=true",
-                "tramai.sovereign.ops.security.enabled=true",
                 "tramai.sovereign.ops.security.enabled=true",
             ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalInboxController::class.java)
@@ -299,7 +295,6 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         contextRunnerWithInbox
             .withPropertyValues(
                 "tramai.sovereign.ops.rest-control-plane-enabled=true",
-                "tramai.sovereign.ops.security.enabled=true",
                 "tramai.sovereign.ops.security.enabled=true",
             ).run { ctx ->
                 assertThat(ctx).doesNotHaveBean(ApprovalReviewerUiController::class.java)
