@@ -91,11 +91,20 @@ lp(x)               = u32be(len(x)) ‖ x        // x as UTF-8, length in bytes
 Domain string and integer version are inside the digest input, so a future v2 encoding cannot collide with v1 and
 neither can be confused with an unrelated digest over similar text.
 
-**Printable representation, stated because these values are stored in `TEXT` columns and compared as strings:** every
-digest named in this contract (`actorIdentityDigest`, `decision_actor_identity_digest`, `aggregateIdDigest`,
-`approvalIdDigest`, and the refusal event key of §5.2) is rendered as **lowercase hexadecimal of the raw SHA-256
-bytes, exactly 64 characters, no separators, no prefix** — except the event key, which carries the explicit
-`refusal-sha256:` prefix defined in §5.2. Byte-level encodings in this document are *hash inputs* only; they are
+**Printable representations differ, and the existing ones are frozen.** These values are stored in `TEXT` columns
+and compared as strings, so their textual form is part of the contract. `SovereignOpsApprovalDecisionControlPlane`'s
+`sha256Hex` already emits the prefixed form, and every digest it produced is persisted that way:
+
+| Value | Persisted form | Status |
+| --- | --- | --- |
+| `aggregateIdDigest`, `reasonDigest` (existing) | `sha256:` ‖ 64 lowercase hex — the current `sha256Hex` output | **frozen**; not reformatted, no row rewritten |
+| `decision_actor_hash` (existing) | 64 lowercase hex (`sha256(subject)`) | **frozen** as-is |
+| `decision_actor_identity_digest`, `actorIdentityDigest` (new) | 64 lowercase hex, no prefix | new format |
+| refusal event key (§5.2) | `refusal-sha256:` ‖ 64 lowercase hex | new format |
+
+No existing digest is reformatted: changing `aggregateIdDigest`'s textual form would break equality against every
+durable row already written, for no security benefit. New values get a distinct, self-describing form so a reader can
+tell which encoding it is holding. Byte-level encodings elsewhere in this document are *hash inputs* only; they are
 never persisted.
 
 **Legacy rows.** `NULL` issuer means "recorded before 0.7.6f; issuer unknown". It must never be read as the current
@@ -259,6 +268,10 @@ not widen what a caller sees. Refusal identifiers are digests, never raw approva
 
   Legacy records are flagged in emitted metadata as `legacyEvidence = true`. Defaulting an unknown legacy record to
   `APPROVAL_DENIED` would reproduce exactly the false attribution this task exists to remove.
+- **Built-in-vs-third-party emitter guarantee.** The table above is an exact output guarantee for
+  `AuditEngineSovereignOpsAuditEmitter`. The legacy fallback path for third-party emitters may keep
+  `enforcementPoint = "sovereign-ops.approval.deny"` for `APPROVAL_DENIED`; that is an explicit compatibility
+  exception, recorded here so a difference in emitted fields is not mistaken for a defect.
 - **Historical events are not rewritten.** Audit events already emitted with mislabelled attribution (§1.3) stay in
   the stream as emitted; evidence correction is forward-only from the deployment of 0.7.6f. Reclassification of
   already-emitted events is out of scope and is recorded as a known limitation, not repaired by rewriting history.
@@ -269,6 +282,51 @@ not widen what a caller sees. Refusal identifiers are digests, never raw approva
 - **Existing key defect (§1.4).** 0.7.6f does **not** rewrite decision event keys: that would break dedupe of
   in-flight records and re-key durable rows. The finding is recorded, refusal keys never embed raw ids, and correcting
   decision keys is a separate change with its own migration.
+
+### 6.1 Decode boundary and recovery for undecodable evidence
+
+Requiring `FAILED_PERMANENT` for undecodable evidence is only meaningful if a record can *reach* that state. It cannot
+today: `JdbcSovereignOpsAuditOutboxStore` decrypts and decodes inside `claimPending` (and validates queryable columns
+against the decrypted payload), `FileSovereignOpsAuditOutboxStore` deserializes strict JSON while reading, and the
+dispatcher can only mark a record that it successfully claimed. A payload that fails decode therefore throws before
+any classification happens — and one such row can block the dispatch batch indefinitely.
+
+**Decision: storage-level quarantine, keyed by authoritative row identifiers, preserving the encrypted bytes.**
+
+```kotlin
+suspend fun quarantineUndecodableEvidence(limit: Int, now: Instant): QuarantineReport
+```
+
+- **Scope of the scan:** rows in dispatchable statuses only (`PENDING`, `FAILED_RETRYABLE`, expired `EMITTING`).
+  `PREPARED` rows are untouched — they are not dispatchable and their transition outcome is still pending.
+- **Action per row:** CAS `status → FAILED_PERMANENT` with `lastFailureType` set, using `outbox_id` as the
+  authoritative identifier. `encrypted_payload`, its encryption columns (key id, algorithm, nonce, digest),
+  `outbox_id` and `event_key` are **never rewritten and never deleted**: the evidence bytes survive for operator
+  recovery, and the row remains visible through `listByStatus(FAILED_PERMANENT)`.
+- **No invented fields.** A quarantined record is never handed to the dispatcher as a partially populated record, and
+  no missing field is defaulted, guessed or re-encoded.
+- **Called by the dispatcher once per run, before claiming** (bounded by `limit`). One undecodable row therefore
+  cannot starve valid evidence, and the quarantine cannot become an unbounded full-table scan inside a hot path.
+- **Idempotent.** A row already at `FAILED_PERMANENT` is no longer dispatchable and is skipped; repeated runs return
+  no new quarantines. A decodable row is never quarantined — decoding succeeding is a precondition for the operation
+  to touch anything.
+
+**Two distinct failure labels, never merged:**
+
+| Label | Meaning | Applied by |
+| --- | --- | --- |
+| `undecodable-evidence` | The payload cannot be decrypted or deserialized, or decodes without the fields its own kind requires | store quarantine (§6.1) |
+| `corrupt-evidence` | The payload decodes but contradicts its stored queryable columns (the existing `validateQueryableColumns` failure) | store quarantine (§6.1) |
+| `unsupported-evidence-kind` | The payload decodes correctly and is internally consistent, but its kind is unknown or the emitter cannot represent it | dispatcher / emitter (§6) |
+
+The distinction matters because they call for different operator responses: the first two are storage-integrity
+findings about one row's bytes, the third is a configuration/deployment gap and leaves the evidence itself intact.
+**No label permits reinterpretation**: an undecodable record is never emitted as `APPROVAL_DENIED`, and an unsupported
+kind is never best-effort mapped to a decision.
+
+**File store.** Quarantine requires a lenient raw read path for records whose strict deserialization fails, so that the
+original payload text is preserved verbatim and only the status and failure fields change. The file must remain a
+valid document for every other record in it.
 
 ## 7. Out of scope
 
@@ -302,6 +360,12 @@ helper that reimplements the rule.
 | 16 | Restart: write all three evidence kinds, drop process state, dispatch from storage only | R2, R5 | dispatch depending on cached state |
 | 17 | Legacy approval row with `NULL` issuer reconstructs with issuer explicitly unknown, never as the current issuer | R1, R5 | guessed legacy provenance |
 
+| 18 | **JDBC: a batch containing one valid and one undecodable record dispatches the valid one and quarantines the other as `FAILED_PERMANENT` / `undecodable-evidence`; the encrypted payload bytes are unchanged (digest before/after), the row is still readable by `outbox_id`, and a second dispatch run quarantines nothing further** | §6.1 | a single bad row starving the batch, or evidence being destroyed |
+| 19 | **File store: the same scenario, and the file remains a valid document with every other record preserved verbatim** | §6.1 | strict deserialization blocking recovery, or collateral damage to neighbours |
+| 20 | Quarantine leaves decodable records and `PREPARED` records untouched | §6.1 | over-eager quarantine |
+| 21 | `corrupt-evidence` (payload contradicts its queryable columns) is quarantined under its own label, distinct from `undecodable-evidence` and from `unsupported-evidence-kind` at the emitter | §6.1 | merging storage corruption with configuration gaps |
+| 22 | A newly written decision record still carries `aggregateIdDigest` / `reasonDigest` in the existing `sha256:`-prefixed form, and the new identity digest in bare 64-hex form | §4 | reformatting durable digests in passing |
+
 ## 9. Open items for the owner
 
 | Item | Position |
@@ -311,4 +375,6 @@ helper that reimplements the rule.
 | Counting identical retries / per-delivery correlation | Not supported by design (§5.2 ceilings); needs an attempt-counter or dispatch-attempt record. |
 | Issuer normalisation | Stored verbatim as verified by the decoder; changing it would change identity equality. |
 | Legacy rows / legacy payloads | Issuer permanently unknown; evidence kind derived from persisted `approvalStatus`, undecodable records fail closed. |
+| Persisted digest formats (`sha256:` prefix on `aggregateIdDigest`/`reasonDigest`) | Frozen. Reformatting would break equality against every existing row; new values use a distinct self-describing form. |
+| Quarantine operation (§6.1) | New store API in 0.7.6f. Retention of quarantined payloads follows the outbox lifecycle; operator recovery uses `outbox_id` and the untouched ciphertext. |
 | Decision event keys embedding raw approval ids (§1.4) | Recorded finding; correction is a separate change with its own migration. |
