@@ -117,3 +117,39 @@ a replacement for it: an authorized caller with a stale version still receives `
   continuation status to any caller that reaches it. Recorded under F3.
 - Resume control plane authorization, workload administration and run cancellation are out of scope for 0.7.6e.
 - Privileged audit attribution for authorization *refusals* is 0.7.6f; durable resume fencing is 0.7.7.
+
+## Delivery
+
+Merged into `release/0.7.0` as squash `440d63fc294cfbd928df397f25250247bf1bfc55` on 2026-10-28, from reviewed head
+`e240bf95a1e304acaa2247fa2308c009a993d927` (19/19 exact-head jobs green, base `a6bac10b`).
+
+What shipped, in the order the review demanded it:
+
+- **Verified authority, single issuance boundary.** `OperatorPrincipalFactory` derives capabilities and approver
+  roles from verified JWT claims plus server configuration; `OperatorPrincipalResolver.issueAuthority` is the only
+  place an `OperatorAuthority` is minted; the controller never builds one.
+- **No substitutable trust seam.** Capability mapping, approver-role mapping, principal factory and resolver are not
+  beans. A published bean of those types was substitutable — a `@Primary` host bean won type-based injection even
+  with `@ConditionalOnMissingBean` present, which the hostile-wiring test demonstrates by promotion
+  (`403` becoming `200` on the mutation run). The chain is constructed inline from configuration.
+- **Activation split.** `mutations-enabled` is infrastructure; the decision service publishes only with a policy
+  bean. REST without operator security fails startup; REST without a resolvable policy fails startup.
+- **Role configuration validated at startup.** Shape (non-blank, no whitespace, no control characters, bounded
+  length) and satisfiability: an `approval-policies` role no `approver-role-mappings` value can grant is a startup
+  failure rather than a permanent runtime refusal.
+- **L4 inventory ratchet** over direct `ApprovalStore.transition` calls, as a Kotlin PSI scan in an isolated Worker.
+
+Residuals carried forward unchanged, each deliberately not solved here:
+
+- F3: `GET /{approvalId}` is not authenticated beyond the operator boundary.
+- F5: the originally required role is not persisted as authoritative approval state; the gateway `requiredRole` is a
+  parameter, and the policy is keyed on the approval's persisted `policyVersion` (concrete value in the resume
+  example: `0.4.0-preview`). Preserving the required role in authoritative state is future work with an ADR.
+- L4 does not close the public `ApprovalStore.transition` bypass, resolves no receiver types, and does not analyse
+  Java call sites.
+- A host that registers its own `WebMvcConfigurer` or `HandlerMethodArgumentResolver` runs in-process code that a
+  Spring boundary cannot police; the guarantee is about bean substitution of the trusted types.
+- `ToolExecutionDenialEvidenceIntegrationTest` remains a recorded timing flake (base and head both green in
+  isolation and on rerun), not waived.
+
+Next: 0.7.6f privileged audit attribution. 0.7.7 owns durable resume fencing.
