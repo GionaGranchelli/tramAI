@@ -1,6 +1,6 @@
 # 0.7.6f — Privileged Evidence & Durable Attribution Provenance
 
-**Status:** Contract for review, revision 2. No implementation until accepted.
+**Status:** Contract for review, revision 3. No implementation until accepted.
 **Base:** `release/0.7.0` at `d4bde521` (0.7.6e delivered as `440d63fc`).
 **Scope:** attribution and evidence for privileged approval decisions and their authorization refusals.
 
@@ -15,10 +15,6 @@ evidence afterwards, and it records nothing at all when a decision is **refused*
    state drops it. `sub` is unique only within an issuer.
 2. **Refusals leave no trace.** `ApprovalDecisionResult.Unauthorized` returns to the caller and writes nothing: no
    outbox record, no audit event, no mutation.
-
-Two further defects were found while writing this revision. Both are in shipping code and both are in scope,
-because the evidence this task adds would otherwise reproduce them:
-
 3. **Approvals are audited as denials.** `AuditEngineSovereignOpsAuditEmitter.approvalDeniedFromOutbox` hardcodes
    `enforcementPoint = "sovereign-ops.approval.deny"`, `decision = "DENIED"`, `reasonCode = "sovereign-ops-admin-denial"`
    regardless of `record.approvalStatus`, and `SovereignOpsAuditOutboxDispatcher` calls it for **every** claimed
@@ -34,14 +30,18 @@ because the evidence this task adds would otherwise reproduce them:
 | --- | --- | --- |
 | Approval decision | `approvals.decision_actor_hash`, `decision_type`, `status`, `version`, `decided_at` | subject digest, decision, resulting status, version |
 | Decision audit intent | `SovereignOpsAuditOutboxRecord`: `aggregateIdDigest`, `operation`, `eventKey`, `actor`, `workflowRunId`, `correlationId`, `approvalStatus` (non-null), `approvalVersion`, `reasonDigest`, `reasonLength` | actor **as subject text**, resulting status and version — but **no previous status/version** |
+| Outbox storage | `audit_outbox` table: `event_key TEXT NOT NULL` + unique index, status, attempt counters, **evidence fields inside the encrypted `encrypted_payload` BYTEA** | — |
 | Outbox store contract | `SovereignOpsAuditOutboxStore.append` accepts **PREPARED only**, rejects duplicate `outboxId`/`eventKey`, exposes `findByEventKey`, `get`, `listByStatus`, `listExpiredEmitting` | — |
 | Store conformance | `SovereignOpsAuditOutboxStoreTck` (`tramai-testing`) — including *every non-PREPARED initial status rejected*, *duplicate eventKey rejected with fixed code*, *duplicate rejection leaves no orphan* | — |
 | Implementations | `InMemory…`, `Jdbc…`, `File…` outbox stores (plus governed wrappers) | — |
 | Refusals | — | **nothing** |
 
-Outbox-first semantics for a successful mutation already hold in both mutation stores: append `PREPARED`,
-transition, then `PENDING`; a failed transition marks the intent `FAILED_PERMANENT`. R4 preserves that; it does not
-replace it.
+Decision intents exist for **both** approve and deny: `auditIntentFor` sets `approvalStatus` from the decision type.
+Historical outbox rows therefore already contain successful approvals, and the legacy decoding rule in §6 depends on
+that.
+
+Outbox-first semantics for a successful mutation already hold in both mutation stores: append `PREPARED`, transition,
+then `PENDING`; a failed transition marks the intent `FAILED_PERMANENT`. R4 preserves that; it does not replace it.
 
 ## 3. Requirements
 
@@ -57,9 +57,10 @@ approval row.
 
 **R3 — Refusals are durable and are not mutations.** A refused decision writes evidence recording the operation, the
 actor `(issuer, subject)`, the refusal reason from the closed `ApprovalUnauthorizedReason` set, the policy version
-consulted, the caller's `expectedVersion`, and the approval correlation digest — **without** creating or modifying an
-approval row, without changing `approvals.version`, and without emitting an event a consumer could read as a
-decision.
+**if and only if one was consulted**, the caller's `expectedVersion`, and the approval correlation digest —
+**without** creating or modifying an approval row, without changing `approvals.version`, and without emitting an
+event a consumer could read as a decision. A refusal that is existence-blind must stay existence-blind: recording it
+may not introduce a state lookup (§5.2).
 
 **R4 — The mutation/intent transactional relationship is preserved** in both mutation stores, and the one new write
 path must not disturb the ordering or add a second dispatch mechanism.
@@ -79,17 +80,23 @@ path must not disturb the ordering or add a second dispatch mechanism.
 `decision_actor_identity_digest TEXT`; the outbox record and audit payload gain `actorIssuer` and
 `actorIdentityDigest`. `decision_actor_hash` is **frozen** at `sha256(subject)` — not recomputed, no row rewritten.
 
-**Exact digest encoding** (no asserted delimiter restriction; length-prefixing makes the encoding injective for any
-issuer or subject bytes):
+**Canonical bytes** (no delimiter assumption; length-prefixing keeps the encoding injective for any issuer or subject
+text):
 
 ```
-identityDigest = SHA-256( "tramai/actor-identity" ‖ 0x00 ‖ u32be(1) ‖ lp(issuer) ‖ lp(subject) )
-lp(x)          = u32be(len(x)) ‖ x        // x as UTF-8, length in bytes
+identityDigestBytes = SHA-256( "tramai/actor-identity" ‖ 0x00 ‖ u32be(1) ‖ lp(issuer) ‖ lp(subject) )
+lp(x)               = u32be(len(x)) ‖ x        // x as UTF-8, length in bytes
 ```
 
-The domain string and the integer version are both part of the input, so a future v2 encoding cannot collide with
-v1 and neither can be confused with an unrelated digest that happens to hash similar text. The same construction with
-its own domain string is used for refusal event keys (§5.2), so the two can never be equal.
+Domain string and integer version are inside the digest input, so a future v2 encoding cannot collide with v1 and
+neither can be confused with an unrelated digest over similar text.
+
+**Printable representation, stated because these values are stored in `TEXT` columns and compared as strings:** every
+digest named in this contract (`actorIdentityDigest`, `decision_actor_identity_digest`, `aggregateIdDigest`,
+`approvalIdDigest`, and the refusal event key of §5.2) is rendered as **lowercase hexadecimal of the raw SHA-256
+bytes, exactly 64 characters, no separators, no prefix** — except the event key, which carries the explicit
+`refusal-sha256:` prefix defined in §5.2. Byte-level encodings in this document are *hash inputs* only; they are
+never persisted.
 
 **Legacy rows.** `NULL` issuer means "recorded before 0.7.6f; issuer unknown". It must never be read as the current
 issuer, and no consumer may treat a legacy row as verified provenance.
@@ -103,13 +110,13 @@ no new unique index (duplicate decisions are prevented by the version fence, not
 | --- | --- |
 | Log or metric only | Rejected: not durable, not reconstructable. |
 | Direct audit emission, bypassing the outbox | Rejected: second audit path with its own failure semantics, and the existing dispatch guarantees would not apply. |
-| **Append refusal evidence to the same outbox, dispatchable on commit** | **Chosen**, but it needs an explicit store operation (§5.1), genuine idempotency (§5.2) and kind-correct dispatch (§6) — none of which exist today. |
+| **Append refusal evidence to the same outbox, dispatchable on commit** | **Chosen**, with an explicit store operation (§5.1), genuine idempotency (§5.2) and kind-correct dispatch (§6). |
 
 ### 5.1 A separate dispatchable append, not a weakened `append`
 
-`append` accepts `PREPARED` only, and the TCK *requires* every non-`PREPARED` initial status to be rejected.
-Refusal evidence has no transition to wait for, so it must be dispatchable at commit. This is a **new contract
-operation**, added alongside `append` and never weakening it:
+`append` accepts `PREPARED` only, and the TCK *requires* every non-`PREPARED` initial status to be rejected. Refusal
+evidence has no transition to wait for, so it must be dispatchable at commit. This is a **new contract operation**,
+added alongside `append` and never weakening it:
 
 ```kotlin
 suspend fun appendDispatchable(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord
@@ -117,74 +124,98 @@ suspend fun appendDispatchable(record: SovereignOpsAuditOutboxRecord): Sovereign
 
 - **Preconditions:** `record.status == PENDING`, non-blank `outboxId`/`eventKey`, `evidenceKind` is one of the
   refusal kinds. Any other status is rejected with the same fixed code `append` uses; the check is not bypassable.
-- **Default implementation throws** `UnsupportedOperationException("tramai-sovereign-ops-outbox-dispatchable-append-unsupported")`,
-  mirroring the safe default already used by `SovereignOpsAuditEmitter.approvalDeniedFromOutbox`. A store that has
-  not implemented it cannot be used for refusal evidence, and the refusal path fails closed rather than silently
-  writing nowhere or falling back to a weaker path.
-- **Implementations required for 0.7.6f:** `InMemory`, `Jdbc`, `File` outbox stores. Each commits the record as
-  `PENDING` in one atomic write and preserves the existing duplicate-code behaviour for `outboxId`/`eventKey`.
-  The governed wrappers delegate and keep their own invariants.
-- **Non-durable configuration fails closed.** `isDurable() == false` (the in-memory store) is acceptable only in
-  tests and explicit in-memory deployments, exactly as today for decision intents. A refusal path configured with a
-  non-durable store must be refused at startup or at first use — the contract chooses **at startup**, matching the
-  existing fail-closed posture, rather than discovering the gap under load.
-- **TCK extension (mandatory):** every store enrolled in `SovereignOpsAuditOutboxStoreTck` gains tests for the new
-  operation — accepts `PENDING`, rejects every other initial status, rejects duplicates with the existing fixed
-  codes, leaves no orphan on rejection, round-trips all evidence fields exactly, and the pre-existing
-  *PREPARED-only* tests must still pass unchanged.
+- **Default implementation throws**
+  `UnsupportedOperationException("tramai-sovereign-ops-outbox-dispatchable-append-unsupported")`, mirroring the safe
+  default already used by `SovereignOpsAuditEmitter.approvalDeniedFromOutbox`. A store that has not implemented it
+  cannot be used for refusal evidence, and the refusal path fails closed rather than silently writing nowhere or
+  falling back to a weaker path.
+- **Implementations required for 0.7.6f:** `InMemory`, `Jdbc`, `File`. Each commits the record as `PENDING` in one
+  atomic write and preserves the existing duplicate-code behaviour for `outboxId`/`eventKey`. Governed wrappers
+  delegate and keep their own invariants.
+- **Non-durable configuration fails closed at startup** (`isDurable() == false`), matching the existing posture,
+  rather than being discovered under load.
+- **TCK extension (mandatory):** every enrolled store gains tests for the new operation — accepts `PENDING`, rejects
+  every other initial status and duplicates with the existing fixed codes, leaves no orphan on rejection,
+  round-trips all evidence fields exactly — and the pre-existing *PREPARED-only* tests must still pass unchanged.
 
-### 5.2 Idempotency: canonical key + atomic insert-or-find
+### 5.2 Idempotency: canonical key, hashed for storage, atomic insert-or-find
 
 A unique index is not idempotency. Today a duplicate `eventKey` raises, so without explicit handling the second
 identical refused request would surface a server failure instead of an idempotent refusal.
 
-**Canonical refusal event key** (domain-separated, length-prefixed, same primitives as §4):
+**Canonical key input** (domain-separated, length-prefixed):
 
 ```
-refusalEventKey = "tramai/refusal-evidence" ‖ 0x00 ‖ u32be(1) ‖ lp(operation) ‖ lp(approvalIdDigest)
-                  ‖ lp(actorIdentityDigest) ‖ lp(refusalReason.wireName) ‖ lp(policyVersion)
-                  ‖ lp(expectedVersion.toString())
+keyBytes = "tramai/refusal-evidence" ‖ 0x00 ‖ u32be(1)
+           ‖ lp(operation) ‖ lp(approvalIdDigest) ‖ lp(actorIdentityDigest)
+           ‖ lp(refusalReason.wireName) ‖ policyField ‖ lp(expectedVersion.toString())
+policyField = 0x00                                   // policy version NOT consulted
+            | 0x01 ‖ lp(policyVersion)               // policy version consulted
 ```
 
-Every content-bearing dimension of the evidence is in the key, so a genuine retry of the identical request maps to
-the identical key and an attempt that differs in any evidence-bearing way maps to a different one. Decisions on the
-same target cannot collide, because `operation` is in the key; approve and deny refusals are distinct records.
+**Stored form.** `audit_outbox.event_key` is `TEXT NOT NULL` with a unique index, and PostgreSQL `text` cannot hold
+NUL bytes, so the canonical bytes are never stored directly. The stored key is:
 
-**Atomic insert-or-find** is the required semantics of a new operations-level method
+```
+eventKey = "refusal-sha256:" ‖ lowercaseHex( SHA-256(keyBytes) )      // prefix + 64 hex chars
+```
+
+The length-prefixed structure survives because it is the *hash input*; the stored value is printable, bounded and
+indexable. `approvalIdDigest` here is the digest of the caller-supplied approval id, which requires no lookup.
+
+**Policy version is optional, and its absence is encoded explicitly.** `capabilityRefusal` runs before any lookup —
+by design, it is the only refusal in the system that is existence-blind — so a `MISSING_CAPABILITY` refusal has no
+consulted policy version and may not acquire one. The single-byte tag distinguishes "not consulted" from "consulted
+and empty", so the two can never collide, and the refusal path performs **zero approval-store reads**.
+
+Every content-bearing dimension is in the key, so a genuine retry of the identical request maps to the identical key
+and an attempt differing in any evidence-bearing way maps to a different one. Approve and deny refusals on the same
+target cannot collide, because `operation` is in the key.
+
+**Atomic insert-or-find** is the required semantics of
 `SovereignOpsAuditOutboxOperations.recordRefusal(evidence)`:
 
 1. compute the key; `findByEventKey(key)` → if present, verify equivalence and return `Duplicate(existing)`;
 2. otherwise attempt `appendDispatchable`;
 3. on the store's duplicate-key rejection, re-`findByEventKey` and verify equivalence → `Duplicate(existing)`.
 
-**Equivalence is verified, not assumed.** The existing record must match the requested evidence on every key input
-plus `evidenceKind`. A mismatch against an existing key means the key composition is defective (or a genuine digest
-collision): fail closed with `tramai-outbox-event-key-collision` rather than returning someone else's record as if it
-were this attempt's evidence.
+**Equivalence is over immutable logical facts, not delivery metadata.** The compared set is exactly the key inputs
+plus `evidenceKind`: `operation`, `approvalIdDigest`, `actorIdentityDigest`, `refusalReason`, policy-consulted state
+(and value when consulted), `expectedVersion`, `evidenceKind`. Everything describing delivery — `createdAt`, outbox
+`status`, `attemptCount`, claim owner and claim timestamps, `emittedAt`, `lastErrorCode` — is excluded, because those
+legitimately differ between a stored record and a retry, and treating them as identity would turn a correct
+collision into a false integrity error.
+
+**Correlation on retry.** `correlationId` is neither a key input nor part of equivalence: it describes the delivery
+that first recorded the refusal, not the refusal itself. The **first recorded correlation is retained and
+authoritative**; a retry presenting a different correlation is deduped onto the original record and does not
+overwrite it. *Ceiling, stated:* evidence therefore cannot show that a retry arrived under a different correlation.
+If per-delivery correlation is ever needed, it belongs in a dispatch-attempt record, not in the evidence row.
+
+**Failure on mismatch.** A key match with different logical facts fails closed with
+`tramai-outbox-event-key-collision` rather than returning someone else's record as if it were this attempt's
+evidence.
 
 **Pinned response.** `Duplicate` is a success for the caller's purpose: the refusal is returned as the ordinary
-authorization refusal. Journalers must not be able to distinguish first-attempt from retry — an idempotent retry is
-not an error and must not become one.
+authorization refusal. A first attempt and an idempotent retry are indistinguishable to the caller.
 
-**Ceiling, stated rather than hidden.** Distinct repeated attempts (a caller retrying after changing
-`expectedVersion`, or after the policy configuration changed) produce additional records, which is intended: they are
-different attempts. What is *not* recoverable is a count of identical retries; that needs an explicit attempt counter
-column if it is ever wanted.
+**Counter ceiling.** Distinct repeated attempts (a caller retrying after changing `expectedVersion`, or after the
+policy configuration changed) produce additional records, which is intended — they are different attempts. A count of
+identical retries is not recoverable without an explicit attempt-counter column.
 
 ### 5.3 Evidence failure is not fail-open
 
 Refusal evidence is written **before** the refusal is returned. If the write fails, or the configured store cannot
 record it, the caller receives a server-side failure for an operation that was **not** recorded as a refusal — and
 the mutation does not happen either way. An evidence failure may never convert into "the decision proceeded", may
-never be reported as a recorded refusal, and a retry after such a failure must re-attempt evidence recording, not
-take a shortcut past it.
+never be reported as a recorded refusal, and a retry after such a failure must re-attempt evidence recording.
 
 ### 5.4 Non-disclosure is unchanged
 
 The HTTP surface keeps its current shape: the capability gate answers before any state lookup, so a caller without
-the capability learns nothing about existence; the per-approval role refusal keeps its documented bounded existence
-disclosure. Evidence is privileged storage and does not widen what a caller sees. Refusal identifiers are digests,
-never raw approval ids (§1.4, §7).
+the capability learns nothing about existence — and §5.2 keeps that true for the evidence path as well; the
+per-approval role refusal keeps its documented bounded existence disclosure. Evidence is privileged storage and does
+not widen what a caller sees. Refusal identifiers are digests, never raw approval ids.
 
 ## 6. Evidence kinds and kind-correct dispatch
 
@@ -196,30 +227,48 @@ never raw approval ids (§1.4, §7).
 | `APPROVAL_DENIED` | decision plane, outbox-first | `DENIED` / new version | `enforcementPoint = "sovereign-ops.approval.decide"`, `decision = "DENIED"`, `reasonCode = "sovereign-ops-admin-denial"` (existing string preserved) |
 | `AUTHORIZATION_REFUSAL` | refusal path, dispatchable | both **null** | `enforcementPoint = "sovereign-ops.approval.authorization"`, `decision = "DENIED"`, `reasonCode = "sovereign-ops-authorization-refused"`, metadata carries the refusal reason wire name |
 
-- `approvalStatus` becomes **nullable** so a refusal carries no status at all, instead of a sentinel that would be
-  indistinguishable from a real status. `previousApprovalStatus`/`previousApprovalVersion` are added for R2.
-  This is a public-API change on `SovereignOpsAuditOutboxRecord`: `apiDump` and an appended active
-  `api-migrations.yml` entry are required, with no behavioural break for decision kinds.
-- **Emitter surface.** `SovereignOpsAuditEmitter` is a `fun interface`, so the dispatch entry point is added as a
-  *default* method `suspend fun evidenceFromOutbox(record)`. Its default delegates to the existing
-  `approvalDeniedFromOutbox` for decision kinds — preserving third-party emitters — and throws
-  `UnsupportedOperationException("tramai-sovereign-ops-refusal-evidence-unsupported")` for
-  `AUTHORIZATION_REFUSAL`. `AuditEngineSovereignOpsAuditEmitter` overrides it and maps the three kinds per the table,
-  which fixes §1.3.
+- `approvalStatus` becomes **nullable** so a refusal carries no status at all instead of a sentinel.
+  `previousApprovalStatus`/`previousApprovalVersion` are added for R2. This is a public-API change on
+  `SovereignOpsAuditOutboxRecord`: `apiDump` plus an appended active `api-migrations.yml` entry, no behavioural break
+  for decision kinds.
+- **Dispatch entry point.** `SovereignOpsAuditEmitter` is a `fun interface`, so
+  `suspend fun evidenceFromOutbox(record)` is added as a **default** method. The default is **kind-aware**, because
+  binary compatibility is not semantic correctness:
+  - `APPROVAL_DENIED` → delegates to the legacy `approvalDeniedFromOutbox` (correct today);
+  - `APPROVAL_APPROVED` → throws `UnsupportedOperationException("tramai-sovereign-ops-approval-evidence-unsupported")`;
+  - `AUTHORIZATION_REFUSAL` → throws `UnsupportedOperationException("tramai-sovereign-ops-refusal-evidence-unsupported")`.
+
+  An older third-party emitter therefore stops emitting approvals rather than continuing to label them as denials. The
+  record is retained in the outbox and reaches `FAILED_PERMANENT` per below, so the evidence is preserved until the
+  emitter is updated — visible, not silently wrong.
+- `AuditEngineSovereignOpsAuditEmitter` overrides `evidenceFromOutbox` and maps all three kinds per the table, which
+  fixes §1.3.
 - **Dispatcher mapping is total and explicit.** Dispatch selects on `evidenceKind`; an unknown kind is
   `FAILED_PERMANENT` with error code `unsupported-evidence-kind`, never a retry loop and never a best-effort guess.
-  `UnsupportedOperationException` from an emitter is likewise classified permanent, because retrying an emitter that
-  cannot express refusals would spin forever. Everything else keeps today's retryable behaviour.
-- **Legacy payload decoding.** A record without `evidenceKind` is decoded as `APPROVAL_DENIED`, the only kind that
-  could exist before this task, and is flagged in the emitted metadata (`legacyEvidence = true`) rather than being
-  silently reinterpreted. `evidenceVersion` absent decodes as `1`.
-- **Correlation.** The emitted event's stream id remains derived from `aggregateIdDigest`, and `outboxId`/`eventKey`
-  are carried in audit metadata so an event can be tied back to exactly one outbox record. For refusals the stream is
-  the same approval-correlation stream, which is what makes "who was refused on this approval" answerable from the
-  audit trail.
-- **Existing key defect (§1.4).** 0.7.6f does **not** rewrite decision event keys: changing them would break dedupe
-  of records already in flight and re-key durable rows. The finding is recorded here, refusal keys never embed raw
-  ids, and correcting decision keys is a separate change with its own migration.
+  `UnsupportedOperationException` from an emitter is likewise classified permanent. Everything else keeps today's
+  retryable behaviour.
+- **Legacy decoding is derived from persisted state, never assumed.** A record without `evidenceKind` is classified
+  from its persisted `approvalStatus`, which the decoder reads from the record (the field is inside the encrypted
+  payload, so this needs no extra lookup):
+
+  | Legacy `approvalStatus` | Decoded `evidenceKind` |
+  | --- | --- |
+  | `APPROVED` | `APPROVAL_APPROVED` |
+  | `DENIED` | `APPROVAL_DENIED` |
+  | missing, inconsistent, or unrecognized | **fail closed** — `FAILED_PERMANENT` with `undecodable-legacy-evidence`; never guessed |
+
+  Legacy records are flagged in emitted metadata as `legacyEvidence = true`. Defaulting an unknown legacy record to
+  `APPROVAL_DENIED` would reproduce exactly the false attribution this task exists to remove.
+- **Historical events are not rewritten.** Audit events already emitted with mislabelled attribution (§1.3) stay in
+  the stream as emitted; evidence correction is forward-only from the deployment of 0.7.6f. Reclassification of
+  already-emitted events is out of scope and is recorded as a known limitation, not repaired by rewriting history.
+  `evidenceVersion` absent decodes as `1`.
+- **Correlation.** The emitted event's stream id stays derived from `aggregateIdDigest`, and `outboxId`/`eventKey` are
+  carried in audit metadata so an event ties back to exactly one outbox record. For refusals the stream is the same
+  approval-correlation stream, which is what makes "who was refused on this approval" answerable.
+- **Existing key defect (§1.4).** 0.7.6f does **not** rewrite decision event keys: that would break dedupe of
+  in-flight records and re-key durable rows. The finding is recorded, refusal keys never embed raw ids, and correcting
+  decision keys is a separate change with its own migration.
 
 ## 7. Out of scope
 
@@ -235,27 +284,31 @@ helper that reimplements the rule.
 
 | # | Test | Req | Discriminates against |
 | --- | --- | --- | --- |
-| 1 | **Two independently configured issuer boundaries, each verifying its own tokens, produce the same `sub` and different identity digests, and reconstruct as distinct operators through the real JDBC path** | R1 | subject-only attribution; also proves the digest binding rather than assuming one decoder accepts two issuers |
-| 2 | Attribution cannot be forged from outside: a request carrying actor-shaped headers/body fields has no effect on recorded attribution, and `ApprovalDecisionCommand` exposes no actor parameter at all (asserted structurally on the type) | R1 | caller-constructed attribution; replaced the vacuous "ignored command field" test, since 0.7.6e removed that field |
+| 1 | **Two independently configured issuer boundaries, each verifying its own tokens, produce the same `sub` and different identity digests, and reconstruct as distinct operators through the real JDBC path** | R1 | subject-only attribution; proves the digest binding instead of assuming one decoder accepts two issuers |
+| 2 | Attribution cannot be forged from outside: a request carrying actor-shaped headers/body fields has no effect on recorded attribution, and `ApprovalDecisionCommand` exposes no actor parameter at all (asserted structurally on the type) | R1 | caller-constructed attribution |
 | 3 | Approve, restart, then reconstruct operation, actor, authorization outcome, **recorded previous status/version**, resulting status/version, run correlation and outbox→event correlation from storage alone | R2 | evidence that lives only in memory, or previous state derived from the final row |
 | 4 | **Each refusal reason leaves exactly one refusal record with `evidenceKind = AUTHORIZATION_REFUSAL`, and the `approvals` row is unchanged in status and version** | R3 | refusal implemented as a mutation |
-| 5 | **Retrying the identical refused request twice yields one record and an ordinary refusal both times** (no server error on the retry) | R3 | duplicate-key surfacing as failure |
-| 6 | **Injected evidence-write failure: no mutation, no recorded refusal, non-2xx outcome, and a retry re-attempts the evidence write** | R3 | fail-open evidence |
-| 7 | **Dispatcher kind mapping: one approved, one denied and one refused record each produce the correct `enforcementPoint`/`decision`/`reasonCode`, and no refusal is ever emitted as a decision** | §6, §1.3 | the current hardcoded `DENIED` |
-| 8 | Unknown `evidenceKind` and an emitter `UnsupportedOperationException` both land `FAILED_PERMANENT`, not in a retry loop | §6 | infinite retry of unrepresentable evidence |
-| 9 | Legacy record without `evidenceKind` dispatches as `APPROVAL_DENIED` with the legacy flag | §6 | silent reinterpretation of old payloads |
-| 10 | Key collision: an existing record with the same key but different evidence fails closed with `tramai-outbox-event-key-collision` | §5.2 | returning someone else's evidence |
-| 11 | Transition failure leaves the intent `FAILED_PERMANENT` and the approval unchanged, in both mutation stores | R4 | orphaned intent dispatched |
-| 12 | TCK: `appendDispatchable` accepts `PENDING`, rejects every other status and duplicates with the existing fixed codes, leaves no orphan, round-trips evidence exactly — while the existing PREPARED-only tests still pass | §5.1 | a weakened `append` |
-| 13 | Restart: write all three evidence kinds, drop process state, dispatch from storage only | R2, R5 | dispatch depending on cached state |
-| 14 | Legacy approval row with `NULL` issuer reconstructs with issuer explicitly unknown, never as the current issuer | R1, R5 | guessed legacy provenance |
+| 5 | **A `MISSING_CAPABILITY` refusal persists its evidence while performing zero approval-store reads** (store instrumented to record reads), and its record is marked policy-not-consulted | R3, §5.2 | a lookup bought with an existence-blind refusal |
+| 6 | **Retrying the identical refused request twice yields one record and an ordinary refusal both times**; the stored record keeps the first correlation and its original `createdAt` | §5.2 | duplicate-key surfacing as failure; delivery metadata treated as identity |
+| 7 | Equivalence: a stored refusal whose delivery metadata differs (status, attempt count, timestamps, different retry correlation) is accepted as `Duplicate`, while one with different logical facts fails `tramai-outbox-event-key-collision` | §5.2 | false collision, or accepting someone else's evidence |
+| 8 | **Event key round-trips through the real JDBC store**: printable, `refusal-sha256:`-prefixed, 79 characters, no NUL, accepted by `TEXT NOT NULL` + unique index | §5.2 | a key that cannot be stored |
+| 9 | **Injected evidence-write failure: no mutation, no recorded refusal, non-2xx outcome, and a retry re-attempts the evidence write** | §5.3 | fail-open evidence |
+| 10 | **Dispatcher kind mapping: one approved, one denied and one refused record each produce the correct `enforcementPoint`/`decision`/`reasonCode`, and no refusal is emitted as a decision** | §6, §1.3 | the current hardcoded `DENIED` |
+| 11 | **Default emitter fallback: a legacy-style emitter emits `APPROVAL_DENIED`, and reaches `FAILED_PERMANENT` for `APPROVAL_APPROVED` and `AUTHORIZATION_REFUSAL`** | §6 | an old emitter continuing to label approvals as denials |
+| 12 | Legacy `approvalStatus=APPROVED` decodes as `APPROVAL_APPROVED`; `DENIED` as `APPROVAL_DENIED`; missing/inconsistent/unrecognized fails closed as `undecodable-legacy-evidence` | §6 | blanket legacy defaulting to denial |
+| 13 | Unknown `evidenceKind` and an emitter `UnsupportedOperationException` both land `FAILED_PERMANENT`, not in a retry loop | §6 | infinite retry of unrepresentable evidence |
+| 14 | Transition failure leaves the intent `FAILED_PERMANENT` and the approval unchanged, in both mutation stores | R4 | orphaned intent dispatched |
+| 15 | TCK: `appendDispatchable` accepts `PENDING`, rejects other statuses and duplicates with the existing fixed codes, leaves no orphan, round-trips evidence exactly — while the existing PREPARED-only tests still pass | §5.1 | a weakened `append` |
+| 16 | Restart: write all three evidence kinds, drop process state, dispatch from storage only | R2, R5 | dispatch depending on cached state |
+| 17 | Legacy approval row with `NULL` issuer reconstructs with issuer explicitly unknown, never as the current issuer | R1, R5 | guessed legacy provenance |
 
 ## 9. Open items for the owner
 
 | Item | Position |
 | --- | --- |
+| Audit events already emitted with approvals mislabelled as denials (§1.3) | Forward-only correction. Historical events stay as emitted; reclassification is out of scope and recorded as a known limitation. |
 | Retention of refusal evidence | Inherits the audit outbox's lifecycle; no new retention policy here. |
-| Counting identical retries | Not supported by design (§5.2 ceiling); needs an explicit counter column. |
-| Issuer normalisation | Stored verbatim as verified by the decoder. Changing it would change identity equality. |
-| Legacy rows / legacy payloads | Issuer permanently unknown; payload decodes as `APPROVAL_DENIED` with a legacy flag. |
-| Decision event keys embedding raw approval ids (§1.4) | Recorded finding; correction is a separate change with its own migration, deliberately not bundled here. |
+| Counting identical retries / per-delivery correlation | Not supported by design (§5.2 ceilings); needs an attempt-counter or dispatch-attempt record. |
+| Issuer normalisation | Stored verbatim as verified by the decoder; changing it would change identity equality. |
+| Legacy rows / legacy payloads | Issuer permanently unknown; evidence kind derived from persisted `approvalStatus`, undecodable records fail closed. |
+| Decision event keys embedding raw approval ids (§1.4) | Recorded finding; correction is a separate change with its own migration. |
