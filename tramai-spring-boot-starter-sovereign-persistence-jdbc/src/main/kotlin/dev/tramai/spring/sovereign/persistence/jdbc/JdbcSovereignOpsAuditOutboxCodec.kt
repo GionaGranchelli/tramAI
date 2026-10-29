@@ -159,6 +159,14 @@ internal fun encodeOutboxRecord(
 }
 
 /**
+ * Failure marker for a payload whose declared schema version this build does not know.
+ *
+ * Shared with the outbox store so recovery can tell "written by a newer build" from "damaged": an
+ * unsupported version is preserved untouched, never quarantined.
+ */
+internal const val ERROR_UNSUPPORTED_SCHEMA_VERSION: String = "audit-outbox-unsupported-schema-version"
+
+/**
  * Decodes any persisted outbox payload, dispatching on the declared schema version.
  *
  * The two failure modes stay distinct: an unreadable or internally inconsistent payload is corruption,
@@ -168,7 +176,7 @@ internal fun decodeOutboxRecord(json: ByteArray): DecodedOutboxRecord {
     val node = readJsonTree(json)
     val version = outboxSchemaVersion(node)
     check(version == OFFICIAL_VERSION || version == GOVERNED_VERSION || version == EVIDENCE_VERSION) {
-        "audit-outbox-unsupported-schema-version: $version"
+        "$ERROR_UNSUPPORTED_SCHEMA_VERSION: $version"
     }
     return try {
         when (version) {

@@ -5,6 +5,9 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxQuarantineStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -251,6 +254,67 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             assertThat(storedBytes?.toList()).isEqualTo(before)
         }
 
+    // --- expired claim recovery, concurrency and future schema versions -------------------------
+
+    @Test
+    fun `an unreadable expired claim is recovered so healthy records still dispatch`() =
+        runBlocking<Unit> {
+            val store = newStore()
+            store.appendDispatchable(refusal("expired-damaged"))
+            store.appendDispatchable(refusal("expired-healthy"))
+            assertThat(store.claimPending("dispatcher", 10, now.plusSeconds(1))).hasSize(2)
+            corruptCiphertext("expired-damaged")
+            val later = now.plusSeconds(1).plus(Duration.ofMinutes(6))
+
+            val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = later)
+
+            assertThat(report.quarantined.map { it.locator }).containsExactly("expired-damaged")
+            assertThat(columnOf("status", "expired-damaged")).isEqualTo("FAILED_PERMANENT")
+            assertThat(columnOf("status", "expired-healthy")).isEqualTo("EMITTING")
+            // The whole point: claiming after recovery dispatches the healthy record instead of throwing.
+            assertThat(store.claimPending("dispatcher", 10, later).map { it.outboxId })
+                .containsExactly("expired-healthy")
+        }
+
+    @Test
+    fun `two concurrent recovery passes quarantine a record exactly once`() =
+        runBlocking<Unit> {
+            val store = newStore()
+            store.appendDispatchable(refusal("race-control"))
+            store.appendDispatchable(refusal("race-damaged"))
+            corruptCiphertext("race-damaged")
+            val versionBefore = requireNotNull(columnOf("version", "race-damaged")).toLong()
+
+            val reports =
+                listOf(1, 2)
+                    .map {
+                        async(Dispatchers.IO) {
+                            store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
+                        }
+                    }.awaitAll()
+
+            assertThat(reports.sumOf { it.quarantined.size }).isEqualTo(1)
+            assertThat(store.quarantineStore().listQuarantined(10).map { it.locator })
+                .containsExactly("race-damaged")
+            // Exactly one transition was written: the loser revalidated and stood down.
+            assertThat(requireNotNull(columnOf("version", "race-damaged")).toLong()).isEqualTo(versionBefore + 1)
+        }
+
+    @Test
+    fun `a payload from a newer schema version is preserved instead of quarantined`() =
+        runBlocking<Unit> {
+            newStore().appendDispatchable(refusal("future-control"))
+            newStore(codec = TestCodec(unsupportedVersion = true)).appendDispatchable(refusal("future-version"))
+            val before = ciphertextOf("future-version")
+
+            val report = newStore().quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
+
+            assertThat(report.quarantined).isEmpty()
+            assertThat(report.decodable).isEqualTo(1)
+            assertThat(columnOf("status", "future-version")).isEqualTo("PENDING")
+            assertThat(ciphertextOf("future-version")).isEqualTo(before)
+        }
+
     // --- helpers --------------------------------------------------------------------------------
 
     private fun newStore(codec: TestCodec = this.codec): JdbcSovereignOpsAuditOutboxStore =
@@ -336,6 +400,7 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
 
     private class TestCodec(
         freshKey: Boolean = false,
+        private val unsupportedVersion: Boolean = false,
     ) : JdbcOpsAuditOutboxPayloadCodec {
         private val algorithm = "AES/GCM/NoPadding"
         private val tagLength = 128
@@ -347,11 +412,14 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             }
 
         override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload {
+            // A row written by a newer build: decrypts fine, declares a schema version this build lacks.
+            val future = """{"schemaVersion":99,"record":{},"governedRunIdentity":{}}"""
+            val effective = if (unsupportedVersion) future.toByteArray() else plaintext
             val cipher = Cipher.getInstance(algorithm)
             val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
             cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(tagLength, nonce))
-            val ciphertext = cipher.doFinal(plaintext)
-            val digest = MessageDigest.getInstance("SHA-256").digest(plaintext).joinToString("") { "%02x".format(it) }
+            val ciphertext = cipher.doFinal(effective)
+            val digest = MessageDigest.getInstance("SHA-256").digest(effective).joinToString("") { "%02x".format(it) }
             return JdbcEncryptedAuditOutboxPayload(
                 ciphertext = ciphertext,
                 keyId = "test-key",

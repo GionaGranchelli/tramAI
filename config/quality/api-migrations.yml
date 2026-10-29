@@ -373,7 +373,7 @@ migrations:
       Consumers implementing SovereignOpsAuditOutboxStore need no change. Callers must read a null quarantineStore() (or the unsupported error) as "this store has no durable quarantine", never as an empty result.
   - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
     fromSha256: db78dba72754b6f7f2cbe276191ca959867c8ae9edc55893bcefbdae753d035a
-    toSha256: 8dfb90d527a671036c681d06b3450371ac8cab81bd1e2d4385259e94e5b650f9
+    toSha256: df415d890b708efcb3f3405cbebd408811cd551ecf7fe0ec0b041eda4e129f65
     targetVersion: "0.7.0"
     rationale: >-
       Epic 0.7.6f slice 3: JdbcSovereignOpsAuditOutboxStore exposes the quarantine surface through quarantineStore(). Additive: existing store operations are unchanged, and the row-exclusion behaviour change lives in SQL predicates, not signatures.

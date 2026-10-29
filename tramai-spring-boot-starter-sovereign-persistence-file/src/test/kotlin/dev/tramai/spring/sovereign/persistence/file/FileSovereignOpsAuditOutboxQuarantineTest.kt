@@ -1,5 +1,8 @@
 package dev.tramai.spring.sovereign.persistence.file
 
+import dev.tramai.persistence.file.AesGcmFileEncryption
+import dev.tramai.persistence.file.EncryptedFileEnvelopeV1
+import dev.tramai.persistence.file.FileStoreSha256
 import dev.tramai.spring.sovereign.ops.SovereignOpsAuditEmitter
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
@@ -219,7 +222,114 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             assertThat(store.get("dispatch-healthy")?.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
         }
 
+    // --- eligibility, scan progress and future schema versions ---------------------------------
+
+    @Test
+    fun `a damaged PREPARED record is marked rather than trusted, and its bytes stay retrievable`() =
+        runBlocking<Unit> {
+            val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
+            store.append(prepared("damaged-prepared"))
+            store.appendDispatchable(refusal("prepared-control"))
+            // This backend seals the status inside the payload, so a record that cannot be decrypted cannot
+            // prove it is PENDING -- or PREPARED. The marker is the documented, reversible consequence.
+            val digest = corruptSealedFile(FileStoreSha256.digest(RECORD_TYPE, "damaged-prepared"))
+            val before = snapshot()
+
+            val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
+
+            assertThat(report.quarantined.map { it.locator }).containsExactly(digest)
+            assertThat(report.quarantined.single().label)
+                .isEqualTo(SovereignOpsAuditOutboxQuarantineStore.LABEL_UNDECODABLE)
+            // Nothing is destroyed: the damaged record keeps its bytes and stays readable through recovery.
+            assertThat(snapshot()).isEqualTo(before)
+            val stored = store.quarantineStore().readQuarantinedCiphertext(digest)
+            assertThat(stored?.toList()).isEqualTo(before.getValue("$digest.tram.enc"))
+            // And the marker is metadata-only: dropping it restores the file to ordinary handling.
+            Files.delete(markerPath(digest))
+            assertThat(store.quarantineStore().listQuarantined(10)).isEmpty()
+            assertThat(store.get("prepared-control")?.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+        }
+
+    @Test
+    fun `a damaged record behind a healthy prefix is still classified`() =
+        runBlocking<Unit> {
+            val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
+            repeat(12) { store.appendDispatchable(refusal("progress-healthy-$it")) }
+            // "f"*64 sorts after every other digest, so the damage is strictly behind a 12-record prefix.
+            val damagedDigest = writeUndecodableFile("f".repeat(64))
+
+            val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 2, now = now)
+
+            assertThat(report.quarantined.map { it.locator }).containsExactly(damagedDigest)
+            assertThat(store.quarantineStore().listQuarantined(10).map { it.locator })
+                .containsExactly(damagedDigest)
+        }
+
+    @Test
+    fun `a record from a newer schema version is preserved instead of quarantined`() =
+        runBlocking<Unit> {
+            val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
+            store.appendDispatchable(refusal("future-control"))
+            val digest = writeUnsupportedVersionFile("d".repeat(64))
+            val before = snapshot().getValue("$digest.tram.enc")
+
+            val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
+
+            assertThat(report.quarantined).isEmpty()
+            assertThat(report.decodable).isEqualTo(1)
+            assertThat(markerPath(digest)).doesNotExist()
+            assertThat(snapshot().getValue("$digest.tram.enc")).isEqualTo(before)
+            assertThat(store.claimPending("dispatcher", 10, now.plusSeconds(1)).map { it.outboxId })
+                .containsExactly("future-control")
+        }
+
     // --- helpers --------------------------------------------------------------------------------
+
+    /** Re-seals a committed record with an unreadable payload, keeping a structurally valid envelope. */
+    private fun corruptSealedFile(digest: String): String {
+        val target = outboxDir().resolve("$digest.tram.enc")
+        val envelope = EncryptedFileEnvelopeV1.fromJson(Files.readString(target))
+        val corrupted =
+            EncryptedFileEnvelopeV1(
+                envelopeVersion = envelope.envelopeVersion,
+                recordType = envelope.recordType,
+                recordKeyDigest = envelope.recordKeyDigest,
+                keyId = envelope.keyId,
+                nonceBase64 = envelope.nonceBase64,
+                ciphertextBase64 = "bm90LWEtY2lwaGVydGV4dA==",
+            )
+        Files.writeString(target, corrupted.toJson(), StandardOpenOption.TRUNCATE_EXISTING)
+        Files.setPosixFilePermissions(target, PosixFilePermissions.fromString("rw-------"))
+        return digest
+    }
+
+    /** Encrypts a payload declaring a schema version this build does not know. */
+    private fun writeUnsupportedVersionFile(digest: String): String {
+        val plaintext = """{"schemaVersion":99,"record":{},"governedRunIdentity":{}}"""
+        val (nonce, ciphertext) =
+            AesGcmFileEncryption.encrypt(
+                key = key,
+                recordType = RECORD_TYPE,
+                recordKeyDigest = digest,
+                keyId = KEY_ID,
+                plaintextBytes = plaintext.toByteArray(),
+            )
+        val target = outboxDir().resolve("$digest.tram.enc")
+        Files.writeString(
+            target,
+            EncryptedFileEnvelopeV1(
+                envelopeVersion = 1,
+                recordType = RECORD_TYPE,
+                recordKeyDigest = digest,
+                keyId = KEY_ID,
+                nonceBase64 = nonce,
+                ciphertextBase64 = ciphertext,
+            ).toJson(),
+            StandardOpenOption.CREATE_NEW,
+        )
+        Files.setPosixFilePermissions(target, PosixFilePermissions.fromString("rw-------"))
+        return digest
+    }
 
     /** Writes a committed-looking record file whose envelope cannot be decrypted or decoded. */
     private fun writeUndecodableFile(digest: String): String {
@@ -235,7 +345,7 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
         return digest
     }
 
-    private fun outboxDir(): Path = root.resolve("ops-audit-outbox")
+    private fun outboxDir(): Path = root.resolve(RECORD_TYPE)
 
     private fun markerPath(locator: String): Path = root.resolve("quarantine").resolve("$locator.quarantine.json")
 
@@ -274,4 +384,9 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
 
     private fun prepared(outboxId: String): SovereignOpsAuditOutboxRecord =
         refusal(outboxId).copy(status = SovereignOpsAuditOutboxStatus.PREPARED, evidenceKind = null)
+
+    private companion object {
+        private const val RECORD_TYPE = "ops-audit-outbox"
+        private const val KEY_ID = "default"
+    }
 }

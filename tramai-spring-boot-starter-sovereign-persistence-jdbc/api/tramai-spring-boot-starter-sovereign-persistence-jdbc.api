@@ -131,13 +131,6 @@ public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOps
 
 public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore {
 	public static final field CLAIM_BLOCKING_FALLBACK_LIMIT I
-	public static final field FIRST_PARAMETER I
-	public static final field NOT_QUARANTINED Ljava/lang/String;
-	public static final field QUARANTINE_CIPHERTEXT_SQL Ljava/lang/String;
-	public static final field QUARANTINE_INSERT_SQL Ljava/lang/String;
-	public static final field QUARANTINE_LIST_SQL Ljava/lang/String;
-	public static final field QUARANTINE_MARK_SQL Ljava/lang/String;
-	public static final field QUARANTINE_SCAN_WHERE Ljava/lang/String;
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Duration;I)V
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Duration;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun append (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

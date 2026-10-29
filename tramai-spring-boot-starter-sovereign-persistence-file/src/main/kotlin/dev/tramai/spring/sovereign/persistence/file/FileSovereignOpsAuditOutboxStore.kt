@@ -4,7 +4,6 @@ package dev.tramai.spring.sovereign.persistence.file
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.json.JsonMapper
@@ -729,9 +728,54 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         return digest
     }
 
+    /** A payload this build cannot read is undecodable evidence -- unless a newer build wrote it. */
+    private fun decodeVerdict(e: Throwable): QuarantineVerdict {
+        val newerBuild = e is FileStoreUnsupportedFormatException
+        return if (newerBuild) {
+            QuarantineVerdict.Unsupported
+        } else {
+            failureVerdict(SovereignOpsAuditOutboxQuarantineStore.LABEL_UNDECODABLE, e)
+        }
+    }
+
+    /** A payload that decodes but contradicts its own file-name digest is corrupt evidence. */
+    private fun persistedVerdict(
+        decoded: DecodedOutboxRecord,
+        digest: String,
+    ): QuarantineVerdict =
+        runCatching { validatePersistedRecord(decoded, digest) }.fold(
+            onSuccess = { QuarantineVerdict.Readable },
+            onFailure = { e -> failureVerdict(SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT, e) },
+        )
+
+    private fun failureVerdict(
+        label: String,
+        e: Throwable,
+    ): QuarantineVerdict.Failure =
+        QuarantineVerdict.Failure(
+            QuarantineFailure(label, boundedDetail(e as? Exception ?: IllegalStateException(e))),
+        )
+
     /** Whether a record already carries a durable quarantine marker. Never decodes anything. */
     private fun hasQuarantineMarker(locator: String): Boolean =
         Files.exists(quarantineDir.resolve("$locator$MARKER_SUFFIX"), LinkOption.NOFOLLOW_LINKS)
+
+    /**
+     * One record's recovery verdict.
+     *
+     * [Failure] is evidence this build cannot read; [Readable] is the control that proves the deployment
+     * key works; [Unsupported] is a payload written by a newer build, preserved untouched so a rollback
+     * does not permanently condemn evidence the next upgrade can read again.
+     */
+    private sealed interface QuarantineVerdict {
+        class Failure(
+            val failure: QuarantineFailure,
+        ) : QuarantineVerdict
+
+        object Readable : QuarantineVerdict
+
+        object Unsupported : QuarantineVerdict
+    }
 
     /** One record's quarantine verdict: a label and a bounded detail. */
     private data class QuarantineFailure(
@@ -742,6 +786,14 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
     /**
      * 0.7.6f: the recovery surface, implemented as an inner class so this store's own shape (and its
      * quality baseline) is unchanged: quarantine is a separate contract, not another store operation.
+     *
+     * Eligibility caveat, stated rather than papered over: this backend keeps a record's status *inside*
+     * the sealed payload, so a record that cannot be decoded cannot prove it is PENDING. The JDBC store
+     * excludes PREPARED from its scan by column; here that exclusion is impossible. What makes it safe is
+     * that quarantine is metadata-only and reversible: the `.tram.enc` file is never modified, its bytes
+     * stay retrievable through [readQuarantinedCiphertext], the marker can be deleted by an operator, and a
+     * PREPARED record that *does* decode is a control record and is never a candidate. The cost of a wrong
+     * guess is therefore a marker, never lost evidence.
      */
     private inner class FileQuarantine : SovereignOpsAuditOutboxQuarantineStore {
         /**
@@ -756,21 +808,43 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                 if (limit <= 0) return@withOpenOperation QuarantineReport(0, 0, emptyList(), 0)
                 validateManagedDirectory(outboxDir, STORAGE_NAME)
                 val alreadyMarked = quarantinedDigests()
-                val scanned =
+                // Keep examining candidates until `limit` undecodable records are found instead of taking the
+                // first `limit` entries: a fixed prefix of healthy records would otherwise consume every pass
+                // and a damaged record behind it would never be classified. Decoding the healthy prefix costs
+                // what the claim path already pays, since claiming this backend decodes every entry too.
+                val unmarked =
                     committedEntries()
                         .map { digestFromPath(it) to it }
                         .filter { (digest, _) -> digest !in alreadyMarked }
-                        .take(limit)
-                val classified = scanned.map { (digest, path) -> Triple(digest, path, classify(digest, path)) }
-                val failures = classified.mapNotNull { it.third }
-                requireUsableKey(classified.size, classified.size - failures.size, failures)
+                // Fold rather than accumulate into a mutable list: the pattern inventory treats a new
+                // mutable collection as new global state. Classification stops as soon as `limit` damaged
+                // records are found; ponytail: immutable append per step, revisit only for huge archives.
+                val (classified, _) =
+                    unmarked.fold(emptyList<Triple<String, Path, QuarantineVerdict>>() to 0) {
+                        (collected, failures),
+                        (digest, entry),
+                        ->
+                        if (failures >= limit) {
+                            collected to failures
+                        } else {
+                            val verdict = classify(digest, entry)
+                            val failed = if (verdict is QuarantineVerdict.Failure) failures + 1 else failures
+                            (collected + Triple(digest, entry, verdict)) to failed
+                        }
+                    }
+                val failureList =
+                    classified.mapNotNull { (_, _, verdict) -> (verdict as? QuarantineVerdict.Failure)?.failure }
+                val decodable = classified.count { (_, _, verdict) -> verdict is QuarantineVerdict.Readable }
+                requireUsableKey(classified.size, decodable, failureList)
                 val quarantined =
-                    classified.mapNotNull { (digest, path, failure) ->
-                        failure?.let { writeQuarantineMarker(digest, path, it, now) }
+                    classified.mapNotNull { (digest, path, verdict) ->
+                        (verdict as? QuarantineVerdict.Failure)?.let {
+                            writeQuarantineMarker(digest, path, it.failure, now)
+                        }
                     }
                 QuarantineReport(
                     scanned = classified.size,
-                    decodable = classified.size - failures.size,
+                    decodable = decodable,
                     quarantined = quarantined,
                     skipped = alreadyMarked.size,
                 )
@@ -812,20 +886,11 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         private fun classify(
             digest: String,
             path: Path,
-        ): QuarantineFailure? {
-            val decoded =
-                try {
-                    readCurrentByDigest(path, digest)
-                } catch (e: FileStoreCorruptionException) {
-                    return QuarantineFailure(SovereignOpsAuditOutboxQuarantineStore.LABEL_UNDECODABLE, boundedDetail(e))
-                }
-            return try {
-                validatePersistedRecord(decoded, digest)
-                null
-            } catch (e: FileStoreCorruptionException) {
-                QuarantineFailure(SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT, boundedDetail(e))
-            }
-        }
+        ): QuarantineVerdict =
+            runCatching { readCurrentByDigest(path, digest) }.fold(
+                onSuccess = { decoded -> persistedVerdict(decoded, digest) },
+                onFailure = { e -> decodeVerdict(e) },
+            )
 
         /**
          * The control requirement and the identical-signature safeguard, both fail-closed.
@@ -886,8 +951,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
             try {
                 OPS_OUTBOX_JSON.readValue<PersistedQuarantineMarker>(Files.readString(path))
             } catch (e: IOException) {
-                throw FileStoreCorruptionException("ops-audit-outbox-quarantine-marker-corrupted", e)
-            } catch (e: JsonProcessingException) {
+                // JsonProcessingException is an IOException: one catch covers both.
                 throw FileStoreCorruptionException("ops-audit-outbox-quarantine-marker-corrupted", e)
             }
 
