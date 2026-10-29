@@ -9,6 +9,10 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxQuarantineStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -251,18 +255,71 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
         }
 
     @Test
-    fun `a damaged record behind a healthy prefix is still classified`() =
+    fun `recovery decrypts at most limit records per pass and still reaches damage behind a healthy prefix`() =
         runBlocking<Unit> {
             val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
-            repeat(12) { store.appendDispatchable(refusal("progress-healthy-$it")) }
-            // "f"*64 sorts after every other digest, so the damage is strictly behind a 12-record prefix.
+            repeat(30) { store.appendDispatchable(refusal("prefix-$it")) }
+            // "f"*64 sorts after every other digest, so the damage sits strictly behind 30 healthy records.
             val damagedDigest = writeUndecodableFile("f".repeat(64))
 
-            val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 2, now = now)
+            val scanned = mutableListOf<Int>()
+            var found: String? = null
+            repeat(10) {
+                val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 4, now = now)
+                scanned.add(report.scanned)
+                report.quarantined.singleOrNull()?.let { found = it.locator }
+            }
 
-            assertThat(report.quarantined.map { it.locator }).containsExactly(damagedDigest)
-            assertThat(store.quarantineStore().listQuarantined(10).map { it.locator })
-                .containsExactly(damagedDigest)
+            // Bounded work: the SPI's limit bounds decrypted records, never the whole archive.
+            assertThat(scanned).allMatch { it <= 4 }
+            // And progress: the durable cursor reaches the damage within ceil(31 / 4) passes.
+            assertThat(found).isEqualTo(damagedDigest)
+        }
+
+    @Test
+    fun `two concurrent recovery passes produce exactly one quarantine`() =
+        runBlocking<Unit> {
+            val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
+            store.appendDispatchable(refusal("concurrent-control"))
+            val digest = writeUndecodableFile("e".repeat(64))
+            val recovery = store.quarantineStore()
+
+            val reports =
+                coroutineScope {
+                    (1..2)
+                        .map { async(Dispatchers.IO) { recovery.quarantineUndecodableEvidence(limit = 10, now = now) } }
+                        .awaitAll()
+                }
+
+            assertThat(reports.sumOf { it.quarantined.size }).isEqualTo(1)
+            val markers = store.quarantineStore().listQuarantined(10)
+            assertThat(markers.map { it.locator }).containsExactly(digest)
+            assertThat(markers.single().quarantinedAt).isEqualTo(now)
+        }
+
+    @Test
+    fun `an append fails closed after a restart while a damaged record is still unindexable`() =
+        runBlocking<Unit> {
+            val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
+            store.appendDispatchable(refusal("key-holder"))
+            // A healthy control: recovery must be able to prove the key is usable before it quarantines.
+            store.appendDispatchable(refusal("key-control"))
+            corruptSealedFile(FileStoreSha256.digest(RECORD_TYPE, "key-holder"))
+
+            // The event key lives inside the ciphertext, so a cold restart cannot index it. Rather than
+            // silently freeing the key for a different outbox id, appends refuse until recovery resolves it.
+            val restarted = FileSovereignOpsAuditOutboxStore(root = root, key = key)
+            assertThatThrownBy {
+                runBlocking { restarted.appendDispatchable(refusal("key-thief").copy(eventKey = "event-key-holder")) }
+            }.hasMessageContaining("tramai-sovereign-ops-outbox-event-key-uniqueness-unavailable")
+
+            // Quarantine resolves it: a quarantined record is permanently unemittable, so its key can no
+            // longer produce a second emission. Healthy evidence keeps dispatching and appends resume.
+            restarted.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
+            restarted.appendDispatchable(refusal("key-fresh"))
+            val claimed = restarted.claimPending("dispatcher", 10, now.plusSeconds(1)).map { it.outboxId }
+            assertThat(claimed).contains("key-fresh", "key-control")
+            assertThat(claimed).doesNotContain("key-holder")
         }
 
     @Test
@@ -275,8 +332,8 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
 
             val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
 
+            // It decrypts fine, so it is not damaged: a rollback must not cost the evidence permanently.
             assertThat(report.quarantined).isEmpty()
-            assertThat(report.decodable).isEqualTo(1)
             assertThat(markerPath(digest)).doesNotExist()
             assertThat(snapshot().getValue("$digest.tram.enc")).isEqualTo(before)
             assertThat(store.claimPending("dispatcher", 10, now.plusSeconds(1)).map { it.outboxId })

@@ -28,6 +28,8 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import java.nio.charset.StandardCharsets
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -193,6 +195,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         private const val LOCATOR_LENGTH = 64
         private const val MARKER_SUFFIX = ".quarantine.json"
         private const val FILE_EXTENSION = ".tram.enc"
+        private const val SCAN_CURSOR_FILE = "quarantine-scan.cursor"
         private const val KEY_ID = "default"
         private val COMMITTED_FILENAME = Regex("[a-f0-9]{64}\\.tram\\.enc")
     }
@@ -204,6 +207,11 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
     private val recordLocks = ConcurrentHashMap<String, ReentrantLock>()
     private val appendLock = ReentrantLock()
     private val eventKeyIndex = ConcurrentHashMap<String, String>()
+
+    @Volatile
+    private var unindexableDigests: List<String> = emptyList()
+
+    private val scanCursorFile: Path = rootDir.resolve(SCAN_CURSOR_FILE)
 
     init {
         ensureManagedDirectory(outboxDir, STORAGE_NAME)
@@ -222,25 +230,47 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
     fun rebuildIndex() =
         lease.withOpenOperation {
             eventKeyIndex.clear()
+            unindexableDigests = emptyList()
             if (!Files.exists(outboxDir, LinkOption.NOFOLLOW_LINKS)) return@withOpenOperation
             validateManagedDirectory(outboxDir, STORAGE_NAME)
             // 0.7.6f: one bad record must not block startup. A record carrying a quarantine marker is
             // honoured without being decoded at all, and a record that fails to decode is indexed as
             // decode-failed by its file digest only. Quarantine completes the marker on the next
             // recovery or dispatch run; initialization never depends on a damaged record.
-            for (entry in committedEntries()) {
-                val digest = digestFromPath(entry)
-                if (hasQuarantineMarker(digest)) continue
-                try {
-                    val decoded = validatePersistedRecord(readCurrentByDigest(entry, digest), digest)
-                    eventKeyIndex[decoded.record.eventKey] = decoded.record.outboxId
-                } catch (_: FileStoreCorruptionException) {
-                    // indexed as decode-failed: no event key, no outbox id, no startup failure
-                } catch (_: FileStoreUnsupportedFormatException) {
-                    // same: an unknown shape is undecodable evidence, not an initialization error
+            unindexableDigests =
+                buildList {
+                    for (entry in committedEntries()) {
+                        val digest = digestFromPath(entry)
+                        if (!hasQuarantineMarker(digest)) {
+                            try {
+                                val decoded = validatePersistedRecord(readCurrentByDigest(entry, digest), digest)
+                                eventKeyIndex[decoded.record.eventKey] = decoded.record.outboxId
+                            } catch (_: FileStoreCorruptionException) {
+                                // no event key, no outbox id, no startup failure
+                                add(digest)
+                            } catch (_: FileStoreUnsupportedFormatException) {
+                                // same: an unknown shape is undecodable evidence, not an init error
+                                add(digest)
+                            }
+                        }
+                    }
                 }
-            }
+            // Committed records this pass could not index: their event keys are unknown, so a new append
+            // cannot prove uniqueness against them until they are quarantined (and therefore unemittable).
         }
+
+    /**
+     * Fails closed when a committed record could not be indexed and is still unmarked.
+     *
+     * Event keys live inside the ciphertext, so a damaged record cannot contribute its own key. A
+     * quarantined record is exempt: it is permanently unemittable, so a later append reusing its key can
+     * never produce a second emission. An unmarked damaged record may still dispatch, so appends refuse
+     * rather than risk a duplicate.
+     */
+    private fun requireEventKeysProvable() {
+        val unresolved = unindexableDigests.filterNot { hasQuarantineMarker(it) }
+        check(unresolved.isEmpty()) { "tramai-sovereign-ops-outbox-event-key-uniqueness-unavailable" }
+    }
 
     override fun isDurable(): Boolean = true
 
@@ -273,6 +303,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                 require(!Files.exists(storePath(record.outboxId), LinkOption.NOFOLLOW_LINKS)) {
                     "tramai-sovereign-ops-outbox-duplicate-id"
                 }
+                requireEventKeysProvable()
                 require(!eventKeyIndex.containsKey(record.eventKey)) {
                     "tramai-sovereign-ops-outbox-duplicate-event-key"
                 }
@@ -432,6 +463,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                 require(!Files.exists(storePath(record.outboxId), LinkOption.NOFOLLOW_LINKS)) {
                     "tramai-sovereign-ops-outbox-duplicate-id"
                 }
+                requireEventKeysProvable()
                 require(!eventKeyIndex.containsKey(record.eventKey)) {
                     "tramai-sovereign-ops-outbox-duplicate-event-key"
                 }
@@ -751,6 +783,23 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         )
 
     /** Whether a record already carries a durable quarantine marker. Never decodes anything. */
+    private fun readScanCursor(): String? {
+        if (!Files.exists(scanCursorFile, LinkOption.NOFOLLOW_LINKS)) return null
+        return Files.readString(scanCursorFile, StandardCharsets.UTF_8).trim().ifBlank { null }
+    }
+
+    /** Durable scan position so consecutive recovery passes make progress instead of retrying a prefix. */
+    private fun writeScanCursor(digest: String) {
+        val temp = tempSibling(scanCursorFile)
+        try {
+            writeFileWith0600(temp, digest.toByteArray(StandardCharsets.UTF_8), createNew = true)
+            Files.move(temp, scanCursorFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            forceParentDirectory(rootDir)
+        } finally {
+            runCatching { Files.deleteIfExists(temp) }
+        }
+    }
+
     private fun hasQuarantineMarker(locator: String): Boolean =
         Files.exists(quarantineDir.resolve("$locator$MARKER_SUFFIX"), LinkOption.NOFOLLOW_LINKS)
 
@@ -802,30 +851,26 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                 if (limit <= 0) return@withOpenOperation QuarantineReport(0, 0, emptyList(), 0)
                 validateManagedDirectory(outboxDir, STORAGE_NAME)
                 val alreadyMarked = quarantinedDigests()
-                // Keep examining candidates until `limit` undecodable records are found instead of taking the
-                // first `limit` entries: a fixed prefix of healthy records would otherwise consume every pass
-                // and a damaged record behind it would never be classified. Decoding the healthy prefix costs
-                // what the claim path already pays, since claiming this backend decodes every entry too.
                 val unmarked =
                     committedEntries()
                         .map { digestFromPath(it) to it }
                         .filter { (digest, _) -> digest !in alreadyMarked }
-                // Fold rather than accumulate into a mutable list: the pattern inventory treats a new
-                // mutable collection as new global state. Classification stops as soon as `limit` damaged
-                // records are found; ponytail: immutable append per step, revisit only for huge archives.
-                val (classified, _) =
-                    unmarked.fold(emptyList<Triple<String, Path, QuarantineVerdict>>() to 0) {
-                        (collected, failures),
-                        (digest, entry),
-                        ->
-                        if (failures >= limit) {
-                            collected to failures
-                        } else {
-                            val verdict = classify(digest, entry)
-                            val failed = if (verdict is QuarantineVerdict.Failure) failures + 1 else failures
-                            (collected + Triple(digest, entry, verdict)) to failed
-                        }
+                        .sortedBy { (digest, _) -> digest }
+                // Bounded work per pass: exactly `limit` records are decrypted, matching the SPI's meaning of
+                // limit, so a large healthy archive is never re-decrypted in full on every dispatch. Progress
+                // across passes comes from a durable cursor, and the rotation wraps so nothing is starved.
+                val start =
+                    readScanCursor()
+                        ?.let { cursor -> unmarked.indexOfFirst { (digest, _) -> digest > cursor } }
+                        ?.takeIf { it >= 0 }
+                        ?: 0
+                val batch = (unmarked.drop(start) + unmarked.take(start)).take(limit)
+                // buildList, not fold: one append per entry instead of copying the running list each time.
+                val classified =
+                    buildList {
+                        for ((digest, entry) in batch) add(Triple(digest, entry, classify(digest, entry)))
                     }
+                if (batch.isNotEmpty()) writeScanCursor(batch.last().first)
                 val failureList =
                     classified.mapNotNull { (_, _, verdict) -> (verdict as? QuarantineVerdict.Failure)?.failure }
                 val decodable = classified.count { (_, _, verdict) -> verdict is QuarantineVerdict.Readable }
@@ -921,29 +966,52 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
             path: Path,
             failure: QuarantineFailure,
             now: Instant,
-        ): QuarantinedEvidenceSummary {
-            val decoded = runCatching { readCurrentByDigest(path, digest) }.getOrNull()
-            val marker =
-                PersistedQuarantineMarker(
-                    locator = digest,
-                    outboxId = decoded?.record?.outboxId,
-                    eventKey = decoded?.record?.eventKey,
-                    payloadDigest = payloadDigestOf(path),
-                    label = failure.label,
-                    quarantinedAt = now.toString(),
-                    failureDetail = failure.detail,
-                )
-            val target = quarantineDir.resolve("$digest$MARKER_SUFFIX")
-            val temp = tempSibling(target)
+        ): QuarantinedEvidenceSummary? {
+            // Serialized per record and never replacing an existing marker: two recovery passes that both
+            // classified the same damage must produce one quarantine, not two reports and a rewritten one.
+            val lock = getLockForDigest(digest)
+            lock.lock()
             try {
-                writeFileWith0600(temp, OPS_OUTBOX_JSON.writeValueAsBytes(marker), createNew = true)
-                Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-                forceParentDirectory(quarantineDir)
+                return createQuarantineMarker(digest, path, failure, now)
             } finally {
-                runCatching { Files.deleteIfExists(temp) }
+                lock.unlock()
             }
-            return marker.toSummary()
         }
+
+        private fun createQuarantineMarker(
+            digest: String,
+            path: Path,
+            failure: QuarantineFailure,
+            now: Instant,
+        ): QuarantinedEvidenceSummary? =
+            if (hasQuarantineMarker(digest)) {
+                null
+            } else {
+                val decoded = runCatching { readCurrentByDigest(path, digest) }.getOrNull()
+                val marker =
+                    PersistedQuarantineMarker(
+                        locator = digest,
+                        outboxId = decoded?.record?.outboxId,
+                        eventKey = decoded?.record?.eventKey,
+                        payloadDigest = payloadDigestOf(path),
+                        label = failure.label,
+                        quarantinedAt = now.toString(),
+                        failureDetail = failure.detail,
+                    )
+                val target = quarantineDir.resolve("$digest$MARKER_SUFFIX")
+                val temp = tempSibling(target)
+                try {
+                    writeFileWith0600(temp, OPS_OUTBOX_JSON.writeValueAsBytes(marker), createNew = true)
+                    // No REPLACE_EXISTING: losing the race must not rewrite a marker another pass made.
+                    Files.move(temp, target)
+                    forceParentDirectory(quarantineDir)
+                    marker.toSummary()
+                } catch (_: FileAlreadyExistsException) {
+                    null
+                } finally {
+                    runCatching { Files.deleteIfExists(temp) }
+                }
+            }
 
         private fun parseMarker(path: Path): PersistedQuarantineMarker =
             try {
