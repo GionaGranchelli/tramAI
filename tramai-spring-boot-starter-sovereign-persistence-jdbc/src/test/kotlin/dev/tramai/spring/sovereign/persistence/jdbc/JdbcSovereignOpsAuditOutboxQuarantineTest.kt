@@ -94,7 +94,7 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             assertThat(claimed.map { it.outboxId }).containsExactly("healthy-row")
 
             // A second run re-quarantines nothing and rewrites nothing.
-            val second = store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now.plusSeconds(2))
+            val second = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now.plusSeconds(2))
             assertThat(second.quarantined).isEmpty()
             assertThat(second.skipped).isEqualTo(1)
             assertThat(ciphertextOf("damaged-row")).isEqualTo(before)
@@ -112,7 +112,7 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             store.appendDispatchable(refusal("damaged-listing"))
             corruptCiphertext("damaged-listing")
             val before = ciphertextOf("damaged-listing")
-            store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now)
+            store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
 
             // No throw, no row: the anti-join is what keeps every page of FAILED_PERMANENT usable.
             assertThat(store.listByStatus(SovereignOpsAuditOutboxStatus.FAILED_PERMANENT, 10)).isEmpty()
@@ -121,7 +121,7 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             assertThat(store.get("damaged-listing")).isNull()
             assertThat(store.findByEventKey("event-damaged-listing")).isNull()
 
-            val listed = store.quarantineStore()!!.listQuarantined(10)
+            val listed = store.quarantineStore().listQuarantined(10)
             assertThat(listed).hasSize(1)
             val summary = listed.single()
             assertThat(summary.locator).isEqualTo("damaged-listing")
@@ -132,9 +132,9 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             assertThat(summary.failureDetail!!.length)
                 .isLessThanOrEqualTo(SovereignOpsAuditOutboxQuarantineStore.MAX_FAILURE_DETAIL)
 
-            val storedBytes = store.quarantineStore()!!.readQuarantinedCiphertext("damaged-listing")
+            val storedBytes = store.quarantineStore().readQuarantinedCiphertext("damaged-listing")
             assertThat(storedBytes?.toList()).isEqualTo(before)
-            assertThat(store.quarantineStore()!!.readQuarantinedCiphertext("no-such-locator")).isNull()
+            assertThat(store.quarantineStore().readQuarantinedCiphertext("no-such-locator")).isNull()
             // The row itself is still there, still FAILED_PERMANENT, with its identifiers intact.
             assertThat(columnOf("status", "damaged-listing")).isEqualTo("FAILED_PERMANENT")
             assertThat(columnOf("event_key", "damaged-listing")).isEqualTo("event-damaged-listing")
@@ -154,10 +154,10 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             val wrongKeyStore = newStore(codec = TestCodec(freshKey = true))
 
             assertThatThrownBy {
-                runBlocking { wrongKeyStore.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now) }
+                runBlocking { wrongKeyStore.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now) }
             }.hasMessage(SovereignOpsAuditOutboxQuarantineStore.ERROR_DECRYPTION_UNAVAILABLE)
 
-            assertThat(wrongKeyStore.quarantineStore()!!.listQuarantined(10)).isEmpty()
+            assertThat(wrongKeyStore.quarantineStore().listQuarantined(10)).isEmpty()
             assertThat(columnOf("status", "key-row-1")).isEqualTo("PENDING")
             assertThat(columnOf("status", "key-row-2")).isEqualTo("PENDING")
             assertThat(ciphertextOf("key-row-1")).isEqualTo(beforeOne)
@@ -174,10 +174,10 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             corruptCiphertext("only-damaged-2")
 
             assertThatThrownBy {
-                runBlocking { store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now) }
+                runBlocking { store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now) }
             }.hasMessage(SovereignOpsAuditOutboxQuarantineStore.ERROR_DECRYPTION_UNAVAILABLE)
 
-            assertThat(store.quarantineStore()!!.listQuarantined(10)).isEmpty()
+            assertThat(store.quarantineStore().listQuarantined(10)).isEmpty()
             assertThat(columnOf("status", "only-damaged-1")).isEqualTo("PENDING")
         }
 
@@ -192,7 +192,7 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             // The ciphertext still decodes; the row's status column now disagrees with its own payload.
             exec("UPDATE audit_outbox SET status = 'FAILED_RETRYABLE' WHERE outbox_id = 'column-drift'")
 
-            val report = store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now)
+            val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
 
             assertThat(report.quarantined).hasSize(1)
             assertThat(report.quarantined.single().locator).isEqualTo("column-drift")
@@ -215,13 +215,13 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             store.appendDispatchable(refusal("damaged-only"))
             corruptCiphertext("damaged-only")
 
-            val report = store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now)
+            val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
 
             assertThat(report.scanned).isEqualTo(2)
             assertThat(report.quarantined.map { it.locator }).containsExactly("damaged-only")
             assertThat(columnOf("status", "healthy-untouched")).isEqualTo("PENDING")
             assertThat(columnOf("status", "prepared-untouched")).isEqualTo("PREPARED")
-            assertThat(store.quarantineStore()!!.listQuarantined(10).map { it.locator }).containsExactly("damaged-only")
+            assertThat(store.quarantineStore().listQuarantined(10).map { it.locator }).containsExactly("damaged-only")
         }
 
     // --- restart and idempotency ----------------------------------------------------------------
@@ -234,11 +234,11 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             store.appendDispatchable(refusal("restart-damaged"))
             corruptCiphertext("restart-damaged")
             val before = ciphertextOf("restart-damaged")
-            store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now)
+            store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
 
             // A brand-new store over the same database: nothing cached.
             val restarted = newStore()
-            val listed = restarted.quarantineStore()!!.listQuarantined(10)
+            val listed = restarted.quarantineStore().listQuarantined(10)
             assertThat(listed).hasSize(1)
             assertThat(listed.single().outboxId).isEqualTo("restart-damaged")
             assertThat(restarted.listByStatus(SovereignOpsAuditOutboxStatus.FAILED_PERMANENT, 10)).isEmpty()

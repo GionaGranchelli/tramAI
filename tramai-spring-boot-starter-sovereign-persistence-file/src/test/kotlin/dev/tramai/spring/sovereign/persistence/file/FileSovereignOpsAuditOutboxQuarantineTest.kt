@@ -44,7 +44,7 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             val damagedDigest = writeUndecodableFile("a".repeat(64))
             val before = snapshot()
 
-            val report = store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now)
+            val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
 
             assertThat(report.scanned).isEqualTo(3)
             assertThat(report.decodable).isEqualTo(2)
@@ -62,7 +62,7 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
 
             // A second run adds nothing and rewrites no marker.
             val markerBefore = Files.readAllBytes(markerPath(damagedDigest)).toList()
-            val second = store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now.plusSeconds(2))
+            val second = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now.plusSeconds(2))
             assertThat(second.quarantined).isEmpty()
             assertThat(second.skipped).isEqualTo(1)
             assertThat(Files.readAllBytes(markerPath(damagedDigest)).toList()).isEqualTo(markerBefore)
@@ -74,7 +74,7 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
             store.appendDispatchable(refusal("restart-healthy"))
             val damagedDigest = writeUndecodableFile("b".repeat(64))
-            store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now)
+            store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
 
             // A brand-new store over the same directory: the constructor rebuilds the index from disk.
             val restarted = FileSovereignOpsAuditOutboxStore(root = root, key = key)
@@ -82,7 +82,7 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             assertThat(restarted.get("restart-healthy")?.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
             assertThat(restarted.listByStatus(SovereignOpsAuditOutboxStatus.PENDING, 10).map { it.outboxId })
                 .containsExactly("restart-healthy")
-            assertThat(restarted.quarantineStore()!!.listQuarantined(10).map { it.locator })
+            assertThat(restarted.quarantineStore().listQuarantined(10).map { it.locator })
                 .containsExactly(damagedDigest)
             assertThat(restarted.claimPending("dispatcher", 10, now.plusSeconds(3)).map { it.outboxId })
                 .containsExactly("restart-healthy")
@@ -104,7 +104,7 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
                 .containsExactly("unmarked-healthy")
             assertThat(restarted.claimPending("dispatcher", 10, now.plusSeconds(1)).map { it.outboxId })
                 .containsExactly("unmarked-healthy")
-            assertThat(restarted.quarantineStore()!!.listQuarantined(10)).isEmpty()
+            assertThat(restarted.quarantineStore().listQuarantined(10)).isEmpty()
         }
 
     // --- discriminator 21: identifiers are unrecoverable and never invented ----------------------
@@ -116,11 +116,11 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             store.appendDispatchable(refusal("identifier-control"))
             val damagedDigest = writeUndecodableFile("c".repeat(64))
             val originalBytes = Files.readAllBytes(outboxDir().resolve("$damagedDigest.tram.enc")).toList()
-            store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now)
+            store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
 
             // No index is pre-populated in this instance's view of the damaged record: recovery is by digest.
             val restarted = FileSovereignOpsAuditOutboxStore(root = root, key = key)
-            val summary = restarted.quarantineStore()!!.listQuarantined(10).single { it.locator == damagedDigest }
+            val summary = restarted.quarantineStore().listQuarantined(10).single { it.locator == damagedDigest }
 
             assertThat(summary.locator).isEqualTo(damagedDigest)
             assertThat(summary.outboxId).isNull()
@@ -130,11 +130,11 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             assertThat(summary.failureDetail).isNotNull()
             assertThat(summary.failureDetail!!.length)
                 .isLessThanOrEqualTo(SovereignOpsAuditOutboxQuarantineStore.MAX_FAILURE_DETAIL)
-            val storedBytes = restarted.quarantineStore()!!.readQuarantinedCiphertext(damagedDigest)
+            val storedBytes = restarted.quarantineStore().readQuarantinedCiphertext(damagedDigest)
             assertThat(storedBytes?.toList()).isEqualTo(originalBytes)
             // A locator that is not quarantined, or not a digest at all, resolves to nothing.
-            assertThat(restarted.quarantineStore()!!.readQuarantinedCiphertext("d".repeat(64))).isNull()
-            assertThat(restarted.quarantineStore()!!.readQuarantinedCiphertext("../../etc/passwd")).isNull()
+            assertThat(restarted.quarantineStore().readQuarantinedCiphertext("d".repeat(64))).isNull()
+            assertThat(restarted.quarantineStore().readQuarantinedCiphertext("../../etc/passwd")).isNull()
         }
 
     // --- discriminator 22: a wrong key quarantines nothing ---------------------------------------
@@ -151,10 +151,10 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             val reading = FileSovereignOpsAuditOutboxStore(root = root, key = otherKey)
 
             assertThatThrownBy {
-                runBlocking { reading.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now) }
+                runBlocking { reading.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now) }
             }.hasMessage(SovereignOpsAuditOutboxQuarantineStore.ERROR_DECRYPTION_UNAVAILABLE)
 
-            assertThat(reading.quarantineStore()!!.listQuarantined(10)).isEmpty()
+            assertThat(reading.quarantineStore().listQuarantined(10)).isEmpty()
             assertThat(Files.exists(root.resolve("quarantine"))).isTrue()
             assertThat(snapshot()).isEqualTo(before)
         }
@@ -169,13 +169,13 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             store.append(prepared("untouched-prepared"))
             val damagedDigest = writeUndecodableFile("e".repeat(64))
 
-            val report = store.quarantineStore()!!.quarantineUndecodableEvidence(limit = 10, now = now)
+            val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
 
             assertThat(report.scanned).isEqualTo(3)
             assertThat(report.quarantined.map { it.locator }).containsExactly(damagedDigest)
             assertThat(store.get("untouched-healthy")?.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
             assertThat(store.get("untouched-prepared")?.status).isEqualTo(SovereignOpsAuditOutboxStatus.PREPARED)
-            assertThat(store.quarantineStore()!!.listQuarantined(10).map { it.locator }).containsExactly(damagedDigest)
+            assertThat(store.quarantineStore().listQuarantined(10).map { it.locator }).containsExactly(damagedDigest)
         }
 
     // --- dispatch-boundary integration ---------------------------------------------------------
@@ -215,7 +215,7 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             assertThat(result.claimed).isEqualTo(1)
             assertThat(result.emitted).isEqualTo(1)
             assertThat(emittedIds).containsExactly("dispatch-healthy")
-            assertThat(store.quarantineStore()!!.listQuarantined(10)).hasSize(1)
+            assertThat(store.quarantineStore().listQuarantined(10)).hasSize(1)
             assertThat(store.get("dispatch-healthy")?.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
         }
 
