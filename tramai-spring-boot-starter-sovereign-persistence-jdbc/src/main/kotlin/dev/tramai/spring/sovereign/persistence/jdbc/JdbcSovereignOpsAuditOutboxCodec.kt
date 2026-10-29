@@ -216,7 +216,9 @@ private fun decodeLegacy(
  * Governed V2: the identity is mandatory and must name the same run as the ordinary record.
  */
 private fun decodeGoverned(json: ByteArray): DecodedOutboxRecord {
-    check(!carriesEvidenceFields(readJsonTree(json))) {
+    // The evidence fields live inside "record", not at the top level: checking the outer node would let a
+    // V2 payload smuggle versioned evidence through as unversioned attribution.
+    check(!carriesEvidenceFields(readJsonTree(json).get("record"))) {
         "$ERROR_CORRUPTED_RECORD: V2 payload carries 0.7.6f evidence fields"
     }
     val v2 = OPS_OUTBOX_JSON.readValue<PersistedSovereignOpsAuditOutboxRecordV2>(json)

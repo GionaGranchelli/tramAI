@@ -88,13 +88,13 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     @JsonProperty("emittedAt") val emittedAt: String?,
     @JsonProperty("outboxRecordVersion") val outboxRecordVersion: Long,
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonProperty("actorIssuer") val actorIssuer: String? = null,
+    @param:JsonProperty("actorIssuer") val actorIssuer: String? = null,
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonProperty("actorIdentityDigest") val actorIdentityDigest: String? = null,
+    @param:JsonProperty("actorIdentityDigest") val actorIdentityDigest: String? = null,
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonProperty("previousApprovalStatus") val previousApprovalStatus: String? = null,
+    @param:JsonProperty("previousApprovalStatus") val previousApprovalStatus: String? = null,
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonProperty("previousApprovalVersion") val previousApprovalVersion: Long? = null,
+    @param:JsonProperty("previousApprovalVersion") val previousApprovalVersion: Long? = null,
 ) {
     fun toJson(): String = OPS_OUTBOX_JSON.writeValueAsString(this)
 

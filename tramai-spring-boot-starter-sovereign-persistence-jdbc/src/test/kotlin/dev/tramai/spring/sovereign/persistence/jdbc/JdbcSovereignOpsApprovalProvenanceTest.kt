@@ -16,7 +16,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.postgresql.ds.PGSimpleDataSource
-import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.postgresql.PostgreSQLContainer
+import org.testcontainers.utility.DockerImageName
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.sql.Timestamp
@@ -49,7 +50,7 @@ class JdbcSovereignOpsApprovalProvenanceTest {
             )
         private val BASE_NOW: Instant = Instant.parse("2026-01-01T00:00:00Z")
         private val postgres =
-            PostgreSQLContainer(POSTGRES_IMAGE)
+            PostgreSQLContainer(DockerImageName.parse(POSTGRES_IMAGE))
                 .withDatabaseName("sovereign_provenance")
                 .withUsername("test")
                 .withPassword("test")

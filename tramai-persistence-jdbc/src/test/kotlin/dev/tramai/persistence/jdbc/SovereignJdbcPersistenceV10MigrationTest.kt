@@ -6,7 +6,8 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
-import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.postgresql.PostgreSQLContainer
+import org.testcontainers.utility.DockerImageName
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
@@ -45,7 +46,7 @@ class SovereignJdbcPersistenceV10MigrationTest {
                 "V9__model_attempt_observations.sql",
             )
         private val postgres =
-            PostgreSQLContainer(POSTGRES_IMAGE)
+            PostgreSQLContainer(DockerImageName.parse(POSTGRES_IMAGE))
                 .withDatabaseName("sovereign_v10")
                 .withUsername("test")
                 .withPassword("test")

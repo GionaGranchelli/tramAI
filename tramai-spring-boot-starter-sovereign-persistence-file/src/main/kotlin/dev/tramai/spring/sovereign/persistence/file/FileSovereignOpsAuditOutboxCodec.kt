@@ -20,19 +20,25 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 /**
  * 0.7.1d: the single file-persistence codec for sovereign-ops audit outbox records.
  *
- * Persistence has exactly two shapes:
+ * Persistence has exactly three shapes:
  *
- * - **V1** -- the ordinary record with no governed attribution. Permanently legacy.
+ * - **V1** -- the ordinary record with no governed attribution and no 0.7.6f evidence. Permanently legacy.
  * - **V2** -- the ordinary record plus the complete canonical [GovernedRunIdentity].
+ * - **V3** -- the ordinary record, the optional [GovernedRunIdentity], and the 0.7.6f evidence fields
+ *   (verified actor issuer, identity digest, previous approval state).
  *
  * The identity is one non-optional nested object in V2, never five independently optional fields, so a
- * partially attributed V2 cannot be constructed or decoded at all. An unknown schema version is an
- * unsupported format, never an old record.
+ * partially attributed V2 cannot be constructed or decoded at all. V3 is chosen whenever evidence is
+ * present, and it is the only shape allowed to carry evidence fields: one appearing inside a declared
+ * V1 or V2 payload is corruption, and a V3 payload with half of a provenance pair is corruption too.
+ * An unknown schema version is an unsupported format, never an old record.
  *
  * Every file transition decodes through [decodeOutboxRecord], mutates only
  * [DecodedOutboxRecord.record], and re-encodes through [encodeOutboxRecord] with the decoded identity
  * untouched. The encoder chooses the shape from the identity's presence, so a transition can only drop
  * attribution by first dropping it from the decoded value.
+ *
+ * The encoder chooses between V2 and V3 by presence, so no write path decides the shape itself.
  *
  * The codec emits exactly two exception types: [FileStoreCorruptionException] for a damaged payload and
  * [FileStoreUnsupportedFormatException] for an unknown version. The two must never be conflated.
