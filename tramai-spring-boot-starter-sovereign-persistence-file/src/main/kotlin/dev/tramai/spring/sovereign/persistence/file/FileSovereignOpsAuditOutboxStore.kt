@@ -728,25 +728,19 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         return digest
     }
 
-    /** A payload this build cannot read is undecodable evidence -- unless a newer build wrote it. */
-    private fun decodeVerdict(e: Throwable): QuarantineVerdict {
-        val newerBuild = e is FileStoreUnsupportedFormatException
-        return if (newerBuild) {
-            QuarantineVerdict.Unsupported
-        } else {
-            failureVerdict(SovereignOpsAuditOutboxQuarantineStore.LABEL_UNDECODABLE, e)
-        }
-    }
-
     /** A payload that decodes but contradicts its own file-name digest is corrupt evidence. */
     private fun persistedVerdict(
         decoded: DecodedOutboxRecord,
         digest: String,
     ): QuarantineVerdict =
-        runCatching { validatePersistedRecord(decoded, digest) }.fold(
-            onSuccess = { QuarantineVerdict.Readable },
-            onFailure = { e -> failureVerdict(SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT, e) },
-        )
+        try {
+            validatePersistedRecord(decoded, digest)
+            QuarantineVerdict.Readable
+        } catch (e: FileStoreCorruptionException) {
+            failureVerdict(SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT, e)
+        } catch (e: FileStoreUnsupportedFormatException) {
+            failureVerdict(SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT, e)
+        }
 
     private fun failureVerdict(
         label: String,
@@ -887,10 +881,14 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
             digest: String,
             path: Path,
         ): QuarantineVerdict =
-            runCatching { readCurrentByDigest(path, digest) }.fold(
-                onSuccess = { decoded -> persistedVerdict(decoded, digest) },
-                onFailure = { e -> decodeVerdict(e) },
-            )
+            try {
+                persistedVerdict(readCurrentByDigest(path, digest), digest)
+            } catch (e: FileStoreCorruptionException) {
+                failureVerdict(SovereignOpsAuditOutboxQuarantineStore.LABEL_UNDECODABLE, e)
+            } catch (_: FileStoreUnsupportedFormatException) {
+                // Typed on purpose: runCatching would also swallow CancellationException.
+                QuarantineVerdict.Unsupported
+            }
 
         /**
          * The control requirement and the identical-signature safeguard, both fail-closed.

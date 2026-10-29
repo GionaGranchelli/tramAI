@@ -529,10 +529,12 @@ class JdbcSovereignOpsAuditOutboxStore(
          * contradicts its queryable columns is [SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT].
          */
         private fun classify(row: OutboxRow): QuarantineVerdict =
-            runCatching { row.toDecoded() }.fold(
-                onSuccess = { decoded -> columnsVerdict(decoded, row) },
-                onFailure = { e -> decodeVerdict(e) },
-            )
+            try {
+                columnsVerdict(row.toDecoded(), row)
+            } catch (e: IllegalStateException) {
+                // Typed on purpose: runCatching would also swallow CancellationException.
+                decodeVerdict(e)
+            }
 
         /**
          * The control requirement and the identical-signature safeguard, both fail-closed.
@@ -690,17 +692,14 @@ class JdbcSovereignOpsAuditOutboxStore(
         decoded: DecodedOutboxRecord,
         row: OutboxRow,
     ): QuarantineVerdict =
-        runCatching { validateQueryableColumns(decoded.record, row) }.fold(
-            onSuccess = { QuarantineVerdict.Readable },
-            onFailure = { e ->
-                QuarantineVerdict.Failure(
-                    QuarantineFailure(
-                        SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT,
-                        boundedDetail(e as? Exception ?: IllegalStateException(e)),
-                    ),
-                )
-            },
-        )
+        try {
+            validateQueryableColumns(decoded.record, row)
+            QuarantineVerdict.Readable
+        } catch (e: IllegalArgumentException) {
+            QuarantineVerdict.Failure(
+                QuarantineFailure(SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT, boundedDetail(e)),
+            )
+        }
 
     private fun quarantinedSummaryOf(rs: ResultSet): QuarantinedEvidenceSummary =
         QuarantinedEvidenceSummary(
