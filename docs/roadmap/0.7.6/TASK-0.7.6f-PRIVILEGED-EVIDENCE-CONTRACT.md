@@ -1,6 +1,6 @@
 # 0.7.6f — Privileged Evidence & Durable Attribution Provenance
 
-**Status:** Contract for review, revision 5. No implementation until accepted.
+**Status:** Contract for review, revision 6. No implementation until accepted.
 **Base:** `release/0.7.0` at `d4bde521` (0.7.6e delivered as `440d63fc`).
 **Scope:** attribution and evidence for privileged approval decisions and their authorization refusals.
 
@@ -304,12 +304,28 @@ cannot include a record that cannot be decoded. Recovery gets its own metadata-o
 ```kotlin
 suspend fun quarantineUndecodableEvidence(limit: Int, now: Instant): QuarantineReport
 suspend fun listQuarantined(limit: Int): List<QuarantinedEvidenceSummary>
-suspend fun readQuarantinedCiphertext(outboxId: String): ByteArray?   // stored bytes, never decoded
+suspend fun readQuarantinedCiphertext(locator: String): ByteArray?   // stored bytes, never decoded
 ```
 
-`QuarantinedEvidenceSummary` carries only: `outboxId`, `eventKey`, `payloadDigest` (the stored `payload_digest` when
-present, otherwise SHA-256 of the stored bytes), `label`, `quarantinedAt`, and a bounded failure detail. It never
-carries decoded evidence fields.
+`QuarantinedEvidenceSummary` carries: `locator` (**required**, the authoritative recovery handle), `outboxId`
+(nullable), `eventKey` (nullable), `payloadDigest` (the stored `payload_digest` when present, otherwise SHA-256 of the
+stored bytes), `label`, `quarantinedAt`, and a bounded failure detail. It never carries decoded evidence fields.
+
+**Recovery is keyed by `locator`, never by an identifier recovered from the payload.** The two backends define it
+differently because the stores differ:
+
+| Backend | `locator` | `outboxId` / `eventKey` |
+| --- | --- | --- |
+| JDBC | `outbox_id` (a stored column, always available) | always present |
+| File | the record-key digest taken from the file name (see below) | **nullable** — they live inside the ciphertext |
+
+**A null `outboxId`/`eventKey` is an explicit, expected state, not a gap.** The file backend names each record
+`<digest>.tram.enc` where `digest = sha256(RECORD_TYPE ‖ ":" ‖ outboxId)`; a SHA-256 digest is not reversible, so
+when an envelope cannot be decrypted there is no legitimate way to recover the outbox id or event key. The contract
+therefore **forbids inventing, synthesising or back-filling either value** and forbids requiring them for recovery.
+The record-key digest from the file name is the authoritative handle: it locates the marker, the original encrypted
+file and every future operation on that record, without decoding anything and without depending on an in-memory index
+that may not have been rebuilt.
 
 #### JDBC — metadata-level quarantine
 
@@ -320,14 +336,18 @@ carries decoded evidence fields.
 - `listByStatus` **excludes quarantined ids by anti-join** rather than attempting to decode them; otherwise one
   quarantined row would make every page of `FAILED_PERMANENT` throw. This is an intentional behaviour change and part
   of the contract, not an optimisation.
-- Quarantined rows are read only through `listQuarantined()` (metadata) and `readQuarantinedCiphertext(outboxId)` (raw
-  stored bytes for operator recovery). No method returns them as decoded records.
+- Quarantined rows are read only through `listQuarantined()` (metadata) and `readQuarantinedCiphertext(locator)`, where
+  the locator is the row's `outbox_id` (raw stored bytes for operator recovery). No method returns them as decoded
+  records.
 
 #### File store — durable marker in a separate namespace
 
-- Quarantine writes `quarantine/<digest>.quarantine.json` containing the same metadata as above, created atomically
-  (temp file, fsync, rename) so a crash leaves either no marker or a complete one. The original `.tram.enc` file is
-  left **byte-identical**; nothing is rewritten, moved or deleted.
+- Quarantine writes `quarantine/<locator>.quarantine.json`, where `<locator>` is the record-key digest from the
+  record's own file name, containing the same metadata as above with `outboxId`/`eventKey` present only when the
+  record decoded. Written atomically (temp file, fsync, rename) so a crash leaves either no marker or a complete one.
+  The original `.tram.enc` file is left **byte-identical**; nothing is rewritten, moved or deleted.
+- Marker and record are correlated by the digest alone; recovery never needs the plaintext `outboxId`, so an
+  undecodable record is as recoverable as any other.
 - `rebuildIndex()` becomes **resilient**: a record that fails strict decode or validation must not abort the rebuild.
   It is indexed as *decode-failed* using its file digest only (no decode), markers already on disk are honoured and
   never decoded, and initialization therefore cannot be blocked by one bad record. Quarantine completes the durable
@@ -353,8 +373,8 @@ prefers manual action over mass-quarantining evidence — and it is recorded rat
 
 | Backend | After restart |
 | --- | --- |
-| JDBC | Quarantine rows are ordinary durable table rows: the record is still `FAILED_PERMANENT`, still excluded from `claimPending`/`listByStatus`, still listed by `listQuarantined()`, its ciphertext still readable by `outbox_id`. No re-attempt to decode, no re-quarantine. |
-| File | Markers are durable files honoured by `rebuildIndex()`, so startup never decodes a quarantined record and never fails because of it. Same guarantees as JDBC. |
+| JDBC | Quarantine rows are ordinary durable table rows: still `FAILED_PERMANENT`, still excluded from `claimPending`/`listByStatus`, still listed by `listQuarantined()`, ciphertext still readable by its `outbox_id` locator. No re-attempt to decode, no re-quarantine. |
+| File | Markers are durable files honoured by `rebuildIndex()`, so startup never decodes a quarantined record and never fails because of it. Listing and ciphertext retrieval work from the digest locator alone, including for records whose `outboxId`/`eventKey` are unrecoverable. Same guarantees as JDBC. |
 
 Quarantine is idempotent on both backends: an already-quarantined record is skipped, and a decodable record is never
 touched — successful decoding is a precondition for the operation to act at all.
@@ -404,12 +424,13 @@ helper that reimplements the rule.
 | 17 | Legacy approval row with `NULL` issuer reconstructs with issuer explicitly unknown, never as the current issuer | R1, R5 | guessed legacy provenance |
 
 | 18 | **JDBC: a batch containing one valid and one undecodable record dispatches the valid record and quarantines the other; the row is listed by `listQuarantined()` with its label and payload digest, its ciphertext is byte-identical before and after (digest compared), and a second run quarantines nothing further** | §6.1 | a bad row starving the batch, or evidence being destroyed |
-| 19 | **JDBC: `listByStatus(FAILED_PERMANENT)` and `claimPending` exclude quarantined rows instead of throwing, and `readQuarantinedCiphertext` returns the untouched bytes** | §6.1 | a listing that cannot survive one corrupt row |
+| 19 | **JDBC: `listByStatus(FAILED_PERMANENT)` and `claimPending` exclude quarantined rows instead of throwing, and `readQuarantinedCiphertext(locator)` returns the untouched bytes** | §6.1 | a listing that cannot survive one corrupt row |
 | 20 | **File store: the same mixed batch — marker written atomically, `.tram.enc` byte-identical, neighbours untouched and still readable, and `rebuildIndex()` after restart does not fail or re-decode the quarantined record** | §6.1 | encrypted-file rewrite, or initialization blocked by one bad record |
-| 21 | **Systemic key failure: with a wrong deployment key so no dispatchable record decodes, the operation aborts with `tramai-outbox-decryption-unavailable` and quarantines nothing** | §6.1 | mass-quarantining healthy evidence |
-| 22 | `corrupt-evidence` (payload contradicts its queryable columns) carries its own label, distinct from `undecodable-evidence` and from `unsupported-evidence-kind` | §6.1 | merging storage corruption with configuration gaps |
-| 23 | Quarantine touches neither decodable records nor `PREPARED` records | §6.1 | over-eager quarantine |
-| 24 | A newly written decision record persists `aggregateIdDigest`, `reasonDigest` **and** `decision_actor_hash` in the existing `sha256:`-prefixed form, and the new identity digest in bare 64-hex form | §4 | reformatting durable digests in passing |
+| 21 | **File store, genuinely undecodable record: after restart the marker is found, `listQuarantined()` reports it with a digest locator and `outboxId`/`eventKey` null, and `readQuarantinedCiphertext(locator)` returns the original bytes byte-identically — with neither raw identifier recoverable and no in-memory index pre-populated** | §6.1 | recovery that needs identifiers the ciphertext never revealed |
+| 22 | **Systemic key failure: with a wrong deployment key so no dispatchable record decodes, the operation aborts with `tramai-outbox-decryption-unavailable` and quarantines nothing** | §6.1 | mass-quarantining healthy evidence |
+| 23 | `corrupt-evidence` (payload contradicts its queryable columns) carries its own label, distinct from `undecodable-evidence` and from `unsupported-evidence-kind` | §6.1 | merging storage corruption with configuration gaps |
+| 24 | Quarantine touches neither decodable records nor `PREPARED` records | §6.1 | over-eager quarantine |
+| 25 | A newly written decision record persists `aggregateIdDigest`, `reasonDigest` **and** `decision_actor_hash` in the existing `sha256:`-prefixed form, and the new identity digest in bare 64-hex form | §4 | reformatting durable digests in passing |
 
 ## 9. Open items for the owner
 
@@ -421,6 +442,7 @@ helper that reimplements the rule.
 | Issuer normalisation | Stored verbatim as verified by the decoder; changing it would change identity equality. |
 | Legacy rows / legacy payloads | Issuer permanently unknown; evidence kind derived from persisted `approvalStatus`, undecodable records fail closed. |
 | Persisted digest formats (`sha256:` prefix on `aggregateIdDigest`, `reasonDigest` and `decision_actor_hash`) | Frozen. Reformatting would break equality against every existing row; new values use a distinct self-describing form. |
-| Quarantine operations (§6.1) | New store API in 0.7.6f: quarantine, metadata listing and raw-ciphertext read. Quarantined rows are excluded from decoded listings by contract; recovery is metadata-level only. |
+| Quarantine operations (§6.1) | New store API in 0.7.6f: quarantine, metadata listing and raw-ciphertext read, all keyed by `locator`. Quarantined rows are excluded from decoded listings by contract; recovery is metadata-level only. |
+| File-backend `outboxId`/`eventKey` for undecodable records | Permanently unrecoverable (the file name is a one-way digest and the values live in the ciphertext). Recorded as nullable in the summary, never synthesised. |
 | Mass corruption | If every dispatchable record is genuinely corrupt, the control requirement makes quarantine refuse to act (§6.1). Intentional: manual intervention over mass-quarantining evidence. |
 | Decision event keys embedding raw approval ids (§1.4) | Recorded finding; correction is a separate change with its own migration. |
