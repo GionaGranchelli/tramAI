@@ -10,10 +10,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import java.time.Instant
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Epic 8.1e: the shared, cross-implementation
@@ -1542,6 +1545,69 @@ abstract class SovereignOpsAuditOutboxStoreTck {
                     }
                 }
             }
+        }
+
+    @Test
+    fun `a losing dispatchable insert is never claimable while appends race a dispatcher`() =
+        runBlocking<Unit> {
+            repeat(20) { round ->
+                val store = createStore()
+                store.appendDispatchable(refusalRecord("disp-held-$round"))
+                val observed = ConcurrentLinkedQueue<String>()
+                val stop = AtomicBoolean(false)
+                val dispatcher =
+                    async(Dispatchers.Default) {
+                        while (!stop.get()) {
+                            store
+                                .claimPending("race-dispatcher", 100, t0.plusSeconds(1))
+                                .forEach { observed.add(it.outboxId) }
+                            yield()
+                        }
+                    }
+                val losers = (0 until 8).map { "disp-loser-$round-$it" }
+                val outcomes =
+                    runInParallel(losers) { id ->
+                        runCatching {
+                            store.appendDispatchable(refusalRecord(id).copy(eventKey = "event-disp-held-$round"))
+                        }
+                    }
+                stop.set(true)
+                dispatcher.await()
+
+                assertThat(outcomes.count { it.isSuccess })
+                    .withFailMessage {
+                        "round $round: the event key is taken, so no conflicting append may succeed"
+                    }.isZero()
+                assertThat(observed.filter { it.startsWith("disp-loser-") })
+                    .withFailMessage {
+                        "round $round: a dispatcher saw a record whose insert was rejected"
+                    }.isEmpty()
+                losers.forEach { id ->
+                    assertThat(store.get(id)).withFailMessage { "round $round: orphan $id survived" }.isNull()
+                }
+                assertThat(store.findByEventKey("event-disp-held-$round")?.outboxId)
+                    .withFailMessage { "round $round: the event key changed owner" }
+                    .isEqualTo("disp-held-$round")
+            }
+        }
+
+    @Test
+    fun `a rejected dispatchable insert leaves no index entry that a later append must fight`() =
+        runBlocking<Unit> {
+            val store = createStore()
+            store.appendDispatchable(refusalRecord("index-held"))
+            val rejected = "index-loser"
+            runCatching {
+                runBlocking {
+                    store.appendDispatchable(refusalRecord(rejected).copy(eventKey = "event-index-held"))
+                }
+            }
+            // The loser's own key was never taken, so a later append with that key must succeed.
+            val reused =
+                refusalRecord("index-after", SovereignOpsAuditOutboxStatus.PENDING)
+                    .copy(eventKey = "event-$rejected")
+            assertThat(store.appendDispatchable(reused)).isEqualTo(reused)
+            assertThat(store.findByEventKey("event-$rejected")?.outboxId).isEqualTo("index-after")
         }
 
     private fun refusalRecord(

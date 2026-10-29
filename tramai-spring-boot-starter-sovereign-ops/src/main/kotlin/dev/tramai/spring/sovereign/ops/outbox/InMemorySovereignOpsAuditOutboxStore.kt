@@ -2,6 +2,7 @@ package dev.tramai.spring.sovereign.ops.outbox
 
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
 
 /**
  * Thread-safe in-memory implementation of [SovereignOpsAuditOutboxStore].
@@ -12,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
 class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
     private val store = ConcurrentHashMap<String, SovereignOpsAuditOutboxRecord>()
     private val eventKeyIndex = ConcurrentHashMap<String, String>()
+    private val insertLock = ReentrantLock()
 
     override fun isDurable(): Boolean = false
 
@@ -36,14 +38,26 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         require(record.outboxId.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-id" }
         require(record.eventKey.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-event-key" }
         require(record.status == requiredStatus) { "tramai-sovereign-ops-outbox-invalid-status" }
-        val existing = store.putIfAbsent(record.outboxId, record)
-        require(existing == null) { "tramai-sovereign-ops-outbox-duplicate-id" }
-        val previousKey = eventKeyIndex.putIfAbsent(record.eventKey, record.outboxId)
-        if (previousKey != null) {
-            store.remove(record.outboxId)
-            require(false) { "tramai-sovereign-ops-outbox-duplicate-event-key" }
+
+        // A dispatchable record is claimable the instant it is published, so publication must be the
+        // last step: the event key is reserved first, and the record enters the store only once nothing
+        // can still reject it. Publishing first and rolling back would expose a record that is about to
+        // fail -- a dispatcher could claim and emit an insert that never committed -- and the rollback
+        // would remove by id alone, erasing whatever that id had become in the meantime.
+        // ponytail: one insert lock; the file store already serializes appends the same way. Split the
+        // lock per key shard if insert throughput ever matters.
+        insertLock.lock()
+        try {
+            require(!store.containsKey(record.outboxId)) { "tramai-sovereign-ops-outbox-duplicate-id" }
+            val previousKey = eventKeyIndex.putIfAbsent(record.eventKey, record.outboxId)
+            if (previousKey != null) {
+                require(false) { "tramai-sovereign-ops-outbox-duplicate-event-key" }
+            }
+            store[record.outboxId] = record
+            return record
+        } finally {
+            insertLock.unlock()
         }
-        return record
     }
 
     override suspend fun markReadyForDispatch(
