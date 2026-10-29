@@ -293,3 +293,56 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.6f slice 1 evidence vocabulary: SovereignOpsAuditOutboxRecord gains actorIssuer, actorIdentityDigest, previousApprovalStatus and previousApprovalVersion, and approvalStatus becomes nullable so an absent status cannot be confused with a real one. This is a binary-breaking change for consumers that construct the record positionally or call copy() - the JVM constructor, copy and copy$default descriptors all change - and it is deliberate: the fields are the evidence the epic exists to record, and every call site in the repository was updated. Source-compatible for named-argument Kotlin and for Java callers that only read accessors."
     migration: "Recompile against this artifact before constructing SovereignOpsAuditOutboxRecord or calling copy(). Named-argument Kotlin call sites need no change. Java callers using the all-argument constructor must add four arguments (issuer, identity digest, previous status, previous version) - pass null for each unless the decision carried verified attribution. Readers of approvalStatus must now handle null: it is absent on records that are not decisions, not an empty or placeholder status. The frozen digests are unchanged in form: decision_actor_hash, aggregateIdDigest and reasonDigest keep the sha256: prefix, while the new actorIdentityDigest is 64 lowercase hex with no prefix."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: 4078619b53bfba135526546bcca6435484dc0ef015d06ccb078ba057114298c2
+    toSha256: 3baca210a8b768c0532dffd49c09ad92e5e5945a1d0c5023d57d173d7f9f9d07
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 2 dispatchable append: SovereignOpsAuditOutboxRecord gains evidenceKind, the
+      SovereignOpsAuditEvidenceKind enum is published, and SovereignOpsAuditOutboxStore gains
+      appendDispatchable with a default that throws. The JVM constructor, copy and copy$default
+      descriptors change again with the new parameter, and component25() is new; component1() through
+      component24() are unchanged. The SPI method is additive: an implementation that does not override
+      it keeps linking and fails closed at call time instead of writing refusal evidence nowhere.
+    migration: >-
+      Consumers that construct SovereignOpsAuditOutboxRecord positionally or call copy() must recompile;
+      every new parameter has a default, so named-argument construction is source-compatible. Custom
+      SovereignOpsAuditOutboxStore implementations must override appendDispatchable to accept refusal
+      evidence: the default throws tramai-sovereign-ops-outbox-dispatchable-append-unsupported, which is
+      deliberate so a store cannot silently accept evidence it cannot persist.
+
+  - module: ":tramai-core"
+    fromSha256: e3d294b2dcf8f9fe3f455594dd55e3bf9fbae1969ccdfde6c832ffbbdd69a26a
+    toSha256: bbb2b420ea618f3d1a4fcc7fe6c4e682e2d39d6a7404cb2b99975e637fb6132f
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 1 landed ActorIdentityDigest and the record's provenance accessors in
+      tramai-core without appending the link this ledger needs, so the chain from the previous
+      entry's toSha256 no longer reached the current base dump. Additive only: no declaration was
+      removed or reshaped. This entry records that transition so the ledger stays reachable; it
+      authorizes nothing new.
+    migration: >-
+      No consumer action: additive public API only. Recompile to use ActorIdentityDigest.
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    fromSha256: 56e4fb7b758a9b476e9a6c9dd7f2cbdf043e3f80f2ef61e2bdd0702c364cdc72
+    toSha256: db78dba72754b6f7f2cbe276191ca959867c8ae9edc55893bcefbdae753d035a
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 2: JdbcSovereignOpsAuditOutboxStore publishes appendDispatchable, matching
+      the SPI default. Additive: the existing append, transition and claim signatures are unchanged.
+    migration: >-
+      No consumer action required beyond recompiling. Implementations that are not this store must
+      override appendDispatchable themselves; the SPI default throws
+      tramai-sovereign-ops-outbox-dispatchable-append-unsupported.
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-file"
+    fromSha256: e992d59be9f21e441843cfda66ec9037b8a9c7b324c814afe378e0017c18273c
+    toSha256: 0c3f810df9c70e8cb19302562e531a2b41245d3ae68f6f0147e3e1164776ce97
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 2: FileSovereignOpsAuditOutboxStore publishes appendDispatchable, matching
+      the SPI default. Additive: the existing append, transition and claim signatures are unchanged.
+    migration: >-
+      No consumer action required beyond recompiling. Implementations that are not this store must
+      override appendDispatchable themselves; the SPI default throws
+      tramai-sovereign-ops-outbox-dispatchable-append-unsupported.

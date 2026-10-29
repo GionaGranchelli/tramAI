@@ -60,6 +60,8 @@ import java.util.UUID
  * `sha256:`-prefixed digests that predate 0.7.6f.
  * @property previousApprovalStatus The approval status before the transition, recorded rather than derived.
  * @property previousApprovalVersion The approval version before the transition, recorded rather than derived.
+ * @property evidenceKind What this record is evidence of. Null on records written before 0.7.6f; a reader
+ *   derives those from persisted state instead of guessing (0.7.6f slice 4).
  */
 data class SovereignOpsAuditOutboxRecord(
     val outboxId: String = UUID.randomUUID().toString(),
@@ -86,6 +88,7 @@ data class SovereignOpsAuditOutboxRecord(
     val actorIdentityDigest: String? = null,
     val previousApprovalStatus: String? = null,
     val previousApprovalVersion: Long? = null,
+    val evidenceKind: SovereignOpsAuditEvidenceKind? = null,
 ) {
     companion object {
         /** Default claim expiry duration for stuck-EMITTING recovery. */

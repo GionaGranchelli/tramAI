@@ -1,6 +1,7 @@
 public final class dev/tramai/spring/sovereign/persistence/file/FileSovereignOpsAuditOutboxStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore, java/lang/AutoCloseable {
 	public static final field Companion Ldev/tramai/spring/sovereign/persistence/file/FileSovereignOpsAuditOutboxStore$Companion;
 	public fun append (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun appendDispatchable (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun claimPending (Ljava/lang/String;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun close ()V
 	public fun findByEventKey (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

@@ -10,18 +10,32 @@ import java.util.concurrent.ConcurrentHashMap
  * A secondary index enforces [SovereignOpsAuditOutboxRecord.eventKey] uniqueness.
  */
 class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
-
     private val store = ConcurrentHashMap<String, SovereignOpsAuditOutboxRecord>()
     private val eventKeyIndex = ConcurrentHashMap<String, String>()
 
     override fun isDurable(): Boolean = false
 
-    override suspend fun append(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord {
+    override suspend fun append(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord =
+        insert(record, SovereignOpsAuditOutboxStatus.PREPARED)
+
+    override suspend fun appendDispatchable(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord {
+        require(record.evidenceKind == SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL) {
+            "tramai-sovereign-ops-outbox-invalid-evidence-kind"
+        }
+        return insert(record, SovereignOpsAuditOutboxStatus.PENDING)
+    }
+
+    /**
+     * The one insert path: [append] and [appendDispatchable] differ only in the status they allow, so the
+     * duplicate checks and the index rollback cannot drift between them.
+     */
+    private fun insert(
+        record: SovereignOpsAuditOutboxRecord,
+        requiredStatus: SovereignOpsAuditOutboxStatus,
+    ): SovereignOpsAuditOutboxRecord {
         require(record.outboxId.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-id" }
         require(record.eventKey.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-event-key" }
-        require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
-            "tramai-sovereign-ops-outbox-invalid-status"
-        }
+        require(record.status == requiredStatus) { "tramai-sovereign-ops-outbox-invalid-status" }
         val existing = store.putIfAbsent(record.outboxId, record)
         require(existing == null) { "tramai-sovereign-ops-outbox-duplicate-id" }
         val previousKey = eventKeyIndex.putIfAbsent(record.eventKey, record.outboxId)
@@ -36,8 +50,9 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
     ): SovereignOpsAuditOutboxRecord {
-        val record = store[outboxId]
-            ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
+        val record =
+            store[outboxId]
+                ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
         require(expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
@@ -82,7 +97,9 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
             SovereignOpsAuditOutboxStatus.PENDING,
             SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE,
             -> true
+
             SovereignOpsAuditOutboxStatus.EMITTING -> claimExpiresAt?.isBefore(now) == true
+
             SovereignOpsAuditOutboxStatus.PREPARED,
             SovereignOpsAuditOutboxStatus.EMITTED,
             SovereignOpsAuditOutboxStatus.FAILED_PERMANENT,
@@ -108,8 +125,9 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         expectedAttemptCount: Int,
         emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord {
-        val record = store[outboxId]
-            ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
+        val record =
+            store[outboxId]
+                ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
         require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
@@ -119,10 +137,11 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         check(record.attemptCount == expectedAttemptCount) {
             ERROR_OUTBOX_CONCURRENT_UPDATE
         }
-        val updated = record.copy(
-            status = SovereignOpsAuditOutboxStatus.EMITTED,
-            emittedAt = emittedAt,
-        )
+        val updated =
+            record.copy(
+                status = SovereignOpsAuditOutboxStatus.EMITTED,
+                emittedAt = emittedAt,
+            )
         check(store.replace(outboxId, record, updated)) {
             ERROR_OUTBOX_CONCURRENT_UPDATE
         }
@@ -136,8 +155,9 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         errorCode: String,
         retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord {
-        val record = store[outboxId]
-            ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
+        val record =
+            store[outboxId]
+                ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
         if (retryable) {
             require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
                 ERROR_OUTBOX_STATUS_MISMATCH
@@ -145,7 +165,7 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         } else {
             require(
                 expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING ||
-                    expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED
+                    expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED,
             ) {
                 ERROR_OUTBOX_STATUS_MISMATCH
             }
@@ -156,20 +176,24 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         check(record.attemptCount == expectedAttemptCount) {
             ERROR_OUTBOX_CONCURRENT_UPDATE
         }
-        val newStatus = if (retryable) SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
-        else SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
-        val updated = record.copy(
-            status = newStatus,
-            lastErrorCode = errorCode,
-        )
+        val newStatus =
+            if (retryable) {
+                SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
+            } else {
+                SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
+            }
+        val updated =
+            record.copy(
+                status = newStatus,
+                lastErrorCode = errorCode,
+            )
         check(store.replace(outboxId, record, updated)) {
             ERROR_OUTBOX_CONCURRENT_UPDATE
         }
         return updated
     }
 
-    override suspend fun get(outboxId: String): SovereignOpsAuditOutboxRecord? =
-        store[outboxId]
+    override suspend fun get(outboxId: String): SovereignOpsAuditOutboxRecord? = store[outboxId]
 
     override suspend fun findByEventKey(eventKey: String): SovereignOpsAuditOutboxRecord? {
         val id = eventKeyIndex[eventKey] ?: return null

@@ -17,6 +17,7 @@ import dev.tramai.persistence.file.FileStorePermissionException
 import dev.tramai.persistence.file.FileStoreSha256
 import dev.tramai.persistence.file.FileStoreUnsupportedFormatException
 import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxGovernance
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
@@ -95,6 +96,7 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     @param:JsonProperty("previousApprovalStatus") val previousApprovalStatus: String? = null,
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
     @param:JsonProperty("previousApprovalVersion") val previousApprovalVersion: Long? = null,
+    @param:JsonProperty("evidenceKind") val evidenceKind: String? = null,
 ) {
     fun toJson(): String = OPS_OUTBOX_JSON.writeValueAsString(this)
 
@@ -131,6 +133,7 @@ internal fun SovereignOpsAuditOutboxRecord.toPersistedV1(version: Long): Persist
         actorIdentityDigest = actorIdentityDigest,
         previousApprovalStatus = previousApprovalStatus,
         previousApprovalVersion = previousApprovalVersion,
+        evidenceKind = evidenceKind?.name,
     )
 
 internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAuditOutboxRecord {
@@ -160,6 +163,7 @@ internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAu
         actorIdentityDigest = actorIdentityDigest,
         previousApprovalStatus = previousApprovalStatus,
         previousApprovalVersion = previousApprovalVersion,
+        evidenceKind = evidenceKind?.let { SovereignOpsAuditEvidenceKind.valueOf(it) },
     )
 }
 
@@ -220,13 +224,28 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
     override fun isDurable(): Boolean = true
 
     override suspend fun append(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord =
+        appendRecord(record, requiredStatus = SovereignOpsAuditOutboxStatus.PREPARED)
+
+    /**
+     * 0.7.6f: commits a refusal record directly as PENDING -- one atomic encrypted write, no separate
+     * transition to wait for. Only refusal evidence may take this path.
+     */
+    override suspend fun appendDispatchable(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord {
+        require(record.evidenceKind == SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL) {
+            "tramai-sovereign-ops-outbox-invalid-evidence-kind"
+        }
+        return appendRecord(record, requiredStatus = SovereignOpsAuditOutboxStatus.PENDING)
+    }
+
+    private suspend fun appendRecord(
+        record: SovereignOpsAuditOutboxRecord,
+        requiredStatus: SovereignOpsAuditOutboxStatus,
+    ): SovereignOpsAuditOutboxRecord =
         lease.withOpenOperation {
             validateManagedDirectory(outboxDir, STORAGE_NAME)
             require(record.outboxId.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-id" }
             require(record.eventKey.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-event-key" }
-            require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
-                "tramai-sovereign-ops-outbox-invalid-status"
-            }
+            require(record.status == requiredStatus) { "tramai-sovereign-ops-outbox-invalid-status" }
 
             appendLock.lock()
             try {
