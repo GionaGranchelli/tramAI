@@ -23,10 +23,15 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 /**
  * 0.7.1d: the single JDBC codec for sovereign-ops audit outbox payloads.
  *
- * Persistence has exactly two shapes:
+ * Persistence has exactly three shapes:
  *
- * - **V1** — the ordinary record with no governed attribution, byte-for-byte the released shape.
- * - **V2** — the ordinary record plus the complete canonical [GovernedRunIdentity].
+ * - **V1** -- the ordinary record with no governed attribution, byte-for-byte the released shape.
+ * - **V2** -- the ordinary record plus the complete canonical [GovernedRunIdentity].
+ * - **V3** -- the ordinary record plus 0.7.6f evidence attribution (`actorIssuer`,
+ *   `actorIdentityDigest`, `previousApprovalStatus`, `previousApprovalVersion`) and, when the run is
+ *   governed, the same identity V2 carries. V3 exists so a *new* payload can never be read by an older
+ *   deployment as a valid old record: the version is checked before anything is parsed, so an old reader
+ *   sees an unsupported version instead of silently dropping evidence it does not know about.
  *
  * The identity is one non-optional nested object in V2, never six independently optional fields, so a
  * partially attributed V2 cannot be encoded and cannot be decoded. The stored version is required and
@@ -36,8 +41,8 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
  * governed attribution and must treat an absent version as legacy; here an absent version would be a
  * silent downgrade of a governed row, so it fails closed instead.
  *
- * Both writer paths — the outbox store's own transactions and the approval-mutation transactions that
- * write outbox rows inline — encode through [encodeOutboxRecord] and decode through
+ * Both writer paths -- the outbox store's own transactions and the approval-mutation transactions that
+ * write outbox rows inline -- encode through [encodeOutboxRecord] and decode through
  * [decodeOutboxRecord]. Neither owns its own JSON shape, so the two cannot drift.
  */
 internal data class DecodedOutboxRecord(
@@ -95,6 +100,20 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV2(
 )
 
 /**
+ * V3 carrier: the ordinary record (reusing the released V1 DTO verbatim) plus the optional governed
+ * identity and the 0.7.6f evidence fields the DTO now persists.
+ *
+ * The identity is optional here because a governed and an ungoverned record both gain evidence; the
+ * evidence fields themselves are nullable because a legacy-frozen record legitimately has none of them
+ * (issuer unknown, previous state unrecorded).
+ */
+internal data class PersistedSovereignOpsAuditOutboxRecordV3(
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int = 3,
+    @param:JsonProperty("record") val record: PersistedSovereignOpsAuditOutboxRecordV1,
+    @param:JsonProperty("governedRunIdentity") val governedRunIdentity: PersistedGovernedRunIdentity? = null,
+)
+
+/**
  * The one JSON mapper for outbox payloads: strict on unknown properties, so an unrecognised field is a
  * decode failure rather than a silently dropped one.
  */
@@ -107,7 +126,7 @@ internal val OPS_OUTBOX_JSON: ObjectMapper =
         .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, true)
 
 /**
- * Encodes a record, choosing the shape from the identity's presence: absent → V1, present → V2.
+ * Encodes a record, choosing the shape from the identity's presence: absent -> V1, present -> V2.
  *
  * A governed record can therefore lose its attribution only by a caller deliberately handing over a
  * null identity; no status transition can drop it as a side effect.
@@ -117,7 +136,16 @@ internal fun encodeOutboxRecord(
     runIdentity: GovernedRunIdentity?,
 ): ByteArray {
     val persisted = record.toPersistedOutbox()
-    return if (runIdentity == null) {
+    val hasIdentity = record.actorIssuer != null || record.actorIdentityDigest != null
+    val hasPrevious = record.previousApprovalStatus != null || record.previousApprovalVersion != null
+    return if (hasIdentity || hasPrevious) {
+        OPS_OUTBOX_JSON.writeValueAsBytes(
+            PersistedSovereignOpsAuditOutboxRecordV3(
+                record = persisted,
+                governedRunIdentity = runIdentity?.toPersisted(),
+            ),
+        )
+    } else if (runIdentity == null) {
         OPS_OUTBOX_JSON.writeValueAsBytes(persisted)
     } else {
         OPS_OUTBOX_JSON.writeValueAsBytes(
@@ -133,21 +161,38 @@ internal fun encodeOutboxRecord(
  * Decodes any persisted outbox payload, dispatching on the declared schema version.
  *
  * The two failure modes stay distinct: an unreadable or internally inconsistent payload is corruption,
- * while a version this codec does not know is an unsupported format — never an old record.
+ * while a version this codec does not know is an unsupported format -- never an old record.
  */
 internal fun decodeOutboxRecord(json: ByteArray): DecodedOutboxRecord {
     val node = readJsonTree(json)
     val version = outboxSchemaVersion(node)
-    check(version == OFFICIAL_VERSION || version == GOVERNED_VERSION) {
+    check(version == OFFICIAL_VERSION || version == GOVERNED_VERSION || version == EVIDENCE_VERSION) {
         "audit-outbox-unsupported-schema-version: $version"
     }
     return try {
-        if (version == OFFICIAL_VERSION) decodeLegacy(node, json) else decodeGoverned(json)
+        when (version) {
+            OFFICIAL_VERSION -> decodeLegacy(node, json)
+            GOVERNED_VERSION -> decodeGoverned(json)
+            else -> decodeEvidence(json)
+        }
     } catch (e: IllegalArgumentException) {
         throw IllegalStateException(ERROR_CORRUPTED_RECORD, e)
     } catch (e: JsonProcessingException) {
         throw IllegalStateException(ERROR_CORRUPTED_RECORD, e)
     }
+}
+
+/**
+ * Whether a payload node carries any 0.7.6f evidence field.
+ *
+ * The released V1 and V2 shapes have no such fields, so one appearing inside a declared V1/V2 payload is
+ * corruption: reading it would silently upgrade versioned evidence to unversioned attribution.
+ */
+private fun carriesEvidenceFields(node: JsonNode?): Boolean {
+    if (node == null) return false
+    val hasIdentity = node.get("actorIssuer") != null || node.get("actorIdentityDigest") != null
+    val hasPrevious = node.get("previousApprovalStatus") != null || node.get("previousApprovalVersion") != null
+    return hasIdentity || hasPrevious
 }
 
 /**
@@ -160,6 +205,9 @@ private fun decodeLegacy(
     check(node.get("governedRunIdentity") == null) {
         "$ERROR_CORRUPTED_RECORD: legacy payload carries a governed identity"
     }
+    check(!carriesEvidenceFields(node)) {
+        "$ERROR_CORRUPTED_RECORD: legacy payload carries 0.7.6f evidence fields"
+    }
     val v1 = OPS_OUTBOX_JSON.readValue<PersistedSovereignOpsAuditOutboxRecordV1>(json)
     return DecodedOutboxRecord(record = v1.toDomain(), runIdentity = null)
 }
@@ -168,6 +216,11 @@ private fun decodeLegacy(
  * Governed V2: the identity is mandatory and must name the same run as the ordinary record.
  */
 private fun decodeGoverned(json: ByteArray): DecodedOutboxRecord {
+    // The evidence fields live inside "record", not at the top level: checking the outer node would let a
+    // V2 payload smuggle versioned evidence through as unversioned attribution.
+    check(!carriesEvidenceFields(readJsonTree(json).get("record"))) {
+        "$ERROR_CORRUPTED_RECORD: V2 payload carries 0.7.6f evidence fields"
+    }
     val v2 = OPS_OUTBOX_JSON.readValue<PersistedSovereignOpsAuditOutboxRecordV2>(json)
     val identity = v2.governedRunIdentity.toCore()
     val record = v2.record.toDomain()
@@ -185,10 +238,41 @@ private fun decodeGoverned(json: ByteArray): DecodedOutboxRecord {
 }
 
 /**
+ * Evidence V3: the attribution is optional per field, but an identity that is present must be complete
+ * and must name the same run as the ordinary record -- the same rule V2 enforces.
+ */
+private fun decodeEvidence(json: ByteArray): DecodedOutboxRecord {
+    val v3 = OPS_OUTBOX_JSON.readValue<PersistedSovereignOpsAuditOutboxRecordV3>(json)
+    val record = v3.record.toDomain()
+    // Provenance is recorded as complete pairs or not at all: a half-pair names no identity, and a
+    // half-recorded previous state cannot be reconciled with any approval row.
+    check((record.actorIssuer == null) == (record.actorIdentityDigest == null)) {
+        "$ERROR_CORRUPTED_RECORD: actor provenance is incomplete"
+    }
+    check((record.previousApprovalStatus == null) == (record.previousApprovalVersion == null)) {
+        "$ERROR_CORRUPTED_RECORD: previous approval state is incomplete"
+    }
+    val identity = v3.governedRunIdentity?.toCore()
+    if (identity != null) {
+        check(
+            identity.deployment.workloadId.value
+                .isNotBlank() && identity.runId.value.isNotBlank(),
+        ) {
+            "$ERROR_CORRUPTED_RECORD: governed run identity is incomplete"
+        }
+        check(identity.runId.value == record.workflowRunId) {
+            "$ERROR_CORRUPTED_RECORD: governed attribution names another run: " +
+                "'${record.workflowRunId}' != canonical runId '${identity.runId.value}'"
+        }
+    }
+    return DecodedOutboxRecord(record = record, runIdentity = identity)
+}
+
+/**
  * Reads only the declared schema version, leaving the payload untouched for the real decode.
  *
- * Only an integral, in-range JSON number is a schema declaration: anything else — missing, null,
- * text, float, out of int range — is corruption. `asInt()` coerces instead (`"2"` and `2.9` to 2,
+ * Only an integral, in-range JSON number is a schema declaration: anything else -- missing, null,
+ * text, float, out of int range -- is corruption. `asInt()` coerces instead (`"2"` and `2.9` to 2,
  * `"abc"` to 0), which turns a damaged payload into a wrong answer: a bogus V1/V2 decode, or a
  * false "unsupported version" report for a payload that is simply damaged.
  */
@@ -213,3 +297,4 @@ internal const val ERROR_CORRUPTED_RECORD: String = "audit-outbox-payload-corrup
 
 private const val OFFICIAL_VERSION = 1
 private const val GOVERNED_VERSION = 2
+private const val EVIDENCE_VERSION = 3

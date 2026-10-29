@@ -8,20 +8,20 @@ import java.util.UUID
  *
  * Records audit intent alongside the approval state change.
  * The record is created in [SovereignOpsAuditOutboxStatus.PREPARED] state
- * before the approval transition — it is not dispatchable until the
+ * before the approval transition -- it is not dispatchable until the
  * transition succeeds and the record is moved to
  * [SovereignOpsAuditOutboxStatus.PENDING].
  *
  * ## Status lifecycle
  * ```
  * PREPARED (appended, transition pending)
- *   ├──→ PENDING (transition succeeded, dispatchable)
- *   │      └──→ EMITTING (claimed)
- *   │             ├──→ EMITTED (success)
- *   │             ├──→ FAILED_RETRYABLE → EMITTING (re-claim, attempt + 1)
- *   │             ├──→ FAILED_PERMANENT (terminal)
- *   │             └──→ EMITTING (expired claim re-claimed, attempt + 1)
- *   └──→ FAILED_PERMANENT (transition failed, orphaned intent)
+ *   ├---> PENDING (transition succeeded, dispatchable)
+ *   |      └---> EMITTING (claimed)
+ *   |             ├---> EMITTED (success)
+ *   |             ├---> FAILED_RETRYABLE -> EMITTING (re-claim, attempt + 1)
+ *   |             ├---> FAILED_PERMANENT (terminal)
+ *   |             └---> EMITTING (expired claim re-claimed, attempt + 1)
+ *   └---> FAILED_PERMANENT (transition failed, orphaned intent)
  * ```
  *
  * ## Security invariants
@@ -39,7 +39,9 @@ import java.util.UUID
  * @property actor The identity of the actor who performed the operation.
  * @property workflowRunId The workflow run ID, if available.
  * @property correlationId The correlation ID, if available.
- * @property approvalStatus The resulting approval status (e.g. "DENIED").
+ * @property approvalStatus The resulting approval status (e.g. "DENIED"), or `null` when the record is
+ * not a decision record. 0.7.6f made this nullable rather than using a sentinel, so an absent status can
+ * never be mistaken for a real one.
  * @property approvalVersion The version of the approval after the transition.
  * @property reasonDigest SHA-256 hex digest of the reason string.
  * @property reasonLength Length of the reason string.
@@ -51,6 +53,13 @@ import java.util.UUID
  * @property claimedAt When this record was claimed for dispatch, if any.
  * @property claimExpiresAt When the current claim expires and another dispatcher may re-claim.
  * @property emittedAt When the audit event was successfully emitted, if ever.
+ * @property actorIssuer The verified identity provider of [actor] (0.7.6f). `null` on evidence recorded
+ * before 0.7.6f, which means "issuer unknown" -- never "same issuer as the current request".
+ * @property actorIdentityDigest Canonical digest binding `(issuer, subject)`, 64 lowercase hex without a
+ * prefix (see `dev.tramai.core.operator.ActorIdentityDigest`). Deliberately distinguishable from the
+ * `sha256:`-prefixed digests that predate 0.7.6f.
+ * @property previousApprovalStatus The approval status before the transition, recorded rather than derived.
+ * @property previousApprovalVersion The approval version before the transition, recorded rather than derived.
  */
 data class SovereignOpsAuditOutboxRecord(
     val outboxId: String = UUID.randomUUID().toString(),
@@ -61,7 +70,7 @@ data class SovereignOpsAuditOutboxRecord(
     val actor: String,
     val workflowRunId: String?,
     val correlationId: String?,
-    val approvalStatus: String,
+    val approvalStatus: String?,
     val approvalVersion: Long?,
     val reasonDigest: String,
     val reasonLength: Int,
@@ -73,6 +82,10 @@ data class SovereignOpsAuditOutboxRecord(
     val claimedAt: Instant? = null,
     val claimExpiresAt: Instant? = null,
     val emittedAt: Instant? = null,
+    val actorIssuer: String? = null,
+    val actorIdentityDigest: String? = null,
+    val previousApprovalStatus: String? = null,
+    val previousApprovalVersion: Long? = null,
 ) {
     companion object {
         /** Default claim expiry duration for stuck-EMITTING recovery. */
@@ -86,14 +99,19 @@ data class SovereignOpsAuditOutboxRecord(
 enum class SovereignOpsAuditOutboxStatus {
     /** Record created but business mutation not yet committed. Not dispatchable. */
     PREPARED,
+
     /** Business mutation committed, ready for dispatch. */
     PENDING,
+
     /** Currently being emitted (claimed by a dispatcher). */
     EMITTING,
+
     /** Successfully emitted to the audit engine. */
     EMITTED,
+
     /** Emission failed but may be retried. */
     FAILED_RETRYABLE,
+
     /** Emission failed permanently and will not be retried. */
     FAILED_PERMANENT,
 }

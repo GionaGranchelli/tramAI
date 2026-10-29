@@ -74,7 +74,7 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     @JsonProperty("actor") val actor: String,
     @JsonProperty("workflowRunId") val workflowRunId: String?,
     @JsonProperty("correlationId") val correlationId: String?,
-    @JsonProperty("approvalStatus") val approvalStatus: String,
+    @JsonProperty("approvalStatus") val approvalStatus: String?,
     @JsonProperty("approvalVersion") val approvalVersion: Long?,
     @JsonProperty("reasonDigest") val reasonDigest: String,
     @JsonProperty("reasonLength") val reasonLength: Int,
@@ -87,6 +87,14 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     @JsonProperty("createdAt") val createdAt: String,
     @JsonProperty("emittedAt") val emittedAt: String?,
     @JsonProperty("outboxRecordVersion") val outboxRecordVersion: Long,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    @param:JsonProperty("actorIssuer") val actorIssuer: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    @param:JsonProperty("actorIdentityDigest") val actorIdentityDigest: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    @param:JsonProperty("previousApprovalStatus") val previousApprovalStatus: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    @param:JsonProperty("previousApprovalVersion") val previousApprovalVersion: Long? = null,
 ) {
     fun toJson(): String = OPS_OUTBOX_JSON.writeValueAsString(this)
 
@@ -119,6 +127,10 @@ internal fun SovereignOpsAuditOutboxRecord.toPersistedV1(version: Long): Persist
         createdAt = createdAt.toString(),
         emittedAt = emittedAt?.toString(),
         outboxRecordVersion = version,
+        actorIssuer = actorIssuer,
+        actorIdentityDigest = actorIdentityDigest,
+        previousApprovalStatus = previousApprovalStatus,
+        previousApprovalVersion = previousApprovalVersion,
     )
 
 internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAuditOutboxRecord {
@@ -144,6 +156,10 @@ internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAu
         claimedAt = claimedAt?.let { Instant.parse(it) },
         claimExpiresAt = claimExpiresAt?.let { Instant.parse(it) },
         emittedAt = emittedAt?.let { Instant.parse(it) },
+        actorIssuer = actorIssuer,
+        actorIdentityDigest = actorIdentityDigest,
+        previousApprovalStatus = previousApprovalStatus,
+        previousApprovalVersion = previousApprovalVersion,
     )
 }
 
@@ -221,7 +237,8 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                     "tramai-sovereign-ops-outbox-duplicate-event-key"
                 }
 
-                createAtomically(record.toPersistedV1(version = 0L).toJson(), record.outboxId)
+                val decoded = DecodedOutboxRecord(record, runIdentity = null, outboxRecordVersion = 0L)
+                createAtomically(encodeOutboxRecord(decoded, 0L), record.outboxId)
                 eventKeyIndex[record.eventKey] = record.outboxId
                 record
             } finally {

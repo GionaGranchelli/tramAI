@@ -264,11 +264,11 @@ class JdbcGovernedSovereignOpsAuditOutboxStoreTest {
     @Test
     fun `unknown schema version is unsupported never legacy`() {
         val payload = governedJson()
-        val bumped = payload.replace("""{"schemaVersion":2,""", """{"schemaVersion":3,""")
+        val bumped = payload.replace("""{"schemaVersion":2,""", """{"schemaVersion":99,""")
         assertThat(bumped).isNotEqualTo(payload)
         assertThatThrownBy { decodeOutboxRecord(bumped.toByteArray()) }
             .isInstanceOf(IllegalStateException::class.java)
-            .hasMessage("audit-outbox-unsupported-schema-version: 3")
+            .hasMessage("audit-outbox-unsupported-schema-version: 99")
     }
 
     @Test

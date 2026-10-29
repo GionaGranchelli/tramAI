@@ -477,6 +477,7 @@ object EmbeddedPgHolder {
                 "/tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
                 "/tramai/persistence/jdbc/postgres/V5__worker_leases_hardening.sql",
                 "/tramai/persistence/jdbc/postgres/V6__approval_resume_credential_custody.sql",
+                "/tramai/persistence/jdbc/postgres/V10__approval_actor_provenance.sql",
             )
         for (resource in migrations) {
             val sql =
