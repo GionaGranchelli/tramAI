@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.persistence.jdbc
 
+import com.fasterxml.jackson.databind.node.ObjectNode
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import org.assertj.core.api.Assertions.assertThat
@@ -98,6 +99,71 @@ class JdbcSovereignOpsAuditOutboxEvidenceCodecTest {
 
         assertThatThrownBy { decodeOutboxRecord(json.toByteArray()) }
             .isInstanceOf(IllegalStateException::class.java)
+    }
+
+    @Test
+    fun `a V1 payload carrying evidence fields is corruption, never unversioned attribution`() {
+        val json =
+            legacyV1Json()
+                .replaceFirst("{\"schemaVersion\":1,", "{\"schemaVersion\":1,\"actorIssuer\":\"issuer\",")
+
+        assertThatThrownBy { decodeOutboxRecord(json.toByteArray()) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("legacy payload carries 0.7.6f evidence fields")
+    }
+
+    @Test
+    fun `a V2 payload carrying evidence fields is corruption`() {
+        val identityJson =
+            """
+            {"runId":"run-1","workloadId":"w","configurationId":"c","configurationVersion":"1",
+             "environmentId":"e","deploymentId":"d"}
+            """.trimIndent()
+        val json =
+            legacyV1Json()
+                .replace("\"schemaVersion\":1", "\"schemaVersion\":2")
+                .replaceFirst("{\"schemaVersion\":2,", "{\"schemaVersion\":2,\"previousApprovalVersion\":3,")
+                .replaceFirst("{\"schemaVersion\":2,", "{\"schemaVersion\":2,\"governedRunIdentity\":$identityJson,")
+
+        assertThatThrownBy { decodeOutboxRecord(json.toByteArray()) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("V2 payload carries 0.7.6f evidence fields")
+    }
+
+    @Test
+    fun `a V3 payload with only one half of the actor pair is corruption`() {
+        val json =
+            withoutField(
+                encodeOutboxRecord(record(actorIssuer = "issuer", actorIdentityDigest = "f".repeat(64)), null),
+                "actorIdentityDigest",
+            )
+
+        assertThatThrownBy { decodeOutboxRecord(json) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("actor provenance is incomplete")
+    }
+
+    @Test
+    fun `a V3 payload with only one half of the previous state is corruption`() {
+        val json =
+            withoutField(
+                encodeOutboxRecord(record(previousApprovalStatus = "PENDING", previousApprovalVersion = 7L), null),
+                "previousApprovalVersion",
+            )
+
+        assertThatThrownBy { decodeOutboxRecord(json) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("previous approval state is incomplete")
+    }
+
+    /** Removes a field from a payload, leaving the declared version alone: the shape stays, one half of a pair goes. */
+    private fun withoutField(
+        json: ByteArray,
+        field: String,
+    ): ByteArray {
+        val tree = OPS_OUTBOX_JSON.readTree(json)
+        (tree.get("record") as ObjectNode).remove(field)
+        return OPS_OUTBOX_JSON.writeValueAsBytes(tree)
     }
 
     private fun record(

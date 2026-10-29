@@ -1,5 +1,7 @@
 package dev.tramai.spring.sovereign.persistence.file
 
+import com.fasterxml.jackson.databind.node.ObjectNode
+import dev.tramai.persistence.file.FileStoreCorruptionException
 import dev.tramai.persistence.file.FileStoreUnsupportedFormatException
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
@@ -64,6 +66,26 @@ class FileSovereignOpsAuditOutboxEvidenceCodecTest {
 
         assertThatThrownBy { decodeOutboxRecord(json) }
             .isInstanceOf(FileStoreUnsupportedFormatException::class.java)
+    }
+
+    @Test
+    fun `a V1 payload carrying evidence fields is corruption, never unversioned attribution`() {
+        val json =
+            legacyV1Json()
+                .replaceFirst("{\"schemaVersion\":1,", "{\"schemaVersion\":1,\"actorIssuer\":\"issuer\",")
+
+        assertThatThrownBy { decodeOutboxRecord(json) }
+            .isInstanceOf(FileStoreCorruptionException::class.java)
+    }
+
+    @Test
+    fun `a V3 payload with only one half of the actor pair is corruption`() {
+        val full = encode(record(actorIssuer = "issuer", actorIdentityDigest = "f".repeat(64)))
+        val tree = OPS_OUTBOX_JSON.readTree(full)
+        (tree.get("record") as ObjectNode).remove("actorIdentityDigest")
+
+        assertThatThrownBy { decodeOutboxRecord(OPS_OUTBOX_JSON.writeValueAsString(tree)) }
+            .isInstanceOf(FileStoreCorruptionException::class.java)
     }
 
     private fun encode(record: SovereignOpsAuditOutboxRecord): String =

@@ -237,7 +237,8 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                     "tramai-sovereign-ops-outbox-duplicate-event-key"
                 }
 
-                createAtomically(record.toPersistedV1(version = 0L).toJson(), record.outboxId)
+                val decoded = DecodedOutboxRecord(record, runIdentity = null, outboxRecordVersion = 0L)
+                createAtomically(encodeOutboxRecord(decoded, 0L), record.outboxId)
                 eventKeyIndex[record.eventKey] = record.outboxId
                 record
             } finally {

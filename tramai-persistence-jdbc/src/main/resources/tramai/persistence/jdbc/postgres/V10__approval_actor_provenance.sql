@@ -28,6 +28,11 @@ ALTER TABLE approvals
 ALTER TABLE approvals
     ADD COLUMN IF NOT EXISTS decision_actor_identity_digest TEXT;
 
+-- Provenance is recorded as a complete pair or not at all: a half-pair would name no identity.
+ALTER TABLE approvals
+    ADD CONSTRAINT ck_approvals_actor_provenance_pairing
+    CHECK ((decision_actor_issuer IS NULL) = (decision_actor_identity_digest IS NULL));
+
 ALTER TABLE approvals
     ADD CONSTRAINT ck_approvals_identity_digest_format
     CHECK (

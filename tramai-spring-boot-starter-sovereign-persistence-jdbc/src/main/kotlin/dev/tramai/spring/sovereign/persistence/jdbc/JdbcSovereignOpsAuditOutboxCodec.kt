@@ -183,6 +183,19 @@ internal fun decodeOutboxRecord(json: ByteArray): DecodedOutboxRecord {
 }
 
 /**
+ * Whether a payload node carries any 0.7.6f evidence field.
+ *
+ * The released V1 and V2 shapes have no such fields, so one appearing inside a declared V1/V2 payload is
+ * corruption: reading it would silently upgrade versioned evidence to unversioned attribution.
+ */
+private fun carriesEvidenceFields(node: JsonNode?): Boolean {
+    if (node == null) return false
+    val hasIdentity = node.get("actorIssuer") != null || node.get("actorIdentityDigest") != null
+    val hasPrevious = node.get("previousApprovalStatus") != null || node.get("previousApprovalVersion") != null
+    return hasIdentity || hasPrevious
+}
+
+/**
  * Legacy V1: no attribution was persisted, and none is allowed in this shape.
  */
 private fun decodeLegacy(
@@ -192,6 +205,9 @@ private fun decodeLegacy(
     check(node.get("governedRunIdentity") == null) {
         "$ERROR_CORRUPTED_RECORD: legacy payload carries a governed identity"
     }
+    check(!carriesEvidenceFields(node)) {
+        "$ERROR_CORRUPTED_RECORD: legacy payload carries 0.7.6f evidence fields"
+    }
     val v1 = OPS_OUTBOX_JSON.readValue<PersistedSovereignOpsAuditOutboxRecordV1>(json)
     return DecodedOutboxRecord(record = v1.toDomain(), runIdentity = null)
 }
@@ -200,6 +216,9 @@ private fun decodeLegacy(
  * Governed V2: the identity is mandatory and must name the same run as the ordinary record.
  */
 private fun decodeGoverned(json: ByteArray): DecodedOutboxRecord {
+    check(!carriesEvidenceFields(readJsonTree(json))) {
+        "$ERROR_CORRUPTED_RECORD: V2 payload carries 0.7.6f evidence fields"
+    }
     val v2 = OPS_OUTBOX_JSON.readValue<PersistedSovereignOpsAuditOutboxRecordV2>(json)
     val identity = v2.governedRunIdentity.toCore()
     val record = v2.record.toDomain()
@@ -223,6 +242,14 @@ private fun decodeGoverned(json: ByteArray): DecodedOutboxRecord {
 private fun decodeEvidence(json: ByteArray): DecodedOutboxRecord {
     val v3 = OPS_OUTBOX_JSON.readValue<PersistedSovereignOpsAuditOutboxRecordV3>(json)
     val record = v3.record.toDomain()
+    // Provenance is recorded as complete pairs or not at all: a half-pair names no identity, and a
+    // half-recorded previous state cannot be reconciled with any approval row.
+    check((record.actorIssuer == null) == (record.actorIdentityDigest == null)) {
+        "$ERROR_CORRUPTED_RECORD: actor provenance is incomplete"
+    }
+    check((record.previousApprovalStatus == null) == (record.previousApprovalVersion == null)) {
+        "$ERROR_CORRUPTED_RECORD: previous approval state is incomplete"
+    }
     val identity = v3.governedRunIdentity?.toCore()
     if (identity != null) {
         check(

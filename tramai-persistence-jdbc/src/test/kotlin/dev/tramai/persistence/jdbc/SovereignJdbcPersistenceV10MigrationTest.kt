@@ -1,13 +1,16 @@
 package dev.tramai.persistence.jdbc
 
 import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.testcontainers.containers.PostgreSQLContainer
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
@@ -16,19 +19,20 @@ import kotlin.test.assertTrue
 /**
  * 0.7.6f V10 -- approval actor provenance and quarantine metadata.
  *
- * Two paths are asserted because they carry different risks: applying V10 to an empty database (a fresh
- * install, where V1..V10 run in order) and applying it to a **populated** V9 database (an upgrade, where
- * the change could invent provenance for rows written before it existed). The populated path is the one
- * that matters most: a legacy approval row must come out of the migration with an explicitly unknown
- * issuer, never with an inferred one.
+ * Every test gets its **own schema**, built from V1..V9 and migrated on its own. That is the point: the
+ * populated-upgrade case must observe V10 actually running against rows that existed before it, so the
+ * test cannot depend on whether another test happened to migrate first. A shared database with an
+ * "apply if missing" helper would let the upgrade test pass while proving nothing.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SovereignJdbcPersistenceV10MigrationTest {
     private lateinit var connection: Connection
+    private lateinit var schema: String
 
     companion object {
         private const val POSTGRES_IMAGE = "postgres:17-alpine"
-        private val MIGRATIONS =
+        private const val V10 = "V10__approval_actor_provenance.sql"
+        private val PRE_V10 =
             listOf(
                 "V1__sovereign_persistence.sql",
                 "V2__approval_continuations.sql",
@@ -40,51 +44,62 @@ class SovereignJdbcPersistenceV10MigrationTest {
                 "V8__control_plane_workload_registration.sql",
                 "V9__model_attempt_observations.sql",
             )
-        private const val V10 = "V10__approval_actor_provenance.sql"
-
         private val postgres =
             PostgreSQLContainer(POSTGRES_IMAGE)
                 .withDatabaseName("sovereign_v10")
                 .withUsername("test")
                 .withPassword("test")
+        private val counter = AtomicInteger()
     }
 
     @BeforeAll
-    fun setUpAll() {
+    fun startPostgres() {
         postgres.start()
-        connection =
-            DriverManager.getConnection(
-                postgres.jdbcUrl,
-                postgres.username,
-                postgres.password,
-            )
-        MIGRATIONS.forEach(::applyMigration)
     }
 
     @AfterAll
-    fun tearDownAll() {
-        if (::connection.isInitialized) connection.close()
+    fun stopPostgres() {
         postgres.stop()
     }
 
-    // -- Upgrade path: a populated V9 database keeps historical rows honest --
+    @BeforeEach
+    fun createIsolatedSchema() {
+        schema = "v10_case_${counter.incrementAndGet()}"
+        connection = DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password)
+        connection.createStatement().use { it.execute("CREATE SCHEMA $schema") }
+        connection.createStatement().use { it.execute("SET search_path TO $schema") }
+        PRE_V10.forEach(::applyMigration)
+    }
+
+    @AfterEach
+    fun closeConnection() {
+        if (::connection.isInitialized) connection.close()
+    }
+
+    // --- Upgrade path: a populated V9 database keeps historical rows honest ---
 
     @Test
-    fun `upgrading a populated V9 database leaves legacy provenance explicitly unknown`() {
+    fun `upgrading a populated V9 schema preserves the legacy row and leaves provenance unknown`() {
+        val legacyHash = "sha256:${"a".repeat(64)}"
         connection.createStatement().use { stmt ->
             stmt.execute(
                 """
                 INSERT INTO approvals (approval_id, status, created_at, decision_actor_hash, version)
-                VALUES ('legacy-approval', 'APPROVED', now(), 'sha256:${"a".repeat(64)}', 3)
+                VALUES ('legacy-approval', 'APPROVED', now(), '$legacyHash', 3)
                 """.trimIndent(),
             )
         }
 
-        ensureV10()
+        // The columns must genuinely not exist yet, otherwise the migration below proves nothing.
+        assertEquals(emptyList(), provenanceColumns(), "V9 must not already declare the V10 columns")
 
-        assertTrue(columnNames("approvals").contains("decision_actor_issuer"))
-        assertTrue(columnNames("approvals").contains("decision_actor_identity_digest"))
+        applyMigration(V10)
 
+        assertEquals(
+            setOf("decision_actor_identity_digest", "decision_actor_issuer"),
+            provenanceColumns().toSet(),
+            "V10 must add both provenance columns",
+        )
         connection.createStatement().use { stmt ->
             stmt
                 .executeQuery(
@@ -94,18 +109,18 @@ class SovereignJdbcPersistenceV10MigrationTest {
                     """.trimIndent(),
                 ).use { rs ->
                     assertTrue(rs.next(), "the legacy row must survive the migration")
-                    assertEquals("sha256:${"a".repeat(64)}", rs.getString(1), "decision_actor_hash is frozen as-is")
+                    assertEquals(legacyHash, rs.getString(1), "decision_actor_hash is frozen as-is")
                     assertNull(rs.getString(2), "a legacy row's issuer is unknown, never inferred")
                     assertNull(rs.getString(3), "no identity digest may be fabricated for a legacy row")
                 }
         }
     }
 
-    // --- -- Fresh path and vocabulary shape ----------------------------------------------------------------
+    // --- Fresh path and vocabulary shape ---
 
     @Test
-    fun `V10 applies to an empty V9 database and adds both columns as nullable`() {
-        ensureV10()
+    fun `V10 applies to an empty V9 schema and adds both columns as nullable`() {
+        applyMigration(V10)
 
         val columns =
             connection.createStatement().use { stmt ->
@@ -113,7 +128,7 @@ class SovereignJdbcPersistenceV10MigrationTest {
                     .executeQuery(
                         """
                         SELECT column_name, is_nullable FROM information_schema.columns
-                        WHERE table_schema = 'public' AND table_name = 'approvals'
+                        WHERE table_schema = '$schema' AND table_name = 'approvals'
                           AND column_name IN ('decision_actor_issuer', 'decision_actor_identity_digest')
                         """.trimIndent(),
                     ).use { rs ->
@@ -133,7 +148,7 @@ class SovereignJdbcPersistenceV10MigrationTest {
 
     @Test
     fun `the quarantine table exists with the contract's metadata columns`() {
-        ensureV10()
+        applyMigration(V10)
 
         assertEquals(
             listOf("failure_detail", "label", "outbox_id", "payload_digest", "quarantined_at"),
@@ -143,8 +158,7 @@ class SovereignJdbcPersistenceV10MigrationTest {
 
     @Test
     fun `the quarantine label constraint rejects an unknown label`() {
-        ensureV10()
-
+        applyMigration(V10)
         connection.createStatement().use { stmt ->
             stmt.execute("INSERT INTO audit_outbox (outbox_id, event_key, status) VALUES ('q-1', 'key-q-1', 'PENDING')")
         }
@@ -157,22 +171,20 @@ class SovereignJdbcPersistenceV10MigrationTest {
                 )
             }
         }
-
-        connection.createStatement().use { stmt ->
-            stmt.execute("DELETE FROM audit_outbox WHERE outbox_id = 'q-1'")
-        }
     }
 
     @Test
     fun `the identity digest column rejects anything that is not 64 lowercase hex`() {
-        ensureV10()
+        applyMigration(V10)
 
         assertFailsWith<SQLException> {
             connection.createStatement().use { stmt ->
                 stmt.execute(
                     """
-                    INSERT INTO approvals (approval_id, status, created_at, version, decision_actor_identity_digest)
-                    VALUES ('bad-digest', 'PENDING', now(), 1, 'sha256:${"A".repeat(64)}')
+                    INSERT INTO approvals (
+                        approval_id, status, created_at, version,
+                        decision_actor_issuer, decision_actor_identity_digest
+                    ) VALUES ('bad-digest', 'PENDING', now(), 1, 'https://issuer.example', 'sha256:${"A".repeat(64)}')
                     """.trimIndent(),
                 )
             }
@@ -180,9 +192,36 @@ class SovereignJdbcPersistenceV10MigrationTest {
     }
 
     @Test
-    fun `a stored identity digest survives a round-trip unchanged`() {
-        ensureV10()
+    fun `a half-recorded provenance pair is rejected by the database`() {
+        applyMigration(V10)
 
+        assertFailsWith<SQLException> {
+            connection.createStatement().use {
+                it.execute(
+                    """
+                    INSERT INTO approvals (
+                        approval_id, status, created_at, version, decision_actor_issuer
+                    ) VALUES ('issuer-only', 'PENDING', now(), 1, 'https://issuer.example')
+                    """.trimIndent(),
+                )
+            }
+        }
+        assertFailsWith<SQLException> {
+            connection.createStatement().use {
+                it.execute(
+                    """
+                    INSERT INTO approvals (
+                        approval_id, status, created_at, version, decision_actor_identity_digest
+                    ) VALUES ('digest-only', 'PENDING', now(), 1, '${"b".repeat(64)}')
+                    """.trimIndent(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `a stored identity pair survives a round-trip unchanged`() {
+        applyMigration(V10)
         val digest = "0123456789abcdef".repeat(4)
         connection.createStatement().use { stmt ->
             stmt.execute(
@@ -202,17 +241,10 @@ class SovereignJdbcPersistenceV10MigrationTest {
                     assertEquals("https://issuer.example", rs.getString(1))
                     assertEquals(digest, rs.getString(2))
                 }
-            stmt.execute("DELETE FROM approvals WHERE approval_id = 'digest-ok'")
         }
     }
 
-    // --- -- helpers ----------------------------------------------------------------------------------------
-
-    /** Applies V10 once, so the tests are independent of execution order. */
-    private fun ensureV10() {
-        if (columnNames("approvals").contains("decision_actor_issuer")) return
-        applyMigration(V10)
-    }
+    // --- helpers ---
 
     private fun applyMigration(file: String) {
         val sql =
@@ -223,13 +255,16 @@ class SovereignJdbcPersistenceV10MigrationTest {
         connection.createStatement().use { it.execute(sql) }
     }
 
+    private fun provenanceColumns(): List<String> =
+        columnNames("approvals").filter { it.startsWith("decision_actor_") && it != "decision_actor_hash" }
+
     private fun columnNames(table: String): List<String> =
         connection.createStatement().use { stmt ->
             stmt
                 .executeQuery(
                     """
                     SELECT column_name FROM information_schema.columns
-                    WHERE table_schema = 'public' AND table_name = '$table'
+                    WHERE table_schema = '$schema' AND table_name = '$table'
                     """.trimIndent(),
                 ).use { rs ->
                     buildList { while (rs.next()) add(rs.getString(1)) }

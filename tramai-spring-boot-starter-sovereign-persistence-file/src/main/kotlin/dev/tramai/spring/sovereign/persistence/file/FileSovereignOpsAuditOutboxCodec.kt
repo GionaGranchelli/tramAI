@@ -143,6 +143,12 @@ private fun decodeKnownVersion(
 
 private fun decodeLegacy(json: String): DecodedOutboxRecord {
     val v1 = PersistedSovereignOpsAuditOutboxRecordV1.fromJson(json)
+    // The released V1 shape has no evidence fields: one appearing here would be versioned evidence read as
+    // unversioned attribution.
+    val carriesEvidence = v1.actorIssuer != null || v1.previousApprovalStatus != null
+    if (carriesEvidence || v1.actorIdentityDigest != null || v1.previousApprovalVersion != null) {
+        throw FileStoreCorruptionException("$ERROR_CORRUPTED_RECORD: legacy payload carries 0.7.6f evidence fields")
+    }
     return DecodedOutboxRecord(
         record = v1.toDomain(),
         runIdentity = null,
@@ -152,6 +158,10 @@ private fun decodeLegacy(json: String): DecodedOutboxRecord {
 
 private fun decodeGoverned(json: String): DecodedOutboxRecord {
     val v2 = strictOpsOutboxReadValue<PersistedSovereignOpsAuditOutboxRecordV2>(json)
+    val carriesEvidence = v2.record.actorIssuer != null || v2.record.previousApprovalStatus != null
+    if (carriesEvidence || v2.record.actorIdentityDigest != null || v2.record.previousApprovalVersion != null) {
+        throw FileStoreCorruptionException("$ERROR_CORRUPTED_RECORD: V2 payload carries 0.7.6f evidence fields")
+    }
     val identity = v2.governedRunIdentity.toCore()
     val record = v2.record.toDomain()
     if (identity.runId.value != record.workflowRunId) {
@@ -174,6 +184,17 @@ private fun decodeGoverned(json: String): DecodedOutboxRecord {
 private fun decodeEvidence(json: String): DecodedOutboxRecord {
     val v3 = strictOpsOutboxReadValue<PersistedSovereignOpsAuditOutboxRecordV3>(json)
     val record = v3.record.toDomain()
+    // Provenance is recorded as complete pairs or not at all: a half-pair names no identity, and a
+    // half-recorded previous state cannot be reconciled with any approval row.
+    val actorIncomplete = (record.actorIssuer == null) != (record.actorIdentityDigest == null)
+    val previousIncomplete = (record.previousApprovalStatus == null) != (record.previousApprovalVersion == null)
+    val incomplete =
+        when {
+            actorIncomplete -> "actor provenance is incomplete"
+            previousIncomplete -> "previous approval state is incomplete"
+            else -> null
+        }
+    if (incomplete != null) throw FileStoreCorruptionException("$ERROR_CORRUPTED_RECORD: $incomplete")
     val identity = v3.governedRunIdentity?.toCore()
     if (identity != null && identity.runId.value != record.workflowRunId) {
         throw FileStoreCorruptionException(

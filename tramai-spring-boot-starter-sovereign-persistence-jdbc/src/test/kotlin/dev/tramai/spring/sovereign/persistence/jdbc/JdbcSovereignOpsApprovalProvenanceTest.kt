@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import dev.tramai.core.operator.ActorIdentityDigest
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
@@ -96,7 +98,7 @@ class JdbcSovereignOpsApprovalProvenanceTest {
     fun `a decision with verified attribution persists issuer and identity digest`() =
         runBlocking<Unit> {
             insertApproval("approval-provenance")
-            val identityDigest = "0123456789abcdef".repeat(4)
+            val identityDigest = ActorIdentityDigest.of("https://issuer.example", "admin")
 
             store.denyApprovalWithAuditIntent(
                 approvalId = "approval-provenance",
@@ -174,6 +176,82 @@ class JdbcSovereignOpsApprovalProvenanceTest {
             }
         }
 
+    @Test
+    fun `a half-recorded actor pair cannot be committed with a decision`() =
+        runBlocking<Unit> {
+            insertApproval("approval-half-pair")
+            val broken = intent("approval-half-pair", "key-half-pair").copy(actorIssuer = "https://issuer.example")
+
+            assertThatThrownBy {
+                runBlocking {
+                    store.denyApprovalWithAuditIntent(
+                        approvalId = "approval-half-pair",
+                        expectedVersion = 1,
+                        actor = "admin",
+                        reason = "reason",
+                        auditIntent = broken,
+                    )
+                }
+            }.hasMessageContaining("tramai-sovereign-ops-approval-provenance-incomplete")
+
+            assertThat(selectNullable("status", "approval-half-pair")).isEqualTo("PENDING")
+            assertThat(selectNullable("decision_actor_issuer", "approval-half-pair")).isNull()
+            assertThat(outboxRowCount()).isZero()
+        }
+
+    @Test
+    fun `a digest that does not match the issuer and actor cannot be committed`() =
+        runBlocking<Unit> {
+            insertApproval("approval-bad-digest")
+            val forged =
+                intent("approval-bad-digest", "key-bad-digest").copy(
+                    actorIssuer = "https://issuer.example",
+                    actorIdentityDigest = "9".repeat(64),
+                )
+
+            assertThatThrownBy {
+                runBlocking {
+                    store.denyApprovalWithAuditIntent(
+                        approvalId = "approval-bad-digest",
+                        expectedVersion = 1,
+                        actor = "admin",
+                        reason = "reason",
+                        auditIntent = forged,
+                    )
+                }
+            }.hasMessageContaining("tramai-sovereign-ops-approval-provenance-digest-mismatch")
+
+            assertThat(selectNullable("status", "approval-bad-digest")).isEqualTo("PENDING")
+            assertThat(outboxRowCount()).isZero()
+        }
+
+    @Test
+    fun `a half-recorded previous state cannot be committed`() =
+        runBlocking<Unit> {
+            insertApproval("approval-half-previous")
+            val broken =
+                intent("approval-half-previous", "key-half-previous").copy(
+                    actorIssuer = "https://issuer.example",
+                    actorIdentityDigest = ActorIdentityDigest.of("https://issuer.example", "admin"),
+                    previousApprovalStatus = "PENDING",
+                )
+
+            assertThatThrownBy {
+                runBlocking {
+                    store.denyApprovalWithAuditIntent(
+                        approvalId = "approval-half-previous",
+                        expectedVersion = 1,
+                        actor = "admin",
+                        reason = "reason",
+                        auditIntent = broken,
+                    )
+                }
+            }.hasMessageContaining("tramai-sovereign-ops-approval-previous-state-incomplete")
+
+            assertThat(selectNullable("status", "approval-half-previous")).isEqualTo("PENDING")
+            assertThat(outboxRowCount()).isZero()
+        }
+
     // ── helpers ───────────────────────────────────────────────────────────
 
     private fun applyMigrations() {
@@ -238,6 +316,16 @@ class JdbcSovereignOpsApprovalProvenanceTest {
             reasonLength = 6,
             createdAt = BASE_NOW,
         )
+
+    private fun outboxRowCount(): Int =
+        dataSource.connection.use { conn ->
+            conn.createStatement().use { stmt ->
+                stmt.executeQuery("SELECT count(*) FROM audit_outbox").use { rs ->
+                    rs.next()
+                    rs.getInt(1)
+                }
+            }
+        }
 
     private fun selectNullable(
         column: String,

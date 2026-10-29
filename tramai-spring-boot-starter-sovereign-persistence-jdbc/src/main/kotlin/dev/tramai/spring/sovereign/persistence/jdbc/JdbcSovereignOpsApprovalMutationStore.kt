@@ -17,6 +17,7 @@ import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
+import dev.tramai.core.operator.ActorIdentityDigest
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.spring.sovereign.ops.outbox.ApprovalRunAttribution
 import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsAuditOutboxRecord
@@ -180,11 +181,7 @@ class JdbcSovereignOpsApprovalMutationStore(
                             actorHash = sha256Hex(actor),
                             metadataJson = metadataJson,
                             targetStatus = targetStatus,
-                            provenance =
-                                ActorProvenanceSource(
-                                    issuer = auditIntent.actorIssuer,
-                                    identityDigest = auditIntent.actorIdentityDigest,
-                                ),
+                            provenance = ActorProvenanceSource.from(auditIntent, actor),
                         ),
                 )
 
@@ -528,11 +525,38 @@ class JdbcSovereignOpsApprovalMutationStore(
         val provenance: ActorProvenanceSource?,
     )
 
-    /** Verified attribution from the audit intent: `(issuer, identity digest)`, absent together or not at all. */
+    /**
+     * Verified attribution carried by the audit intent.
+     *
+     * Only a complete, self-consistent pair can exist: the issuer and the digest are recorded together or
+     * not at all, and the digest must be the one this actor's identity produces. A half-pair would name no
+     * identity, and a digest that disagrees with the issuer is attribution about somebody else.
+     */
     private data class ActorProvenanceSource(
-        val issuer: String?,
-        val identityDigest: String?,
-    )
+        val issuer: String,
+        val identityDigest: String,
+    ) {
+        companion object {
+            fun from(
+                auditIntent: SovereignOpsAuditOutboxRecord,
+                actor: String,
+            ): ActorProvenanceSource? {
+                val issuer = auditIntent.actorIssuer
+                val digest = auditIntent.actorIdentityDigest
+                require((issuer == null) == (digest == null)) {
+                    "tramai-sovereign-ops-approval-provenance-incomplete"
+                }
+                require((auditIntent.previousApprovalStatus == null) == (auditIntent.previousApprovalVersion == null)) {
+                    "tramai-sovereign-ops-approval-previous-state-incomplete"
+                }
+                if (issuer == null || digest == null) return null
+                require(digest == ActorIdentityDigest.of(issuer, actor)) {
+                    "tramai-sovereign-ops-approval-provenance-digest-mismatch"
+                }
+                return ActorProvenanceSource(issuer, digest)
+            }
+        }
+    }
 
     private data class ApprovalRow(
         val approvalId: String,
