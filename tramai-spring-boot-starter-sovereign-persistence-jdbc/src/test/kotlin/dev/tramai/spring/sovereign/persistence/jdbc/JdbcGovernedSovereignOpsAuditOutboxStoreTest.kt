@@ -410,6 +410,7 @@ class JdbcGovernedSovereignOpsAuditOutboxStoreTest {
                 listOf(
                     "V1__sovereign_persistence.sql",
                     "V4__audit_outbox_hardening.sql",
+                    "V10__approval_actor_provenance.sql",
                 )
                 ) {
                     val sql =

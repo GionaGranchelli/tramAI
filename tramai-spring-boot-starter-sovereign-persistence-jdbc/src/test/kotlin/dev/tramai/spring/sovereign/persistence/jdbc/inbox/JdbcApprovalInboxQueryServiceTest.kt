@@ -60,6 +60,7 @@ class JdbcApprovalInboxQueryServiceTest {
             "tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql",
             "tramai/persistence/jdbc/postgres/V2__approval_continuations.sql",
             "tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
+            "tramai/persistence/jdbc/postgres/V10__approval_actor_provenance.sql",
         ).forEach { resource ->
             val sql = this::class.java.classLoader
                 .getResourceAsStream(resource)

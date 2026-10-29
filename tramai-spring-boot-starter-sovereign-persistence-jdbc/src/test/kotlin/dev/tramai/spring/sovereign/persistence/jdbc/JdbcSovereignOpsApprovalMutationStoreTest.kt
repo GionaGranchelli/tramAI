@@ -567,6 +567,11 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
                     ?.bufferedReader()?.readText()
                     ?: error("V4 migration not found")
                 runCatching { stmt.execute(v4) }
+                val v10 = javaClass.classLoader
+                    .getResourceAsStream("tramai/persistence/jdbc/postgres/V10__approval_actor_provenance.sql")
+                    ?.bufferedReader()?.readText()
+                    ?: error("V10 migration not found")
+                runCatching { stmt.execute(v10) }
             }
         }
     }
