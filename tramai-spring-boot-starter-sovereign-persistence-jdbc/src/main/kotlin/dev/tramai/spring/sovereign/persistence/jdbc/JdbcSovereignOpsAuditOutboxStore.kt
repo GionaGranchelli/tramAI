@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonInclude
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxGovernance
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
@@ -83,14 +84,29 @@ class JdbcSovereignOpsAuditOutboxStore(
     override fun isDurable(): Boolean = true
 
     override suspend fun append(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord =
-        appendRecord(record, runIdentity = null)
+        appendRecord(record, runIdentity = null, requiredStatus = SovereignOpsAuditOutboxStatus.PREPARED)
+
+    /**
+     * 0.7.6f: commits a refusal record directly as PENDING -- one encrypted row, one transaction, no
+     * separate transition to wait for. Only refusal evidence may take this path.
+     */
+    override suspend fun appendDispatchable(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord {
+        require(record.evidenceKind == SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL) {
+            "tramai-sovereign-ops-outbox-invalid-evidence-kind"
+        }
+        return appendRecord(record, runIdentity = null, requiredStatus = SovereignOpsAuditOutboxStatus.PENDING)
+    }
 
     /**
      * 0.7.1d: appends a governed record -- the ordinary outbox fields and the complete canonical
      * identity in one encrypted row of one transaction. No side table, no identity columns.
      */
     internal suspend fun appendGoverned(entry: GovernedSovereignOpsAuditOutboxRecord) {
-        appendRecord(entry.record, entry.runIdentity)
+        appendRecord(
+            entry.record,
+            entry.runIdentity,
+            requiredStatus = SovereignOpsAuditOutboxStatus.PREPARED,
+        )
     }
 
     /**
@@ -120,12 +136,11 @@ class JdbcSovereignOpsAuditOutboxStore(
     private suspend fun appendRecord(
         record: SovereignOpsAuditOutboxRecord,
         runIdentity: GovernedRunIdentity?,
+        requiredStatus: SovereignOpsAuditOutboxStatus,
     ): SovereignOpsAuditOutboxRecord {
         require(record.outboxId.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-id" }
         require(record.eventKey.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-event-key" }
-        require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
-            "tramai-sovereign-ops-outbox-invalid-status"
-        }
+        require(record.status == requiredStatus) { "tramai-sovereign-ops-outbox-invalid-status" }
 
         return dataSource.connection.use { conn ->
             try {
@@ -1031,6 +1046,7 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     @get:JsonInclude(JsonInclude.Include.NON_NULL) val actorIdentityDigest: String? = null,
     @get:JsonInclude(JsonInclude.Include.NON_NULL) val previousApprovalStatus: String? = null,
     @get:JsonInclude(JsonInclude.Include.NON_NULL) val previousApprovalVersion: Long? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val evidenceKind: String? = null,
 )
 
 internal fun SovereignOpsAuditOutboxRecord.toPersistedOutbox(): PersistedSovereignOpsAuditOutboxRecordV1 =
@@ -1060,6 +1076,7 @@ internal fun SovereignOpsAuditOutboxRecord.toPersistedOutbox(): PersistedSoverei
         actorIdentityDigest = actorIdentityDigest,
         previousApprovalStatus = previousApprovalStatus,
         previousApprovalVersion = previousApprovalVersion,
+        evidenceKind = evidenceKind?.name,
     )
 
 internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAuditOutboxRecord {
@@ -1115,5 +1132,6 @@ internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAu
         actorIdentityDigest = actorIdentityDigest,
         previousApprovalStatus = previousApprovalStatus,
         previousApprovalVersion = previousApprovalVersion,
+        evidenceKind = evidenceKind?.let { SovereignOpsAuditEvidenceKind.valueOf(it) },
     )
 }

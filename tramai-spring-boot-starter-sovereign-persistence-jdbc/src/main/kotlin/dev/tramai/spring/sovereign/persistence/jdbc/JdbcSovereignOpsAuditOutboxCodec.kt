@@ -138,7 +138,8 @@ internal fun encodeOutboxRecord(
     val persisted = record.toPersistedOutbox()
     val hasIdentity = record.actorIssuer != null || record.actorIdentityDigest != null
     val hasPrevious = record.previousApprovalStatus != null || record.previousApprovalVersion != null
-    return if (hasIdentity || hasPrevious) {
+    val hasKind = record.evidenceKind != null
+    return if (hasIdentity || hasPrevious || hasKind) {
         OPS_OUTBOX_JSON.writeValueAsBytes(
             PersistedSovereignOpsAuditOutboxRecordV3(
                 record = persisted,
@@ -192,7 +193,7 @@ private fun carriesEvidenceFields(node: JsonNode?): Boolean {
     if (node == null) return false
     val hasIdentity = node.get("actorIssuer") != null || node.get("actorIdentityDigest") != null
     val hasPrevious = node.get("previousApprovalStatus") != null || node.get("previousApprovalVersion") != null
-    return hasIdentity || hasPrevious
+    return hasIdentity || hasPrevious || node.get("evidenceKind") != null
 }
 
 /**
