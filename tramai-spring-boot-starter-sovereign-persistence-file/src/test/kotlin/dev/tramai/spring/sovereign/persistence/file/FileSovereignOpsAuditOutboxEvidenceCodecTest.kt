@@ -1,0 +1,111 @@
+package dev.tramai.spring.sovereign.persistence.file
+
+import dev.tramai.persistence.file.FileStoreUnsupportedFormatException
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.Test
+import java.time.Instant
+
+/**
+ * 0.7.6f V3 payload shape for the file outbox codec.
+ *
+ * The file backend writes one encrypted document per record, so the payload shape is also the on-disk
+ * format: a record with evidence must round-trip its attribution, and a record without it must keep the
+ * released encoding exactly -- a V1 file that gained an unknown field would break an older reader.
+ */
+class FileSovereignOpsAuditOutboxEvidenceCodecTest {
+    @Test
+    fun `a record with evidence round-trips its attribution`() {
+        val record =
+            record(
+                actorIssuer = "https://issuer.example",
+                actorIdentityDigest = "b".repeat(64),
+                previousApprovalStatus = "PENDING",
+                previousApprovalVersion = 7,
+            )
+
+        val decoded = decodeOutboxRecord(encode(record)).record
+
+        assertThat(decoded.actorIssuer).isEqualTo("https://issuer.example")
+        assertThat(decoded.actorIdentityDigest).isEqualTo("b".repeat(64))
+        assertThat(decoded.previousApprovalStatus).isEqualTo("PENDING")
+        assertThat(decoded.previousApprovalVersion).isEqualTo(7)
+    }
+
+    @Test
+    fun `a record with evidence declares schema version 3`() {
+        assertThat(encode(record(actorIssuer = "issuer"))).contains("\"schemaVersion\":3")
+    }
+
+    @Test
+    fun `a record without evidence keeps the released encoding with no new fields`() {
+        val json = encode(record())
+
+        assertThat(json).contains("\"schemaVersion\":1")
+        assertThat(json).doesNotContain("actorIssuer")
+        assertThat(json).doesNotContain("previousApprovalStatus")
+    }
+
+    @Test
+    fun `a legacy V1 payload decodes with no attribution`() {
+        val decoded = decodeOutboxRecord(legacyV1Json()).record
+
+        assertThat(decoded.actorIssuer).isNull()
+        assertThat(decoded.actorIdentityDigest).isNull()
+        assertThat(decoded.previousApprovalStatus).isNull()
+        assertThat(decoded.previousApprovalVersion).isNull()
+    }
+
+    @Test
+    fun `an unknown schema version is an unsupported format, not legacy`() {
+        val json = legacyV1Json().replace("\"schemaVersion\":1", "\"schemaVersion\":9")
+
+        assertThatThrownBy { decodeOutboxRecord(json) }
+            .isInstanceOf(FileStoreUnsupportedFormatException::class.java)
+    }
+
+    private fun encode(record: SovereignOpsAuditOutboxRecord): String =
+        encodeOutboxRecord(
+            DecodedOutboxRecord(record = record, runIdentity = null, outboxRecordVersion = 1),
+            outboxRecordVersion = 1,
+        )
+
+    private fun record(
+        actorIssuer: String? = null,
+        actorIdentityDigest: String? = null,
+        previousApprovalStatus: String? = null,
+        previousApprovalVersion: Long? = null,
+    ) = SovereignOpsAuditOutboxRecord(
+        outboxId = "outbox-1",
+        aggregateIdDigest = "sha256:${"d".repeat(64)}",
+        operation = "approval-denied.approval-1",
+        eventKey = "approval-denied.approval-1",
+        actor = "op-1",
+        workflowRunId = "run-1",
+        correlationId = "corr-1",
+        approvalStatus = "DENIED",
+        approvalVersion = 8,
+        reasonDigest = "sha256:${"e".repeat(64)}",
+        reasonLength = 5,
+        createdAt = Instant.parse("2026-10-29T00:00:00Z"),
+        status = SovereignOpsAuditOutboxStatus.PENDING,
+        actorIssuer = actorIssuer,
+        actorIdentityDigest = actorIdentityDigest,
+        previousApprovalStatus = previousApprovalStatus,
+        previousApprovalVersion = previousApprovalVersion,
+    )
+
+    private fun legacyV1Json(): String =
+        """
+        {"schemaVersion":1,"outboxId":"outbox-1","aggregateType":"approval",
+         "aggregateIdDigest":"sha256:${"d".repeat(64)}","operation":"approval-denied.approval-1",
+         "eventKey":"approval-denied.approval-1","actor":"op-1","workflowRunId":"run-1",
+         "correlationId":"corr-1","approvalStatus":"DENIED","approvalVersion":8,
+         "reasonDigest":"sha256:${"e".repeat(64)}","reasonLength":5,"status":"PENDING",
+         "attemptCount":0,"lastErrorCode":null,"claimedBy":null,"claimedAt":null,
+         "claimExpiresAt":null,"createdAt":"2026-10-29T00:00:00Z","emittedAt":null,
+         "outboxRecordVersion":1}
+        """.trimIndent()
+}

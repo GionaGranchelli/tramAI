@@ -91,7 +91,7 @@ class JdbcSovereignOpsApprovalMutationStore(
         auditIntent: SovereignOpsAuditOutboxRecord,
         transition: ApprovalTransition,
     ): SovereignOpsApprovalMutationResult {
-        // ── Input validation ──────────────────────────────────────────
+        // --- -- Input validation ---------------------------------------------------------------------------
         validateIdField(approvalId, "approvalId")
         validateIdField(actor, "decidedBy")
         SafeActorIdPolicy.validateActorId(actor, "decidedBy")
@@ -110,7 +110,7 @@ class JdbcSovereignOpsApprovalMutationStore(
             "tramai-sovereign-ops-outbox-invalid-status: only PREPARED records can be appended"
         }
 
-        // ── Transactional mutation ────────────────────────────────────
+        // --- -- Transactional mutation ---------------------------------------------------------------------
         // 0.7.1d: resolved from the approval's durable suspension BEFORE the transaction opens, so a
         // resolution failure fails closed with the approval untouched and the outbox transaction keeps
         // its shape. A governed decision must never be recorded as an unattributed V1 intent.
@@ -172,12 +172,20 @@ class JdbcSovereignOpsApprovalMutationStore(
 
                 updateApprovalRow(
                     conn = conn,
-                    approvalId = approvalId,
-                    expectedVersion = expectedVersion,
-                    decidedAt = decidedAt,
-                    actorHash = sha256Hex(actor),
-                    metadataJson = metadataJson,
-                    targetStatus = targetStatus,
+                    update =
+                        ApprovalDecisionUpdate(
+                            approvalId = approvalId,
+                            expectedVersion = expectedVersion,
+                            decidedAt = decidedAt,
+                            actorHash = sha256Hex(actor),
+                            metadataJson = metadataJson,
+                            targetStatus = targetStatus,
+                            provenance =
+                                ActorProvenanceSource(
+                                    issuer = auditIntent.actorIssuer,
+                                    identityDigest = auditIntent.actorIdentityDigest,
+                                ),
+                        ),
                 )
 
                 // Mark outbox PENDING
@@ -216,7 +224,7 @@ class JdbcSovereignOpsApprovalMutationStore(
     }
 
     /**
-     * 0.7.1d: the durable intent this mutation records — governed when the approval's suspension
+     * 0.7.1d: the durable intent this mutation records -- governed when the approval's suspension
      * carries the canonical identity, released V1 otherwise.
      *
      * The identity is read from the suspension record, the durable authority this slice established,
@@ -240,7 +248,7 @@ class JdbcSovereignOpsApprovalMutationStore(
         }
     }
 
-    // ── SQL helpers ──────────────────────────────────────────────────
+    // --- -- SQL helpers ------------------------------------------------------------------------------------
 
     private fun selectApprovalForUpdate(
         conn: Connection,
@@ -325,24 +333,45 @@ class JdbcSovereignOpsApprovalMutationStore(
 
     private fun updateApprovalRow(
         conn: Connection,
-        approvalId: String,
-        expectedVersion: Long,
-        decidedAt: Timestamp,
-        actorHash: String,
-        metadataJson: String,
-        targetStatus: ApprovalStatus,
+        update: ApprovalDecisionUpdate,
     ) {
+        val approvalId = update.approvalId
+        val expectedVersion = update.expectedVersion
+        val decidedAt = update.decidedAt
+        val actorHash = update.actorHash
+        val metadataJson = update.metadataJson
+        val targetStatus = update.targetStatus
+        val actorIssuer = update.provenance?.issuer
+        val actorIdentityDigest = update.provenance?.identityDigest
+        // 0.7.6f provenance is written only when the decision carried verified attribution, so a decision
+        // recorded without it never depends on the V10 columns existing.
+        val withProvenance = actorIssuer != null || actorIdentityDigest != null
         val sql =
-            """
-            UPDATE approvals
-            SET status = ?,
-                decided_at = ?,
-                decision_actor_hash = ?,
-                decision_type = ?,
-                sanitized_metadata = ?::jsonb,
-                version = version + 1
-            WHERE approval_id = ? AND version = ? AND status = 'PENDING'
-            """.trimIndent()
+            if (withProvenance) {
+                """
+                UPDATE approvals
+                SET status = ?,
+                    decided_at = ?,
+                    decision_actor_hash = ?,
+                    decision_type = ?,
+                    sanitized_metadata = ?::jsonb,
+                    decision_actor_issuer = ?,
+                    decision_actor_identity_digest = ?,
+                    version = version + 1
+                WHERE approval_id = ? AND version = ? AND status = 'PENDING'
+                """.trimIndent()
+            } else {
+                """
+                UPDATE approvals
+                SET status = ?,
+                    decided_at = ?,
+                    decision_actor_hash = ?,
+                    decision_type = ?,
+                    sanitized_metadata = ?::jsonb,
+                    version = version + 1
+                WHERE approval_id = ? AND version = ? AND status = 'PENDING'
+                """.trimIndent()
+            }
 
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, targetStatus.name)
@@ -350,8 +379,15 @@ class JdbcSovereignOpsApprovalMutationStore(
             stmt.setString(3, actorHash)
             stmt.setString(4, targetStatus.name)
             stmt.setString(5, metadataJson)
-            stmt.setString(6, approvalId)
-            stmt.setLong(7, expectedVersion)
+            if (withProvenance) {
+                stmt.setString(6, actorIssuer)
+                stmt.setString(7, actorIdentityDigest)
+                stmt.setString(8, approvalId)
+                stmt.setLong(9, expectedVersion)
+            } else {
+                stmt.setString(6, approvalId)
+                stmt.setLong(7, expectedVersion)
+            }
             val updated = stmt.executeUpdate()
             if (updated != 1) {
                 throw IllegalStateException("tramai-sovereign-ops-approval-update-failed")
@@ -389,7 +425,7 @@ class JdbcSovereignOpsApprovalMutationStore(
         }
     }
 
-    // ── Domain mapping ───────────────────────────────────────────────
+    // --- -- Domain mapping ---------------------------------------------------------------------------------
 
     private fun mapToApprovalRequest(row: ApprovalRow): ApprovalRequest {
         val metadata = parseMetadata(row.sanitizedMetadataJson)
@@ -425,7 +461,7 @@ class JdbcSovereignOpsApprovalMutationStore(
         return mapper.readValue(json)
     }
 
-    // ── Validation ───────────────────────────────────────────────────
+    // --- -- Validation -------------------------------------------------------------------------------------
 
     private fun validateIdField(
         value: String,
@@ -474,7 +510,29 @@ class JdbcSovereignOpsApprovalMutationStore(
         return "sha256:${hashBytes.joinToString("") { "%02x".format(it) }}"
     }
 
-    // ── Data classes ─────────────────────────────────────────────────
+    // --- -- Data classes -----------------------------------------------------------------------------------
+
+    /**
+     * The values one approve/deny decision writes to the approval row.
+     *
+     * Grouped rather than passed as nine positional arguments so the provenance pair cannot be swapped with
+     * the target status at a call site, and so the row update stays one reviewable unit.
+     */
+    private data class ApprovalDecisionUpdate(
+        val approvalId: String,
+        val expectedVersion: Long,
+        val decidedAt: Timestamp,
+        val actorHash: String,
+        val metadataJson: String,
+        val targetStatus: ApprovalStatus,
+        val provenance: ActorProvenanceSource?,
+    )
+
+    /** Verified attribution from the audit intent: `(issuer, identity digest)`, absent together or not at all. */
+    private data class ActorProvenanceSource(
+        val issuer: String?,
+        val identityDigest: String?,
+    )
 
     private data class ApprovalRow(
         val approvalId: String,
@@ -489,7 +547,7 @@ class JdbcSovereignOpsApprovalMutationStore(
 
     /**
      * Typed metadata model matching [JdbcApprovalStore.ApprovalMetadata].
-     * Absence of any required field is a fail-closed condition — no fallbacks.
+     * Absence of any required field is a fail-closed condition -- no fallbacks.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class BindingMetadata(

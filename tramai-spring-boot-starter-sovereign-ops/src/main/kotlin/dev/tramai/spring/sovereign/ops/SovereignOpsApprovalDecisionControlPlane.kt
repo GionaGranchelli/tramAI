@@ -7,6 +7,7 @@ import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.exception.ApprovalStoreConflictException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
+import dev.tramai.core.operator.ActorIdentityDigest
 import dev.tramai.core.operator.OperatorCapability
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
@@ -311,4 +312,8 @@ private fun auditIntentFor(
         reasonLength = command.comment?.length ?: eventKeyFor(command, decisionType).length,
         createdAt = now,
         status = SovereignOpsAuditOutboxStatus.PREPARED,
+        actorIssuer = authority.issuer,
+        actorIdentityDigest = ActorIdentityDigest.of(authority.issuer, authority.subject),
+        previousApprovalStatus = approval.status.name,
+        previousApprovalVersion = approval.version,
     )

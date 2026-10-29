@@ -218,7 +218,7 @@ class FileGovernedSovereignOpsAuditOutboxStoreTest {
     @Test
     fun `unknown schema version is unsupported format, never legacy`() {
         assertFailsWith<FileStoreUnsupportedFormatException> {
-            decodeOutboxRecord("""{"schemaVersion":3,"record":{},"governedRunIdentity":{}}""")
+            decodeOutboxRecord("""{"schemaVersion":99,"record":{},"governedRunIdentity":{}}""")
         }
     }
 

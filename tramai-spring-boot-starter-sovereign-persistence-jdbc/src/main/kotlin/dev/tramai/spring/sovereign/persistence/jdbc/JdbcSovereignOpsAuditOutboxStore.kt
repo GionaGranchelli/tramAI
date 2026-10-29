@@ -2,6 +2,7 @@
 
 package dev.tramai.spring.sovereign.persistence.jdbc
 
+import com.fasterxml.jackson.annotation.JsonInclude
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsAuditOutboxRecord
@@ -39,7 +40,7 @@ import javax.sql.DataSource
  *
  * ## Security model
  * - Full record payloads are encrypted at rest via the injected codec.
- * - Queryable columns contain hashes and identifiers — no prompts,
+ * - Queryable columns contain hashes and identifiers -- no prompts,
  *   model outputs, or PII.
  * - All encryption metadata columns are populated when a payload is stored.
  * - Decryption failure fails closed.
@@ -85,7 +86,7 @@ class JdbcSovereignOpsAuditOutboxStore(
         appendRecord(record, runIdentity = null)
 
     /**
-     * 0.7.1d: appends a governed record — the ordinary outbox fields and the complete canonical
+     * 0.7.1d: appends a governed record -- the ordinary outbox fields and the complete canonical
      * identity in one encrypted row of one transaction. No side table, no identity columns.
      */
     internal suspend fun appendGoverned(entry: GovernedSovereignOpsAuditOutboxRecord) {
@@ -536,7 +537,7 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
 
     // ══════════════════════════════════════════════════════════════════
-    // SQL — INSERT
+    // SQL -- INSERT
     // ══════════════════════════════════════════════════════════════════
 
     private fun insertAppend(
@@ -570,7 +571,7 @@ class JdbcSovereignOpsAuditOutboxStore(
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // SQL — SELECT helpers
+    // SQL -- SELECT helpers
     // ══════════════════════════════════════════════════════════════════
 
     private val selectColumns =
@@ -678,7 +679,7 @@ class JdbcSovereignOpsAuditOutboxStore(
      * answer here because the row is claimable on both sides of the terminal
      * transition. Instead:
      *
-     * 1. probe for a claimable candidate with a non-locking read — if no
+     * 1. probe for a claimable candidate with a non-locking read -- if no
      *    candidate exists, the empty result is proven, not guessed;
      * 2. if a candidate exists, block on THAT candidate by primary key with a
      *    plain `FOR UPDATE` (no SKIP LOCKED). The caller holds no outbox row
@@ -686,7 +687,7 @@ class JdbcSovereignOpsAuditOutboxStore(
      *    cannot participate in a claim-vs-claim lock cycle;
      * 3. re-read the row under the acquired lock; if it is still claimable,
      *    claim it; otherwise a concurrent transaction took it while we
-     *    waited — skip and re-evaluate the next candidate.
+     *    waited -- skip and re-evaluate the next candidate.
      *
      * The bound [CLAIM_BLOCKING_FALLBACK_LIMIT] is a liveness guard only.
      */
@@ -785,7 +786,7 @@ class JdbcSovereignOpsAuditOutboxStore(
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // SQL — UPDATE helpers
+    // SQL -- UPDATE helpers
     // ══════════════════════════════════════════════════════════════════
 
     private fun updateStatusAndPayload(
@@ -960,7 +961,7 @@ class JdbcSovereignOpsAuditOutboxStore(
      * Deliberately non-suspend helper (the #267/#271 cleanup model): runs
      * [block] in one explicit transaction. Failure precedence is primary
      * operation / cancellation, then rollback failure, then
-     * autoCommit-restore failure — later cleanup failures are attached as
+     * autoCommit-restore failure -- later cleanup failures are attached as
      * suppressed to the primary, never replacing it.
      */
     private fun <T> inOutboxTransaction(
@@ -1014,7 +1015,7 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     val actor: String,
     val workflowRunId: String?,
     val correlationId: String?,
-    val approvalStatus: String,
+    val approvalStatus: String?,
     val approvalVersion: Long?,
     val reasonDigest: String,
     val reasonLength: Int,
@@ -1026,6 +1027,10 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     val claimExpiresAt: String?,
     val createdAt: String,
     val emittedAt: String?,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val actorIssuer: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val actorIdentityDigest: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val previousApprovalStatus: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val previousApprovalVersion: Long? = null,
 )
 
 internal fun SovereignOpsAuditOutboxRecord.toPersistedOutbox(): PersistedSovereignOpsAuditOutboxRecordV1 =
@@ -1051,6 +1056,10 @@ internal fun SovereignOpsAuditOutboxRecord.toPersistedOutbox(): PersistedSoverei
         claimExpiresAt = claimExpiresAt?.toString(),
         createdAt = createdAt.toString(),
         emittedAt = emittedAt?.toString(),
+        actorIssuer = actorIssuer,
+        actorIdentityDigest = actorIdentityDigest,
+        previousApprovalStatus = previousApprovalStatus,
+        previousApprovalVersion = previousApprovalVersion,
     )
 
 internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAuditOutboxRecord {
@@ -1102,5 +1111,9 @@ internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAu
                     null
                 }
             },
+        actorIssuer = actorIssuer,
+        actorIdentityDigest = actorIdentityDigest,
+        previousApprovalStatus = previousApprovalStatus,
+        previousApprovalVersion = previousApprovalVersion,
     )
 }

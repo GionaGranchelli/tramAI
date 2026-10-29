@@ -22,8 +22,8 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
  *
  * Persistence has exactly two shapes:
  *
- * - **V1** — the ordinary record with no governed attribution. Permanently legacy.
- * - **V2** — the ordinary record plus the complete canonical [GovernedRunIdentity].
+ * - **V1** -- the ordinary record with no governed attribution. Permanently legacy.
+ * - **V2** -- the ordinary record plus the complete canonical [GovernedRunIdentity].
  *
  * The identity is one non-optional nested object in V2, never five independently optional fields, so a
  * partially attributed V2 cannot be constructed or decoded at all. An unknown schema version is an
@@ -83,6 +83,20 @@ internal fun GovernedRunIdentity.toPersisted(): PersistedGovernedRunIdentity =
     )
 
 /**
+ * V3 carrier: the ordinary record plus the optional governed identity and the 0.7.6f evidence fields.
+ *
+ * The version is checked before anything is parsed, so an older deployment reading a V3 file reports an
+ * unsupported format instead of silently dropping evidence it does not understand.
+ */
+internal data class PersistedSovereignOpsAuditOutboxRecordV3(
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int = 3,
+    @param:JsonProperty("record") val record: PersistedSovereignOpsAuditOutboxRecordV1,
+    @param:JsonProperty("governedRunIdentity") val governedRunIdentity: PersistedGovernedRunIdentity? = null,
+) {
+    fun toJson(): String = OPS_OUTBOX_JSON.writeValueAsString(this)
+}
+
+/**
  * V2 carrier: the ordinary record (reusing the V1 DTO verbatim, so the ordinary fields cannot drift
  * between shapes) plus the complete identity.
  */
@@ -99,7 +113,7 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV2(
  */
 internal fun decodeOutboxRecord(json: String): DecodedOutboxRecord {
     val version = outboxSchemaVersion(json)
-    if (version != OFFICIAL_VERSION && version != GOVERNED_VERSION) {
+    if (version != OFFICIAL_VERSION && version != GOVERNED_VERSION && version != EVIDENCE_VERSION) {
         throw FileStoreUnsupportedFormatException("unsupported-outbox-schema-version: $version")
     }
     return decodeKnownVersion(json, version)
@@ -116,7 +130,11 @@ private fun decodeKnownVersion(
     version: Int,
 ): DecodedOutboxRecord =
     try {
-        if (version == OFFICIAL_VERSION) decodeLegacy(json) else decodeGoverned(json)
+        when (version) {
+            OFFICIAL_VERSION -> decodeLegacy(json)
+            GOVERNED_VERSION -> decodeGoverned(json)
+            else -> decodeEvidence(json)
+        }
     } catch (e: IllegalStateException) {
         throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
     } catch (e: IllegalArgumentException) {
@@ -150,14 +168,43 @@ private fun decodeGoverned(json: String): DecodedOutboxRecord {
 }
 
 /**
- * Encodes a decoded record, choosing the shape from the identity's presence: absent → V1, present → V2.
+ * Evidence V3: per-field attribution is optional, but an identity that is present must name the same run
+ * as the ordinary record -- the rule V2 already enforces.
+ */
+private fun decodeEvidence(json: String): DecodedOutboxRecord {
+    val v3 = strictOpsOutboxReadValue<PersistedSovereignOpsAuditOutboxRecordV3>(json)
+    val record = v3.record.toDomain()
+    val identity = v3.governedRunIdentity?.toCore()
+    if (identity != null && identity.runId.value != record.workflowRunId) {
+        throw FileStoreCorruptionException(
+            "governed-outbox-attribution-mismatch: " +
+                "'${record.workflowRunId}' != canonical runId '${identity.runId.value}'",
+        )
+    }
+    return DecodedOutboxRecord(
+        record = record,
+        runIdentity = identity,
+        outboxRecordVersion = v3.record.outboxRecordVersion,
+    )
+}
+
+/**
+ * Encodes a decoded record, choosing the shape: evidence present -> V3, otherwise identity present -> V2,
+ * otherwise the released V1 shape.
  */
 internal fun encodeOutboxRecord(
     decoded: DecodedOutboxRecord,
     outboxRecordVersion: Long,
 ): String {
     val persisted = decoded.record.toPersistedV1(outboxRecordVersion)
-    return if (decoded.runIdentity == null) {
+    val hasIdentity = decoded.record.actorIssuer != null || decoded.record.actorIdentityDigest != null
+    val hasPrevious = decoded.record.previousApprovalStatus != null || decoded.record.previousApprovalVersion != null
+    return if (hasIdentity || hasPrevious) {
+        PersistedSovereignOpsAuditOutboxRecordV3(
+            record = persisted,
+            governedRunIdentity = decoded.runIdentity?.toPersisted(),
+        ).toJson()
+    } else if (decoded.runIdentity == null) {
         persisted.toJson()
     } else {
         PersistedSovereignOpsAuditOutboxRecordV2(
@@ -170,8 +217,8 @@ internal fun encodeOutboxRecord(
 /**
  * Reads only the declared schema version, leaving the payload untouched for the real decode.
  *
- * Only an integral, in-range JSON number is a schema declaration: anything else — missing, null,
- * text, float, out of int range — is corruption. `asInt()` coerces instead (`"2"` and `2.9` to 2,
+ * Only an integral, in-range JSON number is a schema declaration: anything else -- missing, null,
+ * text, float, out of int range -- is corruption. `asInt()` coerces instead (`"2"` and `2.9` to 2,
  * `"abc"` to 0), which turns a damaged payload into a wrong answer: a bogus V1/V2 decode, or a
  * false "unsupported version" report for a payload that is simply damaged.
  */
@@ -201,3 +248,4 @@ internal fun permissionFailure(message: String): Nothing = throw FileStorePermis
 
 private const val OFFICIAL_VERSION = 1
 private const val GOVERNED_VERSION = 2
+private const val EVIDENCE_VERSION = 3

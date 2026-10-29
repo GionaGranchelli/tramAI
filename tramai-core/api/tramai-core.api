@@ -2428,6 +2428,11 @@ public final class dev/tramai/core/observation/event/RuntimeMetrics {
 public abstract interface annotation class dev/tramai/core/observation/secondary/ExperimentalTramaiInternalApi : java/lang/annotation/Annotation {
 }
 
+public final class dev/tramai/core/operator/ActorIdentityDigest {
+	public static final field INSTANCE Ldev/tramai/core/operator/ActorIdentityDigest;
+	public final fun of (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+}
+
 public abstract interface class dev/tramai/core/operator/OperatorAuthorizationResult {
 }
 
