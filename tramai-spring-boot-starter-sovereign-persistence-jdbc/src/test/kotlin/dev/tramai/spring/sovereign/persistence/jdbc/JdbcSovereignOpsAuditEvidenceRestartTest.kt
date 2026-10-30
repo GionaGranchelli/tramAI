@@ -131,26 +131,37 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
     fun `a tampered authentication tag fails the read instead of returning evidence`() =
         runBlocking<Unit> {
             newStore().appendDispatchable(refusal("refused-tag"))
-            // Flip one bit in the last byte of the GCM tag: the ciphertext (and the plaintext prefix) is
-            // untouched, so only authentication can detect this.
+            // Flip one bit of the last byte of the GCM tag and assert the bytes really changed: replacing a
+            // byte with a constant would be a no-op whenever the tag already held that value.
+            val original = readPayload("refused-tag")
+            val tampered = original.copyOf().also { it[it.lastIndex] = (it[it.lastIndex].toInt() xor TAG_BIT).toByte() }
+            assertThat(tampered).isNotEqualTo(original)
             dataSource.connection.use { conn ->
-                conn
-                    .prepareStatement(
-                        "UPDATE audit_outbox SET encrypted_payload = " +
-                            "overlay(encrypted_payload placing ?::bytea from octet_length(encrypted_payload) for 1) " +
-                            "WHERE outbox_id = ?",
-                    ).use { stmt ->
-                        stmt.setBytes(1, byteArrayOf((TAMPER_XOR).toByte()))
-                        stmt.setString(2, "refused-tag")
-                        // The tamper must actually land, or the assertion below proves nothing.
-                        assertThat(stmt.executeUpdate()).isEqualTo(1)
-                    }
+                conn.prepareStatement("UPDATE audit_outbox SET encrypted_payload = ? WHERE outbox_id = ?").use { stmt ->
+                    stmt.setBytes(1, tampered)
+                    stmt.setString(2, "refused-tag")
+                    assertThat(stmt.executeUpdate()).isEqualTo(1)
+                }
             }
+            // The write landed as intended: only authentication can notice this, not a missing row or a
+            // shortened payload.
+            assertThat(readPayload("refused-tag")).isEqualTo(tampered)
 
             val thrown =
                 assertThatThrownBy { runBlocking { newStore().get("refused-tag") } }
             thrown.isInstanceOf(IllegalStateException::class.java)
             thrown.hasMessageContaining("audit-outbox-payload-decryption-failed")
+        }
+
+    private fun readPayload(outboxId: String): ByteArray =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("SELECT encrypted_payload FROM audit_outbox WHERE outbox_id = ?").use { stmt ->
+                stmt.setString(1, outboxId)
+                stmt.executeQuery().use { rs ->
+                    assertThat(rs.next()).isTrue()
+                    rs.getBytes(1)
+                }
+            }
         }
 
     private fun newStore(): JdbcSovereignOpsAuditOutboxStore =
@@ -251,7 +262,7 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
         private val DENIED = SovereignOpsAuditEvidenceKind.APPROVAL_DENIED
         private val REFUSAL = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL
         private const val NONCE_LENGTH = 12
-        private const val TAMPER_XOR = 0xFF
+        private const val TAG_BIT = 0x01
         private const val TAG_LENGTH_BITS = 128
         private const val AES_GCM = "AES/GCM/NoPadding"
         private val KEY = ByteArray(16) { it.toByte() }
