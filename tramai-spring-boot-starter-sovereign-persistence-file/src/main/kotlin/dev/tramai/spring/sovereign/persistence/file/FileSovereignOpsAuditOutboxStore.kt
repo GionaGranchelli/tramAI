@@ -104,6 +104,7 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
     @param:JsonProperty("previousApprovalVersion") val previousApprovalVersion: Long? = null,
     @param:JsonProperty("evidenceKind") val evidenceKind: String? = null,
+    @param:JsonProperty("refusalReason") val refusalReason: String? = null,
 ) {
     fun toJson(): String = OPS_OUTBOX_JSON.writeValueAsString(this)
 
@@ -141,6 +142,7 @@ internal fun SovereignOpsAuditOutboxRecord.toPersistedV1(version: Long): Persist
         previousApprovalStatus = previousApprovalStatus,
         previousApprovalVersion = previousApprovalVersion,
         evidenceKind = evidenceKind?.name,
+        refusalReason = refusalReason,
     )
 
 internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAuditOutboxRecord {
@@ -171,6 +173,7 @@ internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAu
         previousApprovalStatus = previousApprovalStatus,
         previousApprovalVersion = previousApprovalVersion,
         evidenceKind = evidenceKind?.let { SovereignOpsAuditEvidenceKind.valueOf(it) },
+        refusalReason = refusalReason,
     )
 }
 

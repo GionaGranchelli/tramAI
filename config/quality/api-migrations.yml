@@ -387,3 +387,18 @@ migrations:
       Epic 0.7.6f slice 3: FileSovereignOpsAuditOutboxStore exposes the quarantine surface through quarantineStore(). Additive: existing store operations are unchanged; rebuildIndex now tolerates an undecodable record instead of failing initialization.
     migration: >-
       No consumer action required beyond recompiling.
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: 2a2f9367a136834832a599349efd315a8f06c9c68993c6a7d4a3e3d56fadf142
+    toSha256: b9e2b15cb3d930536ae2c1f5ef7c8a28918057c648934db754910f2e740260e4
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 4: dispatch becomes kind-correct. SovereignOpsAuditEmitter gains a kind-aware default
+      evidenceFromOutbox(record), SovereignOpsAuditOutboxRecord gains refusalReason so a refusal's reason wire
+      name is persisted instead of re-derived, and AuditEngineSovereignOpsAuditEmitter maps each kind to its
+      own enforcement point, decision and reason code. Additive for implementors: the new emitter method has a
+      behaviour-preserving default for denials and throws for kinds an emitter cannot represent.
+    migration: >-
+      Consumers implementing SovereignOpsAuditEmitter should override evidenceFromOutbox to represent
+      APPROVAL_APPROVED and AUTHORIZATION_REFUSAL; without it those kinds are parked as FAILED_PERMANENT and
+      recorded as unsupported-evidence-kind. No consumer action required for SovereignOpsAuditOutboxRecord,
+      whose new field defaults to null.
