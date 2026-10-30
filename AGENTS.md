@@ -180,6 +180,7 @@ The architecture map is authoritative for navigation; do not duplicate it here.
 - run `./gradlew verifyPr` (primary local gate — runs subproject tests, build-logic tests, maintainability baseline, and change policy)
 - for additional CI-equivalent steps, see `.github/AGENTS.md` for local equivalents
 - in CI, set `-PchangePolicyBase=${{ github.event.pull_request.base.sha }}` for accurate PR-delta comparison
+- never run concurrent Gradle test builds against the same `build/` output directories; use separate worktrees or explicitly isolated build directories. `--project-cache-dir` alone does not isolate test outputs.
 - inspect `git diff` for unintended files
 - report every command run and its result
 - report skipped checks explicitly
