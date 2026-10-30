@@ -9,6 +9,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
@@ -126,6 +127,32 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
             assertThat(reader.get("refused-1")?.refusalReason).isEqualTo("missing-capability")
         }
 
+    @Test
+    fun `a tampered authentication tag fails the read instead of returning evidence`() =
+        runBlocking<Unit> {
+            newStore().appendDispatchable(refusal("refused-tag"))
+            // Flip one bit in the last byte of the GCM tag: the ciphertext (and the plaintext prefix) is
+            // untouched, so only authentication can detect this.
+            dataSource.connection.use { conn ->
+                conn
+                    .prepareStatement(
+                        "UPDATE audit_outbox SET encrypted_payload = " +
+                            "overlay(encrypted_payload placing ?::bytea from octet_length(encrypted_payload) for 1) " +
+                            "WHERE outbox_id = ?",
+                    ).use { stmt ->
+                        stmt.setBytes(1, byteArrayOf((TAMPER_XOR).toByte()))
+                        stmt.setString(2, "refused-tag")
+                        // The tamper must actually land, or the assertion below proves nothing.
+                        assertThat(stmt.executeUpdate()).isEqualTo(1)
+                    }
+            }
+
+            val thrown =
+                assertThatThrownBy { runBlocking { newStore().get("refused-tag") } }
+            thrown.isInstanceOf(IllegalStateException::class.java)
+            thrown.hasMessageContaining("audit-outbox-payload-decryption-failed")
+        }
+
     private fun newStore(): JdbcSovereignOpsAuditOutboxStore =
         JdbcSovereignOpsAuditOutboxStore(
             dataSource = dataSource,
@@ -178,8 +205,11 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
 
     /**
      * Real AES-GCM, because the point of this test is the whole read path: the evidence fields must survive
-     * being encrypted, stored, reloaded by a different store instance and decrypted again. decode() must
-     * invert encode() -- encrypting the ciphertext a second time would round-trip nothing.
+     * being encrypted, stored, reloaded by a different store instance and decrypted again.
+     *
+     * decode() must authenticate, not merely recover bytes: GCM is counter-mode, so re-encrypting the
+     * ciphertext with the same key and nonce reproduces the plaintext prefix by XOR and proves nothing about
+     * the tag. Only DECRYPT_MODE validates the tag, which is what `a tampered authentication tag` pins down.
      */
     private class PassThroughTestCodec : JdbcOpsAuditOutboxPayloadCodec {
         override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload {
@@ -221,6 +251,7 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
         private val DENIED = SovereignOpsAuditEvidenceKind.APPROVAL_DENIED
         private val REFUSAL = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL
         private const val NONCE_LENGTH = 12
+        private const val TAMPER_XOR = 0xFF
         private const val TAG_LENGTH_BITS = 128
         private const val AES_GCM = "AES/GCM/NoPadding"
         private val KEY = ByteArray(16) { it.toByte() }
