@@ -16,6 +16,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -340,6 +341,72 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
                 .containsExactly("future-control")
         }
 
+    @Test
+    fun `scan progress stages its temporary file inside the store root`() =
+        runBlocking<Unit> {
+            val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
+            store.appendDispatchable(refusal("cursor-control"))
+            writeUndecodableFile("f".repeat(64))
+            val above = namesIn(root.parent)
+
+            store.quarantineStore().quarantineUndecodableEvidence(limit = 1, now = now)
+
+            // The cursor is the store's own state: staging it above the root would need write access the
+            // deployment does not grant, and would leak a temp file outside the configured directory.
+            assertThat(namesIn(root.parent)).isEqualTo(above)
+            assertThat(root.resolve("quarantine-scan.cursor")).exists()
+        }
+
+    @Test
+    fun `recovery works when the directory above the store root is read only`() =
+        runBlocking<Unit> {
+            assumeTrue("root" != System.getProperty("user.name"))
+            val storeRoot = Files.createDirectory(root.resolve("hardened"))
+            val store = FileSovereignOpsAuditOutboxStore(root = storeRoot, key = key)
+            store.appendDispatchable(refusal("hardened-control"))
+            val digest = "9".repeat(64)
+            Files.writeString(
+                storeRoot.resolve(RECORD_TYPE).resolve("$digest.tram.enc"),
+                """{"envelopeVersion":1,"recordType":"$RECORD_TYPE","recordKeyDigest":"$digest",""" +
+                    """"keyId":"default","nonceBase64":"AAAAAAAAAAAAAAAA","ciphertextBase64":"YmFk"}""",
+                StandardOpenOption.CREATE_NEW,
+            )
+            Files.setPosixFilePermissions(
+                storeRoot.resolve(RECORD_TYPE).resolve("$digest.tram.enc"),
+                PosixFilePermissions.fromString("rw-------"),
+            )
+            val above = storeRoot.parent
+            Files.setPosixFilePermissions(above, PosixFilePermissions.fromString("r-x------"))
+            try {
+                val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
+
+                assertThat(report.quarantined.map { it.locator }).containsExactly(digest)
+            } finally {
+                Files.setPosixFilePermissions(above, PosixFilePermissions.fromString("rwx------"))
+            }
+        }
+
+    @Test
+    fun `an existing marker is never rewritten by a later pass`() =
+        runBlocking<Unit> {
+            val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
+            store.appendDispatchable(refusal("marker-control"))
+            val first = writeUndecodableFile("b".repeat(64))
+            val second = writeUndecodableFile("c".repeat(64))
+
+            store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
+            // A marker on disk is another pass's publication: later passes leave those bytes alone instead
+            // of replacing them with their own metadata. Publication atomicity itself comes from link();
+            // the scan-level filter and per-record lock make it unobservable from a single process.
+            val published = Files.readAllBytes(markerPath(first))
+            Files.write(markerPath(second), published)
+
+            val report = store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now)
+
+            assertThat(report.quarantined).isEmpty()
+            assertThat(Files.readAllBytes(markerPath(second)).toList()).isEqualTo(published.toList())
+        }
+
     // --- helpers --------------------------------------------------------------------------------
 
     /** Re-seals a committed record with an unreadable payload, keeping a structurally valid envelope. */
@@ -403,6 +470,11 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
     }
 
     private fun outboxDir(): Path = root.resolve(RECORD_TYPE)
+
+    private fun namesIn(dir: Path): List<String> {
+        val names = Files.list(dir).use { stream -> stream.map { it.fileName.toString() }.sorted().toList() }
+        return names
+    }
 
     private fun markerPath(locator: String): Path = root.resolve("quarantine").resolve("$locator.quarantine.json")
 

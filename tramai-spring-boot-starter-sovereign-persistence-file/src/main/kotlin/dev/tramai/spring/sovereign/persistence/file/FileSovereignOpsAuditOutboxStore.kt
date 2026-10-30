@@ -788,9 +788,15 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         return Files.readString(scanCursorFile, StandardCharsets.UTF_8).trim().ifBlank { null }
     }
 
-    /** Durable scan position so consecutive recovery passes make progress instead of retrying a prefix. */
+    /**
+     * Durable scan position so consecutive recovery passes make progress instead of retrying a prefix.
+     *
+     * The staging file stays inside the store root: [tempSibling] stages a level above its target, which is
+     * right for records under the outbox directory but would put this cursor's temp file in the root's
+     * parent -- a directory a hardened deployment need not make writable.
+     */
     private fun writeScanCursor(digest: String) {
-        val temp = tempSibling(scanCursorFile)
+        val temp = rootDir.resolve(".$SCAN_CURSOR_FILE.tmp.${RANDOM.nextInt(Int.MAX_VALUE)}")
         try {
             writeFileWith0600(temp, digest.toByteArray(StandardCharsets.UTF_8), createNew = true)
             Files.move(temp, scanCursorFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
@@ -1002,11 +1008,19 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                 val temp = tempSibling(target)
                 try {
                     writeFileWith0600(temp, OPS_OUTBOX_JSON.writeValueAsBytes(marker), createNew = true)
-                    // No REPLACE_EXISTING: losing the race must not rewrite a marker another pass made.
-                    Files.move(temp, target)
+                    // Hard link, not rename: link() is atomic and fails when the target exists, so a marker
+                    // is never observable half-written and no pass can clobber another's publication.
+                    // ponytail: on a filesystem without links this falls back to an atomic replace, and a
+                    // cross-process race there is last-writer-wins (the per-record lock covers one JVM).
+                    try {
+                        Files.createLink(target, temp)
+                    } catch (_: UnsupportedOperationException) {
+                        Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE)
+                    }
                     forceParentDirectory(quarantineDir)
                     marker.toSummary()
                 } catch (_: FileAlreadyExistsException) {
+                    // Lost the publication race: the winner's marker stands, this pass reports nothing.
                     null
                 } finally {
                     runCatching { Files.deleteIfExists(temp) }

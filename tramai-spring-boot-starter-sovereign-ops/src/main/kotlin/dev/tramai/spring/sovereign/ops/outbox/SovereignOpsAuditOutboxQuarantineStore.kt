@@ -17,6 +17,10 @@ import java.time.Instant
  *
  * Implementations are only required where evidence is durable. A store that cannot provide this
  * surface must fail the caller explicitly rather than reporting an empty quarantine as success.
+ *
+ * Recovery is reversible by design, and unmarked records return to ordinary handling. That reversal is
+ * not authorisation to redispatch: an operator who repairs and unmarks a record must first re-check that
+ * no other record has since taken its event key, or the outbox can emit the same event twice.
  */
 interface SovereignOpsAuditOutboxQuarantineStore {
     /**
