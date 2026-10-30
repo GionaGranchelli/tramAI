@@ -30,7 +30,6 @@ class SovereignOpsAuditOutboxDispatcher(
     private val claimedBy: String = "sovereign-ops-dispatcher",
     private val clock: Clock = Clock.systemUTC(),
 ) {
-
     /**
      * Dispatch pending outbox records.
      *
@@ -40,11 +39,14 @@ class SovereignOpsAuditOutboxDispatcher(
     suspend fun dispatchPending(limit: Int): SovereignOpsAuditOutboxDispatchResult {
         val now = clock.instant()
 
-        val claimed = outboxStore.claimPending(
-            claimedBy = claimedBy,
-            limit = limit,
-            now = now,
-        )
+        completeQuarantineRecovery(limit, now)
+
+        val claimed =
+            outboxStore.claimPending(
+                claimedBy = claimedBy,
+                limit = limit,
+                now = now,
+            )
 
         var emitted = 0
         var failedRetryable = 0
@@ -80,6 +82,24 @@ class SovereignOpsAuditOutboxDispatcher(
             failedRetryable = failedRetryable,
             failedPermanent = failedPermanent,
         )
+    }
+
+    /**
+     * 0.7.6f: one undecodable record must not stop healthy evidence from dispatching.
+     *
+     * The dispatch run is where a durable quarantine marker gets completed, so the recovery pass runs
+     * before the claim: damaged evidence is classified and quarantined (metadata only) and the healthy
+     * records in the same batch go out. A store without a durable quarantine surface simply skips this.
+     *
+     * A systemic failure is not swallowed: `tramai-outbox-decryption-unavailable` propagates, because a
+     * wrong deployment key must reach an operator, not turn into an empty successful dispatch.
+     */
+    private suspend fun completeQuarantineRecovery(
+        limit: Int,
+        now: Instant,
+    ) {
+        val recovery = outboxStore.quarantineStore() ?: return
+        recovery.quarantineUndecodableEvidence(limit = limit, now = now)
     }
 }
 

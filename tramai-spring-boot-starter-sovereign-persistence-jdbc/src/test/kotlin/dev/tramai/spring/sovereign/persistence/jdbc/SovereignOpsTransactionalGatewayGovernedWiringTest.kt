@@ -119,6 +119,7 @@ class SovereignOpsTransactionalGatewayGovernedWiringTest {
             "V1__sovereign_persistence.sql",
             "V2__approval_continuations.sql",
             "V4__audit_outbox_hardening.sql",
+            "V10__approval_actor_provenance.sql",
             "V6__approval_resume_credential_custody.sql",
             "V7__approval_continuations_resume_retry.sql",
         ).forEach { file ->

@@ -146,6 +146,7 @@ public final class dev/tramai/persistence/file/FileStorePermissionException : de
 public final class dev/tramai/persistence/file/FileStoreSha256 {
 	public static final field INSTANCE Ldev/tramai/persistence/file/FileStoreSha256;
 	public final fun digest (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public final fun hexOf ([B)Ljava/lang/String;
 }
 
 public final class dev/tramai/persistence/file/FileStoreUnsupportedFormatException : dev/tramai/persistence/file/FileStoreException {

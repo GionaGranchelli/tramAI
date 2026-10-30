@@ -6,8 +6,11 @@ import com.fasterxml.jackson.annotation.JsonInclude
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.QuarantineReport
+import dev.tramai.spring.sovereign.ops.outbox.QuarantinedEvidenceSummary
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxGovernance
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxQuarantineStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
@@ -75,6 +78,50 @@ class JdbcSovereignOpsAuditOutboxStore(
          * guard against pathological churn, not a correctness mechanism.
          */
         const val CLAIM_BLOCKING_FALLBACK_LIMIT: Int = 5
+
+        /** JDBC parameter indices start at 1; named so the insert reads positionally without literals. */
+        private const val FIRST_PARAMETER: Int = 1
+
+        /**
+         * 0.7.6f: quarantined rows are excluded by anti-join rather than by attempting to decode them.
+         * A decoded listing cannot include a record that cannot be decoded, so one damaged row would
+         * otherwise make every page throw.
+         */
+        private const val NOT_QUARANTINED: String =
+            "NOT EXISTS (SELECT 1 FROM audit_outbox_quarantine q WHERE q.outbox_id = audit_outbox.outbox_id)"
+
+        private const val QUARANTINE_INSERT_SQL: String =
+            "INSERT INTO audit_outbox_quarantine (outbox_id, label, quarantined_at, failure_detail, payload_digest) " +
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT (outbox_id) DO NOTHING"
+
+        private const val QUARANTINE_LIST_SQL: String =
+            "SELECT q.outbox_id, q.label, q.quarantined_at, q.failure_detail, q.payload_digest, o.event_key " +
+                "FROM audit_outbox_quarantine q JOIN audit_outbox o ON o.outbox_id = q.outbox_id " +
+                "ORDER BY q.quarantined_at DESC, q.outbox_id ASC LIMIT ?"
+
+        private const val QUARANTINE_CIPHERTEXT_SQL: String =
+            "SELECT o.encrypted_payload FROM audit_outbox o " +
+                "JOIN audit_outbox_quarantine q ON q.outbox_id = o.outbox_id WHERE o.outbox_id = ?"
+
+        /**
+         * Candidates a quarantine scan may consider: dispatchable, never PREPARED, never already held.
+         *
+         * Scan eligibility mirrors claiming exactly: an EMITTING row whose lease expired is claimable, so
+         * its evidence must be recoverable too -- otherwise an unreadable expired claim would keep failing
+         * `claimPending` and healthy records would stall behind it.
+         */
+        private const val QUARANTINE_SCAN_WHERE: String =
+            "$NOT_QUARANTINED AND (audit_outbox.status IN ('PENDING', 'FAILED_RETRYABLE') " +
+                "OR (audit_outbox.status = 'EMITTING' AND audit_outbox.next_attempt_at IS NOT NULL " +
+                "AND audit_outbox.next_attempt_at < ?))"
+
+        /** Row lock used to revalidate the classified snapshot before the transition is written. */
+        private const val QUARANTINE_LOCK_SQL: String =
+            "SELECT status, version FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
+
+        private const val QUARANTINE_MARK_GUARDED_SQL: String =
+            "UPDATE audit_outbox SET status = 'FAILED_PERMANENT', last_failure_type = ?, " +
+                "version = version + 1 WHERE outbox_id = ? AND status = ? AND version = ?"
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -420,6 +467,260 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
     }
 
+    /**
+     * 0.7.6f: the recovery surface, implemented as an inner class so this store's own shape (and its
+     * quality baseline) is unchanged: quarantine is a separate contract, not another store operation.
+     */
+    private inner class JdbcQuarantine : SovereignOpsAuditOutboxQuarantineStore {
+        /**
+         * Classifies the scan batch before mutating anything: a batch in which nothing decodes is treated
+         * as a deployment-key problem and aborts, so a wrong key can never quarantine healthy evidence.
+         */
+        override suspend fun quarantineUndecodableEvidence(
+            limit: Int,
+            now: Instant,
+        ): QuarantineReport {
+            if (limit <= 0) return QuarantineReport(0, 0, emptyList(), 0)
+            val (candidates, skipped) =
+                dataSource.connection.use { conn ->
+                    selectQuarantineCandidates(conn, limit, now) to countQuarantined(conn)
+                }
+            val classified = candidates.map { row -> row to classify(row) }
+            val failures =
+                classified.mapNotNull { (_, verdict) -> (verdict as? QuarantineVerdict.Failure)?.failure }
+            val decodable = classified.count { (_, verdict) -> verdict is QuarantineVerdict.Readable }
+            requireUsableKey(classified.size, decodable, failures)
+            val quarantined =
+                classified.mapNotNull { (row, verdict) ->
+                    (verdict as? QuarantineVerdict.Failure)?.let { quarantineOne(row, it.failure, now) }
+                }
+            return QuarantineReport(
+                scanned = classified.size,
+                decodable = decodable,
+                quarantined = quarantined,
+                skipped = skipped,
+            )
+        }
+
+        override suspend fun listQuarantined(limit: Int): List<QuarantinedEvidenceSummary> {
+            if (limit <= 0) return emptyList()
+            return dataSource.connection.use { conn ->
+                conn.prepareStatement(QUARANTINE_LIST_SQL).use { stmt ->
+                    stmt.setInt(1, limit)
+                    stmt.executeQuery().use { rs ->
+                        val summaries =
+                            generateSequence<QuarantinedEvidenceSummary> {
+                                if (rs.next()) quarantinedSummaryOf(rs) else null
+                            }
+                        summaries.toList()
+                    }
+                }
+            }
+        }
+
+        override suspend fun readQuarantinedCiphertext(locator: String): ByteArray? =
+            dataSource.connection.use { conn -> selectQuarantinedCiphertext(conn, locator) }
+
+        /**
+         * One row's verdict, or null when it decodes and its columns agree.
+         *
+         * The two labels stay distinct: a payload that cannot be decrypted or decoded is
+         * [SovereignOpsAuditOutboxQuarantineStore.LABEL_UNDECODABLE], while a payload that decodes but
+         * contradicts its queryable columns is [SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT].
+         */
+        private fun classify(row: OutboxRow): QuarantineVerdict =
+            try {
+                columnsVerdict(row.toDecoded(), row)
+            } catch (e: IllegalStateException) {
+                // Typed on purpose: runCatching would also swallow CancellationException.
+                decodeVerdict(e)
+            }
+
+        /**
+         * The control requirement and the identical-signature safeguard, both fail-closed.
+         *
+         * No control record means the batch behaves like a wrong deployment key, so nothing is quarantined.
+         * The signature rule is stated separately: when every scanned row failed the same way the batch is
+         * systemic too. A single successful decode is the control that proves the key works, and per-record
+         * failures after that are quarantined even if their details happen to coincide.
+         */
+        private fun requireUsableKey(
+            scanned: Int,
+            decodable: Int,
+            failures: List<QuarantineFailure>,
+        ) {
+            if (failures.isEmpty()) return
+            val everyRowFailedIdentically = failures.size == scanned && failures.map { it.detail }.distinct().size == 1
+            if (decodable == 0 || everyRowFailedIdentically) {
+                throw IllegalStateException(SovereignOpsAuditOutboxQuarantineStore.ERROR_DECRYPTION_UNAVAILABLE)
+            }
+        }
+
+        /**
+         * Quarantines one row, or returns null when another worker got there first.
+         *
+         * Classification happens outside the writing transaction, so the row is locked and its snapshot
+         * revalidated (status + version) before anything is written: two concurrent recovery workers must
+         * not both report the same record as newly quarantined, and neither may transition a row whose
+         * state changed since classification.
+         */
+        private fun quarantineOne(
+            row: OutboxRow,
+            failure: QuarantineFailure,
+            now: Instant,
+        ): QuarantinedEvidenceSummary? =
+            dataSource.connection.use { conn ->
+                inOutboxTransaction(conn) { c ->
+                    val current = lockStatusAndVersion(c, row.outboxId)
+                    if (current == null || current.first != row.status || current.second != row.version) {
+                        return@inOutboxTransaction null
+                    }
+                    persistQuarantine(c, row, failure, now)
+                    quarantinedSummary(row, failure, now)
+                }
+            }
+
+        private fun quarantinedSummary(
+            row: OutboxRow,
+            failure: QuarantineFailure,
+            now: Instant,
+        ): QuarantinedEvidenceSummary =
+            QuarantinedEvidenceSummary(
+                locator = row.outboxId,
+                outboxId = row.outboxId,
+                eventKey = row.eventKey,
+                payloadDigest = row.payloadDigest,
+                label = failure.label,
+                quarantinedAt = now,
+                failureDetail = failure.detail,
+            )
+
+        /**
+         * Records the metadata and marks the row FAILED_PERMANENT in one transaction.
+         *
+         * Nothing else changes: `encrypted_payload`, its encryption columns, `outbox_id` and `event_key`
+         * are never rewritten, which is why the stored ciphertext stays byte-identical.
+         */
+        private fun persistQuarantine(
+            conn: Connection,
+            row: OutboxRow,
+            failure: QuarantineFailure,
+            now: Instant,
+        ) {
+            conn.prepareStatement(QUARANTINE_INSERT_SQL).use { stmt ->
+                var index = FIRST_PARAMETER
+                stmt.setString(index++, row.outboxId)
+                stmt.setString(index++, failure.label)
+                stmt.setTimestamp(index++, Timestamp.from(now))
+                stmt.setString(index++, failure.detail)
+                stmt.setString(index, row.payloadDigest)
+                stmt.executeUpdate()
+            }
+            val transitioned =
+                conn.prepareStatement(QUARANTINE_MARK_GUARDED_SQL).use { stmt ->
+                    var index = FIRST_PARAMETER
+                    stmt.setString(index++, failure.label)
+                    stmt.setString(index++, row.outboxId)
+                    stmt.setString(index++, row.status)
+                    stmt.setLong(index, row.version)
+                    stmt.executeUpdate()
+                }
+            check(transitioned == 1) { "tramai-outbox-quarantine-transition-lost" }
+        }
+
+        private fun selectQuarantineCandidates(
+            conn: Connection,
+            limit: Int,
+            now: Instant,
+        ): List<OutboxRow> {
+            val sql =
+                "$selectColumns FROM audit_outbox WHERE $QUARANTINE_SCAN_WHERE ORDER BY created_at ASC LIMIT ?"
+            return conn.prepareStatement(sql).use { stmt ->
+                stmt.setTimestamp(1, Timestamp.from(now))
+                stmt.setInt(2, limit)
+                stmt.executeQuery().use { rs ->
+                    val results = mutableListOf<OutboxRow>()
+                    while (rs.next()) results.add(mapRow(rs))
+                    results
+                }
+            }
+        }
+
+        private fun countQuarantined(conn: Connection): Int =
+            conn.createStatement().use { stmt ->
+                stmt.executeQuery("SELECT count(*) FROM audit_outbox_quarantine").use { rs ->
+                    if (rs.next()) rs.getInt(1) else 0
+                }
+            }
+    }
+
+    override fun quarantineStore(): SovereignOpsAuditOutboxQuarantineStore = JdbcQuarantine()
+
+    /** Locks one row and reports the state it was in, so a stale classification cannot transition it. */
+    private fun lockStatusAndVersion(
+        conn: Connection,
+        outboxId: String,
+    ): Pair<String, Long>? =
+        conn.prepareStatement(QUARANTINE_LOCK_SQL).use { stmt ->
+            stmt.setString(FIRST_PARAMETER, outboxId)
+            stmt.executeQuery().use { rs -> if (rs.next()) rs.getString(1) to rs.getLong(2) else null }
+        }
+
+    /** Bounded, operator-readable detail: never an unbounded stack of internal state. */
+    private fun boundedDetail(e: Exception): String =
+        (e.message ?: e::class.simpleName ?: "undecodable-evidence")
+            .take(SovereignOpsAuditOutboxQuarantineStore.MAX_FAILURE_DETAIL)
+
+    /** A payload this build cannot read is undecodable evidence -- unless a newer build wrote it. */
+    private fun decodeVerdict(e: Throwable): QuarantineVerdict {
+        val newerBuild =
+            e is IllegalStateException && e.message?.startsWith(ERROR_UNSUPPORTED_SCHEMA_VERSION) == true
+        return if (newerBuild) {
+            QuarantineVerdict.Unsupported
+        } else {
+            QuarantineVerdict.Failure(
+                QuarantineFailure(
+                    SovereignOpsAuditOutboxQuarantineStore.LABEL_UNDECODABLE,
+                    boundedDetail(e as? Exception ?: IllegalStateException(e)),
+                ),
+            )
+        }
+    }
+
+    /** A payload that decodes but contradicts its queryable columns is corrupt evidence, not undecodable. */
+    private fun columnsVerdict(
+        decoded: DecodedOutboxRecord,
+        row: OutboxRow,
+    ): QuarantineVerdict =
+        try {
+            validateQueryableColumns(decoded.record, row)
+            QuarantineVerdict.Readable
+        } catch (e: IllegalArgumentException) {
+            QuarantineVerdict.Failure(
+                QuarantineFailure(SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT, boundedDetail(e)),
+            )
+        }
+
+    private fun quarantinedSummaryOf(rs: ResultSet): QuarantinedEvidenceSummary =
+        QuarantinedEvidenceSummary(
+            locator = rs.getString("outbox_id"),
+            outboxId = rs.getString("outbox_id"),
+            eventKey = rs.getString("event_key"),
+            payloadDigest = rs.getString("payload_digest") ?: "",
+            label = rs.getString("label"),
+            quarantinedAt = rs.getTimestamp("quarantined_at").toInstant(),
+            failureDetail = rs.getString("failure_detail"),
+        )
+
+    private fun selectQuarantinedCiphertext(
+        conn: Connection,
+        locator: String,
+    ): ByteArray? =
+        conn.prepareStatement(QUARANTINE_CIPHERTEXT_SQL).use { stmt ->
+            stmt.setString(1, locator)
+            stmt.executeQuery().use { rs -> if (rs.next()) rs.getBytes(1) else null }
+        }
+
     // ══════════════════════════════════════════════════════════════════
     // Internal helpers
     // ══════════════════════════════════════════════════════════════════
@@ -602,7 +903,7 @@ class JdbcSovereignOpsAuditOutboxStore(
         conn: Connection,
         outboxId: String,
     ): OutboxRow? {
-        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
+        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ? AND $NOT_QUARANTINED FOR UPDATE"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, outboxId)
             stmt.executeQuery().let { rs ->
@@ -615,7 +916,7 @@ class JdbcSovereignOpsAuditOutboxStore(
         conn: Connection,
         outboxId: String,
     ): OutboxRow? {
-        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ?"
+        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ? AND $NOT_QUARANTINED"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, outboxId)
             stmt.executeQuery().let { rs ->
@@ -628,7 +929,7 @@ class JdbcSovereignOpsAuditOutboxStore(
         conn: Connection,
         eventKey: String,
     ): OutboxRow? {
-        val sql = "$selectColumns FROM audit_outbox WHERE event_key = ?"
+        val sql = "$selectColumns FROM audit_outbox WHERE event_key = ? AND $NOT_QUARANTINED"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, eventKey)
             stmt.executeQuery().let { rs ->
@@ -642,7 +943,9 @@ class JdbcSovereignOpsAuditOutboxStore(
         status: String,
         limit: Int,
     ): List<OutboxRow> {
-        val sql = "$selectColumns FROM audit_outbox WHERE status = ? ORDER BY created_at ASC LIMIT ?"
+        val sql =
+            "$selectColumns FROM audit_outbox WHERE status = ? AND $NOT_QUARANTINED " +
+                "ORDER BY created_at ASC LIMIT ?"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, status)
             stmt.setInt(2, limit)
@@ -663,11 +966,14 @@ class JdbcSovereignOpsAuditOutboxStore(
             """
             $selectColumns FROM audit_outbox
             WHERE
+                $NOT_QUARANTINED
+                AND (
                 status IN ('PENDING', 'FAILED_RETRYABLE')
                 OR (
                     status = 'EMITTING'
                     AND next_attempt_at IS NOT NULL
                     AND next_attempt_at < ?
+                )
             )
             ORDER BY created_at ASC
             LIMIT ?
@@ -740,12 +1046,15 @@ class JdbcSovereignOpsAuditOutboxStore(
             """
             SELECT outbox_id FROM audit_outbox
             WHERE
-                status IN ('PENDING', 'FAILED_RETRYABLE')
-                OR (
-                    status = 'EMITTING'
-                    AND next_attempt_at IS NOT NULL
-                    AND next_attempt_at < ?
-            )
+                $NOT_QUARANTINED
+                AND (
+                    status IN ('PENDING', 'FAILED_RETRYABLE')
+                    OR (
+                        status = 'EMITTING'
+                        AND next_attempt_at IS NOT NULL
+                        AND next_attempt_at < ?
+                    )
+                )
             ORDER BY created_at ASC
             LIMIT ?
             """.trimIndent()
@@ -765,7 +1074,7 @@ class JdbcSovereignOpsAuditOutboxStore(
         conn: Connection,
         outboxId: String,
     ): OutboxRow? {
-        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
+        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ? AND $NOT_QUARANTINED FOR UPDATE"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, outboxId)
             stmt.executeQuery().let { rs ->
@@ -783,6 +1092,7 @@ class JdbcSovereignOpsAuditOutboxStore(
             """
             $selectColumns FROM audit_outbox
             WHERE status = 'EMITTING'
+              AND $NOT_QUARANTINED
               AND next_attempt_at IS NOT NULL
               AND next_attempt_at < ?
             ORDER BY created_at ASC
@@ -879,6 +1189,29 @@ class JdbcSovereignOpsAuditOutboxStore(
     // ══════════════════════════════════════════════════════════════════
     // Row mapping
     // ══════════════════════════════════════════════════════════════════
+
+    /**
+     * One row's recovery verdict.
+     *
+     * [Failure] is evidence this build cannot read and that is therefore quarantined; [Readable] is the
+     * control that proves the deployment key works; [Unsupported] is a payload written by a newer build,
+     * which is preserved untouched rather than permanently condemned by a rollback.
+     */
+    private sealed interface QuarantineVerdict {
+        class Failure(
+            val failure: QuarantineFailure,
+        ) : QuarantineVerdict
+
+        object Readable : QuarantineVerdict
+
+        object Unsupported : QuarantineVerdict
+    }
+
+    /** One row's quarantine verdict: a label and a bounded detail. */
+    private data class QuarantineFailure(
+        val label: String,
+        val detail: String,
+    )
 
     private data class OutboxRow(
         val outboxId: String,

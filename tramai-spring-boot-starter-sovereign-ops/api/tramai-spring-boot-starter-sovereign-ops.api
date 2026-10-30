@@ -1188,6 +1188,7 @@ public final class dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsAu
 	public fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markReadyForDispatch (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun quarantineStore ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsAuditOutboxWorkerStatusStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerStatusStore {
@@ -1212,6 +1213,46 @@ public final class dev/tramai/spring/sovereign/ops/outbox/LeasedSovereignOpsAudi
 	public fun isRunning ()Z
 	public fun start ()V
 	public fun stop ()V
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/QuarantineReport {
+	public fun <init> (IILjava/util/List;I)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()I
+	public final fun copy (IILjava/util/List;I)Ldev/tramai/spring/sovereign/ops/outbox/QuarantineReport;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/QuarantineReport;IILjava/util/List;IILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/QuarantineReport;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDecodable ()I
+	public final fun getQuarantined ()Ljava/util/List;
+	public final fun getScanned ()I
+	public final fun getSkipped ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/QuarantinedEvidenceSummary {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/time/Instant;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/outbox/QuarantinedEvidenceSummary;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/QuarantinedEvidenceSummary;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/QuarantinedEvidenceSummary;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEventKey ()Ljava/lang/String;
+	public final fun getFailureDetail ()Ljava/lang/String;
+	public final fun getLabel ()Ljava/lang/String;
+	public final fun getLocator ()Ljava/lang/String;
+	public final fun getOutboxId ()Ljava/lang/String;
+	public final fun getPayloadDigest ()Ljava/lang/String;
+	public final fun getQuarantinedAt ()Ljava/time/Instant;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/RecordingSovereignOpsAuditOutboxWorkerObserver : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerObserver {
@@ -1360,6 +1401,35 @@ public abstract interface class dev/tramai/spring/sovereign/ops/outbox/Sovereign
 	public abstract fun retryPending (Ljava/lang/Integer;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public abstract interface class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore {
+	public static final field Companion Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore$Companion;
+	public static final field ERROR_DECRYPTION_UNAVAILABLE Ljava/lang/String;
+	public static final field ERROR_UNSUPPORTED Ljava/lang/String;
+	public static final field LABEL_CORRUPT Ljava/lang/String;
+	public static final field LABEL_UNDECODABLE Ljava/lang/String;
+	public static final field MAX_FAILURE_DETAIL I
+	public fun listQuarantined (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun listQuarantined$suspendImpl (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun quarantineUndecodableEvidence (ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun quarantineUndecodableEvidence$suspendImpl (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun readQuarantinedCiphertext (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun readQuarantinedCiphertext$suspendImpl (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore$Companion {
+	public static final field ERROR_DECRYPTION_UNAVAILABLE Ljava/lang/String;
+	public static final field ERROR_UNSUPPORTED Ljava/lang/String;
+	public static final field LABEL_CORRUPT Ljava/lang/String;
+	public static final field LABEL_UNDECODABLE Ljava/lang/String;
+	public static final field MAX_FAILURE_DETAIL I
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore$DefaultImpls {
+	public static fun listQuarantined (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun quarantineUndecodableEvidence (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun readQuarantinedCiphertext (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord {
 	public static final field Companion Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord$Companion;
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/time/Instant;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;)V
@@ -1471,11 +1541,13 @@ public abstract interface class dev/tramai/spring/sovereign/ops/outbox/Sovereign
 	public abstract fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun markReadyForDispatch (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun quarantineStore ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore$DefaultImpls {
 	public static fun appendDispatchable (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static fun isDurable (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;)Z
+	public static fun quarantineStore (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxSummary {

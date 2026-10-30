@@ -51,6 +51,14 @@ interface SovereignOpsAuditOutboxStore {
         throw UnsupportedOperationException("tramai-sovereign-ops-outbox-dispatchable-append-unsupported")
 
     /**
+     * 0.7.6f: the metadata-only recovery surface for evidence this store cannot decode.
+     *
+     * Returns null when the store has no durable quarantine, which is an explicit "unsupported" rather
+     * than an empty result: callers must not read it as "nothing is quarantined".
+     */
+    fun quarantineStore(): SovereignOpsAuditOutboxQuarantineStore? = null
+
+    /**
      * Move a PREPARED record to PENDING, making it eligible for dispatch.
      *
      * Called after the business mutation commits successfully.
