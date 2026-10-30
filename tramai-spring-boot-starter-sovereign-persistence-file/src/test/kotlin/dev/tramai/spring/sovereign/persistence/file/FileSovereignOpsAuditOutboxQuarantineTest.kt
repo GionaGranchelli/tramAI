@@ -19,6 +19,7 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
@@ -344,17 +345,21 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
     @Test
     fun `scan progress stages its temporary file inside the store root`() =
         runBlocking<Unit> {
-            val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
+            // A dedicated parent, so the assertion sees only this store's writes: the JUnit temp root is
+            // shared with every other test worker using the same temp directory.
+            val base = Files.createDirectory(root.resolve("base"))
+            val storeRoot = Files.createDirectory(base.resolve("store"))
+            val store = FileSovereignOpsAuditOutboxStore(root = storeRoot, key = key)
             store.appendDispatchable(refusal("cursor-control"))
-            writeUndecodableFile("f".repeat(64))
-            val above = namesIn(root.parent)
+            writeUndecodableFile(storeRoot, "f".repeat(64))
+            val above = namesIn(base)
 
             store.quarantineStore().quarantineUndecodableEvidence(limit = 1, now = now)
 
             // The cursor is the store's own state: staging it above the root would need write access the
             // deployment does not grant, and would leak a temp file outside the configured directory.
-            assertThat(namesIn(root.parent)).isEqualTo(above)
-            assertThat(root.resolve("quarantine-scan.cursor")).exists()
+            assertThat(namesIn(base)).isEqualTo(above)
+            assertThat(storeRoot.resolve("quarantine-scan.cursor")).exists()
         }
 
     @Test
@@ -407,6 +412,27 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             assertThat(Files.readAllBytes(markerPath(second)).toList()).isEqualTo(published.toList())
         }
 
+    @Test
+    fun `a marker that cannot be published fails the pass instead of degrading`() =
+        runBlocking<Unit> {
+            assumeTrue("root" != System.getProperty("user.name"))
+            val store = FileSovereignOpsAuditOutboxStore(root = root, key = key)
+            store.appendDispatchable(refusal("unpublishable-control"))
+            val digest = writeUndecodableFile("7".repeat(64))
+            val quarantineDir = Files.createDirectories(root.resolve("quarantine"))
+            Files.setPosixFilePermissions(quarantineDir, PosixFilePermissions.fromString("r-x------"))
+            try {
+                // Publication must be atomic and no-clobber or not happen at all: silently degrading to a
+                // replacing move could overwrite another worker's marker and report a second quarantine.
+                assertThatThrownBy {
+                    runBlocking { store.quarantineStore().quarantineUndecodableEvidence(limit = 10, now = now) }
+                }.isInstanceOf(IOException::class.java)
+                assertThat(markerPath(digest)).doesNotExist()
+            } finally {
+                Files.setPosixFilePermissions(quarantineDir, PosixFilePermissions.fromString("rwx------"))
+            }
+        }
+
     // --- helpers --------------------------------------------------------------------------------
 
     /** Re-seals a committed record with an unreadable payload, keeping a structurally valid envelope. */
@@ -456,8 +482,13 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
     }
 
     /** Writes a committed-looking record file whose envelope cannot be decrypted or decoded. */
-    private fun writeUndecodableFile(digest: String): String {
-        val target = outboxDir().resolve("$digest.tram.enc")
+    private fun writeUndecodableFile(digest: String): String = writeUndecodableFile(root, digest)
+
+    private fun writeUndecodableFile(
+        atRoot: Path,
+        digest: String,
+    ): String {
+        val target = atRoot.resolve(RECORD_TYPE).resolve("$digest.tram.enc")
         Files.writeString(
             target,
             """{"envelopeVersion":1,"recordType":"ops-audit-outbox","recordKeyDigest":"$digest",""" +

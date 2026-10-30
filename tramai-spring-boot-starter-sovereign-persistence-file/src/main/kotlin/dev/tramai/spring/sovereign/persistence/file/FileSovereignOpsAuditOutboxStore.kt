@@ -196,6 +196,10 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         private const val MARKER_SUFFIX = ".quarantine.json"
         private const val FILE_EXTENSION = ".tram.enc"
         private const val SCAN_CURSOR_FILE = "quarantine-scan.cursor"
+
+        // Raised when the filesystem cannot publish a marker atomically without clobbering.
+        private const val ERROR_PUBLICATION_UNSUPPORTED =
+            "tramai-sovereign-ops-outbox-quarantine-publication-unsupported"
         private const val KEY_ID = "default"
         private val COMMITTED_FILENAME = Regex("[a-f0-9]{64}\\.tram\\.enc")
     }
@@ -1010,12 +1014,13 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                     writeFileWith0600(temp, OPS_OUTBOX_JSON.writeValueAsBytes(marker), createNew = true)
                     // Hard link, not rename: link() is atomic and fails when the target exists, so a marker
                     // is never observable half-written and no pass can clobber another's publication.
-                    // ponytail: on a filesystem without links this falls back to an atomic replace, and a
-                    // cross-process race there is last-writer-wins (the per-record lock covers one JVM).
+                    // A filesystem without links fails closed: ATOMIC_MOVE leaves replacement of an existing
+                    // target implementation-defined, so degrading to it could overwrite another worker's
+                    // marker and report a second successful quarantine.
                     try {
                         Files.createLink(target, temp)
                     } catch (_: UnsupportedOperationException) {
-                        Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE)
+                        throw IllegalStateException(ERROR_PUBLICATION_UNSUPPORTED)
                     }
                     forceParentDirectory(quarantineDir)
                     marker.toSummary()
