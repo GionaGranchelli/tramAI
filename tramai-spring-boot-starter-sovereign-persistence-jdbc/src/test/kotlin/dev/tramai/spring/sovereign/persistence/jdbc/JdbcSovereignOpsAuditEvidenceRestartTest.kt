@@ -20,6 +20,7 @@ import org.testcontainers.utility.DockerImageName
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -114,6 +115,15 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
                 )
             // The refusal's reason wire name came back out of the ciphertext, not out of memory.
             assertThat(events.last().metadata).containsEntry("refusalReason", "missing-capability")
+
+            // And the payload itself round-trips through decode(): reading each row back must return the
+            // evidence the writer encrypted, which is only true if decode() inverts encode().
+            val reader = newStore()
+            assertThat(reader.get("approved-1")?.evidenceKind).isEqualTo(APPROVED)
+            assertThat(reader.get("approved-1")?.approvalStatus).isEqualTo("APPROVED")
+            assertThat(reader.get("denied-1")?.evidenceKind).isEqualTo(DENIED)
+            assertThat(reader.get("refused-1")?.evidenceKind).isEqualTo(REFUSAL)
+            assertThat(reader.get("refused-1")?.refusalReason).isEqualTo("missing-capability")
         }
 
     private fun newStore(): JdbcSovereignOpsAuditOutboxStore =
@@ -166,26 +176,37 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
             refusalReason = "missing-capability",
         )
 
-    /** Encryption is irrelevant to this discriminator; the codec contract just has to be satisfied. */
+    /**
+     * Real AES-GCM, because the point of this test is the whole read path: the evidence fields must survive
+     * being encrypted, stored, reloaded by a different store instance and decrypted again. decode() must
+     * invert encode() -- encrypting the ciphertext a second time would round-trip nothing.
+     */
     private class PassThroughTestCodec : JdbcOpsAuditOutboxPayloadCodec {
-        override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload =
-            JdbcEncryptedAuditOutboxPayload(
-                ciphertext = wrap(plaintext),
+        override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload {
+            val nonce = ByteArray(NONCE_LENGTH).also { SecureRandom().nextBytes(it) }
+            return JdbcEncryptedAuditOutboxPayload(
+                ciphertext = cipher(AES_GCM, Cipher.ENCRYPT_MODE, nonce, plaintext),
                 keyId = KEY_ID,
-                algorithm = ALGORITHM,
-                nonce = ByteArray(NONCE_LENGTH),
+                algorithm = AES_GCM,
+                nonce = nonce,
                 payloadDigest = sha256Hex(plaintext),
             )
+        }
 
-        override fun decode(payload: JdbcEncryptedAuditOutboxPayload): ByteArray = wrap(payload.ciphertext)
+        override fun decode(payload: JdbcEncryptedAuditOutboxPayload): ByteArray {
+            require(payload.keyId == KEY_ID) { "audit-outbox-test-key-mismatch" }
+            require(payload.algorithm == AES_GCM) { "audit-outbox-test-algorithm-mismatch" }
+            return cipher(AES_GCM, Cipher.DECRYPT_MODE, payload.nonce, payload.ciphertext)
+        }
 
-        private fun wrap(bytes: ByteArray): ByteArray =
-            Cipher.getInstance(ALGORITHM).run {
-                init(
-                    Cipher.ENCRYPT_MODE,
-                    SecretKeySpec(ByteArray(16), "AES"),
-                    GCMParameterSpec(128, ByteArray(NONCE_LENGTH)),
-                )
+        private fun cipher(
+            algorithm: String,
+            mode: Int,
+            nonce: ByteArray,
+            bytes: ByteArray,
+        ): ByteArray =
+            Cipher.getInstance(algorithm).run {
+                init(mode, SecretKeySpec(KEY, "AES"), GCMParameterSpec(TAG_LENGTH_BITS, nonce))
                 doFinal(bytes)
             }
     }
@@ -196,9 +217,14 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
                 MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
         private val AGGREGATE_DIGEST = "sha256:" + "a".repeat(64)
+        private val APPROVED = SovereignOpsAuditEvidenceKind.APPROVAL_APPROVED
+        private val DENIED = SovereignOpsAuditEvidenceKind.APPROVAL_DENIED
+        private val REFUSAL = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL
         private const val NONCE_LENGTH = 12
+        private const val TAG_LENGTH_BITS = 128
+        private const val AES_GCM = "AES/GCM/NoPadding"
+        private val KEY = ByteArray(16) { it.toByte() }
         private const val KEY_ID = "test-key"
-        private const val ALGORITHM = "AES/GCM/NoPadding"
         private const val POSTGRES_IMAGE = "postgres:17-alpine"
 
         private val MIGRATIONS =
