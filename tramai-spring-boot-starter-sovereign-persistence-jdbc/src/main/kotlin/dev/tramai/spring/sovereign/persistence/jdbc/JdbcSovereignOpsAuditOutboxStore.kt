@@ -634,7 +634,8 @@ class JdbcSovereignOpsAuditOutboxStore(
             now: Instant,
         ): List<OutboxRow> {
             val sql =
-                "$selectColumns FROM audit_outbox WHERE $QUARANTINE_SCAN_WHERE ORDER BY created_at ASC LIMIT ?"
+                "$selectColumns FROM audit_outbox WHERE $QUARANTINE_SCAN_WHERE " +
+                    "ORDER BY created_at ASC, outbox_id ASC LIMIT ?"
             return conn.prepareStatement(sql).use { stmt ->
                 stmt.setTimestamp(1, Timestamp.from(now))
                 stmt.setInt(2, limit)
@@ -945,7 +946,7 @@ class JdbcSovereignOpsAuditOutboxStore(
     ): List<OutboxRow> {
         val sql =
             "$selectColumns FROM audit_outbox WHERE status = ? AND $NOT_QUARANTINED " +
-                "ORDER BY created_at ASC LIMIT ?"
+                "ORDER BY created_at ASC, outbox_id ASC LIMIT ?"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, status)
             stmt.setInt(2, limit)
@@ -975,7 +976,7 @@ class JdbcSovereignOpsAuditOutboxStore(
                     AND next_attempt_at < ?
                 )
             )
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, outbox_id ASC
             LIMIT ?
             FOR UPDATE SKIP LOCKED
             """.trimIndent()
@@ -1036,6 +1037,12 @@ class JdbcSovereignOpsAuditOutboxStore(
      * predicate as [selectClaimableForUpdateSkipLocked] but without the
      * `FOR UPDATE SKIP LOCKED` clause, so a hidden locked row is still
      * visible. Returns ids in claim order.
+     *
+     * The order is `(created_at, outbox_id)` because `created_at` alone is not a total order: it is
+     * `DEFAULT now()`, which is transaction time, so every row written by one transaction shares it. Claim
+     * candidates are then locked one at a time, and two claimers that receive tied rows in different orders
+     * acquire those locks in different orders -- the lock-order cycle behind Issue #568's 40P01. A tiebreaker
+     * makes the acquisition order deterministic for every claimer, without changing which rows are eligible.
      */
     private fun selectClaimableCandidateIds(
         conn: Connection,
@@ -1055,7 +1062,7 @@ class JdbcSovereignOpsAuditOutboxStore(
                         AND next_attempt_at < ?
                     )
                 )
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, outbox_id ASC
             LIMIT ?
             """.trimIndent()
 
@@ -1095,7 +1102,7 @@ class JdbcSovereignOpsAuditOutboxStore(
               AND $NOT_QUARANTINED
               AND next_attempt_at IS NOT NULL
               AND next_attempt_at < ?
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, outbox_id ASC
             LIMIT ?
             """.trimIndent()
 
