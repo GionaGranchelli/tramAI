@@ -212,6 +212,7 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
             status = SovereignOpsAuditOutboxStatus.PENDING,
             evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
             refusalReason = "missing-capability",
+            refusalExpectedVersion = 3,
         )
 
     /**

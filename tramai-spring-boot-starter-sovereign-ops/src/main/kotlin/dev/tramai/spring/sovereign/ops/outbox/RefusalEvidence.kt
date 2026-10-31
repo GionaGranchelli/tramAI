@@ -155,6 +155,11 @@ data class RefusalEvidence(
      * it legitimately differs between the stored record and a retry, and comparing it would turn a correct
      * dedupe into a false integrity error.
      *
+     * The actor text is compared, not only its digest: two rows can share a digest while one names a
+     * different subject, and returning that row as "the same refusal" would attach the wrong name to the
+     * evidence. The digest alone cannot catch a digest that was computed from the right input but stored
+     * beside the wrong label.
+     *
      * Both stored refusal fields are compared as well: they are the human-readable form of two key inputs,
      * so a row that disagrees with either is a different refusal carrying someone else's key.
      */
@@ -164,6 +169,7 @@ data class RefusalEvidence(
             record.aggregateIdDigest == approvalIdDigest &&
             record.actorIdentityDigest == actorIdentityDigest &&
             record.actorIssuer == issuer &&
+            record.actor == subject &&
             record.refusalReason == refusalReason &&
             record.refusalPolicyVersion == policyVersion &&
             record.refusalExpectedVersion == expectedVersion &&

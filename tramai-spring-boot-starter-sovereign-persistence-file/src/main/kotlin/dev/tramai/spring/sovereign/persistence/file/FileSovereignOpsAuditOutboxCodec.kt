@@ -15,6 +15,7 @@ import dev.tramai.core.identity.WorkloadId
 import dev.tramai.persistence.file.FileStoreCorruptionException
 import dev.tramai.persistence.file.FileStorePermissionException
 import dev.tramai.persistence.file.FileStoreUnsupportedFormatException
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 
 /**
@@ -200,10 +201,16 @@ private fun decodeEvidence(json: String): DecodedOutboxRecord {
     // half-recorded previous state cannot be reconciled with any approval row.
     val actorIncomplete = (record.actorIssuer == null) != (record.actorIdentityDigest == null)
     val previousIncomplete = (record.previousApprovalStatus == null) != (record.previousApprovalVersion == null)
+    // A refusal without its reason or expected version is not reconstructable evidence, so it is damage
+    // rather than a refusal. An absent policy version is legitimate: it means no policy was consulted.
+    val refusalIncomplete =
+        record.evidenceKind == SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL &&
+            (record.refusalReason == null || record.refusalExpectedVersion == null)
     val incomplete =
         when {
             actorIncomplete -> "actor provenance is incomplete"
             previousIncomplete -> "previous approval state is incomplete"
+            refusalIncomplete -> "authorization refusal is missing its inputs"
             else -> null
         }
     if (incomplete != null) throw FileStoreCorruptionException("$ERROR_CORRUPTED_RECORD: $incomplete")

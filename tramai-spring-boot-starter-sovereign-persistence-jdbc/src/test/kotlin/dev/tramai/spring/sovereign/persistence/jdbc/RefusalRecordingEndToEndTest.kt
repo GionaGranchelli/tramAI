@@ -155,6 +155,51 @@ class RefusalRecordingEndToEndTest {
         }
 
     @Test
+    fun `a failed write leaves no evidence and a later attempt records it`() =
+        runBlocking<Unit> {
+            val approvals = CountingApprovalStore()
+            val mutations = CountingMutationStore()
+            val flaky = FailOnceAppendStore(newStore())
+            val operations =
+                DefaultSovereignOpsAuditOutboxOperations(
+                    outboxStore = flaky,
+                    outboxDispatcher = null,
+                    properties = SovereignOpsProperties(),
+                    recoveryResolver = { SovereignOpsPreparedRecoveryDecision.UNKNOWN },
+                    clock = clock,
+                )
+            val plane =
+                SovereignOpsApprovalDecisionControlPlane(
+                    approvalStore = approvals,
+                    mutationStore = mutations,
+                    approvalPolicy = OperatorApprovalPolicy(mapOf("v1" to setOf(ApproverRole("medical-reviewer")))),
+                    clock = clock,
+                    refusalRecorder = operations,
+                )
+
+            // First attempt: the durable write fails. Nothing is stored and nothing is decided.
+            org.assertj.core.api.Assertions
+                .assertThatThrownBy { runBlocking { plane.approve(decisionCommand(), authorityWithoutCapability()) } }
+                .hasMessageContaining("simulated outbox append failure")
+            assertThat(restartedStore().listByStatus(SovereignOpsAuditOutboxStatus.PENDING, 10)).isEmpty()
+            assertThat(countApprovals()).isZero()
+            assertThat(mutations.calls).isZero()
+
+            // Second attempt: really recorded, still a refusal, still invisible to the approval store.
+            assertThat(plane.approve(decisionCommand(), authorityWithoutCapability()))
+                .isEqualTo(
+                    ApprovalDecisionResult.Unauthorized(
+                        ApprovalId(APPROVAL_ID),
+                        ApprovalUnauthorizedReason.MISSING_CAPABILITY,
+                    ),
+                )
+            assertThat(restartedStore().listByStatus(SovereignOpsAuditOutboxStatus.PENDING, 10)).hasSize(1)
+            assertThat(approvals.reads).isZero()
+            assertThat(mutations.calls).isZero()
+            assertThat(countApprovals()).isZero()
+        }
+
+    @Test
     fun `a role refusal persists the policy version it consulted`() =
         runBlocking<Unit> {
             val approvals = CountingApprovalStore()
@@ -246,6 +291,21 @@ class RefusalRecordingEndToEndTest {
                 approverRoles = roles,
             ),
         )
+
+    /**
+     * A real store whose append fails once, so the retry path is exercised against the durable backend
+     * rather than against a double that never had anything to lose.
+     */
+    private class FailOnceAppendStore(
+        private val delegate: JdbcSovereignOpsAuditOutboxStore,
+    ) : dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore by delegate {
+        private var failures: Int = 1
+
+        override suspend fun appendDispatchable(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord {
+            if (failures-- > 0) error("simulated outbox append failure")
+            return delegate.appendDispatchable(record)
+        }
+    }
 
     /** Counts reads so "zero lookup" is a fact about the run, not a claim about the code. */
     private class CountingApprovalStore : ApprovalStore {

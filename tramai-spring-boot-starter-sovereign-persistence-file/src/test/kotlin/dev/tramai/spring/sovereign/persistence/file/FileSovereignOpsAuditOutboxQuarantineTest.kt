@@ -540,12 +540,19 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
             createdAt = now,
             status = SovereignOpsAuditOutboxStatus.PENDING,
             evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
+            refusalReason = "missing-capability",
+            refusalExpectedVersion = 3,
             actorIssuer = "https://issuer.example",
             actorIdentityDigest = "0123456789abcdef".repeat(4),
         )
 
     private fun prepared(outboxId: String): SovereignOpsAuditOutboxRecord =
-        refusal(outboxId).copy(status = SovereignOpsAuditOutboxStatus.PREPARED, evidenceKind = null)
+        refusal(outboxId).copy(
+            status = SovereignOpsAuditOutboxStatus.PREPARED,
+            evidenceKind = null,
+            refusalReason = null,
+            refusalExpectedVersion = null,
+        )
 
     private companion object {
         private const val RECORD_TYPE = "ops-audit-outbox"

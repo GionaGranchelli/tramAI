@@ -341,6 +341,8 @@ class JdbcSovereignOpsAuditOutboxQuarantineTest {
             createdAt = now,
             status = SovereignOpsAuditOutboxStatus.PENDING,
             evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
+            refusalReason = "missing-capability",
+            refusalExpectedVersion = 3,
             actorIssuer = "https://issuer.example",
             actorIdentityDigest = "0123456789abcdef".repeat(4),
         )

@@ -99,6 +99,21 @@ class SovereignOpsRefusalRecordingTest {
         }
 
     @Test
+    fun `a key match naming a different actor fails closed`() =
+        runBlocking<Unit> {
+            val store = InMemorySovereignOpsAuditOutboxStore()
+            val operations = operations(store)
+            val wanted = evidence()
+            // A digest only proves which inputs were hashed; it cannot prove the row names that actor.
+            val impostor = wanted.toOutboxRecord(clock.instant(), outboxId = "impostor").copy(actor = "someone-else")
+            store.appendDispatchable(impostor)
+
+            assertThatThrownBy { runBlocking { operations.recordRefusal(wanted) } }
+                .isInstanceOf(IllegalStateException::class.java)
+                .hasMessageContaining("tramai-outbox-event-key-collision")
+        }
+
+    @Test
     fun `the recorded refusal is dispatchable and claims no approval state`() =
         runBlocking<Unit> {
             val store = InMemorySovereignOpsAuditOutboxStore()

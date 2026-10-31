@@ -18,6 +18,7 @@ import dev.tramai.core.identity.RunId
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 
 /**
@@ -269,6 +270,14 @@ private fun decodeEvidence(json: ByteArray): DecodedOutboxRecord {
     }
     check((record.previousApprovalStatus == null) == (record.previousApprovalVersion == null)) {
         "$ERROR_CORRUPTED_RECORD: previous approval state is incomplete"
+    }
+    // A refusal without its reason or expected version is not reconstructable evidence, so it is damage
+    // rather than a refusal. An absent policy version is legitimate: it means no policy was consulted.
+    check(
+        record.evidenceKind != SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL ||
+            (record.refusalReason != null && record.refusalExpectedVersion != null),
+    ) {
+        "$ERROR_CORRUPTED_RECORD: authorization refusal is missing its inputs"
     }
     val identity = v3.governedRunIdentity?.toCore()
     if (identity != null) {
