@@ -404,7 +404,7 @@ migrations:
       whose new field defaults to null.
   - module: ":tramai-spring-boot-starter-sovereign-ops"
     fromSha256: b9e2b15cb3d930536ae2c1f5ef7c8a28918057c648934db754910f2e740260e4
-    toSha256: 8834518d385b4099016054ecbe86e95b8abc150e4fd440b58b2faee95cf2cdf2
+    toSha256: ef10091bec9891abda5c2b8b2693b087a0c40539d2879cca98bf42c855f19e6a
     targetVersion: "0.7.0"
     rationale: >-
       Epic 0.7.6f slice 4b: durable authorization-refusal recording. Adds RefusalEvidence (canonical

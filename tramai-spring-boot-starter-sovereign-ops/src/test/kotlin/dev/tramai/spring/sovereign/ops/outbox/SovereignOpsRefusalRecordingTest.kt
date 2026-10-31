@@ -109,6 +109,9 @@ class SovereignOpsRefusalRecordingTest {
             assertThat(stored!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
             assertThat(stored.evidenceKind).isEqualTo(SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL)
             assertThat(stored.refusalReason).isEqualTo("missing-capability")
+            // Key inputs persisted as values, not only as a hash.
+            assertThat(stored.refusalPolicyVersion).isNull()
+            assertThat(stored.refusalExpectedVersion).isEqualTo(7L)
             // A refusal decided nothing, and it read nothing, so it claims no approval state at all --
             // not even a previous one, which would have to name a status it never saw.
             assertThat(stored.approvalStatus).isNull()

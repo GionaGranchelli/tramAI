@@ -65,6 +65,12 @@ import java.util.UUID
  * @property refusalReason For [SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL] evidence, the refusal
  *   reason's wire name (e.g. `missing-capability`). Persisted because it is part of the refusal's identity,
  *   not derived at dispatch time. `null` for decision evidence.
+ * @property refusalPolicyVersion The policy version the refusal was evaluated against, or `null` when no
+ *   policy was consulted (a capability refusal decides without reading the approval). Persisted because a
+ *   hash is not a record: an auditor must be able to read *which* policy governed the refusal, and `null`
+ *   here is a positive statement that none was consulted, distinct from an unknown value.
+ * @property refusalExpectedVersion The approval version the caller expected when it was refused. Persisted
+ *   for the same reason: it is a key input, and a key alone cannot reconstruct it.
  */
 data class SovereignOpsAuditOutboxRecord(
     val outboxId: String = UUID.randomUUID().toString(),
@@ -93,6 +99,8 @@ data class SovereignOpsAuditOutboxRecord(
     val previousApprovalVersion: Long? = null,
     val evidenceKind: SovereignOpsAuditEvidenceKind? = null,
     val refusalReason: String? = null,
+    val refusalPolicyVersion: String? = null,
+    val refusalExpectedVersion: Long? = null,
 ) {
     companion object {
         /** Default claim expiry duration for stuck-EMITTING recovery. */

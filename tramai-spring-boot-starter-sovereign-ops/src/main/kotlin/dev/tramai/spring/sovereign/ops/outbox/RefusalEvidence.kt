@@ -110,11 +110,15 @@ data class RefusalEvidence(
      * `approvalStatus`/`approvalVersion` are null by design -- a refusal decided nothing, so it must not
      * claim a status or a new version.
      *
-     * `previousApprovalStatus`/`previousApprovalVersion` are null too, deliberately. The observed version is
-     * not stored on the record: the codec accepts previous state only as a complete pair, and a capability
-     * refusal never read the approval, so naming a status it never saw would be a false claim. The expected
-     * version is still part of the refusal's identity -- it is a key input, so a retry that observed a
-     * different version is a different attempt and a different record.
+     * `previousApprovalStatus`/`previousApprovalVersion` are null too, deliberately: a capability refusal
+     * never read the approval, so naming a status it never saw would be a false claim, and the codec accepts
+     * previous state only as a complete pair.
+     *
+     * The key inputs are nonetheless persisted as their own refusal fields
+     * ([SovereignOpsAuditOutboxRecord.refusalPolicyVersion],
+     * [SovereignOpsAuditOutboxRecord.refusalExpectedVersion]). A hash proves two refusals are the same; it
+     * cannot tell an auditor which policy governed one of them. `refusalPolicyVersion = null` therefore
+     * means "no policy consulted", which is a fact, not a missing value.
      */
     fun toOutboxRecord(
         createdAt: Instant,
@@ -141,6 +145,8 @@ data class RefusalEvidence(
             previousApprovalVersion = null,
             evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
             refusalReason = refusalReason,
+            refusalPolicyVersion = policyVersion,
+            refusalExpectedVersion = expectedVersion,
         )
 
     /**
@@ -149,9 +155,8 @@ data class RefusalEvidence(
      * it legitimately differs between the stored record and a retry, and comparing it would turn a correct
      * dedupe into a false integrity error.
      *
-     * The consulted policy version and the expected version are not stored separately because both are key
-     * inputs: a retry differing in either produces a different key, so it is a different attempt rather than
-     * a collision on this one.
+     * Both stored refusal fields are compared as well: they are the human-readable form of two key inputs,
+     * so a row that disagrees with either is a different refusal carrying someone else's key.
      */
     fun matches(record: SovereignOpsAuditOutboxRecord): Boolean =
         record.evidenceKind == SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL &&
@@ -160,6 +165,8 @@ data class RefusalEvidence(
             record.actorIdentityDigest == actorIdentityDigest &&
             record.actorIssuer == issuer &&
             record.refusalReason == refusalReason &&
+            record.refusalPolicyVersion == policyVersion &&
+            record.refusalExpectedVersion == expectedVersion &&
             record.approvalStatus == null &&
             record.approvalVersion == null
 
