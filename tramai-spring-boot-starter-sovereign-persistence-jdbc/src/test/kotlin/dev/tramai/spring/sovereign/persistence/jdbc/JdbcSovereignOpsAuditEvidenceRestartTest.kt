@@ -234,10 +234,10 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
             )
         }
 
-        override fun decode(payload: JdbcEncryptedAuditOutboxPayload): ByteArray {
-            require(payload.keyId == KEY_ID) { "audit-outbox-test-key-mismatch" }
-            require(payload.algorithm == AES_GCM) { "audit-outbox-test-algorithm-mismatch" }
-            return cipher(AES_GCM, Cipher.DECRYPT_MODE, payload.nonce, payload.ciphertext)
+        override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray {
+            require(envelope.keyId == KEY_ID) { "audit-outbox-test-key-mismatch" }
+            require(envelope.algorithm == AES_GCM) { "audit-outbox-test-algorithm-mismatch" }
+            return cipher(AES_GCM, Cipher.DECRYPT_MODE, envelope.nonce, envelope.ciphertext)
         }
 
         private fun cipher(
