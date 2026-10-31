@@ -21,7 +21,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.sql.Connection
+import java.sql.ResultSet
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -297,37 +297,39 @@ class JdbcClaimDeadlockStressTest {
         e: Throwable,
     ) {
         println("[stress] DEADLOCK $state: ${e.message}")
-        dataSource.connection.use { conn ->
-            conn.createStatement().use { stmt ->
-                stmt
-                    .executeQuery(
-                        "SELECT l.pid, l.mode, l.granted, a.state, a.wait_event_type, a.query " +
-                            "FROM pg_locks l LEFT JOIN pg_stat_activity a ON a.pid = l.pid " +
-                            "WHERE l.relation = 'audit_outbox'::regclass ORDER BY l.pid",
-                    ).use { rs ->
-                        while (rs.next()) {
-                            println(
-                                "[stress] lock pid=${rs.getInt(1)} mode=${rs.getString(2)} " +
-                                    "granted=${rs.getBoolean(3)} state=${rs.getString(4)} " +
-                                    "wait=${rs.getString(5)} query=${rs.getString(6)?.take(120)}",
-                            )
-                        }
-                    }
-            }
-        }
+        lockRows().forEach { println("[stress] lock $it") }
         postgres.logs.lines().filter { it.contains("deadlock detected") }.forEach {
             println("[stress] server: $it")
         }
     }
 
-    private fun countRows(): Int =
-        dataSource.connection.use { conn ->
-            conn.createStatement().use { stmt ->
-                stmt.executeQuery("SELECT count(*) FROM audit_outbox").use { rs ->
-                    rs.next()
-                    rs.getInt(1)
+    /** One line per backend lock on the outbox, so a dump needs no nested loops to read. */
+    private fun lockRows(): List<String> =
+        query(
+            "SELECT l.pid, l.mode, l.granted, a.state, a.wait_event_type, a.query " +
+                "FROM pg_locks l LEFT JOIN pg_stat_activity a ON a.pid = l.pid " +
+                "WHERE l.relation = 'audit_outbox'::regclass ORDER BY l.pid",
+        ) { rs ->
+            buildList {
+                while (rs.next()) {
+                    add(
+                        "pid=${rs.getInt(1)} mode=${rs.getString(2)} granted=${rs.getBoolean(3)} " +
+                            "state=${rs.getString(4)} wait=${rs.getString(5)} " +
+                            "query=${rs.getString(6)?.take(120)}",
+                    )
                 }
             }
+        }
+
+    private fun <T> query(
+        sql: String,
+        read: (ResultSet) -> T,
+    ): T = dataSource.connection.use { conn -> conn.createStatement().use { stmt -> stmt.executeQuery(sql).use(read) } }
+
+    private fun countRows(): Int =
+        query("SELECT count(*) FROM audit_outbox") { rs ->
+            rs.next()
+            rs.getInt(1)
         }
 
     private fun store(): JdbcSovereignOpsAuditOutboxStore =
