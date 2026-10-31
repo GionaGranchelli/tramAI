@@ -79,7 +79,13 @@ test**, which proves the order was previously unconstrained.
 closed`: a holder locks every row so the fast path finds nothing; while the claimer is blocked in the
 fallback, the holder emits the row that was probed; the claimer then locks it, detects that column and
 payload disagree, fails closed with `audit-outbox-column-status-mismatch`, leaves `attempt_count` at 0,
-and releases the lock (`FOR UPDATE NOWAIT` succeeds afterwards).
+and releases the lock (`FOR UPDATE NOWAIT` succeeds afterwards). The wait is synchronised on
+`pg_blocking_pids`, not a sleep, and times out with a diagnostic if the block never establishes.
+
+Limitation: this pins the divergence guard. It does **not** prove that a *legal* terminal transition
+racing the fallback makes the loop retain the first lock while acquiring the second — that
+interleaving is not reproduced here, and the argument for it is code inspection plus the fact that
+acquisition order is now total.
 
 **Contention harness** — PostgreSQL 17, `deadlock_timeout=200ms`, 20 rounds each:
 
@@ -91,7 +97,7 @@ in ~19s).
 | --- | --- | --- | --- | --- |
 | Claimers only (8 × batch 12, ties) | 240 claims | 0 | none | every round claims all 12 rows exactly once; every row owned by its own worker |
 | Claimers + 4 terminal transitions | 240 claims + 301 lost races | 0 | none (only `benign:IllegalArgumentException`) | lost races never surface as SQLSTATEs |
-| Claimers + quarantine scan (undecodable rows) | 240 claims + 120 scans | 0 | none (`IllegalStateException` decode failures only) | quarantine is non-empty, ciphertext byte-identical to the stored payload, no rows lost |
+| Claimers + quarantine scan (undecodable rows) | 240 claims + 120 scans | 0 | none (`IllegalStateException` decode failures only) | quarantine is non-empty, ciphertext byte-identical to a **pre-run snapshot**, outbox payload unchanged, no rows lost |
 
 ## 6. Limits — what this does not establish
 

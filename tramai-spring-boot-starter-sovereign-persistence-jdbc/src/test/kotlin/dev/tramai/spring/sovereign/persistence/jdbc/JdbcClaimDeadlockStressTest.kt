@@ -198,6 +198,13 @@ class JdbcClaimDeadlockStressTest {
             val sqlStates = mutableMapOf<String, Int>()
             repeat(ROUNDS) { round ->
                 seed(BATCH, undecodableEvery = 3)
+                // Snapshot before any worker touches a row: comparing quarantine's copy to the row *after*
+                // quarantine would pass even if quarantine rewrote the evidence.
+                val before =
+                    (1..BATCH).associate { index ->
+                        val outboxId = "row-%03d".format(index)
+                        outboxId to payloadBytes(outboxId)
+                    }
                 val claimers =
                     (1..CLAIMERS).map { worker ->
                         async(Dispatchers.IO) {
@@ -211,7 +218,7 @@ class JdbcClaimDeadlockStressTest {
                         async(Dispatchers.IO) {
                             repeat(3) {
                                 runCatching {
-                                    store().quarantineStore()?.quarantineUndecodableEvidence(3, clock.instant())
+                                    store().quarantineStore().quarantineUndecodableEvidence(3, clock.instant())
                                 }.onFailure { e -> synchronized(sqlStates) { bump(sqlStates, e) } }
                                 delay(1)
                             }
@@ -221,19 +228,20 @@ class JdbcClaimDeadlockStressTest {
                 quarantine.awaitAll()
 
                 // Quarantining never rewrites stored bytes, and never loses a row.
-                val quarantined = store().quarantineStore()?.listQuarantined(50) ?: emptyList()
+                val quarantined = store().quarantineStore().listQuarantined(50)
                 assertThat(countRows()).describedAs("round $round lost evidence rows").isEqualTo(BATCH)
                 assertThat(quarantined)
                     .describedAs("round $round quarantined nothing although the batch contained damage")
                     .isNotEmpty()
                 quarantined.forEach { summary ->
-                    val stored = payloadBytes(summary.outboxId!!)
-                    val kept = store().quarantineStore()?.readQuarantinedCiphertext(summary.locator)
+                    val outboxId = summary.outboxId!!
+                    val kept = store().quarantineStore().readQuarantinedCiphertext(summary.locator)
+                    // Byte-identical to what was stored before contention: quarantine preserves evidence.
                     assertThat(kept)
-                        .describedAs("round $round quarantined ciphertext missing for ${summary.locator}")
-                        .isNotNull
-                    // Byte-identical: quarantine preserves evidence, it does not re-encode it.
-                    assertThat(kept).isEqualTo(stored)
+                        .describedAs("round $round quarantined ciphertext $outboxId")
+                        .isEqualTo(before[outboxId])
+                    // And the outbox row itself was not rewritten by the scan.
+                    assertThat(payloadBytes(outboxId)).isEqualTo(before[outboxId])
                 }
                 if (round % 5 == 0) {
                     println("[stress3] round $round quarantined=${quarantined.size} sqlStates=$sqlStates")
@@ -267,6 +275,9 @@ class JdbcClaimDeadlockStressTest {
                 .isEqualTo((1..BATCH).map { "row-%03d".format(it) })
         }
 
+    // Limitation: this pins the divergence guard, not "a legal terminal transition makes the loop hold the
+    // first lock while acquiring the second". The reachable post-lock state here is a column/payload
+    // disagreement, which fails closed. A legal transition racing the fallback is not reproduced.
     @Test
     fun `a candidate whose stored state diverges after the probe fails closed`() =
         runBlocking<Unit> {
@@ -282,7 +293,9 @@ class JdbcClaimDeadlockStressTest {
                     async(Dispatchers.IO) {
                         runCatching { store().claimPending("worker-a", 1, clock.instant()) }
                     }
-                delay(300) // the claimer is now blocked inside the fallback, holding nothing yet
+                // A fixed sleep is not a barrier: on a slow scheduler the holder could commit first and the
+                // asserted failure mode would never be exercised.
+                awaitBlockedBackend("the claimer never reached the fallback row-lock wait")
                 // By the time it acquires the row it probed, that row is no longer dispatchable.
                 // The other transaction emits it: a state change the non-locking probe cannot see. Raw SQL
                 // because this transition belongs to that transaction, not to the store under test.
@@ -378,6 +391,21 @@ class JdbcClaimDeadlockStressTest {
                 }
             }
         }
+
+    /** Blocks until some backend is waiting on a lock, or fails with the given message. */
+    private fun awaitBlockedBackend(message: String) {
+        val deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos()
+        while (System.nanoTime() < deadline) {
+            val blocked =
+                query("SELECT count(*) FROM pg_stat_activity WHERE cardinality(pg_blocking_pids(pid)) > 0") { rs ->
+                    rs.next()
+                    rs.getInt(1)
+                }
+            if (blocked > 0) return
+            Thread.sleep(10)
+        }
+        throw AssertionError(message)
+    }
 
     private fun statusOf(outboxId: String): String? =
         query("SELECT status FROM audit_outbox WHERE outbox_id = '$outboxId'") { rs ->
