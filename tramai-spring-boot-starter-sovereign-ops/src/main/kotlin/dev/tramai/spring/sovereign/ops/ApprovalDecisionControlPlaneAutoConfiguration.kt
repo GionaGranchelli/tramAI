@@ -2,6 +2,8 @@ package dev.tramai.spring.sovereign.ops
 
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsRefusalRecorder
+import dev.tramai.spring.sovereign.ops.outbox.UnconfiguredRefusalRecorder
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -53,10 +55,15 @@ class ApprovalDecisionControlPlaneAutoConfiguration {
         mutationStore: SovereignOpsApprovalMutationStore,
         @org.springframework.beans.factory.annotation.Qualifier("operatorApprovalPolicy")
         approvalPolicy: OperatorApprovalPolicy,
+        refusalRecorder: ObjectProvider<SovereignOpsRefusalRecorder>,
     ): ApprovalDecisionControlPlane =
         SovereignOpsApprovalDecisionControlPlane(
             approvalStore = approvalStore,
             mutationStore = mutationStore,
             approvalPolicy = approvalPolicy,
+            // 0.7.6f §5.3: refusal evidence is written before the refusal is returned. Without a configured
+            // sink the plane keeps its fail-closed default, so an unrecorded refusal cannot be returned as
+            // if it had been recorded.
+            refusalRecorder = refusalRecorder.getIfAvailable() ?: UnconfiguredRefusalRecorder,
         )
 }

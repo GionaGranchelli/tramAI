@@ -22,7 +22,16 @@ package dev.tramai.spring.sovereign.ops.outbox
  * - Background retry scheduling
  * - REST/Actuator endpoints
  */
-interface SovereignOpsAuditOutboxOperations {
+interface SovereignOpsAuditOutboxOperations : SovereignOpsRefusalRecorder {
+    /**
+     * Refusal recording fails closed by default.
+     *
+     * An operations implementation that cannot write dispatchable evidence must not silently accept a
+     * refusal, so the default throws the same fixed code the store uses for an unimplemented append. The
+     * durable implementations override this.
+     */
+    override suspend fun recordRefusal(evidence: RefusalEvidence): RefusalRecording =
+        throw UnsupportedOperationException("tramai-sovereign-ops-outbox-dispatchable-append-unsupported")
 
     /**
      * List outbox records, optionally filtered by [status].
