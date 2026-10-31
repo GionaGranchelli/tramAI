@@ -278,6 +278,7 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
                     // now a typed Unauthorized naming the role requirement.
                     approvalPolicy = OperatorApprovalPolicy(mapOf("v1" to setOf(ApproverRole("finance-reviewer")))),
                     clock = clock,
+                    refusalRecorder = RecordingRefusalRecorder(),
                 )
 
             val result = controlPlane.approve(decisionCommand("approval-1"), operatorAuthority)
