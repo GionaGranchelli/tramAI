@@ -102,7 +102,7 @@ class JdbcClaimDeadlockStressTest {
                                 } catch (e: PSQLException) {
                                     val state = e.sqlState ?: "unknown"
                                     synchronized(sqlStates) { sqlStates[state] = (sqlStates[state] ?: 0) + 1 }
-                                    if (state == DEADLOCK_SQLSTATE) synchronized(sqlStates) { deadlocks++ }
+                                    synchronized(sqlStates) { if (state == DEADLOCK_SQLSTATE) deadlocks++ }
                                     emptyList()
                                 }
                             }
@@ -132,6 +132,7 @@ class JdbcClaimDeadlockStressTest {
                 "[stress] SUMMARY rounds=$ROUNDS batch=$BATCH claimers=$CLAIMERS " +
                     "sqlStates=$sqlStates deadlocks=$deadlocks claims=$successfulClaims",
             )
+            if (deadlocks == 0) println("[stress] no 40P01 observed: no lock dump to capture")
         }
 
     @Test
@@ -287,6 +288,36 @@ class JdbcClaimDeadlockStressTest {
     ) {
         val state = (e as? PSQLException)?.sqlState ?: "non-sql:${e::class.simpleName}"
         counts[state] = (counts[state] ?: 0) + 1
+        // Lock evidence belongs with the SQLSTATE: a bare 40P01 says nothing about who held what.
+        if (state == DEADLOCK_SQLSTATE) captureLockEvidence(state, e)
+    }
+
+    private fun captureLockEvidence(
+        state: String,
+        e: Throwable,
+    ) {
+        println("[stress] DEADLOCK $state: ${e.message}")
+        dataSource.connection.use { conn ->
+            conn.createStatement().use { stmt ->
+                stmt
+                    .executeQuery(
+                        "SELECT l.pid, l.mode, l.granted, a.state, a.wait_event_type, a.query " +
+                            "FROM pg_locks l LEFT JOIN pg_stat_activity a ON a.pid = l.pid " +
+                            "WHERE l.relation = 'audit_outbox'::regclass ORDER BY l.pid",
+                    ).use { rs ->
+                        while (rs.next()) {
+                            println(
+                                "[stress] lock pid=${rs.getInt(1)} mode=${rs.getString(2)} " +
+                                    "granted=${rs.getBoolean(3)} state=${rs.getString(4)} " +
+                                    "wait=${rs.getString(5)} query=${rs.getString(6)?.take(120)}",
+                            )
+                        }
+                    }
+            }
+        }
+        postgres.logs.lines().filter { it.contains("deadlock detected") }.forEach {
+            println("[stress] server: $it")
+        }
     }
 
     private fun countRows(): Int =
