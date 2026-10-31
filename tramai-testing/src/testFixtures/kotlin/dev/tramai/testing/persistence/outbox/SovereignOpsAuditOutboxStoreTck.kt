@@ -1387,6 +1387,9 @@ abstract class SovereignOpsAuditOutboxStoreTck {
             assertThat(reloaded.previousApprovalStatus).isNull()
             assertThat(reloaded.previousApprovalVersion).isNull()
             assertThat(reloaded.refusalReason).isEqualTo("missing-capability")
+            // A key is not a record: the inputs an auditor needs must be readable after a round-trip.
+            assertThat(reloaded.refusalPolicyVersion).isEqualTo("policy-7")
+            assertThat(reloaded.refusalExpectedVersion).isEqualTo(11L)
         }
 
     @Test
@@ -1633,6 +1636,8 @@ abstract class SovereignOpsAuditOutboxStoreTck {
             status = status,
             evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
             refusalReason = refusalReason,
+            refusalPolicyVersion = "policy-7",
+            refusalExpectedVersion = 11L,
             actorIssuer = refusalIssuer,
             actorIdentityDigest = refusalIdentityDigest,
         )

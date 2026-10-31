@@ -157,6 +157,45 @@ class ApprovalControlPlaneControllerTest {
     }
 
     @Test
+    fun `a refusal-recording failure returns no decision`() {
+        runBlocking {
+            val expectedCommand =
+                approveCommand(
+                    approvalId = "approval-1",
+                    comment = "Approved",
+                    expectedVersion = 0L,
+                    correlationId = "claim-1",
+                )
+            org.mockito.Mockito
+                .doThrow(IllegalStateException("tramai-sovereign-ops-outbox-dispatchable-append-failed"))
+                .`when`(decisionControlPlane)
+                .approve(expectedCommand, fixtureAuthority)
+
+            // The container turns this into a 5xx; what matters here is that no decision -- approved,
+            // denied or refused -- is rendered. A refusal that could not be recorded must never look
+            // like an answer.
+            org.assertj.core.api.Assertions
+                .assertThatThrownBy {
+                    mockMvc.perform(
+                        post("/tramai/sovereign/approvals/approval-1/approve")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(
+                                objectMapper.writeValueAsString(
+                                    ApproveDenyRequest(
+                                        comment = "Approved",
+                                        expectedVersion = 0L,
+                                        correlationId = "claim-1",
+                                    ),
+                                ),
+                            ),
+                    )
+                }.hasRootCauseMessage("tramai-sovereign-ops-outbox-dispatchable-append-failed")
+
+            verify(decisionControlPlane).approve(expectedCommand, fixtureAuthority)
+        }
+    }
+
+    @Test
     fun `deny endpoint returns 200 for Denied`() {
         runBlocking {
             doReturn(

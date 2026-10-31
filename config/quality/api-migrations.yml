@@ -402,3 +402,18 @@ migrations:
       APPROVAL_APPROVED and AUTHORIZATION_REFUSAL; without it those kinds are parked as FAILED_PERMANENT and
       recorded as unsupported-evidence-kind. No consumer action required for SovereignOpsAuditOutboxRecord,
       whose new field defaults to null.
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: b9e2b15cb3d930536ae2c1f5ef7c8a28918057c648934db754910f2e740260e4
+    toSha256: ef10091bec9891abda5c2b8b2693b087a0c40539d2879cca98bf42c855f19e6a
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 4b: durable authorization-refusal recording. Adds RefusalEvidence (canonical
+      refusal identity), RefusalRecording (Recorded/Duplicate), the SovereignOpsRefusalRecorder sink that
+      SovereignOpsAuditOutboxOperations extends with a fail-closed recordRefusal default, and an optional
+      refusalRecorder on SovereignOpsApprovalDecisionControlPlane so a refusal is recorded before it is
+      returned. Additive: the control-plane parameter defaults to a fail-closed sink and the operations
+      default throws the existing dispatchable-append code.
+    migration: >-
+      Deployments that serve privileged decisions must expose a SovereignOpsRefusalRecorder bean (the
+      default outbox operations bean satisfies it) or refusals fail closed rather than being returned
+      unrecorded. No data migration: refusal evidence uses the existing audit_outbox table.

@@ -9,10 +9,14 @@ import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.core.operator.ActorIdentityDigest
 import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.spring.sovereign.ops.outbox.RefusalEvidence
+import dev.tramai.spring.sovereign.ops.outbox.RefusalOperation
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsRefusalRecorder
+import dev.tramai.spring.sovereign.ops.outbox.UnconfiguredRefusalRecorder
 import java.security.MessageDigest
 import java.time.Clock
 import java.util.UUID
@@ -30,12 +34,16 @@ import java.util.UUID
  * `policyVersion`. Required: an authorized decision cannot be produced without a requirement, and a
  * deployment that has not configured one must fail rather than fall back to allowing any operator.
  * @param clock clock for temporal decisions
+ * @param refusalRecorder durable evidence sink for authorization refusals. Refusal evidence is written
+ * **before** the refusal is returned, so a recording failure surfaces as a server-side failure instead of
+ * an unrecorded refusal; the default fails closed rather than silently recording nothing.
  */
 class SovereignOpsApprovalDecisionControlPlane(
     private val approvalStore: ApprovalStore,
     private val mutationStore: SovereignOpsApprovalMutationStore,
     private val approvalPolicy: OperatorApprovalPolicy,
     private val clock: Clock = Clock.systemUTC(),
+    private val refusalRecorder: SovereignOpsRefusalRecorder = UnconfiguredRefusalRecorder,
 ) : ApprovalDecisionControlPlane {
     override suspend fun approve(
         command: ApprovalDecisionCommand,
@@ -63,12 +71,13 @@ class SovereignOpsApprovalDecisionControlPlane(
         decisionType: ApprovalDecisionType,
     ): ApprovalDecisionResult {
         // The capability gate runs before the lookup; everything after it necessarily follows a read.
-        capabilityRefusal(command, authority)?.let { return it }
+        val refusals = RefusalRefusals(command, authority, decisionType, refusalRecorder)
+        capabilityRefusal(command, authority, refusals)?.let { return it }
         val approval = approvalStore.get(command.approvalId.value)
         return if (approval == null) {
             ApprovalDecisionResult.NotFound(command.approvalId)
         } else {
-            approvalRefusal(approval, approvalPolicy, authority)
+            approvalRefusal(approval, approvalPolicy, authority, refusals)
                 ?: preconditionRefusal(command, approval, clock)
                 ?: mutate(command, approval, authority, decisionType)
         }
@@ -163,28 +172,67 @@ private fun sha256Hex(input: String): String {
  * approvals. Every later refusal necessarily follows a lookup and therefore discloses existence, which the
  * contract accepts and records.
  */
-private fun capabilityRefusal(
+private suspend fun capabilityRefusal(
     command: ApprovalDecisionCommand,
     authority: OperatorAuthority,
-): ApprovalDecisionResult? =
-    if (authority.holds(OperatorCapability.DECIDE_APPROVAL)) {
-        null
-    } else {
-        ApprovalDecisionResult.Unauthorized(command.approvalId, ApprovalUnauthorizedReason.MISSING_CAPABILITY)
-    }
+    refusals: RefusalRefusals,
+): ApprovalDecisionResult? {
+    if (authority.holds(OperatorCapability.DECIDE_APPROVAL)) return null
+    // Existence-blind by construction: nothing about the approval has been read, and the key therefore
+    // carries "policy not consulted" rather than a version this path cannot legitimately know.
+    refusals.record(ApprovalUnauthorizedReason.MISSING_CAPABILITY, consultedPolicyVersion = null)
+    return ApprovalDecisionResult.Unauthorized(command.approvalId, ApprovalUnauthorizedReason.MISSING_CAPABILITY)
+}
 
 /**
  * L3: the per-approval role requirement, evaluated after the lookup because it is keyed by the approval's
  * own persisted `policyVersion`.
  */
-private fun approvalRefusal(
+private suspend fun approvalRefusal(
     approval: ApprovalRequest,
     approvalPolicy: OperatorApprovalPolicy,
     authority: OperatorAuthority,
+    refusals: RefusalRefusals,
 ): ApprovalDecisionResult? =
     approvalPolicy.evaluate(approval.binding.policyVersion, authority)?.let { refusal ->
+        refusals.record(refusal, consultedPolicyVersion = approval.binding.policyVersion)
         ApprovalDecisionResult.Unauthorized(ApprovalId(approval.approvalId), refusal)
     }
+
+/**
+ * Records the refusal for one command: what was attempted, by whom, why, and against which observed state.
+ *
+ * Bundled into one object so the guards stay small, and top-level private so both the control plane and the
+ * guards above share it without widening the public surface.
+ */
+private class RefusalRefusals(
+    private val command: ApprovalDecisionCommand,
+    private val authority: OperatorAuthority,
+    private val decisionType: ApprovalDecisionType,
+    private val recorder: SovereignOpsRefusalRecorder,
+) {
+    suspend fun record(
+        reason: ApprovalUnauthorizedReason,
+        consultedPolicyVersion: String?,
+    ) {
+        recorder.recordRefusal(
+            RefusalEvidence(
+                operation =
+                    when (decisionType) {
+                        ApprovalDecisionType.APPROVE -> RefusalOperation.APPROVE
+                        ApprovalDecisionType.DENY -> RefusalOperation.DENY
+                    },
+                approvalId = command.approvalId.value,
+                issuer = authority.issuer,
+                subject = authority.subject,
+                refusalReason = reason.wireName,
+                policyVersion = consultedPolicyVersion,
+                expectedVersion = command.expectedVersion,
+                correlationId = command.correlationId,
+            ),
+        )
+    }
+}
 
 /**
  * The 0.7.6d preconditions, in their committed order.

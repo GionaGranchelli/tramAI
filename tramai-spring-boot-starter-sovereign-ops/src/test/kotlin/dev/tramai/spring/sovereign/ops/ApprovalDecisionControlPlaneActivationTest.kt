@@ -9,6 +9,7 @@ import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsApprovalMutati
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsRefusalRecorder
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -68,6 +69,11 @@ class ApprovalDecisionControlPlaneActivationTest {
     class InfrastructureConfig {
         @Bean
         fun approvalStore(): ApprovalStore = TestApprovalStore()
+
+        // 0.7.6f: the decision plane writes refusal evidence before returning a refusal, so a deployed
+        // plane needs a sink. Without one the plane fails closed on every refusal.
+        @Bean
+        fun refusalRecorder(): SovereignOpsRefusalRecorder = RecordingRefusalRecorder()
 
         @Bean
         fun outboxStore(): SovereignOpsAuditOutboxStore = InMemorySovereignOpsAuditOutboxStore()

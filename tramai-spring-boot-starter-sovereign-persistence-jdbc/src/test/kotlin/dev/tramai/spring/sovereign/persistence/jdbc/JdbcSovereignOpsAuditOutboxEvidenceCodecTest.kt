@@ -10,6 +10,7 @@ import dev.tramai.core.identity.RunId
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import org.assertj.core.api.Assertions.assertThat
@@ -210,6 +211,45 @@ class JdbcSovereignOpsAuditOutboxEvidenceCodecTest {
         (tree.get("record") as ObjectNode).remove(field)
         return OPS_OUTBOX_JSON.writeValueAsBytes(tree)
     }
+
+    @Test
+    fun `a refusal without its expected version is corrupted evidence`() {
+        val encoded = encodeOutboxRecord(refusalRecord(expectedVersion = null), runIdentity = null)
+
+        assertThatThrownBy { decodeOutboxRecord(encoded) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("authorization refusal is missing its inputs")
+    }
+
+    @Test
+    fun `a refusal without its reason is corrupted evidence`() {
+        val encoded = encodeOutboxRecord(refusalRecord(reason = null), runIdentity = null)
+
+        assertThatThrownBy { decodeOutboxRecord(encoded) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("authorization refusal is missing its inputs")
+    }
+
+    @Test
+    fun `a refusal with no consulted policy still decodes`() {
+        val decoded = decodeOutboxRecord(encodeOutboxRecord(refusalRecord(), runIdentity = null)).record
+
+        // Absent policy is a fact -- no policy was consulted -- not damage.
+        assertThat(decoded.refusalPolicyVersion).isNull()
+        assertThat(decoded.refusalReason).isEqualTo("missing-capability")
+        assertThat(decoded.refusalExpectedVersion).isEqualTo(11L)
+    }
+
+    private fun refusalRecord(
+        reason: String? = "missing-capability",
+        policyVersion: String? = null,
+        expectedVersion: Long? = 11,
+    ) = record().copy(
+        evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
+        refusalReason = reason,
+        refusalPolicyVersion = policyVersion,
+        refusalExpectedVersion = expectedVersion,
+    )
 
     private fun record(
         actorIssuer: String? = null,

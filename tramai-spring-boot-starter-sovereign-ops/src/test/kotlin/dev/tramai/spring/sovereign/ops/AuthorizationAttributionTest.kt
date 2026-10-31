@@ -96,6 +96,7 @@ class AuthorizationAttributionTest {
                 mutationStore = mutationStore,
                 approvalPolicy = policy,
                 clock = clock,
+                refusalRecorder = RecordingRefusalRecorder(),
             )
 
         val result =
@@ -137,6 +138,7 @@ class AuthorizationAttributionTest {
                 mutationStore = AttributionMutationStore(store),
                 approvalPolicy = policy,
                 clock = clock,
+                refusalRecorder = RecordingRefusalRecorder(),
             )
 
         // Same verified identity, same capability, but a verified approver role the policy does not accept:

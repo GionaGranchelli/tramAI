@@ -18,6 +18,7 @@ import dev.tramai.core.identity.RunId
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 
 /**
@@ -138,7 +139,11 @@ internal fun encodeOutboxRecord(
     val persisted = record.toPersistedOutbox()
     val hasIdentity = record.actorIssuer != null || record.actorIdentityDigest != null
     val hasPrevious = record.previousApprovalStatus != null || record.previousApprovalVersion != null
-    val hasKind = record.evidenceKind != null || record.refusalReason != null
+    val hasKind =
+        record.evidenceKind != null ||
+            record.refusalReason != null ||
+            record.refusalPolicyVersion != null ||
+            record.refusalExpectedVersion != null
     return if (hasIdentity || hasPrevious || hasKind) {
         OPS_OUTBOX_JSON.writeValueAsBytes(
             PersistedSovereignOpsAuditOutboxRecordV3(
@@ -201,7 +206,12 @@ private fun carriesEvidenceFields(node: JsonNode?): Boolean {
     if (node == null) return false
     val hasIdentity = node.get("actorIssuer") != null || node.get("actorIdentityDigest") != null
     val hasPrevious = node.get("previousApprovalStatus") != null || node.get("previousApprovalVersion") != null
-    return hasIdentity || hasPrevious || node.get("evidenceKind") != null || node.get("refusalReason") != null
+    return hasIdentity ||
+        hasPrevious ||
+        node.get("evidenceKind") != null ||
+        node.get("refusalReason") != null ||
+        node.get("refusalPolicyVersion") != null ||
+        node.get("refusalExpectedVersion") != null
 }
 
 /**
@@ -260,6 +270,14 @@ private fun decodeEvidence(json: ByteArray): DecodedOutboxRecord {
     }
     check((record.previousApprovalStatus == null) == (record.previousApprovalVersion == null)) {
         "$ERROR_CORRUPTED_RECORD: previous approval state is incomplete"
+    }
+    // A refusal without its reason or expected version is not reconstructable evidence, so it is damage
+    // rather than a refusal. An absent policy version is legitimate: it means no policy was consulted.
+    check(
+        record.evidenceKind != SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL ||
+            (record.refusalReason != null && record.refusalExpectedVersion != null),
+    ) {
+        "$ERROR_CORRUPTED_RECORD: authorization refusal is missing its inputs"
     }
     val identity = v3.governedRunIdentity?.toCore()
     if (identity != null) {

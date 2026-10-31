@@ -202,6 +202,8 @@ class JdbcSovereignOpsAuditOutboxStoreTckTest : SovereignOpsAuditOutboxStoreTck(
             createdAt = Instant.parse("2026-01-01T00:00:00Z"),
             status = status,
             evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
+            refusalReason = "missing-capability",
+            refusalExpectedVersion = 3,
             actorIssuer = "https://issuer.example",
             actorIdentityDigest = "0123456789abcdef".repeat(4),
         )

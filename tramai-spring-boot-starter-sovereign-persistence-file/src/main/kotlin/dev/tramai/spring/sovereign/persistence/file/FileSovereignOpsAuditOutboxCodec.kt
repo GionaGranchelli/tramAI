@@ -15,6 +15,7 @@ import dev.tramai.core.identity.WorkloadId
 import dev.tramai.persistence.file.FileStoreCorruptionException
 import dev.tramai.persistence.file.FileStorePermissionException
 import dev.tramai.persistence.file.FileStoreUnsupportedFormatException
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 
 /**
@@ -152,7 +153,7 @@ private fun decodeLegacy(json: String): DecodedOutboxRecord {
     // The released V1 shape has no evidence fields: one appearing here would be versioned evidence read as
     // unversioned attribution.
     val carriesEvidence = v1.actorIssuer != null || v1.previousApprovalStatus != null
-    val carriesKind = v1.evidenceKind != null || v1.refusalReason != null
+    val carriesKind = v1.evidenceKind != null || v1.hasRefusalDetail
     val carriesRest = v1.actorIdentityDigest != null || v1.previousApprovalVersion != null
     if (carriesEvidence || carriesKind || carriesRest) {
         throw FileStoreCorruptionException("$ERROR_CORRUPTED_RECORD: legacy payload carries 0.7.6f evidence fields")
@@ -167,7 +168,9 @@ private fun decodeLegacy(json: String): DecodedOutboxRecord {
 private fun decodeGoverned(json: String): DecodedOutboxRecord {
     val v2 = strictOpsOutboxReadValue<PersistedSovereignOpsAuditOutboxRecordV2>(json)
     val carriesEvidence = v2.record.actorIssuer != null || v2.record.previousApprovalStatus != null
-    val carriesKind = v2.record.evidenceKind != null || v2.record.refusalReason != null
+    val carriesKind =
+        v2.record.evidenceKind != null ||
+            v2.record.hasRefusalDetail
     val carriesRest = v2.record.actorIdentityDigest != null || v2.record.previousApprovalVersion != null
     if (carriesEvidence || carriesKind || carriesRest) {
         throw FileStoreCorruptionException("$ERROR_CORRUPTED_RECORD: V2 payload carries 0.7.6f evidence fields")
@@ -198,10 +201,16 @@ private fun decodeEvidence(json: String): DecodedOutboxRecord {
     // half-recorded previous state cannot be reconciled with any approval row.
     val actorIncomplete = (record.actorIssuer == null) != (record.actorIdentityDigest == null)
     val previousIncomplete = (record.previousApprovalStatus == null) != (record.previousApprovalVersion == null)
+    // A refusal without its reason or expected version is not reconstructable evidence, so it is damage
+    // rather than a refusal. An absent policy version is legitimate: it means no policy was consulted.
+    val refusalIncomplete =
+        record.evidenceKind == SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL &&
+            (record.refusalReason == null || record.refusalExpectedVersion == null)
     val incomplete =
         when {
             actorIncomplete -> "actor provenance is incomplete"
             previousIncomplete -> "previous approval state is incomplete"
+            refusalIncomplete -> "authorization refusal is missing its inputs"
             else -> null
         }
     if (incomplete != null) throw FileStoreCorruptionException("$ERROR_CORRUPTED_RECORD: $incomplete")
@@ -235,7 +244,9 @@ internal fun encodeOutboxRecord(
             decoded.record.actorIdentityDigest != null ||
             decoded.record.previousApprovalStatus != null ||
             decoded.record.previousApprovalVersion != null
-    val hasKind = decoded.record.evidenceKind != null || decoded.record.refusalReason != null
+    val hasKind =
+        decoded.record.evidenceKind != null ||
+            persisted.hasRefusalDetail
     return if (hasAttribution || hasKind) {
         PersistedSovereignOpsAuditOutboxRecordV3(
             record = persisted,
@@ -286,3 +297,7 @@ internal fun permissionFailure(message: String): Nothing = throw FileStorePermis
 private const val OFFICIAL_VERSION = 1
 private const val GOVERNED_VERSION = 2
 private const val EVIDENCE_VERSION = 3
+
+/** Whether a persisted node carries any refusal detail: the fields travel together or not at all. */
+private val PersistedSovereignOpsAuditOutboxRecordV1.hasRefusalDetail: Boolean
+    get() = refusalReason != null || refusalPolicyVersion != null || refusalExpectedVersion != null

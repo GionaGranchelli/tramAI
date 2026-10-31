@@ -3,6 +3,7 @@ package dev.tramai.spring.sovereign.persistence.file
 import com.fasterxml.jackson.databind.node.ObjectNode
 import dev.tramai.persistence.file.FileStoreCorruptionException
 import dev.tramai.persistence.file.FileStoreUnsupportedFormatException
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import org.assertj.core.api.Assertions.assertThat
@@ -93,6 +94,55 @@ class FileSovereignOpsAuditOutboxEvidenceCodecTest {
             DecodedOutboxRecord(record = record, runIdentity = null, outboxRecordVersion = 1),
             outboxRecordVersion = 1,
         )
+
+    @Test
+    fun `a refusal without its expected version is corrupted evidence`() {
+        val encoded = encodeOutboxRecord(refusalDecoded(expectedVersion = null), outboxRecordVersion = 3)
+
+        assertThatThrownBy { decodeOutboxRecord(encoded) }
+            .isInstanceOf(FileStoreCorruptionException::class.java)
+            .hasMessageContaining("authorization refusal is missing its inputs")
+    }
+
+    @Test
+    fun `a refusal without its reason is corrupted evidence`() {
+        val encoded = encodeOutboxRecord(refusalDecoded(reason = null), outboxRecordVersion = 3)
+
+        assertThatThrownBy { decodeOutboxRecord(encoded) }
+            .isInstanceOf(FileStoreCorruptionException::class.java)
+            .hasMessageContaining("authorization refusal is missing its inputs")
+    }
+
+    @Test
+    fun `a refusal with no consulted policy still decodes`() {
+        val decoded = decodeOutboxRecord(encodeOutboxRecord(refusalDecoded(), outboxRecordVersion = 3)).record
+
+        // Absent policy is a fact -- no policy was consulted -- not damage.
+        assertThat(decoded.refusalPolicyVersion).isNull()
+        assertThat(decoded.refusalReason).isEqualTo("missing-capability")
+        assertThat(decoded.refusalExpectedVersion).isEqualTo(11L)
+    }
+
+    private fun refusalDecoded(
+        reason: String? = "missing-capability",
+        policyVersion: String? = null,
+        expectedVersion: Long? = 11,
+    ) = DecodedOutboxRecord(
+        record = refusalRecord(reason, policyVersion, expectedVersion),
+        runIdentity = null,
+        outboxRecordVersion = 3,
+    )
+
+    private fun refusalRecord(
+        reason: String? = "missing-capability",
+        policyVersion: String? = null,
+        expectedVersion: Long? = 11,
+    ) = record().copy(
+        evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
+        refusalReason = reason,
+        refusalPolicyVersion = policyVersion,
+        refusalExpectedVersion = expectedVersion,
+    )
 
     private fun record(
         actorIssuer: String? = null,
