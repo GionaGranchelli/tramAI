@@ -10,7 +10,6 @@ import java.security.MessageDigest
  * and encoded as a 64-character lowercase hex string.
  */
 object FileStoreSha256 {
-
     /**
      * Computes a SHA-256 digest string for the given record identifier.
      *
@@ -18,9 +17,22 @@ object FileStoreSha256 {
      * @param stableRecordId Stable, unique record identifier within the type.
      * @return 64-character lowercase hex SHA-256 hash.
      */
-    fun digest(recordType: String, stableRecordId: String): String {
+    fun digest(
+        recordType: String,
+        stableRecordId: String,
+    ): String {
         val input = "$recordType:$stableRecordId".toByteArray(Charsets.UTF_8)
-        val hash = MessageDigest.getInstance("SHA-256").digest(input)
-        return hash.joinToString("") { "%02x".format(it) }
+        return hexOf(input)
     }
+
+    /**
+     * SHA-256 of raw bytes as 64-character lowercase hex.
+     *
+     * Used to fingerprint stored ciphertext without decoding it (0.7.6f quarantine metadata).
+     */
+    fun hexOf(bytes: ByteArray): String =
+        MessageDigest
+            .getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it) }
 }

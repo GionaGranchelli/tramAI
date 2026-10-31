@@ -14,7 +14,6 @@ import kotlin.test.assertTrue
  * declared configuration-property literals may appear as `tramai.` strings.
  */
 class RuntimeEventCatalogueVerifierRulesTest {
-
     private val verifier = RuntimeEventCatalogueArchitectureTest()
 
     @Test
@@ -44,6 +43,15 @@ class RuntimeEventCatalogueVerifierRulesTest {
         assertTrue(verifier.classifySourceLiteral("tramai.sovereign.ops.outbox.worker"))
         assertTrue(verifier.classifySourceLiteral("tramai.security.classification"))
         assertTrue(verifier.classifySourceLiteral("tramai.providers.openai.apiKey"))
+        assertTrue(verifier.classifySourceLiteral("tramai.control-plane.http"))
+    }
+
+    @Test
+    fun `a new literal beneath a declared control-plane prefix is still an offender`() {
+        // Declaring the adapter's own gate must not open the subtree: anything else under the
+        // control-plane namespace is protocol and would have to reference the catalogue.
+        assertFalse(verifier.classifySourceLiteral("tramai.control-plane.http.mutations"))
+        assertFalse(verifier.classifySourceLiteral("tramai.control-plane.state_version"))
     }
 
     @Test

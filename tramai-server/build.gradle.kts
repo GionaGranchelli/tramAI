@@ -9,6 +9,7 @@ plugins {
 
 
 dependencies {
+    implementation(project(":tramai-control-plane"))
     api(project(":tramai-orchestration"))
 
     implementation(project(":tramai-scheduler"))
@@ -19,5 +20,6 @@ dependencies {
 
             testImplementation(libs.h2database)
         testImplementation(libs.spring.boot.starter.test)
+        testImplementation(testFixtures(project(":tramai-control-plane")))
 }
 

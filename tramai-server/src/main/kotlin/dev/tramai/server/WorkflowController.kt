@@ -1,21 +1,27 @@
 package dev.tramai.server
 
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.observation.event.RuntimeEvents
+import dev.tramai.orchestration.GovernedRun
 import dev.tramai.orchestration.NoOpWorkflowObserver
 import dev.tramai.orchestration.WorkflowContext
 import dev.tramai.orchestration.WorkflowObserver
 import dev.tramai.orchestration.WorkflowPersistence
 import dev.tramai.orchestration.WorkflowResumeException
 import dev.tramai.orchestration.WorkflowSuspendedException
+import dev.tramai.orchestration.recoverGovernedRun
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
-import org.springframework.web.method.annotation.HandlerMethodValidationException
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
@@ -24,10 +30,11 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
-import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.method.annotation.HandlerMethodValidationException
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
-import org.slf4j.LoggerFactory
 import java.net.URI
 import java.nio.charset.StandardCharsets.UTF_8
 import java.util.UUID
@@ -41,9 +48,18 @@ class WorkflowController(
 ) {
     private val logger = LoggerFactory.getLogger(WorkflowController::class.java)
 
+    /**
+     * Additive wiring seam (0.7.1d): the governed deployment this server instance runs as.
+     *
+     * Deliberately NOT a constructor parameter: the public constructor stays exactly as it
+     * was, and an ungoverned server (the default) behaves as before. Assigned by
+     * [ServerConfiguration] when governed configuration is present.
+     */
+    @Autowired(required = false)
+    internal var serverGovernance: ServerGovernance = ServerGovernance.UNSET
+
     @GetMapping("/workflows")
-    fun listWorkflows(): List<Map<String, String>> =
-        registry.list().map { mapOf("name" to it.workflow.name) }
+    fun listWorkflows(): List<Map<String, String>> = registry.list().map { mapOf("name" to it.workflow.name) }
 
     @PostMapping("/workflows/{name}/run")
     fun runWorkflow(
@@ -94,17 +110,43 @@ class WorkflowController(
     ): WorkflowRunResponse {
         val entry = registry.get(name)
         val persistence = persistenceOrConflict(entry, id)
+        // Read-only preconditions, in this order, BEFORE any mutable step: the run must be
+        // resumable at all, attribution is recovered from its own checkpoint, and the
+        // configured deployment must be entitled to continue it. An unauthorized resume must
+        // not be able to move another run out of DELAYED — or change any state at all.
+        runStore.requireResumable(entry.workflow.name, id)
+        val governedRun = recoverPersistedGovernedRun(entry, persistence, id)
+        serverGovernance.authorizeContinuation(governedRun?.identity?.deployment)
+
         val running = runStore.markResuming(entry.workflow.name, id).toResponse()
-        val job = workflowExecutionScope.launch(start = CoroutineStart.LAZY) {
-            executeResumeSafely(
-                entry = entry,
-                workflowId = id,
-                persistence = persistence,
-            )
-        }
+        val job =
+            workflowExecutionScope.launch(start = CoroutineStart.LAZY) {
+                executeResumeSafely(
+                    entry = entry,
+                    workflowId = id,
+                    persistence = persistence,
+                    governedRun = governedRun,
+                )
+            }
         runStore.attachExecution(entry.workflow.name, id, job)
         job.start()
         return running
+    }
+
+    /**
+     * Recovers the identity persisted with this run (null for a legacy run).
+     *
+     * ponytail: blocking bridge — the resume endpoint is not suspend and its ABI is public;
+     * recovery is a single checkpoint read.
+     */
+    private fun recoverPersistedGovernedRun(
+        entry: WorkflowEntry<*, *>,
+        persistence: WorkflowPersistence<*>,
+        workflowId: String,
+    ): GovernedRun? {
+        @Suppress("UNCHECKED_CAST")
+        val typedPersistence = persistence as WorkflowPersistence<Any?>
+        return runBlocking { typedPersistence.recoverGovernedRun(entry.workflow.name, workflowId) }
     }
 
     @GetMapping("/workflows/{name}/runs")
@@ -165,25 +207,37 @@ class WorkflowController(
 
     @GetMapping("/openapi.json")
     fun openApi(): Map<String, Any> {
-        val paths = registry.list().flatMap { entry ->
-            val workflowPath = "/workflows/${entry.workflow.name}"
-            listOf(
-                "$workflowPath/run" to mapOf("post" to operation("Start ${entry.workflow.name} workflow")),
-                "/webhooks/${entry.workflow.name}" to mapOf("post" to operation("Trigger ${entry.workflow.name} webhook")),
-                "$workflowPath/runs" to mapOf("get" to operation("List ${entry.workflow.name} runs")),
-                "$workflowPath/runs/{id}" to mapOf(
-                    "get" to operation("Inspect ${entry.workflow.name} run"),
-                    "delete" to operation("Cancel ${entry.workflow.name} run"),
-                ),
-                "$workflowPath/runs/{id}/resume" to mapOf("post" to operation("Resume ${entry.workflow.name} run")),
-            )
-        }.toMap()
+        val paths =
+            registry
+                .list()
+                .flatMap { entry ->
+                    val workflowPath = "/workflows/${entry.workflow.name}"
+                    listOf(
+                        "$workflowPath/run" to mapOf("post" to operation("Start ${entry.workflow.name} workflow")),
+                        "/webhooks/${entry.workflow.name}" to mapOf("post" to operation("Trigger ${entry.workflow.name} webhook")),
+                        "$workflowPath/runs" to mapOf("get" to operation("List ${entry.workflow.name} runs")),
+                        "$workflowPath/runs/{id}" to
+                            mapOf(
+                                "get" to operation("Inspect ${entry.workflow.name} run"),
+                                "delete" to operation("Cancel ${entry.workflow.name} run"),
+                            ),
+                        "$workflowPath/runs/{id}/resume" to
+                            mapOf(
+                                "post" to
+                                    operation(
+                                        "Resume ${entry.workflow.name} " +
+                                            "run",
+                                    ),
+                            ),
+                    )
+                }.toMap()
         return mapOf(
             "openapi" to "3.1.0",
-            "info" to mapOf(
-                "title" to "Tramai Workflow Server",
-                "version" to VERSION,
-            ),
+            "info" to
+                mapOf(
+                    "title" to "Tramai Workflow Server",
+                    "version" to VERSION,
+                ),
             "paths" to paths,
         )
     }
@@ -193,25 +247,58 @@ class WorkflowController(
         initialState: Any?,
         idempotencyKey: String?,
     ): WorkflowRunResponse {
+        // 1. Idempotency first: an existing run wins. No admission lookup, no new run id.
+        runStore.findByIdempotencyKey(entry.workflow.name, idempotencyKey)?.let { return it.toResponse() }
+
+        // 2. Authorize the NEW execution against the authoritative registration, BEFORE any
+        //    run record exists, so a rejected deployment creates nothing at all.
+        // ponytail: blocking bridge — this endpoint is not suspend and its ABI is public; the
+        // check is one indexed lookup. Make the endpoint suspend if the request path ever
+        // becomes hot enough for that to matter.
+        val governedDeployment = runBlocking { serverGovernance.authorizeNewRun() }
+
         val workflowId = UUID.randomUUID().toString()
-        val creation = runStore.getOrCreate(
-            workflowName = entry.workflow.name,
-            workflowId = workflowId,
-            definitionVersion = entry.workflow.definitionVersion,
-            idempotencyKey = idempotencyKey,
-        )
-        if (!creation.created) {
-            return creation.record.toResponse()
+        val creation =
+            runStore.getOrCreate(
+                workflowName = entry.workflow.name,
+                workflowId = workflowId,
+                definitionVersion = entry.workflow.definitionVersion,
+                idempotencyKey = idempotencyKey,
+            )
+        return if (creation.created) {
+            admitGovernedRun(entry, workflowId, initialState, governedDeployment)
+        } else {
+            // Another identical request won the race: return its run and launch nothing.
+            creation.record.toResponse()
         }
+    }
+
+    /** Launches an admitted run and returns the run record the caller sees. */
+    private fun admitGovernedRun(
+        entry: WorkflowEntry<*, *>,
+        workflowId: String,
+        initialState: Any?,
+        governedDeployment: WorkloadDeploymentIdentity?,
+    ): WorkflowRunResponse {
+        // One canonical identity, established exactly once: the run id IS the RunId.
+        val governedRun =
+            governedDeployment?.let { deployment ->
+                GovernedRun(
+                    context = WorkflowContext(workflowId = workflowId),
+                    identity = GovernedRunIdentity(deployment = deployment, runId = RunId(workflowId)),
+                )
+            }
         runStore.event(entry.workflow.name, workflowId, RuntimeEvents.WORKFLOW_RUNNING.name, status = WorkflowRunStatus.RUNNING)
         val running = runStore.get(entry.workflow.name, workflowId).toResponse()
-        val job = workflowExecutionScope.launch(start = CoroutineStart.LAZY) {
-            executeRunSafely(
-                entry = entry,
-                workflowId = workflowId,
-                initialState = initialState,
-            )
-        }
+        val job =
+            workflowExecutionScope.launch(start = CoroutineStart.LAZY) {
+                executeRunSafely(
+                    entry = entry,
+                    workflowId = workflowId,
+                    initialState = initialState,
+                    governedRun = governedRun,
+                )
+            }
         runStore.attachExecution(entry.workflow.name, workflowId, job)
         job.start()
         return running
@@ -220,28 +307,40 @@ class WorkflowController(
     private fun decodeInitialState(
         entry: WorkflowEntry<*, *>,
         body: String,
-    ): Any? = try {
-        entry.decodeState(body)
-    } catch (error: Throwable) {
-        throw BadWorkflowRequestException("Workflow '${entry.workflow.name}' state JSON is invalid", error)
-    }
+    ): Any? =
+        try {
+            entry.decodeState(body)
+        } catch (error: Throwable) {
+            throw BadWorkflowRequestException("Workflow '${entry.workflow.name}' state JSON is invalid", error)
+        }
 
     private suspend fun executeRunSafely(
         entry: WorkflowEntry<*, *>,
         workflowId: String,
         initialState: Any?,
+        governedRun: GovernedRun?,
     ) {
         @Suppress("UNCHECKED_CAST")
         val typedEntry = entry as WorkflowEntry<Any?, Any?>
         val persistence = entry.persistenceFactory(workflowId)
         val observer = ServerWorkflowObserver(runStore, workflowId)
         try {
-            val result = typedEntry.run(
-                initialState = initialState,
-                context = WorkflowContext(workflowId = workflowId),
-                observer = observer,
-                persistence = persistence,
-            )
+            val result =
+                if (governedRun == null) {
+                    typedEntry.run(
+                        initialState = initialState,
+                        context = WorkflowContext(workflowId = workflowId),
+                        observer = observer,
+                        persistence = persistence,
+                    )
+                } else {
+                    typedEntry.run(
+                        initialState = initialState,
+                        run = governedRun,
+                        observer = observer,
+                        persistence = persistence,
+                    )
+                }
             runStore.complete(entry.workflow.name, workflowId, result)
         } catch (suspended: WorkflowSuspendedException) {
             runStore.fail(entry.workflow.name, workflowId, suspended, WorkflowRunStatus.DELAYED)
@@ -259,18 +358,32 @@ class WorkflowController(
         workflowId: String,
         @Suppress("UNCHECKED_CAST")
         persistence: WorkflowPersistence<*>,
+        governedRun: GovernedRun?,
     ) {
         val observer = ServerWorkflowObserver(runStore, workflowId)
+
         @Suppress("UNCHECKED_CAST")
         val typedEntry = entry as WorkflowEntry<Any?, Any?>
+
         @Suppress("UNCHECKED_CAST")
         val typedPersistence = persistence as WorkflowPersistence<Any?>
         try {
-            val result = typedEntry.resume(
-                context = WorkflowContext(workflowId = workflowId),
-                observer = observer,
-                persistence = typedPersistence,
-            )
+            // The identity was recovered from this run's own checkpoint and authorized before
+            // the resume was admitted; it is never re-derived here.
+            val result =
+                if (governedRun == null) {
+                    typedEntry.resume(
+                        context = WorkflowContext(workflowId = workflowId),
+                        observer = observer,
+                        persistence = typedPersistence,
+                    )
+                } else {
+                    typedEntry.resume(
+                        run = governedRun,
+                        observer = observer,
+                        persistence = typedPersistence,
+                    )
+                }
             runStore.complete(entry.workflow.name, workflowId, result)
         } catch (suspended: WorkflowSuspendedException) {
             runStore.fail(entry.workflow.name, workflowId, suspended, WorkflowRunStatus.DELAYED)
@@ -286,18 +399,21 @@ class WorkflowController(
     private fun <S, R> persistenceOrConflict(
         entry: WorkflowEntry<S, R>,
         workflowId: String,
-    ): WorkflowPersistence<S> = entry.persistenceFactory(workflowId)
-        ?: throw WorkflowConflictException(
-            "Workflow '${entry.workflow.name}' has no persistence configured; resume requires WorkflowPersistence",
-        )
+    ): WorkflowPersistence<S> =
+        entry.persistenceFactory(workflowId)
+            ?: throw WorkflowConflictException(
+                "Workflow '${entry.workflow.name}' has no persistence configured; resume requires WorkflowPersistence",
+            )
 
-    private fun operation(summary: String): Map<String, Any> = mapOf(
-        "summary" to summary,
-        "responses" to mapOf(
-            "200" to mapOf("description" to "OK"),
-            "400" to mapOf("description" to "Problem Details"),
-        ),
-    )
+    private fun operation(summary: String): Map<String, Any> =
+        mapOf(
+            "summary" to summary,
+            "responses" to
+                mapOf(
+                    "200" to mapOf("description" to "OK"),
+                    "400" to mapOf("description" to "Problem Details"),
+                ),
+        )
 }
 
 data class WorkflowRunResponse(
@@ -470,29 +586,32 @@ private class ServerWorkflowObserver(
     }
 }
 
-private fun WorkflowRunRecord.toResponse(): WorkflowRunResponse = WorkflowRunResponse(
-    workflowId = workflowId,
-    status = status.wireName,
-    definitionVersion = definitionVersion,
-    result = result,
-)
+private fun WorkflowRunRecord.toResponse(): WorkflowRunResponse =
+    WorkflowRunResponse(
+        workflowId = workflowId,
+        status = status.wireName,
+        definitionVersion = definitionVersion,
+        result = result,
+    )
 
-private fun WorkflowRunRecord.toSummary(): WorkflowRunSummary = WorkflowRunSummary(
-    workflowId = workflowId,
-    status = status.wireName,
-    definitionVersion = definitionVersion,
-    currentStep = currentStep,
-)
+private fun WorkflowRunRecord.toSummary(): WorkflowRunSummary =
+    WorkflowRunSummary(
+        workflowId = workflowId,
+        status = status.wireName,
+        definitionVersion = definitionVersion,
+        currentStep = currentStep,
+    )
 
-private fun WorkflowRunRecord.toDetail(): WorkflowRunDetail = WorkflowRunDetail(
-    workflowId = workflowId,
-    status = status.wireName,
-    definitionVersion = definitionVersion,
-    currentStep = currentStep,
-    history = history,
-    result = result,
-    error = error,
-)
+private fun WorkflowRunRecord.toDetail(): WorkflowRunDetail =
+    WorkflowRunDetail(
+        workflowId = workflowId,
+        status = status.wireName,
+        definitionVersion = definitionVersion,
+        currentStep = currentStep,
+        history = history,
+        result = result,
+        error = error,
+    )
 
 /** @see WorkflowController */
 private const val VERSION = "0.2.0"

@@ -23,21 +23,22 @@ internal fun <S> workflowDefinitionCompatibility(
     stopPolicy: StopPolicy,
     steps: List<InternalWorkflowStep<S>>,
 ): WorkflowDefinitionCompatibility {
-    val canonical = buildString {
-        append("workflow:")
-        append(workflowName)
-        append('\n')
-        append("stop_policy.max_step_executions:")
-        append(stopPolicy.maxStepExecutions)
-        append('\n')
-        append("stop_policy.max_parallel_branches:")
-        append(stopPolicy.maxParallelBranches)
-        append('\n')
-        append("schedule:")
-        append(schedule?.canonicalForm() ?: "none")
-        append('\n')
-        append(renderStepsCanonical(steps))
-    }
+    val canonical =
+        buildString {
+            append("workflow:")
+            append(workflowName)
+            append('\n')
+            append("stop_policy.max_step_executions:")
+            append(stopPolicy.maxStepExecutions)
+            append('\n')
+            append("stop_policy.max_parallel_branches:")
+            append(stopPolicy.maxParallelBranches)
+            append('\n')
+            append("schedule:")
+            append(schedule?.canonicalForm() ?: "none")
+            append('\n')
+            append(renderStepsCanonical(steps))
+        }
     return WorkflowDefinitionCompatibility(
         version = definitionVersion,
         digest = sha256Hex(canonical),
@@ -45,26 +46,25 @@ internal fun <S> workflowDefinitionCompatibility(
     )
 }
 
-private fun <S> renderStepsCanonical(
-    steps: List<InternalWorkflowStep<S>>,
-): String = buildString {
-    for (step in steps) {
-        when (step) {
-            is LocalWorkflowStep -> renderLocalStepCanonical(this, step)
-            is AiWorkflowStep<*, *, *> -> renderAiStepCanonical(this, step)
-            is HttpWorkflowStep<*> -> renderHttpStepCanonical(this, step)
-            is ShellWorkflowStep<*> -> renderShellStepCanonical(this, step)
-            is HermesWorkflowStep<*> -> renderHermesStepCanonical(this, step)
-            is CodexWorkflowStep<*> -> renderCodexStepCanonical(this, step)
-            is McpWorkflowStep<*> -> renderMcpStepCanonical(this, step)
-            is PluginWorkflowStep<*> -> renderPluginStepCanonical(this, step)
-            is GateWorkflowStep -> renderGateStepCanonical(this, step)
-            is DelayWorkflowStep -> renderDelayStepCanonical(this, step)
-            is ParallelWorkflowStep<*, *, *> -> renderParallelStepCanonical(this, step)
-            is BranchWorkflowStep -> renderBranchStepCanonical(this, step)
+private fun <S> renderStepsCanonical(steps: List<InternalWorkflowStep<S>>): String =
+    buildString {
+        for (step in steps) {
+            when (step) {
+                is LocalWorkflowStep -> renderLocalStepCanonical(this, step)
+                is AiWorkflowStep<*, *, *> -> renderAiStepCanonical(this, step)
+                is HttpWorkflowStep<*> -> renderHttpStepCanonical(this, step)
+                is ShellWorkflowStep<*> -> renderShellStepCanonical(this, step)
+                is HermesWorkflowStep<*> -> renderHermesStepCanonical(this, step)
+                is CodexWorkflowStep<*> -> renderCodexStepCanonical(this, step)
+                is McpWorkflowStep<*> -> renderMcpStepCanonical(this, step)
+                is PluginWorkflowStep<*> -> renderPluginStepCanonical(this, step)
+                is GateWorkflowStep -> renderGateStepCanonical(this, step)
+                is DelayWorkflowStep -> renderDelayStepCanonical(this, step)
+                is ParallelWorkflowStep<*, *, *> -> renderParallelStepCanonical(this, step)
+                is BranchWorkflowStep -> renderBranchStepCanonical(this, step)
+            }
         }
     }
-}
 
 private fun <S> renderLocalStepCanonical(
     sb: StringBuilder,
@@ -97,7 +97,11 @@ private fun <S> renderHttpStepCanonical(
     sb.append(':')
     sb.append(step.config.maxRetries)
     sb.append(':')
-    sb.append(step.config.retryOnStatus.sorted().joinToString(","))
+    sb.append(
+        step.config.retryOnStatus
+            .sorted()
+            .joinToString(","),
+    )
     sb.append('\n')
 }
 
@@ -116,15 +120,27 @@ private fun <S> renderShellStepCanonical(
     sb.append(':')
     sb.append(step.config.failOnStderr)
     sb.append(':')
-    sb.append(step.config.allowedCommands.sorted().joinToString(","))
+    sb.append(
+        step.config.allowedCommands
+            .sorted()
+            .joinToString(","),
+    )
     sb.append(':')
-    sb.append(step.config.deniedCommands.sorted().joinToString(","))
+    sb.append(
+        step.config.deniedCommands
+            .sorted()
+            .joinToString(","),
+    )
     sb.append(':')
     sb.append(step.definition.executable)
     sb.append(':')
     sb.append(step.definition.hasWorkdir)
     sb.append(':')
-    sb.append(step.definition.envKeys.sorted().joinToString(","))
+    sb.append(
+        step.definition.envKeys
+            .sorted()
+            .joinToString(","),
+    )
     sb.append('\n')
 }
 
@@ -175,25 +191,44 @@ private fun <S> renderMcpStepCanonical(
     sb.append(':')
     sb.append(step.config.reconnect)
     sb.append(':')
-    sb.append(step.config.toolAllowlist?.sorted()?.joinToString(",") ?: "*")
+    sb.append(
+        step.config.toolAllowlist
+            ?.sorted()
+            ?.joinToString(",") ?: "*",
+    )
     sb.append(':')
     sb.append(
         if (step.config.enforceCommandAllowlist) {
-            step.config.allowedCommands.sorted().joinToString(",")
+            step.config.allowedCommands
+                .sorted()
+                .joinToString(",")
         } else {
             "*"
         },
     )
     sb.append(':')
-    sb.append(step.config.deniedCommands.sorted().joinToString(","))
+    sb.append(
+        step.config.deniedCommands
+            .sorted()
+            .joinToString(","),
+    )
     sb.append(':')
     sb.append(step.definition.serverCommand.joinToString(","))
     sb.append(':')
-    sb.append(step.definition.serverEnv.map { (k, v) -> "$k=$v" }.sorted().joinToString(","))
+    sb.append(
+        step.definition.serverEnv
+            .map { (k, v) -> "$k=$v" }
+            .sorted()
+            .joinToString(","),
+    )
     sb.append(':')
     sb.append(step.definition.toolName)
     sb.append(':')
-    sb.append(step.definition.argumentKeys.sorted().joinToString(","))
+    sb.append(
+        step.definition.argumentKeys
+            .sorted()
+            .joinToString(","),
+    )
     sb.append('\n')
 }
 
@@ -263,59 +298,111 @@ private fun <S> renderBranchStepCanonical(
     }
 }
 
-private fun renderPluginValueCanonical(value: Any?): String = when (value) {
-    null -> "null"
-    is String -> "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
-    is Number, is Boolean -> value.toString()
-    is Map<*, *> -> value.entries
-        .sortedBy { it.key?.toString() ?: "" }
-        .joinToString(prefix = "{", postfix = "}") { entry ->
-            "${renderPluginValueCanonical(entry.key?.toString())}:${renderPluginValueCanonical(entry.value)}"
+private fun renderPluginValueCanonical(value: Any?): String =
+    when (value) {
+        null -> {
+            "null"
         }
-    is Iterable<*> -> value.joinToString(prefix = "[", postfix = "]") { element ->
-        renderPluginValueCanonical(element)
+
+        is String -> {
+            "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+        }
+
+        is Number, is Boolean -> {
+            value.toString()
+        }
+
+        is Map<*, *> -> {
+            value.entries
+                .sortedBy { it.key?.toString() ?: "" }
+                .joinToString(prefix = "{", postfix = "}") { entry ->
+                    "${renderPluginValueCanonical(entry.key?.toString())}:${renderPluginValueCanonical(entry.value)}"
+                }
+        }
+
+        is Iterable<*> -> {
+            value.joinToString(prefix = "[", postfix = "]") { element ->
+                renderPluginValueCanonical(element)
+            }
+        }
+
+        is Array<*> -> {
+            value.joinToString(prefix = "[", postfix = "]") { element ->
+                renderPluginValueCanonical(element)
+            }
+        }
+
+        else -> {
+            renderPluginValueCanonical(value.toString())
+        }
     }
-    is Array<*> -> value.joinToString(prefix = "[", postfix = "]") { element ->
-        renderPluginValueCanonical(element)
+
+private fun sha256Hex(value: String): String =
+    MessageDigest
+        .getInstance(WORKFLOW_DEFINITION_DIGEST_ALGORITHM)
+        .digest(value.toByteArray())
+        .joinToString(separator = "") { byte ->
+            byte
+                .toInt()
+                .and(0xff)
+                .toString(16)
+                .padStart(2, '0')
+        }
+
+internal fun WorkflowDefinitionCompatibility.toCheckpointMetadata(): Map<String, String> =
+    mapOf(
+        WORKFLOW_DEFINITION_VERSION_METADATA_KEY to version,
+        WORKFLOW_DEFINITION_DIGEST_METADATA_KEY to digest,
+        WORKFLOW_DEFINITION_DIGEST_ALGORITHM_METADATA_KEY to digestAlgorithm,
+    )
+
+/**
+ * Resume preconditions owned by the checkpoint itself: recovery state and step-index range.
+ * Kept next to the definition-compatibility check so a resume failure surface is auditable
+ * in one place.
+ */
+internal fun WorkflowCheckpoint.requireResumePreconditions(
+    workflowName: String,
+    stepCount: Int,
+) {
+    if (recoveryState is WorkflowRecoveryState.Required) {
+        throw WorkflowRecoveryStateException(
+            "Workflow '$workflowName'/'$workflowId' is in Required recovery state and cannot be resumed",
+        )
     }
-    else -> renderPluginValueCanonical(value.toString())
+    if (nextStepIndex < 0 || nextStepIndex > stepCount) {
+        throw WorkflowResumeException(
+            "Checkpoint for workflow '$workflowName' and workflowId='$workflowId' has invalid " +
+                "nextStepIndex=$nextStepIndex; valid range is 0..$stepCount",
+        )
+    }
 }
-
-private fun sha256Hex(value: String): String = MessageDigest
-    .getInstance(WORKFLOW_DEFINITION_DIGEST_ALGORITHM)
-    .digest(value.toByteArray())
-    .joinToString(separator = "") { byte ->
-        byte.toInt().and(0xff).toString(16).padStart(2, '0')
-    }
-
-internal fun WorkflowDefinitionCompatibility.toCheckpointMetadata(): Map<String, String> = mapOf(
-    WORKFLOW_DEFINITION_VERSION_METADATA_KEY to version,
-    WORKFLOW_DEFINITION_DIGEST_METADATA_KEY to digest,
-    WORKFLOW_DEFINITION_DIGEST_ALGORITHM_METADATA_KEY to digestAlgorithm,
-)
 
 internal fun WorkflowCheckpoint.requireWorkflowDefinitionCompatibility(
     workflowName: String,
     workflowId: String,
 ): WorkflowDefinitionCompatibility {
-    val version = metadata[WORKFLOW_DEFINITION_VERSION_METADATA_KEY]
-        ?: throw missingDefinitionMetadataException(
-            workflowName = workflowName,
-            workflowId = workflowId,
-            missingKey = WORKFLOW_DEFINITION_VERSION_METADATA_KEY,
-        )
-    val digest = metadata[WORKFLOW_DEFINITION_DIGEST_METADATA_KEY]
-        ?: throw missingDefinitionMetadataException(
-            workflowName = workflowName,
-            workflowId = workflowId,
-            missingKey = WORKFLOW_DEFINITION_DIGEST_METADATA_KEY,
-        )
-    val digestAlgorithm = metadata[WORKFLOW_DEFINITION_DIGEST_ALGORITHM_METADATA_KEY]
-        ?: throw missingDefinitionMetadataException(
-            workflowName = workflowName,
-            workflowId = workflowId,
-            missingKey = WORKFLOW_DEFINITION_DIGEST_ALGORITHM_METADATA_KEY,
-        )
+    val version =
+        metadata[WORKFLOW_DEFINITION_VERSION_METADATA_KEY]
+            ?: throw missingDefinitionMetadataException(
+                workflowName = workflowName,
+                workflowId = workflowId,
+                missingKey = WORKFLOW_DEFINITION_VERSION_METADATA_KEY,
+            )
+    val digest =
+        metadata[WORKFLOW_DEFINITION_DIGEST_METADATA_KEY]
+            ?: throw missingDefinitionMetadataException(
+                workflowName = workflowName,
+                workflowId = workflowId,
+                missingKey = WORKFLOW_DEFINITION_DIGEST_METADATA_KEY,
+            )
+    val digestAlgorithm =
+        metadata[WORKFLOW_DEFINITION_DIGEST_ALGORITHM_METADATA_KEY]
+            ?: throw missingDefinitionMetadataException(
+                workflowName = workflowName,
+                workflowId = workflowId,
+                missingKey = WORKFLOW_DEFINITION_DIGEST_ALGORITHM_METADATA_KEY,
+            )
     return WorkflowDefinitionCompatibility(
         version = version,
         digest = digest,
@@ -350,6 +437,7 @@ internal fun missingDefinitionMetadataException(
     workflowName: String,
     workflowId: String,
     missingKey: String,
-): WorkflowResumeException = WorkflowResumeException(
-    "Checkpoint for workflow '$workflowName' and workflowId='$workflowId' is missing required workflow definition metadata '$missingKey'. Checkpoints created before the stable resume-compatibility contract cannot be resumed.",
-)
+): WorkflowResumeException =
+    WorkflowResumeException(
+        "Checkpoint for workflow '$workflowName' and workflowId='$workflowId' is missing required workflow definition metadata '$missingKey'. Checkpoints created before the stable resume-compatibility contract cannot be resumed.",
+    )

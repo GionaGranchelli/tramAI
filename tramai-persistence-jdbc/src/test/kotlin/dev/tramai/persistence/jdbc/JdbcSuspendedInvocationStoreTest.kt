@@ -3,6 +3,15 @@
 package dev.tramai.persistence.jdbc
 
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolCall
@@ -10,6 +19,7 @@ import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.GovernedSuspendedInvocation
 import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
@@ -918,4 +928,249 @@ class JdbcSuspendedInvocationStoreTest {
             }
         }
     }
+
+    // ── 0.7.1d governed attribution (encrypted payload v2) ─────────────────────
+
+    private fun governedIdentity(runId: String = "governed-run-1") =
+        GovernedRunIdentity(
+            deployment =
+                WorkloadDeploymentIdentity(
+                    workloadId = WorkloadId("claims"),
+                    configuration =
+                        WorkloadConfigurationIdentity(
+                            id = ConfigurationId("claims-prod"),
+                            version = ConfigurationVersion("17"),
+                        ),
+                    environmentId = EnvironmentId("production"),
+                    deploymentId = DeploymentId("eu-west-amsterdam-01"),
+                ),
+            runId = RunId(runId),
+        )
+
+    private fun governedMetadata(
+        approvalId: String,
+        runId: String = "governed-run-1",
+    ): SuspendedInvocationMetadata {
+        val metadata = sampleMetadata(approvalId = approvalId)
+        return metadata.copy(identity = metadata.identity.copy(workflowRunId = runId))
+    }
+
+    private fun createGoverned(
+        approvalId: String,
+        runId: String = "governed-run-1",
+    ) {
+        runBlocking {
+            store().createGoverned(
+                GovernedSuspendedInvocation(governedMetadata(approvalId, runId), governedIdentity(runId)),
+                sampleEnvelope(),
+            )
+        }
+    }
+
+    /** Every string column of the row, used to prove attribution is never plaintext. */
+    private fun rowColumnStrings(approvalId: String): List<String> =
+        createDataSource().connection.use { conn ->
+            conn.prepareStatement("SELECT * FROM suspended_invocations WHERE invocation_id = ?").use { st ->
+                st.setString(1, approvalId)
+                st.executeQuery().use { rs ->
+                    assertTrue(rs.next(), "expected a persisted row for $approvalId")
+                    val columns = rs.metaData.columnCount
+                    (1..columns).map { index -> rs.getString(index).orEmpty() }
+                }
+            }
+        }
+
+    /** Rewrites the encrypted payload of an existing row through the same codec. */
+    private fun rewritePayload(
+        approvalId: String,
+        transform: (String) -> String,
+    ) {
+        val select =
+            """
+            SELECT encrypted_replay_envelope, encryption_key_id, encryption_algorithm,
+                   encryption_nonce, payload_digest
+            FROM suspended_invocations WHERE invocation_id = ?
+            """.trimIndent()
+        createDataSource().connection.use { conn ->
+            val current =
+                conn.prepareStatement(select).use { st ->
+                    st.setString(1, approvalId)
+                    st.executeQuery().use { rs ->
+                        assertTrue(rs.next())
+                        JdbcEncryptedReplayEnvelope(
+                            ciphertext = rs.getBytes(1),
+                            keyId = rs.getString(2),
+                            algorithm = rs.getString(3),
+                            nonce = rs.getBytes(4),
+                            payloadDigest = rs.getString(5),
+                        )
+                    }
+                }
+            val plaintext = String(testCodec.decode(current), StandardCharsets.UTF_8)
+            val rewritten = testCodec.encode(transform(plaintext).toByteArray(StandardCharsets.UTF_8))
+            conn
+                .prepareStatement(
+                    """
+                    UPDATE suspended_invocations
+                    SET encrypted_replay_envelope = ?, encryption_nonce = ?, payload_digest = ?
+                    WHERE invocation_id = ?
+                    """.trimIndent(),
+                ).use { st ->
+                    st.setBytes(1, rewritten.ciphertext)
+                    st.setBytes(2, rewritten.nonce)
+                    st.setString(3, rewritten.payloadDigest)
+                    st.setString(4, approvalId)
+                    st.executeUpdate()
+                }
+        }
+    }
+
+    @Test
+    fun `governed create round trips the exact identity and keeps it out of plaintext columns`() {
+        runBlocking {
+            val s = store()
+            val id = "si-governed-1"
+            s.createGoverned(
+                GovernedSuspendedInvocation(governedMetadata(id, "governed-run-1"), governedIdentity("governed-run-1")),
+                sampleEnvelope(),
+            )
+
+            assertEquals(governedIdentity("governed-run-1"), s.governedRunIdentity(id))
+            assertEquals("governed-run-1", s.get(id)?.identity?.workflowRunId)
+            assertNotNull(s.revealReplayEnvelope(id))
+        }
+        // One durable row, and the whole attribution stays inside the encrypted payload: the
+        // confidentiality decision that keeps run/workload identity out of queryable columns.
+        val columns = rowColumnStrings("si-governed-1")
+        assertTrue(columns.none { it.contains("eu-west-amsterdam-01") })
+        assertTrue(columns.none { it.contains("claims-prod") })
+    }
+
+    @Test
+    fun `a governed record survives store reconstruction`() {
+        val id = "si-governed-restart"
+        createGoverned(id, runId = "governed-restart-run")
+
+        runBlocking {
+            val restarted = store()
+            assertEquals(governedIdentity("governed-restart-run"), restarted.governedRunIdentity(id))
+            assertEquals("governed-restart-run", restarted.get(id)?.identity?.workflowRunId)
+            assertNotNull(restarted.revealReplayEnvelope(id))
+        }
+    }
+
+    @Test
+    fun `a legacy record still reads as legacy`() {
+        runBlocking {
+            val s = store()
+            s.create(sampleMetadata("si-legacy-1"), sampleEnvelope())
+
+            assertNull(s.governedRunIdentity("si-legacy-1"))
+            assertEquals("wf-1", s.get("si-legacy-1")?.identity?.workflowRunId)
+            assertNotNull(s.revealReplayEnvelope("si-legacy-1"))
+        }
+    }
+
+    @Test
+    fun `a governed payload whose identity names another run is corruption`() {
+        val id = "si-governed-mismatch"
+        createGoverned(id)
+        rewritePayload(id) { json -> json.replaceFirst("\"runId\":\"governed-run-1\"", "\"runId\":\"other-run\"") }
+
+        val ex = assertFailsWith<RuntimeException> { runBlocking { store().governedRunIdentity(id) } }
+        assertTrue(ex.message?.contains("corrupted") == true, "unexpected message: ${ex.message}")
+    }
+
+    @Test
+    fun `a governed payload downgraded to the legacy version is corruption`() {
+        val id = "si-governed-downgrade"
+        createGoverned(id)
+        rewritePayload(id) { json -> json.replaceFirst("\"payloadVersion\":2", "\"payloadVersion\":1") }
+
+        val ex = assertFailsWith<RuntimeException> { runBlocking { store().governedRunIdentity(id) } }
+        assertTrue(ex.message?.contains("corrupted") == true, "unexpected message: ${ex.message}")
+    }
+
+    @Test
+    fun `a governed payload with an incomplete identity fails closed`() {
+        val id = "si-governed-partial"
+        createGoverned(id)
+        rewritePayload(id) { json -> json.replaceFirst("\"deploymentId\":\"eu-west-amsterdam-01\"", "\"deploymentId\":\"\"") }
+
+        val ex = assertFailsWith<RuntimeException> { runBlocking { store().governedRunIdentity(id) } }
+        assertTrue(ex.message?.contains("corrupted") == true, "unexpected message: ${ex.message}")
+    }
+
+    @Test
+    fun `an unknown payload version fails closed`() {
+        val id = "si-governed-unknown"
+        createGoverned(id)
+        rewritePayload(id) { json -> json.replaceFirst("\"payloadVersion\":2", "\"payloadVersion\":3") }
+
+        val ex = assertFailsWith<RuntimeException> { runBlocking { store().governedRunIdentity(id) } }
+        assertTrue(
+            ex.message?.contains("unsupported-payload-version") == true,
+            "unexpected message: ${ex.message}",
+        )
+    }
+
+    @Test
+    fun `governed duplicate create keeps the duplicate semantics`() {
+        runBlocking {
+            val s = store()
+            val id = "si-governed-duplicate"
+            s.createGoverned(
+                GovernedSuspendedInvocation(governedMetadata(id), governedIdentity()),
+                sampleEnvelope(),
+            )
+
+            val ex =
+                assertFailsWith<IllegalArgumentException> {
+                    s.createGoverned(
+                        GovernedSuspendedInvocation(governedMetadata(id), governedIdentity()),
+                        sampleEnvelope(),
+                    )
+                }
+            assertTrue(ex.message?.contains("already-exists", ignoreCase = true) == true)
+        }
+    }
+
+    @Test
+    fun `the governed wrapper is one row with no stale attribution`() {
+        val wrapper = GovernedJdbcSuspendedInvocationStore(store())
+        val identity = governedIdentity("governed-wrapper-run")
+        val approvalId = "approval-wrapper-1"
+
+        runBlocking {
+            wrapper.createGoverned(
+                GovernedSuspendedInvocation(governedMetadata(approvalId, "governed-wrapper-run"), identity),
+                sampleEnvelope(),
+            )
+        }
+
+        // One row: the wrapper writes through the same insert, never a second durable authority.
+        assertEquals(1, rowCount(approvalId))
+        assertTrue(rowColumnStrings(approvalId).none { it.contains("governed-wrapper-run") })
+        assertEquals(identity, runBlocking { wrapper.governedRunIdentity(approvalId) })
+        assertNotNull(runBlocking { wrapper.get(approvalId) })
+
+        // A fresh wrapper over the same database recovers the exact whole identity.
+        assertEquals(identity, runBlocking { GovernedJdbcSuspendedInvocationStore(store()).governedRunIdentity(approvalId) })
+
+        // Removal leaves no stale attribution, and an absent record is never fabricated.
+        assertNotNull(runBlocking { wrapper.remove(approvalId) })
+        assertNull(runBlocking { wrapper.governedRunIdentity(approvalId) })
+        assertNull(runBlocking { wrapper.governedRunIdentity("approval-never-persisted") })
+    }
+
+    private fun rowCount(approvalId: String): Int =
+        createDataSource().connection.use { conn ->
+            conn.prepareStatement("SELECT COUNT(*) FROM suspended_invocations WHERE invocation_id = ?").use { st ->
+                st.setString(1, approvalId)
+                st.executeQuery().use { rs ->
+                    rs.next()
+                    rs.getInt(1)
+                }
+            }
+        }
 }

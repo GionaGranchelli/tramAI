@@ -15,15 +15,16 @@ import javax.sql.DataSource
  * (Flyway/Liquibase integration, runbook).
  */
 object JdbcSchemaTestSupport {
-
-    private val MIGRATION_RESOURCES: List<String> = listOf(
-        "/tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql",
-        "/tramai/persistence/jdbc/postgres/V2__approval_continuations.sql",
-        "/tramai/persistence/jdbc/postgres/V3__audit_events_hardening.sql",
-        "/tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
-        "/tramai/persistence/jdbc/postgres/V5__worker_leases_hardening.sql",
-        "/tramai/persistence/jdbc/postgres/V6__approval_resume_credential_custody.sql",
-    )
+    private val MIGRATION_RESOURCES: List<String> =
+        listOf(
+            "/tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql",
+            "/tramai/persistence/jdbc/postgres/V2__approval_continuations.sql",
+            "/tramai/persistence/jdbc/postgres/V3__audit_events_hardening.sql",
+            "/tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
+            "/tramai/persistence/jdbc/postgres/V5__worker_leases_hardening.sql",
+            "/tramai/persistence/jdbc/postgres/V6__approval_resume_credential_custody.sql",
+            "/tramai/persistence/jdbc/postgres/V10__approval_actor_provenance.sql",
+        )
 
     /**
      * Applies all TramAI JDBC schema migrations to the given [dataSource].
@@ -38,7 +39,10 @@ object JdbcSchemaTestSupport {
         }
     }
 
-    private fun executeResource(dataSource: DataSource, resource: String) {
+    private fun executeResource(
+        dataSource: DataSource,
+        resource: String,
+    ) {
         val sql = readResource(resource)
         if (sql.isBlank()) return
 
@@ -46,15 +50,7 @@ object JdbcSchemaTestSupport {
             val previousAutoCommit = conn.autoCommit
             conn.autoCommit = false
             try {
-                conn.createStatement().use { stmt ->
-                    // Split on semicolons and execute each statement
-                    val statements = splitStatements(sql)
-                    for (statement in statements) {
-                        if (statement.isNotBlank()) {
-                            stmt.execute(statement)
-                        }
-                    }
-                }
+                executeStatements(conn, sql)
                 conn.commit()
             } catch (e: SQLException) {
                 conn.rollback()
@@ -68,9 +64,21 @@ object JdbcSchemaTestSupport {
         }
     }
 
+    private fun executeStatements(
+        conn: Connection,
+        sql: String,
+    ) {
+        conn.createStatement().use { stmt ->
+            for (statement in splitStatements(sql)) {
+                if (statement.isNotBlank()) stmt.execute(statement)
+            }
+        }
+    }
+
     private fun readResource(resource: String): String {
-        val inputStream = JdbcSchemaTestSupport::class.java.getResourceAsStream(resource)
-            ?: throw IllegalStateException("Migration resource not found: $resource")
+        val inputStream =
+            JdbcSchemaTestSupport::class.java.getResourceAsStream(resource)
+                ?: throw IllegalStateException("Migration resource not found: $resource")
 
         return inputStream.bufferedReader().use { reader ->
             reader.readText()

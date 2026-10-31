@@ -31,6 +31,7 @@
 # entry for the new transition (the old LANDED entry stays as history).
 
 migrations:
+
   - module: ":tramai-spring-sovereign"
     fromSha256: "f12e62c4f071649426d58e7c962046105eaa97bae2bc6239059dc21096a7bafd"
     toSha256: "cd625ae543e873cbe4ba858bc3b44f933758fcf4516e6f8b46b7b22f38cc1160"
@@ -45,16 +46,359 @@ migrations:
     rationale: "Refresh committed API dump to match current source; the SovereignOpsAuditOutboxStore API changed before API-compatibility enforcement existed (attempt-count parameter type). No new API surface introduced by this PR."
     migration: "Consumers of SovereignOpsAuditOutboxStore with an attempt-count parameter must pass int instead of the previous parameter layout; source-compatible callers require no change."
 
-  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
-    fromSha256: "a362d955e271d5318ba65359f090dd3410b5a5e0af79836ff39ff36aec314bf3"
-    toSha256: "c12710086064ec051631dfef7fdadf268daf9ae1f43aedb1f7e00d90ed2d1da7"
-    targetVersion: "0.5.0"
-    rationale: "Refresh committed API dump to match current source; the SovereignOpsAuditOutboxStore API changed before API-compatibility enforcement existed (attempt-count parameter type). No new API surface introduced by this PR."
-    migration: "Consumers of SovereignOpsAuditOutboxStore with an attempt-count parameter must pass int instead of the previous parameter layout; source-compatible callers require no change."
-
   - module: ":tramai-orchestration"
     fromSha256: "c5d9c58e5be2036e5786827251c5f44edd8d432e4644ebc5837b070372617cec"
     toSha256: "64c1ff59baae3a49faa0f1d1c8a617ab7cc7773413c302203b230e1ac2c8a733"
     targetVersion: "0.5.0"
     rationale: "Intentional additive API: JdbcStepAttemptRecordStore.createTableSql() is restored to a single executable DDL statement; multi-statement provisioning is exposed explicitly via createSchemaSql()/createSequenceTableSql() (one statement per entry, generic-JDBC safe). No signature changed; binary compatibility preserved. toSha256 reconciled to the post-BCV-surface (#352) canonical dump: 39 sanctioned-marked (@ExperimentalTramaiInternalApi) declarations removed from the surface, authorization unchanged."
     migration: "Applications executing createTableSql() alone must additionally execute createSequenceTableSql() (or createSchemaSql()) so the sequence counter table exists; source-compatible callers require no other change."
+
+  - module: ":tramai-orchestration"
+    fromSha256: "64c1ff59baae3a49faa0f1d1c8a617ab7cc7773413c302203b230e1ac2c8a733"
+    toSha256: "beefaf0846ba9d94964e0303b20a1014e415fb96150096502fb61e4ab2e07c34"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.1d run attribution: adds GovernedRun, the run handle that binds a workflow context to its canonical governed identity."
+    migration: "No consumer action: GovernedRun is additive; ungoverned workflow execution is unchanged."
+
+  - module: ":tramai-scheduler"
+    fromSha256: "5e1ae0be11be0b3d00edb1ff02cf49409603bb4ea32e49a9dbc47ae71187f795"
+    toSha256: "18656b08156f0cef13589468dcdb7b9d0b7ac6e1bdbeb8eef37fc789d2e25b5e"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.1d run attribution: adds the governed schedule-binding surface (CompositeWorkflowSchedulerStore and the governed binding store/timer pair) so a scheduled wake-up recovers the bound deployment identity."
+    migration: "No consumer action: governed scheduling is opt-in; the existing scheduler store contract is unchanged."
+
+  - module: ":tramai-control-plane"
+    fromSha256: "b73b76dea59ef5dbd27bebfaf83260479164d7baa02d229423772b0897bf69cd"
+    toSha256: "71acccdcab31390b76032fc1979384dea72cce7dca8f6a5156254c2fb319e675"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.1e/0.7.1f control-plane authority contract and safe exposure model: adds ClassifiedRead (WorkloadExposure + QueryConsistency + WorkloadStateVersion) as the classified read shape, and narrows the generic outcome payloads from RegisteredWorkload to WorkloadExposure so the CAS/rebinding witness is no longer reachable from a generic read."
+    migration: "Binary-incompatible for preview consumers: LifecycleTransitionOutcome.Applied and the non-stale outcome payloads change descriptor (RegisteredWorkload -> WorkloadExposure) and ClassifiedRead.registration/outcome.registration are renamed to exposure, so constructors, copy(...), componentN() and getters must be updated and recompiled. The exposed payload is strictly narrower: the configuration fingerprint is returned on no generic surface. WorkloadRegistrationAuthority command signatures are unchanged."
+
+  - module: ":tramai-engine"
+    fromSha256: "2be18464bc69a5c9c0b387d7a88cf6701066f5f4bf31c4e93ec8d9a82aa45dfc"
+    toSha256: "97449797943f051f255c0f96d69746f9145059fb577c8927d7443e9958da435f"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.1d1 governed approval identity carriage: adds GovernedSuspendedInvocation, binding SuspendedInvocationMetadata to the framework-owned GovernedRunIdentity so a resumed suspension recovers the exact workload/configuration attribution."
+    migration: "Additive. GovernedSuspendedInvocation is a new public type; existing suspension and resume signatures are unchanged, so no recompilation is required."
+
+  - module: ":tramai-persistence-file"
+    fromSha256: "2c116948a04c020d41bb3e8af5339b542f1398f8ddfc706b5b0ecfde0f6e583d"
+    toSha256: "f4f21c7cb3a6185994706adf4340ad734c8072520363e03faf75b097900c450e"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.1d1 governed approval identity carriage on the file-backed store: adds GovernedFileApprovalStore and its factory, implementing ApprovalStore plus the governed approval surface (createGovernedApproval, attributionOf) so the file backend carries the same governed attribution contract as the JDBC backend."
+    migration: "Additive. GovernedFileApprovalStore is a new public type and the existing file store contract is unchanged; file-backed consumers gain the governed surface without recompiling."
+
+  - module: ":tramai-persistence-jdbc"
+    fromSha256: "820477f11b52fdadb78157ed9d7b45404c9f54f642cfe5b51d1efe87fe9c3815"
+    toSha256: "0b04daf0a52a32e5467840089ba305dbe0979f2875b81ca02be8cd063025f4fa"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.1d/0.7.1e persistence work on the JDBC backend: the governed approval mutation store and the governed suspension surfaces change the committed dump relative to release/0.7.0."
+    migration: "Source-compatible for existing callers; the governed surfaces are additive. Java/Spring consumers must recompile against this version where a constructor descriptor changed."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: "7100484d4ea3e5a5e84b19abce1b1046de4aceab5c01722186f9450d2d24e416"
+    toSha256: "5e773044a6ae45de22fa3f983ebc192b4f2c3ee7df530d5e2cf74b92f71a6dda"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.1d run attribution: the sovereign ops autoconfiguration carries the governed ApprovalRunAttribution variant through the outbox, changing the committed dump relative to release/0.7.0."
+    migration: "Source-compatible for existing callers: the governed attribution variant is additional. Recompile against this version if you construct the attribution types directly."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: "5e773044a6ae45de22fa3f983ebc192b4f2c3ee7df530d5e2cf74b92f71a6dda"
+    toSha256: "fc86f30f6e1925f41ac1ac3ea2379a5d93cb3cd97edb8f1f25b5f3213462dd81"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.6d typed control commands closes audit finding F2. ApprovalDecisionCommand.expectedVersion changes from an optional Long (default null, resolved by the control plane into the version it had just read) to a REQUIRED caller-observed precondition, and ApprovalDecisionResult gains Stale(approvalId, expectedVersion, currentVersion) ordered ahead of the AlreadyApproved/AlreadyDenied shortcuts. This is a deliberate, breaking Kotlin/JVM API change, not an additive one: the nullable form was the vulnerability itself, because a compare-and-set handed the version the server had just read always succeeds. Keeping a nullable parameter, a default argument or a compatibility overload would keep F2 reachable, so none exists. Negative preconditions are rejected at construction, and the control plane forwards the caller's version to the mutation store verbatim so the store's compare-and-set remains the final authority. Version fencing only: no authorization behaviour is added or changed."
+    migration: "Consumer action required. The command's Kotlin parameter order is (approvalId, actorId, actorRole, expectedVersion, comment, correlationId): the observed version is the FOURTH positional parameter, between actorRole and comment, so pass it by name - expectedVersion = ... - rather than by position. Also add a branch for ApprovalDecisionResult.Stale: re-read the approval, then decide again only if the decision is still wanted. There is no Java-callable constructor to migrate: the real constructor is private and the only public one is Kotlin's synthetic default-arguments bridge (int mask + DefaultConstructorMarker), because ApprovalId and ApproverRole are inline value classes erased to String with name-mangled accessors (getApprovalId-3qC8wes, getActorRole-lKvXBlk), and copy is mangled the same way. A command is therefore built from Kotlin or handed over by existing code; Java callers keep reading getExpectedVersion() (a plain long), getActorId() and getComment(), and read Stale through getExpectedVersion() and getCurrentVersion(). Callers that previously omitted the version relied on the server choosing it; that path is gone by design, and a stale result must never be treated as a completed decision."
+
+
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    fromSha256: "c12710086064ec051631dfef7fdadf268daf9ae1f43aedb1f7e00d90ed2d1da7"
+    toSha256: "2f12c7776fc64c59b1cf128038db52bbdb400f4c2c928e87dcabf3459b81557b"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.1d run attribution on the sovereign JDBC starter: the approval mutation store bean method gained a governed-suspension-store parameter, changing the committed dump relative to release/0.7.0."
+    migration: "The bean method keeps a default parameter, so Spring wiring is unaffected, but the JVM descriptor changed: Spring/Java consumers must recompile against this version."
+
+  - module: ":tramai-security"
+    fromSha256: "3c8c378d46640e2ee840bb6690d9a2686a0d536ba024c723a72d5b604d479ecc"
+    toSha256: "6fe604576d12b6aec316b1bced8fcf22cc7c772fa6f49dd27706daf6d029865d"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.2 classification/trust-zone resolution boundary: tramai-security gains the workload governance resolution surface (WorkloadClassificationSignal, WorkloadGovernanceResolver, WorkloadGovernanceResolution, WorkloadGovernanceFailure), and tramai-core publishes the DataClassification/ClassificationSource ranking that moved out of tramai-engine so both modules agree on one ordering. Both changes are additive."
+    migration: "No consumer action required: the governance resolution surface is new, and no existing signature changed. Recompile only if you place the moved ranking extensions in scope."
+
+  - module: ":tramai-security"
+    fromSha256: "6fe604576d12b6aec316b1bced8fcf22cc7c772fa6f49dd27706daf6d029865d"
+    toSha256: "a88a3f2a986208404418594206d014c0c279509d0c19b5c403c8cd17ca83807f"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.2b provider deployment / named trust-zone contract: tramai-security gains ProviderDeployment, NamedTrustZone, TrustZoneName and TrustZoneCatalogue, so a concrete provider deployment owns exactly one organization-defined trust zone and a zone name resolves to exactly one portable category. Additive only."
+    migration: "No consumer action required: the provider-deployment surface is new, and no existing signature changed."
+
+  - module: ":tramai-security"
+    fromSha256: "a88a3f2a986208404418594206d014c0c279509d0c19b5c403c8cd17ca83807f"
+    toSha256: "7d4218ad3dced5c2e3cbe75e67a5c69f96017b527a3072686f1e80221a8e8a5d"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.2c trust-zone compatibility: tramai-security gains TrustZonePolicy, which answers whether a workload in one trust zone may use a provider deployment in another, allow-listing ordered pairs and denying everything else. Additive only."
+    migration: "No consumer action required: the compatibility surface is new, and no existing signature changed."
+
+  - module: ":tramai-security"
+    fromSha256: "7d4218ad3dced5c2e3cbe75e67a5c69f96017b527a3072686f1e80221a8e8a5d"
+    toSha256: "d271ae2c1de783fb4dafac56392ddfb6d9a8ec08d608ae2ec642ef5a0a6aa0da"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.2d provider-input release boundary: tramai-security gains ProviderInputRelease, which releases a specific provider-bound input only when the trust-zone decision allows it AND the classification's routing rule permits that zone. Additive only."
+    migration: "No consumer action required: the release boundary is new, and no existing signature changed."
+
+  - module: ":tramai-security"
+    fromSha256: "d271ae2c1de783fb4dafac56392ddfb6d9a8ec08d608ae2ec642ef5a0a6aa0da"
+    toSha256: "9d64fe4b905350b96eadbf505b63810fd8939e8115fbb9f11fa62c565dc990f9"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.2e restrictive effective-policy composition: tramai-security gains effectiveRoutingRules, which composes organization, environment and workload routing policy by intersection, so a narrower scope may restrict authority but never widen it. Additive only."
+    migration: "No consumer action required: the composition function is new, and no existing signature changed."
+
+  - module: ":tramai-security"
+    fromSha256: "9d64fe4b905350b96eadbf505b63810fd8939e8115fbb9f11fa62c565dc990f9"
+    toSha256: "61aba8fd0d35bcf250157565a6c960205af865fa2ca64d1b35794b3e4b97fe28"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.3c authorized-set derivation: tramai-security gains ProviderCandidate and CandidateAuthorization, which decide whether a provider/model candidate belongs to the authorized set by requiring every required restriction to permit it - the candidate's identity agrees with its deployment, the trust-zone policy allows the workload-to-deployment zone pair, and the classification's routing rule permits that zone. Additive only: no existing signature was removed or changed."
+    migration: "No consumer action required: the candidate type and the authorized-set boundary are new, and no existing signature changed."
+
+  - module: ":tramai-security"
+    fromSha256: "61aba8fd0d35bcf250157565a6c960205af865fa2ca64d1b35794b3e4b97fe28"
+    toSha256: "e3cefefc1d8389dbdff1914eb40c3d7cd417d2ab68b7c256bc7070948f879fda"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.3b candidate decision types: tramai-security replaces the Boolean authorization answer with a typed one. CandidateAuthorizationDecision is Authorized or NotAuthorized(reason), AuthorizationRefusal is the closed refusal family, and CandidateViabilityDecision plus ViabilityRefusal declare the later viability stage's vocabulary with no producer yet. ProviderInputRelease gains refusalFor, and releases() is redefined as 'no refusal' so the two views cannot disagree. CandidateAuthorization.authorizes(Boolean) is REMOVED: a Boolean answer alongside a typed one is the ambiguity this change exists to remove."
+    migration: "Consumer action required only for the 0.7.3c preview API: CandidateAuthorization.authorizes() is removed in favour of decisionFor(), which returns CandidateAuthorizationDecision. Nothing in this repository consumed it. All other changes are additive."
+
+
+  - module: ":tramai-security"
+    fromSha256: "e3cefefc1d8389dbdff1914eb40c3d7cd417d2ab68b7c256bc7070948f879fda"
+    toSha256: "bfa28c04eb2f8d7f710e6aba3abc0abd5876b49f5d40083b0b4c457288e528cc"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.3d viability after authorization: tramai-security gains CandidateViability, which applies runtime constraints only to candidates the authorization boundary has already authorized, and AuthorizedCandidates, a value whose constructor and set property are both module-internal so only code inside tramai-security can produce one or reach its contents. The evaluator argument has no default: an omitted evaluator must not be expressible, because a permissive default would mark every authorized candidate viable without consulting a runtime fact. ViabilityRefusal LOSES two members declared in 0.7.3b: HEALTH, which no producer in the repository can report, and CAPABILITY, which the epic places in authorization (authorized = policy AND classification AND trust AND capability AND registration) rather than in runtime viability."
+    migration: "Consumer action required only for the 0.7.3 preview API: ViabilityRefusal.HEALTH and ViabilityRefusal.CAPABILITY are removed, and CandidateViability requires its runtime-constraint evaluator argument. Nothing in this repository consumed either member or constructed the boundary without an evaluator; both members had no producer and were referenced only by their own declaration and tests."
+
+  - module: ":tramai-security"
+    fromSha256: "bfa28c04eb2f8d7f710e6aba3abc0abd5876b49f5d40083b0b4c457288e528cc"
+    toSha256: "2ea58d9d52cd93db159c473f88ead6019d80e19fad3655a0395d7a361795e612"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.3d1 authorization completeness: CandidateAuthorization now consumes registration and required capability, so authorization is the epic's full conjunction (policy AND classification AND trust AND capability AND registration) instead of the release predicate alone. It gains a ProviderRoutingPlan registration authority, and decisionFor, authorizedSet and authorizedCandidates each gain a required-capability set. AuthorizationRefusal gains PROVIDER_NOT_REGISTERED and REQUIRED_CAPABILITY_NOT_SUPPORTED, the two refusals that now have real producers. Registration is read from ProviderRoutingPlan.providers, the existing authoritative registration snapshot, and capability from ModelProvider.supportsCapability: no second registry, no capability model, and no model-name inference was introduced. ADDITIVE at the signature level: every new parameter has a default and no existing member was removed or renamed, but the JVM signatures changed, which is why this entry exists."
+    migration: "Consumer action required only where the previous signatures were called positionally: decisionFor, authorizedSet and authorizedCandidates take requiredCapabilities as a trailing defaulted parameter, so existing call sites compile unchanged. A boundary constructed without a registration refuses every candidate (fail closed) - pass the routing plan whose providers are configured. An empty required-capability set adds no capability restriction and does not bypass registration."
+
+  - module: ":tramai-security"
+    fromSha256: "2ea58d9d52cd93db159c473f88ead6019d80e19fad3655a0395d7a361795e612"
+    toSha256: "b3d735600a2c93883250e2d2cb7bc2e88c08512cf20f0883e3c4022c45b64991"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.3e selection/fallback fencing: tramai-security gains ViableCandidates and the selection stage. ViableCandidates is a value class whose constructor is module-internal, so only CandidateViability can mint one, and it narrows only (without(candidate) removes an attempted candidate for retry and can never add one). CandidateSelection selects zero or one candidate from such an envelope and checks the strategy's answer against it, so a caller-supplied strategy cannot widen the selection. The decision vocabulary is CandidateSelectionDecision.Selected(candidate) or NoSelection(reason) with SelectionRefusal naming exactly the three facts the boundary produces. CandidateViability.viableCandidates CHANGES ITS RETURN TYPE from Set<ProviderCandidate> to ViableCandidates: a naked set would let a caller bypass viability, which is the invariant this slice exists to enforce."
+    migration: "Consumer action required for CandidateViability.viableCandidates, whose return type changed from Set<ProviderCandidate> to ViableCandidates. Read the members through ViableCandidates (isEmpty/contains/orderedBy/without) or, inside the module, its internal candidates set. Nothing outside tramai-security consumed it. The new selection types and members are additive."
+
+  - module: ":tramai-security"
+    fromSha256: "b3d735600a2c93883250e2d2cb7bc2e88c08512cf20f0883e3c4022c45b64991"
+    toSha256: "ce5c4bbb0a1d215e792306f4a60f7715925c87a4e25f06bde97d14567b076b0f"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.3f decision identity / evidence: tramai-security gains GovernanceDecisionEnvelope, the governed decision outcome mapping and CandidateSubjectDigest in dev.tramai.security.evidence. The envelope binds an EXISTING typed governance decision to the canonical GovernedRunIdentity, the preserved correlationId, the captured policyVersion/workflowDigest and a caller-owned eventId, and projects it into the EXISTING runtime-evidence.v1 shape. The envelope takes a REQUIRED caller-supplied subjectDigest produced with CandidateSubjectDigest, because authorization and viability decisions carry no candidate and a subject derived from the decision would collapse two distinct candidates refused for the same reason into one historical subject; a selection decision must agree with the candidate it carries, so a mismatch is refused rather than silently preferred. No new decision vocabulary, no new identity tuple, no second reason family, no schema change and no new persistence path: CandidateAuthorizationDecision, CandidateViabilityDecision and CandidateSelectionDecision stay authoritative, and RuntimeEvidenceAttribution continues to guard the governed-identity metadata keys. The governance decision kinds are distinct per family, so a non-viable candidate can never be read as not-authorized and a selection escape refusal can never be read as an ordinary strategy decline. CandidateSubjectDigest is public because a caller binding a per-candidate authorization or viability decision needs the same subject identity the selection path produces, and its canonical input deliberately includes the deployment and trust zone so two deployments of one provider/model pair cannot collapse into one evidence subject."
+    migration: "Purely additive: no existing member was removed, renamed or changed, and nothing outside tramai-security consumed these types before this change. Consumers projecting governance decisions to evidence should construct GovernanceDecisionEnvelope from governance inputs they already hold (canonical identity, correlation, policy context, candidate facts) and call toRuntimeEvidenceRecord with a caller-supplied Instant; the envelope reads no clock, mints no identity and invokes no provider, so an external runtime such as Spring AI can bind and export the same decision without owning a TramAI workflow or the execution path."
+
+  - module: ":tramai-security"
+    fromSha256: "ce5c4bbb0a1d215e792306f4a60f7715925c87a4e25f06bde97d14567b076b0f"
+    toSha256: "613e667332b2e7beb2d661b3573ac9ee2677266328ab867afd86646262d5cbdb"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.3h explicit routing topology: ProviderRoutingConfiguration gains workloadZones (keyed by the exact WorkloadDeploymentIdentity), providerDeployments (the authoritative ProviderDeployment per registered provider id) and allowedZonePairs (the workload-zone to provider-zone relation that feeds TrustZonePolicy). These are the facts the 0.7.3 authority chain requires and that no existing surface carried: the legacy providerZones map states a zone per provider name but cannot prove deployment identity, so it cannot distinguish two deployments of one brand and is deliberately NOT used to construct a ProviderDeployment. Construction validates that a deployment is registered under its own providerId. Every new field is additive with an empty default, and an absent entry fails closed at execution rather than widening: a workload deployment with no configured zone, or a provider with no configured deployment, has no authority."
+    migration: "No consumer action required for existing configuration: all three fields default to empty and no existing member changed. To make the governed provider path usable, supply the workload deployment zones, the provider deployments and the permitted zone pairs; until then execution fails closed rather than falling back to configured routing."
+
+  - module: ":tramai-security"
+    fromSha256: "613e667332b2e7beb2d661b3573ac9ee2677266328ab867afd86646262d5cbdb"
+    toSha256: "a385f1db125cebea0a60a3a75480489bda40a5a889b2c9d29066121a5539e420"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.4e headless governance query API: tramai-security publishes the read-only query contract over the durable governance projection (GovernanceQueryService with its jdbc factory, GovernanceQueryRequest, GovernanceQueryResult, GovernanceProjectionView and the fact, coverage, currency and exposure types they carry). Additive only: no existing signature changed."
+    migration: "No consumer action required: the query surface is new. Recompile only if you intend to read governance projections through it."
+
+  - module: ":tramai-observability"
+    fromSha256: "b1b33063d834e78b3c18f4df5494a9c153b77009e899b9e792fe527e6c04d5e9"
+    toSha256: "497b08274e0acf06122b2084902238d26794ab192b277d412dee9f8171d94837"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.4f safe exposure and OTEL mapping: tramai-observability publishes GovernanceExposure and GovernanceDecisionExposure, the typed allowlist that is the only shape of governance information permitted to leave the query boundary, and GovernanceTelemetryExporter, which records it through the runtime event catalogue. Both exposure types are interfaces with private implementations and no constructor or copy(), so a caller cannot fabricate a stronger classification than a real query result produced - the construction path was closed during review. The module also gains an api dependency on tramai-security so the exposure types can carry the repository's existing authority, freshness, currency, completeness and reason-exposure vocabulary instead of a mirrored copy that would drift from the source of truth this slice exists to preserve. Additive only: no existing signature changed."
+    migration: "No consumer action required: both types are new and nothing existing changed. The added dependency is published-to-published with no forbidden layer edge and no cycle; it changes what tramai-observability can see, not what it exposes beyond the two new types."
+
+  - module: ":tramai-persistence-jdbc"
+    fromSha256: "0b04daf0a52a32e5467840089ba305dbe0979f2875b81ca02be8cd063025f4fa"
+    toSha256: "906fa7e10a58cfe8d70e7f985df219a3e053d87ccb8e2e3e4f72818544bb0e82"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.5b durable model-attempt observation: tramai-persistence-jdbc publishes JdbcModelAttemptObservationStore, the durable AttemptObservationStore implementation backed by V9__model_attempt_observations.sql, whose primary key is (invocation_id, attempt) so a repeated terminal callback cannot create a second attempt. These rows are content-free telemetry - no prompt, response, tool payload or reasoning text can be represented - and are deliberately kept outside the authoritative audit chain. Additive only: no existing signature changed."
+    migration: "No consumer action required unless you intend to read attempt history: the store is new and nothing existing changed. To record attempts, publish the store as an AttemptObservationStore bean and pass it to the attempt-recording observer; with no configured store the engine records nothing and reports uninstrumented history rather than fabricated attempts. Existing schemas are untouched: apply the new migration and the table is created empty."
+
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    fromSha256: "2f12c7776fc64c59b1cf128038db52bbdb400f4c2c928e87dcabf3459b81557b"
+    toSha256: "56e4fb7b758a9b476e9a6c9dd7f2cbdf043e3f80f2ef61e2bdd0702c364cdc72"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.5b durable model-attempt observation: the starter exposes one conditional modelAttemptObservationStore(DataSource) bean so an application that already has a DataSource can opt into durable attempt observation without writing wiring of its own. The bean is @ConditionalOnMissingBean, so an application-supplied store wins, and it is not created at all when no DataSource is present - absent configuration therefore observes nothing rather than fabricating history. Additive only: no existing bean or signature changed."
+    migration: "No consumer action required: the bean is additive and conditional. Applications that do not want attempt observation simply do not inject the store; applications that do get JDBC persistence through the existing starter dependency."
+
+  - module: ":tramai-security"
+    fromSha256: "a385f1db125cebea0a60a3a75480489bda40a5a889b2c9d29066121a5539e420"
+    toSha256: "1034fc729844c14fc60363688baa81e09e97e93cf3797198efbbc36669f8ada7"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.5c semantic timeline projection and query: tramai-security publishes the read-only timeline contract - TimelineRequest, SemanticTimeline, InvocationTimeline, ObservedUsage, the GovernanceSection and CorrelationEvidence vocabularies, the AttemptHistoryState distinction, and the SemanticTimelineQuery factory - which projects the existing 0.7.4 governance projection and the existing 0.7.5b attempt store into one deterministic, content-free view. No governance decision, authorization semantic, audit record or attempt record is modified: the slice adds a reader over two existing ports and reuses their published types (GovernanceProjectionView, GovernanceDecisionFact, ModelAttemptObservation) instead of mirroring them. Additive only: no existing signature changed."
+    migration: "No consumer action required: every new type is additive and nothing existing changed. A consumer that wants a timeline passes its existing AttemptObservationStore and, optionally, its existing GovernanceQueryService to SemanticTimelineQuery.of(...). With no governance query configured a governance scope reports NotConfigured and with no attempt store it reports Uninstrumented, so absent configuration never fabricates history or governance facts."
+
+  - module: ":tramai-security"
+    fromSha256: "1034fc729844c14fc60363688baa81e09e97e93cf3797198efbbc36669f8ada7"
+    toSha256: "fe539fc5c08059e306ee1530a44da95cc320d59a96159a255d85abacb0ed4b5b"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.5d historical reconstruction contract: tramai-security publishes the reconstruction vocabulary - ReconstructionRequest, ReconstructionResult, the ReconstructionStatus classification (SUPPORTED/PARTIAL/UNSUPPORTED), the ReconstructionLimitation statements of what must never be inferred, and HistoricalConfigurationReference (Recorded/NotRecorded) - which classifies already-read evidence from the 0.7.5c timeline without reading a source, inferring causality or substituting current configuration. No timeline, governance or attempt model is duplicated and no governance decision or authorization semantic changes. Additive only: the sole existing-code edit is a redundant sort removed from SemanticTimeline.attempts(), whose signature and ordering are unchanged."
+    migration: "No consumer action required: every new type is additive and nothing existing changed shape. A caller wraps the SemanticTimeline it already reads in ReconstructionRequest plus the historical configuration identity it recorded, and reads status and limitations, which are computed from the evidence rather than stored. Absent configuration or observation reports a limitation instead of fabricating a value."
+
+  - module: ":tramai-security"
+    fromSha256: "fe539fc5c08059e306ee1530a44da95cc320d59a96159a255d85abacb0ed4b5b"
+    toSha256: "936a29a272c62786657d61f05bbd76f9ef30bc73d92b4d4158d06488f352f554"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.5e side-effect-free historical reconstructor: tramai-security publishes the reconstruction reader - EvidenceBackedReconstructor, which composes the existing 0.7.5c SemanticTimelineQuery with a HistoricalConfigurationSource port, and returns the 0.7.5d ReconstructionResult. It reads the materialized governance projection and the recorded model attempts and nothing else; it has no provider, tool, approval or network collaborator, so no external action is reachable from it. The historical configuration reference is taken from the port rather than from the caller, which enforces the 0.7.5d trust boundary at the call boundary. Additive only: no existing type changed, no governance decision or authorization semantic is touched."
+    migration: "No consumer action required for existing code: both new types are additive. A caller that wants a reconstruction implements HistoricalConfigurationSource over the persisted evidence it already owns (returning NotRecorded when absent) and constructs EvidenceBackedReconstructor with the SemanticTimelineQuery it already has, then calls reconstruct(workflowRunId, governanceScope). Optional governance scope, absent governance, uninstrumented attempts and store failures keep the 0.7.5c/0.7.5d classifications: a failure propagates, it is never reported as absent evidence."
+
+  - module: ":tramai-security"
+    fromSha256: "936a29a272c62786657d61f05bbd76f9ef30bc73d92b4d4158d06488f352f554"
+    toSha256: "a0662d3459b4ae7a1523e39430bff3b0efe171867717601b93bcc1f24d0aa96b"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.5f missing-evidence semantics: one enum constant is added to ReconstructionLimitation - HISTORICAL_CONFIGURATION_UNVERIFIED - because a correctly shaped HistoricalConfigurationReference.Recorded carries no provenance and SUPPORTED must not be read as authentication. The status vocabulary is unchanged and no existing member is removed, renamed or reordered; the remaining work is documentation and tests that pin semantics which were previously only asserted in prose."
+    migration: "Consumer action is limited to exhaustive when-expressions over ReconstructionLimitation: add a branch for HISTORICAL_CONFIGURATION_UNVERIFIED, which is raised whenever a configuration reference was supplied. Consumers that previously treated an empty limitations set as the normal SUPPORTED case will now see this one entry alongside SUPPORTED; that is intentional, since the reference's origin is not authenticated by this API."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops-rest"
+    fromSha256: "557d7bc526deabc861690bd3ddd925985e436de59c4326e0f11107d14006c712"
+    toSha256: "7f3e38e69ef9c8c5c5e60db2a6d149d09bff540f02f610ede980f089452cdfac"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.6c operator authentication boundary: the starter publishes the OIDC/JWT adapter - OperatorAuthenticationAutoConfiguration (path-scoped filter chain pinned to its own decoder, fail-closed on incomplete configuration and on an uncovered control-plane base path), OperatorAuthenticationDependencyCheckAutoConfiguration, OperatorSecurityProperties, OperatorCapabilityMapping, OperatorPrincipalFactory, OperatorPrincipalResolver, UnsupportedOperatorSubjectException and the pinned public-key property - which turns a verified JWT into the 0.7.6b immutable OperatorPrincipal with capabilities resolved from server-side configuration. UnsupportedOperatorSubjectException extends Spring's InsufficientAuthenticationException so a token the boundary cannot turn into an identity (missing issuer, missing subject, unrecordable subject) is a 401 rather than a 500. Authentication only: no approval or control endpoint gained an authorization check, and the 0.7.6a findings F1, F2 and F5 are untouched. Spring Security stays compileOnly, so no consumer is silently given a security filter chain."
+    migration: "No consumer action required for existing code: every added type is new and no existing controller, DTO or auto-configuration changed shape; a consumer that caught UnsupportedOperatorSubjectException by name still compiles, since only its supertypes gained InsufficientAuthenticationException. A consumer that wants operator authentication adds spring-boot-starter-oauth2-resource-server and sets tramai.sovereign.ops.security.enabled=true with issuer, audience and jwk-set-uri; enabling it without those values, without the dependency, or with a protected-paths list that does not cover tramai.sovereign.ops.rest.base-path fails startup instead of opening the routes; jwk-set-uri or public-key supplies the trust material, and the decoder is built by the operator chain rather than injected as a bean, so no host definition can replace it. Consumers that do not opt in see no behaviour change, because the security starter is not a transitive dependency."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops-rest"
+    fromSha256: "7f3e38e69ef9c8c5c5e60db2a6d149d09bff540f02f610ede980f089452cdfac"
+    toSha256: "c9bb77f9b6a33bb6b988d269502ba1cd9476b30a72c2d636059138eb6b8d73c6"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.6d REST precondition surface for the F2 fix. ApproveDenyRequest orders expectedVersion ahead of comment so the required precondition precedes the optional fields, and ApprovalControlPlaneResponse gains expectedVersion and currentVersion so a stale decision reports both the version the caller sent and the authoritative version. The approve and deny endpoints now answer 400 INVALID_PRECONDITION for a missing, null or negative expectedVersion instead of mutating with a server-substituted version, and 409 STALE for a stale one; a rejected precondition never becomes a control-plane command, so it cannot reach the mutation store. No authentication or authorization semantics change."
+    migration: "Client action required for approve and deny only: send expectedVersion in the JSON body. The field remains the single precondition representation - no If-Match header was introduced that could disagree with it. Clients that omitted it previously received a silent success and now receive 400 with code tramai-approval-expected-version-required; negative values receive 400 tramai-approval-invalid-expected-version. On 409 STALE, read currentVersion from the response, re-read the approval, and re-submit only if the decision is still wanted - a stale response is not a completed decision."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: "fc86f30f6e1925f41ac1ac3ea2379a5d93cb3cd97edb8f1f25b5f3213462dd81"
+    toSha256: "b302b03dbd1649d1692eea0fbadc3790bb081b6c7e1991552bd13d026adda12a"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.6e runtime authorization enforcement: an approval decision now requires a verified operator. ApprovalDecisionCommand loses actorId and actorRole (removal, not deprecation, so no caller can pass an identity that competes with the verified one), approve and deny require an OperatorAuthority carrying the immutable OperatorPrincipal and its server-resolved approver roles, and the decision path evaluates capability before any store read, then the per-approval role requirement keyed by the persisted policyVersion, then the 0.7.6d version precondition. ApprovalDecisionResult gains Unauthorized carrying ApprovalUnauthorizedReason (MISSING_CAPABILITY, APPROVAL_POLICY_UNAVAILABLE, ROLE_NOT_PERMITTED), so an authorization failure is distinguishable from a business denial and from a concurrency conflict. ApprovalDecisionAuthorizer and AllowAllApprovalDecisionAuthorizer are DELETED rather than deprecated: the merged 0.7.6e contract described changing the authorizer interface, and the implementation deviates deliberately, because a permissive bean satisfied every startup check and a host could always substitute one. OperatorPrincipal gains an approverRoles snapshot through a new five-argument constructor while the existing four-argument public constructor remains and delegates with emptySet(). OperatorApprovalPolicy is the requirement source and is published without @ConditionalOnMissingBean and qualified by bean name at the injection point, so a host bean - including one marked @Primary - cannot become the enforced requirement."
+    migration: "Consumer action required for every caller of approve or deny, in three parts. (1) Replace the command's actor fields: construct ApprovalDecisionCommand without actorId and actorRole, and pass a verified OperatorAuthority as the second argument. OperatorAuthority is issued only by the authentication boundary (OperatorPrincipalFactory through OperatorPrincipalResolver.issueAuthority), so application code should inject the argument-resolved OperatorAuthority rather than construct one; the constructor remains public under the documented in-process trust model, and constructing one is a claim that the caller is trusted infrastructure. (2) Configure the requirement: set tramai.sovereign.ops.security.approval-policies with one entry per persisted policyVersion mapping to the approver roles permitted to decide approvals at that version, and set tramai.sovereign.ops.security.approver-role-mappings to derive those roles from verified JWT role claims. A role with no mapping grants nothing, and a blank mapping value fails startup. (3) Expect the new startup failures, whose scope is deliberately bounded: rest-control-plane-enabled=true with security.enabled=false fails startup (tramai-rest-control-plane-requires-operator-security) because the approve and deny routes would otherwise be reachable without verified identity; rest-control-plane-enabled=true with no OperatorApprovalPolicy bean fails startup (tramai-rest-control-plane-requires-approval-policy). Absence of the policy bean is a separate outcome rather than a failure: with no OperatorApprovalPolicy bean the decision service is not published at all, so callers see no bean instead of hitting a startup error. Deployments that enable mutation infrastructure without the operator-facing decision service are NOT affected: mutations-enabled=true with rest-control-plane-enabled=false and security.enabled=false still starts, because that configuration runs the underlying approval infrastructure without publishing an approval decision service. Known residual: the requirement is keyed by the approval's persisted policyVersion, and the requiredRole accepted by ApprovalGateway.requestApproval is not preserved as authoritative approval state, so the configured requirement and the originally requested role can differ; persisting the requested role is deferred to a separate ADR covering migration, historical approvals and versioned policy changes."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops-rest"
+    fromSha256: "c9bb77f9b6a33bb6b988d269502ba1cd9476b30a72c2d636059138eb6b8d73c6"
+    toSha256: "7c2a83464374dc8f380c889d54917723a5bf0cbea6ee6615ab83da6f377d62fa"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.6e REST authorization surface: the approve and deny endpoints map ApprovalDecisionResult.Unauthorized to HTTP 403 carrying the ApprovalUnauthorizedReason wire name, so a missing capability, an unknown policy version and a wrong approver role are distinguishable from a business denial and from a stale decision. The controller obtains its OperatorAuthority from the operator argument resolver - the same boundary that issues OperatorPrincipal - and never constructs one, which keeps a single authority issuance path. The controller bean is no longer published unconditionally: rest-control-plane-enabled=true with security.enabled=false, or with no active decision control plane, fails startup with a named reason instead of exposing unauthenticated approve and deny routes. Authentication of the read endpoint is unchanged and remains an unresolved F3 item: GET /{approvalId} still returns approval status, decider and continuation status to any caller that reaches it. Configurable trust boundary: the four bean methods that published the capability mapping, the approver-role mapping, the principal factory and the resolver are removed, because those objects decide what a verified caller is allowed to be and a published bean is substitutable - a @Primary host bean won type-based injection even with @ConditionalOnMissingBean present. The chain is built inline from configuration inside the single operatorPrincipalWebMvcConfigurer bean, and OperatorApproverRoleMapping gains grantableApproverRoles so startup can prove a configured requirement is satisfiable. Startup now also rejects a malformed approver role (tramai-approver-role-malformed: non-blank, no whitespace, no control characters, bounded length) and an approval-policies role that no mapping can grant (tramai-approval-policy-unsatisfiable)."
+    migration: "No request or response shape changed: an unauthorized decision that previously could not occur now returns 403 with a code drawn from MISSING_CAPABILITY, APPROVAL_POLICY_UNAVAILABLE or ROLE_NOT_PERMITTED, and clients should treat 403 as an authorization refusal rather than a retryable failure. Operators must set the configuration described for the ops starter, because a REST control plane without operator security now refuses to start rather than serving routes without an identity. Two response codes are intentionally different in what they disclose: a caller lacking DECIDE_APPROVAL receives 403 without any state lookup, so the answer does not depend on whether the approval exists; a caller holding the capability but not the required role receives 403 after the internal lookup, and can therefore distinguish a role refusal from 404. That limited existence disclosure is accepted in the contract and is smaller than what GET /{approvalId} already returns to the same caller. Nothing may inject the removed collaborators any more: a consumer that declared a bean of one of those types to change behaviour was silently replacing the grant source, so delete that bean instead of renaming it, and configure grants through tramai.sovereign.ops.security.role-mappings and approver-role-mappings."
+
+  - module: ":tramai-core"
+    fromSha256: "86add99d129efa154d9797664f77b81f9d21a89bf0506e6a3a5664bfe008426a"
+    toSha256: "e3d294b2dcf8f9fe3f455594dd55e3bf9fbae1969ccdfde6c832ffbbdd69a26a"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.6e verified operator authority: OperatorPrincipal now carries the verified approver roles next to the capabilities, and a five-argument JVM constructor publishes them. The four-argument constructor is deliberately retained and delegates with an empty role set, so Java callers compiled against the previous artifact still link. Additive only."
+    migration: "No consumer action required: the existing constructor and accessors are unchanged. Recompile only to use approverRoles, which carries roles derived from verified JWT claims and server configuration - never roles supplied by a request."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: "b302b03dbd1649d1692eea0fbadc3790bb081b6c7e1991552bd13d026adda12a"
+    toSha256: "4078619b53bfba135526546bcca6435484dc0ef015d06ccb078ba057114298c2"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.6f slice 1 evidence vocabulary: SovereignOpsAuditOutboxRecord gains actorIssuer, actorIdentityDigest, previousApprovalStatus and previousApprovalVersion, and approvalStatus becomes nullable so an absent status cannot be confused with a real one. This is a binary-breaking change for consumers that construct the record positionally or call copy() - the JVM constructor, copy and copy$default descriptors all change - and it is deliberate: the fields are the evidence the epic exists to record, and every call site in the repository was updated. Source-compatible for named-argument Kotlin and for Java callers that only read accessors."
+    migration: "Recompile against this artifact before constructing SovereignOpsAuditOutboxRecord or calling copy(). Named-argument Kotlin call sites need no change. Java callers using the all-argument constructor must add four arguments (issuer, identity digest, previous status, previous version) - pass null for each unless the decision carried verified attribution. Readers of approvalStatus must now handle null: it is absent on records that are not decisions, not an empty or placeholder status. The frozen digests are unchanged in form: decision_actor_hash, aggregateIdDigest and reasonDigest keep the sha256: prefix, while the new actorIdentityDigest is 64 lowercase hex with no prefix."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: 4078619b53bfba135526546bcca6435484dc0ef015d06ccb078ba057114298c2
+    toSha256: 3baca210a8b768c0532dffd49c09ad92e5e5945a1d0c5023d57d173d7f9f9d07
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 2 dispatchable append: SovereignOpsAuditOutboxRecord gains evidenceKind, the
+      SovereignOpsAuditEvidenceKind enum is published, and SovereignOpsAuditOutboxStore gains
+      appendDispatchable with a default that throws. The JVM constructor, copy and copy$default
+      descriptors change again with the new parameter, and component25() is new; component1() through
+      component24() are unchanged. The SPI method is additive: an implementation that does not override
+      it keeps linking and fails closed at call time instead of writing refusal evidence nowhere.
+    migration: >-
+      Consumers that construct SovereignOpsAuditOutboxRecord positionally or call copy() must recompile;
+      every new parameter has a default, so named-argument construction is source-compatible. Custom
+      SovereignOpsAuditOutboxStore implementations must override appendDispatchable to accept refusal
+      evidence: the default throws tramai-sovereign-ops-outbox-dispatchable-append-unsupported, which is
+      deliberate so a store cannot silently accept evidence it cannot persist.
+
+  - module: ":tramai-core"
+    fromSha256: e3d294b2dcf8f9fe3f455594dd55e3bf9fbae1969ccdfde6c832ffbbdd69a26a
+    toSha256: bbb2b420ea618f3d1a4fcc7fe6c4e682e2d39d6a7404cb2b99975e637fb6132f
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 1 landed ActorIdentityDigest and the record's provenance accessors in
+      tramai-core without appending the link this ledger needs, so the chain from the previous
+      entry's toSha256 no longer reached the current base dump. Additive only: no declaration was
+      removed or reshaped. This entry records that transition so the ledger stays reachable; it
+      authorizes nothing new.
+    migration: >-
+      No consumer action: additive public API only. Recompile to use ActorIdentityDigest.
+
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    fromSha256: 56e4fb7b758a9b476e9a6c9dd7f2cbdf043e3f80f2ef61e2bdd0702c364cdc72
+    toSha256: db78dba72754b6f7f2cbe276191ca959867c8ae9edc55893bcefbdae753d035a
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 2: JdbcSovereignOpsAuditOutboxStore publishes appendDispatchable, matching
+      the SPI default. Additive: the existing append, transition and claim signatures are unchanged.
+    migration: >-
+      No consumer action required beyond recompiling. Implementations that are not this store must
+      override appendDispatchable themselves; the SPI default throws
+      tramai-sovereign-ops-outbox-dispatchable-append-unsupported.
+
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-file"
+    fromSha256: e992d59be9f21e441843cfda66ec9037b8a9c7b324c814afe378e0017c18273c
+    toSha256: 0c3f810df9c70e8cb19302562e531a2b41245d3ae68f6f0147e3e1164776ce97
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 2: FileSovereignOpsAuditOutboxStore publishes appendDispatchable, matching
+      the SPI default. Additive: the existing append, transition and claim signatures are unchanged.
+    migration: >-
+      No consumer action required beyond recompiling. Implementations that are not this store must
+      override appendDispatchable themselves; the SPI default throws
+      tramai-sovereign-ops-outbox-dispatchable-append-unsupported.
+
+  - module: ":tramai-persistence-file"
+    fromSha256: f4f21c7cb3a6185994706adf4340ad734c8072520363e03faf75b097900c450e
+    toSha256: 87eaf21b618385b2e938a94b9d22335ae98f992f340592c8398c49fe1c3f26c0
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 3: FileStoreSha256 publishes hexOf(bytes) so stored ciphertext can be fingerprinted for quarantine metadata without decoding it. Additive only.
+    migration: >-
+      No consumer action required.
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: 3baca210a8b768c0532dffd49c09ad92e5e5945a1d0c5023d57d173d7f9f9d07
+    toSha256: 2a2f9367a136834832a599349efd315a8f06c9c68993c6a7d4a3e3d56fadf142
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 3: the metadata-only evidence-recovery surface is published as SovereignOpsAuditOutboxQuarantineStore with QuarantinedEvidenceSummary and QuarantineReport, reachable through SovereignOpsAuditOutboxStore.quarantineStore() whose default is null. Additive: every new operation has a default that throws tramai-sovereign-ops-outbox-quarantine-unsupported, and the dispatcher completes a quarantine recovery pass before claiming.
+    migration: >-
+      Consumers implementing SovereignOpsAuditOutboxStore need no change. Callers must read a null quarantineStore() (or the unsupported error) as "this store has no durable quarantine", never as an empty result.
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    fromSha256: db78dba72754b6f7f2cbe276191ca959867c8ae9edc55893bcefbdae753d035a
+    toSha256: df415d890b708efcb3f3405cbebd408811cd551ecf7fe0ec0b041eda4e129f65
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 3: JdbcSovereignOpsAuditOutboxStore exposes the quarantine surface through quarantineStore(). Additive: existing store operations are unchanged, and the row-exclusion behaviour change lives in SQL predicates, not signatures.
+    migration: >-
+      No consumer action required beyond recompiling.
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-file"
+    fromSha256: 0c3f810df9c70e8cb19302562e531a2b41245d3ae68f6f0147e3e1164776ce97
+    toSha256: 1e5a58969350182d840a03cdf09e289ebb3d4fbb0ff08885c02613e690db682e
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 3: FileSovereignOpsAuditOutboxStore exposes the quarantine surface through quarantineStore(). Additive: existing store operations are unchanged; rebuildIndex now tolerates an undecodable record instead of failing initialization.
+    migration: >-
+      No consumer action required beyond recompiling.
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: 2a2f9367a136834832a599349efd315a8f06c9c68993c6a7d4a3e3d56fadf142
+    toSha256: b9e2b15cb3d930536ae2c1f5ef7c8a28918057c648934db754910f2e740260e4
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.6f slice 4: dispatch becomes kind-correct. SovereignOpsAuditEmitter gains a kind-aware default
+      evidenceFromOutbox(record), SovereignOpsAuditOutboxRecord gains refusalReason so a refusal's reason wire
+      name is persisted instead of re-derived, and AuditEngineSovereignOpsAuditEmitter maps each kind to its
+      own enforcement point, decision and reason code. Additive for implementors: the new emitter method has a
+      behaviour-preserving default for denials and throws for kinds an emitter cannot represent.
+    migration: >-
+      Consumers implementing SovereignOpsAuditEmitter should override evidenceFromOutbox to represent
+      APPROVAL_APPROVED and AUTHORIZATION_REFUSAL; without it those kinds are parked as FAILED_PERMANENT and
+      recorded as unsupported-evidence-kind. No consumer action required for SovereignOpsAuditOutboxRecord,
+      whose new field defaults to null.

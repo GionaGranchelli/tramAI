@@ -1,0 +1,725 @@
+@file:Suppress("TooGenericExceptionCaught", "InstanceOfCheckForException", "SwallowedException")
+
+/*
+ * Rationale for the three suppressions above, mirroring tramai-persistence-jdbc's JdbcSafeOperation.kt:
+ * a JDBC boundary has to catch broadly and rethrow sanitized, and it has to attach rollback and
+ * autoCommit-restore failures as suppressed so the primary failure is not lost. Neither is fail-open —
+ * it is the opposite: no SQL, schema or vendor detail leaves this file, and no failure is swallowed.
+ */
+
+package dev.tramai.security.governance
+
+import dev.tramai.core.coroutines.rethrowIfCancellation
+import java.sql.Connection
+import java.sql.ResultSet
+import java.util.concurrent.CancellationException
+import javax.sql.DataSource
+
+/**
+ * 0.7.4d — the durable projection store.
+ *
+ * A publish is one transaction: the snapshot header, its facts and its decision rows commit together
+ * or not at all, so an interrupted write leaves the previous snapshot whole rather than a half-written
+ * one that a later read would have to interpret. Nothing here retries, refreshes or repairs: a
+ * rejected candidate is reported, not merged, and a corrupt row is refused, not upgraded.
+ *
+ * Out-of-order and concurrent publishes are ordered in SQL rather than in the caller. The ordering
+ * pair is (audit head position, registration version), compared lexicographically: decision records
+ * derive from the audit stream, so a candidate built from an older head is weaker evidence even when
+ * registration has moved on. The pair orders snapshots for one key; it is not a claim that the two
+ * sources were read at one instant. [ReadConsistency] is a property of this format rather than a stored
+ * column: nothing carries it in the row, and a load reconstructs it as
+ * [ReadConsistency.INDEPENDENT_SOURCES].
+ *
+ * A JDBC store is a mapping surface: SQL, row mapping and the transactional publish belong in one
+ * readable unit, because the atomicity the publish guarantees spans them. The equivalent stores in
+ * this repository carry baselined findings of the same shape; this one is new, so the choice is
+ * stated rather than hidden behind a baseline entry. Splitting the file would separate the SQL from
+ * the mapping that uses it, which is the defect this suppression avoids rather than the one it hides.
+ */
+@Suppress("TooManyFunctions", "LongParameterList")
+internal class JdbcGovernanceProjectionStore(
+    private val dataSource: DataSource,
+) : GovernanceProjectionStore {
+    override suspend fun load(identity: ProjectionIdentity): StoredGovernanceProjection? =
+        withSafeJdbc {
+            dataSource.connection.use { connection -> loadConsistently(connection, identity) }
+        }
+
+    /**
+     * One load, one committed version.
+     *
+     * The header, the facts and the decisions are three statements, and under READ COMMITTED each would
+     * observe whatever was committed when it ran. A publish landing between them would hand back a
+     * mixture of two snapshots: individually well-formed rows that fail the digest and get reported as
+     * corruption the store did not have. An atomic publish does not make independent reads a snapshot;
+     * only the transaction does, and REPEATABLE READ pins all three to the version this load began at,
+     * which is what the digest is a claim about.
+     */
+    private fun loadConsistently(
+        connection: Connection,
+        identity: ProjectionIdentity,
+    ): StoredGovernanceProjection? {
+        val previous =
+            ReadState(connection.autoCommit, connection.transactionIsolation, connection.isReadOnly)
+        connection.autoCommit = false
+        connection.transactionIsolation = Connection.TRANSACTION_REPEATABLE_READ
+        connection.isReadOnly = true
+        var primary: Exception? = null
+        return try {
+            val loaded = loadWithin(connection, identity)
+            connection.commit()
+            loaded
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            primary = e
+            rollbackSuppressing(connection, e)
+            throw e
+        } finally {
+            previous.restore(connection, primary)
+        }
+    }
+
+    /** The connection properties a read temporarily owns, restored whatever happened. */
+    private inner class ReadState(
+        private val autoCommit: Boolean,
+        private val isolation: Int,
+        private val readOnly: Boolean,
+    ) {
+        fun restore(
+            connection: Connection,
+            primary: Exception?,
+        ) {
+            restoreSuppressing(connection, primary) { it.autoCommit = autoCommit }
+            restoreSuppressing(connection, primary) { it.transactionIsolation = isolation }
+            restoreSuppressing(connection, primary) { it.isReadOnly = readOnly }
+        }
+    }
+
+    /**
+     * Reading, with stored content mapped to a refusal.
+     *
+     * Everything read here is data, not a caller argument: when a contract guard rejects it, that is
+     * corruption to report rather than an error to blame on the caller. The guard firing *before* this
+     * wrap was a defect the corrupt-fact discriminator found, seeing a raw IllegalArgumentException
+     * where the contract promises a refusal.
+     */
+    private fun loadWithin(
+        connection: Connection,
+        identity: ProjectionIdentity,
+        forUpdate: Boolean = false,
+    ): StoredGovernanceProjection? =
+        try {
+            val header = selectHeader(connection, identity, forUpdate) ?: return null
+            requireSupportedFormat(header.formatVersion)
+            val snapshot =
+                rebuildSnapshot(
+                    identity,
+                    header,
+                    selectFacts(connection, identity.key),
+                    selectDecisions(
+                        connection,
+                        identity.key,
+                    ),
+                )
+            if (snapshot.semanticDigest != header.semanticDigest) {
+                // The row disagrees with itself. Refusing is the only safe answer: repairing it would
+                // be inventing content, and trusting it would be trusting a contradiction.
+                throw ProjectionCorruptionException(
+                    "stored projection content does not match its recorded digest",
+                )
+            }
+            StoredGovernanceProjection(snapshot, header.materializedAt)
+        } catch (e: IllegalArgumentException) {
+            throw ProjectionCorruptionException("stored projection violates the contract: ${e.message}")
+        }
+
+    override suspend fun publish(snapshot: GovernanceProjectionSnapshot): MaterializationOutcome =
+        withSafeJdbc {
+            dataSource.connection.use { connection ->
+                val previousAutoCommit = connection.autoCommit
+                connection.autoCommit = false
+                var primary: Exception? = null
+                try {
+                    val outcome = publishWithin(connection, snapshot)
+                    connection.commit()
+                    outcome
+                } catch (e: Exception) {
+                    // Preserve cancellation before the rollback work below.
+                    e.rethrowIfCancellation()
+                    primary = e
+                    rollbackSuppressing(connection, e)
+                    throw e
+                } finally {
+                    restoreSuppressing(connection, primary) { it.autoCommit = previousAutoCommit }
+                }
+            }
+        }
+
+    private fun publishWithin(
+        connection: Connection,
+        snapshot: GovernanceProjectionSnapshot,
+    ): MaterializationOutcome {
+        val key = snapshot.identity.key
+
+        // A publication must never repair corruption. The conditions in UPSERT_HEADER decide whether a row
+        // may be *replaced*; they say nothing about whether it may be *believed*, and a row whose provenance
+        // columns no longer match its digest satisfies them: same key, supported format, newer ordering. So
+        // the stored row is verified before it can be replaced, in this transaction and under a row lock.
+        // A row that fails verification throws here and stays on disk, corrupt, for diagnosis.
+        loadWithin(connection, snapshot.identity, forUpdate = true)
+
+        if (upsertHeader(connection, snapshot)) {
+            // Replacement is whole-row: the children go in the same transaction, so no committed version
+            // holds a mixture of two snapshots. A reader taking its three statements without its own
+            // snapshot can still straddle two versions, which is why load() pins one.
+            deleteChildren(connection, key)
+            insertFacts(connection, snapshot)
+            insertDecisions(connection, snapshot)
+            return MaterializationOutcome.PUBLISHED
+        }
+
+        // Publish verifies the same invariant as load: the row's identity columns must agree with the
+        // identity this snapshot was built for, so a row rewritten under a different scope cannot be
+        // treated as this scope's stored state.
+        val stored =
+            selectHeader(connection, snapshot.identity)
+                ?: throw ProjectionCorruptionException("a stored projection vanished during publish")
+
+        // The staged row is not a format this build writes, so the conditional update above refused to
+        // replace it. Reporting that as corruption would blame storage for doing what it was told.
+        requireSupportedFormat(stored.formatVersion)
+
+        val comparison = compareOrdering(snapshot.ordering, stored.ordering)
+        return when {
+            comparison > 0L -> {
+                // Storage refused a candidate that is newer than what it holds. That is a storage
+                // defect, and guessing an outcome would hide it behind an authoritative-looking answer.
+                throw ProjectionCorruptionException("storage refused a candidate newer than the stored snapshot")
+            }
+
+            comparison < 0L -> {
+                MaterializationOutcome.REJECTED_STALE
+            }
+
+            snapshot.semanticDigest == stored.semanticDigest -> {
+                MaterializationOutcome.ALREADY_CURRENT
+            }
+
+            // Same source versions, different content. One of the two is not what the sources say, and
+            // arrival order is not evidence about which.
+            else -> {
+                MaterializationOutcome.REJECTED_CONFLICT
+            }
+        }
+    }
+
+    /**
+     * The stored format must be one this build writes. Both readers of a stored row call this: a load
+     * refuses to read an unsupported format, and a publish refuses to replace one, which the conditional
+     * update enforces atomically before this is ever reached. One rule, so the two paths cannot drift.
+     */
+    private fun requireSupportedFormat(formatVersion: String) {
+        if (formatVersion != GOVERNANCE_READ_MODEL_FORMAT_VERSION) {
+            throw UnsupportedProjectionFormatException(
+                "stored projection format $formatVersion is not $GOVERNANCE_READ_MODEL_FORMAT_VERSION",
+            )
+        }
+    }
+
+    /**
+     * The conditional upsert that decides whether this candidate may replace what is stored.
+     *
+     * Returns whether a row was written. The row comparison is the whole concurrency contract: equal
+     * ordering with equal content is a no-op, and anything older never applies. The format boundary is
+     * part of the same conditional statement, so a row whose stored format is not the one this build
+     * writes is never replaced by a newer candidate - refused atomically, in the statement that would
+     * otherwise have replaced it, rather than checked and then acted on.
+     */
+    private fun upsertHeader(
+        connection: Connection,
+        snapshot: GovernanceProjectionSnapshot,
+    ): Boolean =
+        connection
+            .prepareStatement(UPSERT_HEADER)
+            .use { statement ->
+                val provenance = snapshot.provenance
+                var index = 1
+                statement.setString(index++, snapshot.identity.key)
+                statement.setString(index++, snapshot.formatVersion)
+                statement.setString(index++, provenance.classificationRevision)
+                statement.setString(index++, snapshot.identity.workloadId)
+                statement.setString(index++, snapshot.identity.environmentId)
+                statement.setString(index++, snapshot.identity.deploymentId)
+                statement.setString(index++, snapshot.identity.workflowRunId)
+                statement.setString(index++, snapshot.identity.auditStreamId)
+                statement.setLong(index++, provenance.registrationVersion)
+                statement.setLong(index++, provenance.auditHeadPosition)
+                statement.setString(index++, provenance.auditHeadHash)
+                statement.setString(index++, snapshot.semanticDigest)
+                statement.executeQuery().use { rows -> return rows.next() }
+            }
+
+    private fun deleteChildren(
+        connection: Connection,
+        key: String,
+    ) {
+        connection.prepareStatement(DELETE_FACTS).use {
+            it.setString(1, key)
+            it.executeUpdate()
+        }
+        connection.prepareStatement(DELETE_DECISIONS).use {
+            it.setString(1, key)
+            it.executeUpdate()
+        }
+    }
+
+    private fun insertFacts(
+        connection: Connection,
+        snapshot: GovernanceProjectionSnapshot,
+    ) {
+        connection.prepareStatement(INSERT_FACT).use { statement ->
+            factsOf(snapshot).forEach { (name, fact) ->
+                var index = 1
+                statement.setString(index++, snapshot.identity.key)
+                statement.setString(index++, name)
+                statement.setString(index++, fact.authority.name)
+                statement.setString(index++, fact.freshness.name)
+                statement.setString(index++, fact.established)
+                statement.setString(index++, GovernanceProjectionSnapshot.encodeLines(fact.mustNotInfer))
+                statement.setBoolean(index++, fact.valuePresent)
+                statement.setNullableLong(index++, fact.observedVersion)
+                statement.setNullableLong(index++, fact.sourceVersion)
+                statement.setNullableLong(index++, fact.watermark)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
+    }
+
+    private fun insertDecisions(
+        connection: Connection,
+        snapshot: GovernanceProjectionSnapshot,
+    ) {
+        connection.prepareStatement(INSERT_DECISION).use { statement ->
+            snapshot.decisions.sortedBy { it.kind.name }.forEach { decision ->
+                var index = 1
+                statement.setString(index++, snapshot.identity.key)
+                statement.setString(index++, decision.kind.name)
+                statement.setNullableLong(index++, decision.coverage.verifiedRange?.first)
+                statement.setNullableLong(index++, decision.coverage.verifiedRange?.last)
+                statement.setString(index++, decision.coverage.observedHeadHash)
+                statement.setLong(index++, decision.coverage.accountedPositions)
+                statement.setString(
+                    index++,
+                    GovernanceProjectionSnapshot.encodePositions(decision.coverage.unrecordedDecisionPositions),
+                )
+                statement.setString(
+                    index++,
+                    GovernanceProjectionSnapshot.encodePositions(decision.coverage.unclassifiedPositions),
+                )
+                statement.setString(index++, decision.coverage.classificationRevision)
+                statement.setString(index++, decision.completeness.name)
+                statement.setInt(index++, decision.duplicatesIgnored)
+                statement.setInt(index++, decision.staleIgnored)
+                statement.setString(index++, decision.latestDecision)
+                statement.setString(index++, decision.latestReasonCode)
+                statement.setString(index++, decision.latestBoundaryId)
+                statement.setString(index++, decision.latestBoundaryStrength)
+                statement.setString(index++, decision.latest.authority.name)
+                statement.setString(index++, decision.latest.freshness.name)
+                statement.setString(index++, decision.latest.established)
+                statement.setString(index++, GovernanceProjectionSnapshot.encodeLines(decision.latest.mustNotInfer))
+                statement.setNullableLong(index++, decision.latest.observedVersion)
+                statement.setNullableLong(index++, decision.latest.sourceVersion)
+                statement.setNullableLong(index++, decision.latest.watermark)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
+    }
+
+    /** Rebuilds the snapshot through its own constructors, so stored rows meet the same guards. */
+    private fun rebuildSnapshot(
+        identity: ProjectionIdentity,
+        header: HeaderRow,
+        facts: Map<String, SnapshotFact>,
+        decisions: List<SnapshotDecision>,
+    ): GovernanceProjectionSnapshot {
+        val registration = facts[FACT_REGISTRATION] ?: corrupt("the registration fact row is missing")
+        val declared = facts[FACT_DECLARED_IDENTITY] ?: corrupt("the declared identity fact row is missing")
+        val telemetry = facts[FACT_TELEMETRY] ?: corrupt("the telemetry fact row is missing")
+        val revision =
+            header.classificationRevision.takeIf { it.isNotBlank() }
+                ?: corrupt("the classification revision is missing")
+        return try {
+            GovernanceProjectionSnapshot(
+                formatVersion = header.formatVersion,
+                identity = identity,
+                registration = registration,
+                declaredRunIdentity = declared,
+                telemetry = telemetry,
+                decisions = decisions,
+                provenance =
+                    SourceProvenance(
+                        registrationVersion = header.registrationVersion,
+                        auditHeadPosition = header.auditHeadPosition,
+                        auditHeadHash = header.auditHeadHash,
+                        classificationRevision = revision,
+                    ),
+            )
+        } catch (e: IllegalArgumentException) {
+            // A guard rejected the stored content: that is corruption, not a caller error.
+            throw ProjectionCorruptionException("stored projection violates the contract: ${e.message}")
+        }
+    }
+
+    private fun selectHeader(
+        connection: Connection,
+        identity: ProjectionIdentity,
+        forUpdate: Boolean = false,
+    ): HeaderRow? =
+        connection.prepareStatement(if (forUpdate) SELECT_HEADER_FOR_UPDATE else SELECT_HEADER).use { statement ->
+            statement.setString(1, identity.key)
+            statement.executeQuery().use { rows ->
+                if (!rows.next()) {
+                    null
+                } else {
+                    requireStoredIdentity(rows, identity)
+                    HeaderRow(
+                        formatVersion = rows.getString("format_version"),
+                        classificationRevision = rows.getString("classification_revision"),
+                        registrationVersion = rows.getLong("registration_version"),
+                        auditHeadPosition = rows.getLong("audit_head_position"),
+                        auditHeadHash = rows.getString("audit_head_hash"),
+                        semanticDigest = rows.getString("semantic_digest"),
+                        materializedAt = rows.getTimestamp("materialized_at").toInstant(),
+                    )
+                }
+            }
+        }
+
+    /**
+     * The row's own identity columns must agree with the key it was read under.
+     *
+     * The projection key is derived from the identity, so a row reached by that key is the row for this
+     * scope. Reconstructing the identity from the request without this check would report whatever the row
+     * holds under the caller's scope, and a row whose columns were corrupted or rewritten would be
+     * indistinguishable from a correct one. The digest cannot catch it: it covers the snapshot the
+     * materializer built, not the identity stored beside it.
+     */
+    private fun requireStoredIdentity(
+        rows: ResultSet,
+        identity: ProjectionIdentity,
+    ) {
+        val stored =
+            listOf(
+                rows.getString("workload_id"),
+                rows.getString("environment_id"),
+                rows.getString("deployment_id"),
+            )
+        val requested = listOf(identity.workloadId, identity.environmentId, identity.deploymentId)
+        if (stored != requested || rows.getString("workflow_run_id") != identity.workflowRunId ||
+            rows.getString("audit_stream_id") != identity.auditStreamId
+        ) {
+            throw ProjectionCorruptionException(
+                "stored projection identity columns disagree with the projection key",
+            )
+        }
+    }
+
+    private fun selectFacts(
+        connection: Connection,
+        key: String,
+    ): Map<String, SnapshotFact> =
+        connection.prepareStatement(SELECT_FACTS).use { statement ->
+            statement.setString(1, key)
+            statement.executeQuery().use { rows ->
+                buildMap {
+                    while (rows.next()) {
+                        val name = rows.getString("fact")
+                        if (name in this) corrupt("duplicate fact row for $name")
+                        put(name, rows.toSnapshotFact())
+                    }
+                }
+            }
+        }
+
+    private fun selectDecisions(
+        connection: Connection,
+        key: String,
+    ): List<SnapshotDecision> =
+        connection.prepareStatement(SELECT_DECISIONS).use { statement ->
+            statement.setString(1, key)
+            statement.executeQuery().use { rows ->
+                buildList {
+                    while (rows.next()) {
+                        add(rows.toSnapshotDecision())
+                    }
+                }
+            }
+        }
+
+    private fun ResultSet.toSnapshotFact(): SnapshotFact =
+        SnapshotFact(
+            authority = enumValue(getString("authority")),
+            freshness = enumValue(getString("freshness")),
+            established = getString("established"),
+            mustNotInfer = GovernanceProjectionSnapshot.decodeLines(getString("must_not_infer")),
+            valuePresent = getBoolean("value_present"),
+            observedVersion = getNullableLong("observed_version"),
+            sourceVersion = getNullableLong("source_version"),
+            watermark = getNullableLong("watermark"),
+        )
+
+    private fun ResultSet.toSnapshotDecision(): SnapshotDecision {
+        val first = getNullableLong("verified_range_first")
+        val last = getNullableLong("verified_range_last")
+        val range =
+            when {
+                first == null && last == null -> null
+                first != null && last != null -> first..last
+                else -> corrupt("a verified range must have both ends")
+            }
+        return SnapshotDecision(
+            kind = enumValue(getString("kind")),
+            completeness = enumValue(getString("completeness")),
+            coverage =
+                SnapshotCoverage(
+                    verifiedRange = range,
+                    observedHeadHash = getString("observed_head_hash"),
+                    accountedPositions = getLong("accounted_positions"),
+                    unrecordedDecisionPositions =
+                        GovernanceProjectionSnapshot.decodePositions(getString("unrecorded_positions")),
+                    unclassifiedPositions =
+                        GovernanceProjectionSnapshot.decodePositions(getString("unclassified_positions")),
+                    classificationRevision = getString("classification_revision"),
+                ),
+            latest =
+                SnapshotFact(
+                    authority = enumValue(getString("latest_authority")),
+                    freshness = enumValue(getString("latest_freshness")),
+                    established = getString("latest_established"),
+                    mustNotInfer = GovernanceProjectionSnapshot.decodeLines(getString("latest_must_not_infer")),
+                    valuePresent = getString("latest_decision") != null,
+                    observedVersion = getNullableLong("latest_observed_version"),
+                    sourceVersion = getNullableLong("latest_source_version"),
+                    watermark = getNullableLong("latest_watermark"),
+                ),
+            latestDecision = getString("latest_decision"),
+            latestReasonCode = getString("latest_reason_code"),
+            latestBoundaryId = getString("latest_boundary_id"),
+            latestBoundaryStrength = getString("latest_boundary_strength"),
+            duplicatesIgnored = getInt("duplicates_ignored"),
+            staleIgnored = getInt("stale_ignored"),
+        )
+    }
+
+    private fun factsOf(snapshot: GovernanceProjectionSnapshot): List<Pair<String, SnapshotFact>> =
+        listOf(
+            FACT_REGISTRATION to snapshot.registration,
+            FACT_DECLARED_IDENTITY to snapshot.declaredRunIdentity,
+            FACT_TELEMETRY to snapshot.telemetry,
+        )
+
+    private fun compareOrdering(
+        candidate: Pair<Long, Long>,
+        stored: Pair<Long, Long>,
+    ): Long =
+        when {
+            candidate.first != stored.first -> candidate.first - stored.first
+            else -> candidate.second - stored.second
+        }
+
+    private fun rollbackSuppressing(
+        connection: Connection,
+        primary: Exception,
+    ) {
+        try {
+            connection.rollback()
+        } catch (rollbackFailure: Exception) {
+            primary.addSuppressed(rollbackFailure)
+        }
+    }
+
+    /**
+     * Restores a connection property without losing the failure that made restoration necessary.
+     *
+     * A read owns isolation and read-only state for its duration and a write owns autoCommit; both must
+     * hand the connection back as they found it, and a failure to restore must not replace the original
+     * failure.
+     */
+    private fun restoreSuppressing(
+        connection: Connection,
+        primary: Exception?,
+        restore: (Connection) -> Unit,
+    ) {
+        try {
+            restore(connection)
+        } catch (restoreFailure: Exception) {
+            if (primary != null) primary.addSuppressed(restoreFailure) else throw restoreFailure
+        }
+    }
+
+    private fun java.sql.PreparedStatement.setNullableLong(
+        index: Int,
+        value: Long?,
+    ) {
+        if (value == null) setNull(index, java.sql.Types.BIGINT) else setLong(index, value)
+    }
+
+    private fun ResultSet.getNullableLong(column: String): Long? {
+        val value = getLong(column)
+        return if (wasNull()) null else value
+    }
+
+    private inline fun <reified T : Enum<T>> enumValue(name: String?): T =
+        try {
+            enumValueOf<T>(name ?: corrupt("a stored enum value is missing"))
+        } catch (e: IllegalArgumentException) {
+            throw ProjectionCorruptionException("a stored enum value is not recognized by this build")
+        }
+
+    private fun corrupt(message: String): Nothing = throw ProjectionCorruptionException(message)
+
+    private class HeaderRow(
+        val formatVersion: String,
+        val classificationRevision: String,
+        val registrationVersion: Long,
+        val auditHeadPosition: Long,
+        val auditHeadHash: String?,
+        val semanticDigest: String,
+        val materializedAt: java.time.Instant,
+    ) {
+        val ordering: Pair<Long, Long> get() = auditHeadPosition to registrationVersion
+    }
+
+    private companion object {
+        const val FACT_REGISTRATION = "registration"
+        const val FACT_DECLARED_IDENTITY = "declared_run_identity"
+        const val FACT_TELEMETRY = "telemetry"
+
+        val UPSERT_HEADER =
+            """
+            INSERT INTO governance_projection_snapshot (
+                projection_key, format_version, classification_revision, workload_id, environment_id,
+                deployment_id, workflow_run_id, audit_stream_id, registration_version,
+                audit_head_position, audit_head_hash, semantic_digest
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (projection_key) DO UPDATE SET
+                format_version = EXCLUDED.format_version,
+                classification_revision = EXCLUDED.classification_revision,
+                workload_id = EXCLUDED.workload_id,
+                environment_id = EXCLUDED.environment_id,
+                deployment_id = EXCLUDED.deployment_id,
+                workflow_run_id = EXCLUDED.workflow_run_id,
+                audit_stream_id = EXCLUDED.audit_stream_id,
+                registration_version = EXCLUDED.registration_version,
+                audit_head_position = EXCLUDED.audit_head_position,
+                audit_head_hash = EXCLUDED.audit_head_hash,
+                semantic_digest = EXCLUDED.semantic_digest,
+                materialized_at = now()
+            WHERE governance_projection_snapshot.format_version = EXCLUDED.format_version
+              AND governance_projection_snapshot.workload_id = EXCLUDED.workload_id
+              AND governance_projection_snapshot.environment_id = EXCLUDED.environment_id
+              AND governance_projection_snapshot.deployment_id = EXCLUDED.deployment_id
+              AND governance_projection_snapshot.workflow_run_id IS NOT DISTINCT FROM EXCLUDED.workflow_run_id
+              AND governance_projection_snapshot.audit_stream_id IS NOT DISTINCT FROM EXCLUDED.audit_stream_id
+              AND (
+                EXCLUDED.audit_head_position,
+                EXCLUDED.registration_version
+            ) > (
+                governance_projection_snapshot.audit_head_position,
+                governance_projection_snapshot.registration_version
+            )
+            RETURNING projection_key
+            """.trimIndent()
+
+        const val SELECT_HEADER =
+            """
+            SELECT format_version, classification_revision, registration_version, audit_head_position,
+                   audit_head_hash, semantic_digest, materialized_at, workload_id, environment_id,
+                   deployment_id, workflow_run_id, audit_stream_id
+            FROM governance_projection_snapshot
+            WHERE projection_key = ?
+            """
+
+        /**
+         * The same read, holding the row for the rest of the publishing transaction.
+         *
+         * A publish verifies the stored row before it may replace it, and a lock is what makes that a
+         * decision rather than a sample: without it a concurrent publisher could rewrite the row between
+         * the verification and the upsert.
+         */
+        const val SELECT_HEADER_FOR_UPDATE = "$SELECT_HEADER FOR UPDATE"
+
+        const val DELETE_FACTS = "DELETE FROM governance_projection_fact WHERE projection_key = ?"
+        const val DELETE_DECISIONS = "DELETE FROM governance_projection_decision WHERE projection_key = ?"
+
+        const val INSERT_FACT =
+            """
+            INSERT INTO governance_projection_fact (
+                projection_key, fact, authority, freshness, established, must_not_infer, value_present,
+                observed_version, source_version, watermark
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+
+        const val INSERT_DECISION =
+            """
+            INSERT INTO governance_projection_decision (
+                projection_key, kind, verified_range_first, verified_range_last, observed_head_hash,
+                accounted_positions, unrecorded_positions, unclassified_positions,
+                classification_revision, completeness, duplicates_ignored, stale_ignored,
+                latest_decision, latest_reason_code, latest_boundary_id, latest_boundary_strength,
+                latest_authority, latest_freshness, latest_established, latest_must_not_infer,
+                latest_observed_version, latest_source_version, latest_watermark
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+
+        const val SELECT_FACTS =
+            """
+            SELECT fact, authority, freshness, established, must_not_infer, value_present,
+                   observed_version, source_version, watermark
+            FROM governance_projection_fact
+            WHERE projection_key = ?
+            """
+
+        const val SELECT_DECISIONS =
+            """
+            SELECT kind, verified_range_first, verified_range_last, observed_head_hash,
+                   accounted_positions, unrecorded_positions, unclassified_positions,
+                   classification_revision, completeness, duplicates_ignored, stale_ignored,
+                   latest_decision, latest_reason_code, latest_boundary_id, latest_boundary_strength,
+                   latest_authority, latest_freshness, latest_established, latest_must_not_infer,
+                   latest_observed_version, latest_source_version, latest_watermark
+            FROM governance_projection_decision
+            WHERE projection_key = ?
+            """
+    }
+}
+
+/**
+ * Runs a JDBC block, keeping cancellation and contract failures intact and reporting anything else
+ * without the query, table or vendor diagnostics that produced it.
+ */
+private inline fun <T> withSafeJdbc(block: () -> T): T =
+    try {
+        block()
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        e.rethrowIfCancellation()
+        when (e) {
+            is ProjectionCorruptionException,
+            is UnsupportedProjectionFormatException,
+            is IllegalArgumentException,
+            -> throw e
+
+            else -> throw GovernanceProjectionStoreException("the governance projection store operation failed", e)
+        }
+    }
+
+/** A durable store failure with no SQL, schema or vendor detail attached. */
+internal class GovernanceProjectionStoreException(
+    message: String,
+    cause: Throwable? = null,
+) : IllegalStateException(message, cause)
