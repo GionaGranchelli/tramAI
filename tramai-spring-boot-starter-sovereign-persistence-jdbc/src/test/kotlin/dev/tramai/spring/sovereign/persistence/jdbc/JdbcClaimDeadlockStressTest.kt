@@ -118,6 +118,9 @@ class JdbcClaimDeadlockStressTest {
                 assertThat(claims.flatten().map { it.first })
                     .describedAs("round $round claimed the same row twice")
                     .doesNotHaveDuplicates()
+                // Every row is claimable here, so a round must claim the whole batch: a short round means
+                // the claim path lost rows, and that must fail rather than print.
+                assertThat(claims.flatten()).describedAs("round $round claim count").hasSize(BATCH)
                 // A worker never claims a row on behalf of another worker.
                 claims.flatten().forEach { (id, owner) ->
                     // This scenario seeds only decodable rows, so the claim owner is readable evidence.
@@ -132,7 +135,9 @@ class JdbcClaimDeadlockStressTest {
                 "[stress] SUMMARY rounds=$ROUNDS batch=$BATCH claimers=$CLAIMERS " +
                     "sqlStates=$sqlStates deadlocks=$deadlocks claims=$successfulClaims",
             )
-            if (deadlocks == 0) println("[stress] no 40P01 observed: no lock dump to capture")
+            // The harness fails on the thing it is qualifying: a deadlock, or any unexpected SQLSTATE.
+            assertThat(deadlocks).describedAs("40P01 observed: $sqlStates").isZero()
+            assertThat(sqlStates.keys).describedAs("unexpected SQLSTATEs").allMatch { it == EXPECTED_NONE }
         }
 
     @Test
@@ -182,6 +187,9 @@ class JdbcClaimDeadlockStressTest {
                 if (round % 5 == 0) println("[stress2] round $round sqlStates=$sqlStates")
             }
             println("[stress2] SUMMARY rounds=$ROUNDS batch=$BATCH claimers=$CLAIMERS sqlStates=$sqlStates")
+            assertThat(sqlStates.keys)
+                .describedAs("only a lost race may surface, never a SQLSTATE")
+                .allMatch { it == BENIGN_LOST_RACE }
         }
 
     @Test
@@ -214,12 +222,18 @@ class JdbcClaimDeadlockStressTest {
 
                 // Quarantining never rewrites stored bytes, and never loses a row.
                 val quarantined = store().quarantineStore()?.listQuarantined(50) ?: emptyList()
-                val total = countRows()
-                assertThat(total).describedAs("round $round lost evidence rows").isEqualTo(BATCH)
+                assertThat(countRows()).describedAs("round $round lost evidence rows").isEqualTo(BATCH)
+                assertThat(quarantined)
+                    .describedAs("round $round quarantined nothing although the batch contained damage")
+                    .isNotEmpty()
                 quarantined.forEach { summary ->
-                    assertThat(store().quarantineStore()?.readQuarantinedCiphertext(summary.locator))
+                    val stored = payloadBytes(summary.outboxId!!)
+                    val kept = store().quarantineStore()?.readQuarantinedCiphertext(summary.locator)
+                    assertThat(kept)
                         .describedAs("round $round quarantined ciphertext missing for ${summary.locator}")
                         .isNotNull
+                    // Byte-identical: quarantine preserves evidence, it does not re-encode it.
+                    assertThat(kept).isEqualTo(stored)
                 }
                 if (round % 5 == 0) {
                     println("[stress3] round $round quarantined=${quarantined.size} sqlStates=$sqlStates")
@@ -228,6 +242,9 @@ class JdbcClaimDeadlockStressTest {
             println(
                 "[stress3] SUMMARY rounds=$ROUNDS batch=$BATCH claimers=$CLAIMERS sqlStates=$sqlStates",
             )
+            assertThat(sqlStates.keys)
+                .describedAs("a decode failure is expected; a SQLSTATE is not")
+                .allMatch { it == EXPECTED_DECODE_FAILURE }
         }
 
     @Test
@@ -248,6 +265,47 @@ class JdbcClaimDeadlockStressTest {
             assertThat(claimed.map { it.outboxId })
                 .describedAs("tied created_at must be broken by outbox_id")
                 .isEqualTo((1..BATCH).map { "row-%03d".format(it) })
+        }
+
+    @Test
+    fun `a candidate whose stored state diverges after the probe fails closed`() =
+        runBlocking<Unit> {
+            seed(3)
+            // A holder locks every row, so the SKIP LOCKED fast path finds nothing and the fallback runs.
+            dataSource.connection.use { holder ->
+                holder.autoCommit = false
+                holder.createStatement().use {
+                    it.execute("SELECT outbox_id FROM audit_outbox ORDER BY created_at, outbox_id FOR UPDATE")
+                }
+                // Captured rather than thrown: a failing child would cancel this scope before assertions run.
+                val claim =
+                    async(Dispatchers.IO) {
+                        runCatching { store().claimPending("worker-a", 1, clock.instant()) }
+                    }
+                delay(300) // the claimer is now blocked inside the fallback, holding nothing yet
+                // By the time it acquires the row it probed, that row is no longer dispatchable.
+                // The other transaction emits it: a state change the non-locking probe cannot see. Raw SQL
+                // because this transition belongs to that transaction, not to the store under test.
+                holder.createStatement().use {
+                    it.execute(
+                        "UPDATE audit_outbox SET status = 'EMITTED', dispatched_at = now() " +
+                            "WHERE outbox_id = 'row-001'",
+                    )
+                }
+                holder.commit()
+
+                // The row the probe listed is no longer usable once locked. The store detects the divergence
+                // (column and payload now disagree) instead of skipping it or claiming it as-is, and the
+                // failed claim releases the row lock it had taken.
+                assertThat(claim.await().exceptionOrNull())
+                    .isInstanceOf(IllegalArgumentException::class.java)
+                    .hasMessageContaining("audit-outbox-column-status-mismatch")
+                assertThat(attemptCount("row-001")).isZero()
+                assertThat(statusOf("row-001")).isEqualTo("EMITTED")
+                assertThat(canLockNowait("row-001"))
+                    .describedAs("a failed claim must not keep the row lock")
+                    .isTrue()
+            }
         }
 
     // --- helpers --------------------------------------------------------------------------------
@@ -321,6 +379,38 @@ class JdbcClaimDeadlockStressTest {
             }
         }
 
+    private fun statusOf(outboxId: String): String? =
+        query("SELECT status FROM audit_outbox WHERE outbox_id = '$outboxId'") { rs ->
+            if (rs.next()) rs.getString(1) else null
+        }
+
+    private fun attemptCount(outboxId: String): Int =
+        query("SELECT attempt_count FROM audit_outbox WHERE outbox_id = '$outboxId'") { rs ->
+            rs.next()
+            rs.getInt(1)
+        }
+
+    private fun payloadBytes(outboxId: String): ByteArray? =
+        query("SELECT encrypted_payload FROM audit_outbox WHERE outbox_id = '$outboxId'") { rs ->
+            if (rs.next()) rs.getBytes(1) else null
+        }
+
+    /** True when nobody still holds the row's lock, i.e. the claim transaction released it. */
+    private fun canLockNowait(outboxId: String): Boolean =
+        dataSource.connection.use { conn ->
+            conn.autoCommit = false
+            try {
+                conn.createStatement().use {
+                    it.execute("SELECT 1 FROM audit_outbox WHERE outbox_id = '$outboxId' FOR UPDATE NOWAIT")
+                }
+                true
+            } catch (e: PSQLException) {
+                if (e.sqlState == LOCK_NOT_AVAILABLE_SQLSTATE) false else throw e
+            } finally {
+                conn.rollback()
+            }
+        }
+
     private fun <T> query(
         sql: String,
         read: (ResultSet) -> T,
@@ -374,6 +464,10 @@ class JdbcClaimDeadlockStressTest {
         private const val QUARANTINERS = 3
         private const val UNDECODABLE_MARKER = "quarantine-me"
         private const val DEADLOCK_SQLSTATE = "40P01"
+        private const val LOCK_NOT_AVAILABLE_SQLSTATE = "55P03"
+        private const val EXPECTED_NONE = "<none>"
+        private const val BENIGN_LOST_RACE = "benign:IllegalArgumentException"
+        private const val EXPECTED_DECODE_FAILURE = "non-sql:IllegalStateException"
         private const val NONCE_LENGTH = 12
         private const val KEY_ID = "stress-key"
 

@@ -1038,11 +1038,12 @@ class JdbcSovereignOpsAuditOutboxStore(
      * `FOR UPDATE SKIP LOCKED` clause, so a hidden locked row is still
      * visible. Returns ids in claim order.
      *
-     * The order is `(created_at, outbox_id)` because `created_at` alone is not a total order: it is
-     * `DEFAULT now()`, which is transaction time, so every row written by one transaction shares it. Claim
-     * candidates are then locked one at a time, and two claimers that receive tied rows in different orders
-     * acquire those locks in different orders -- the lock-order cycle behind Issue #568's 40P01. A tiebreaker
-     * makes the acquisition order deterministic for every claimer, without changing which rows are eligible.
+     * The order is `(created_at, outbox_id)` because `created_at` alone is not a total order. The column is
+     * written from the caller's `record.createdAt`, so rows written from one decision -- one clock reading,
+     * one reconstructed timestamp, one batch -- share it. Claim candidates are locked one at a time, and the
+     * fallback keeps a candidate's lock while it moves to the next, so two claimers that receive tied rows in
+     * different orders acquire overlapping locks in different orders. A tiebreaker makes the acquisition
+     * order deterministic for every claimer without changing which rows are eligible.
      */
     private fun selectClaimableCandidateIds(
         conn: Connection,

@@ -14,26 +14,33 @@ Base: `release/0.7.0` at `d83d38f6`. Work: PR #572.
 
 Two properties matter, and one of them refutes part of the issue's hypothesis:
 
-- The fallback locks the **first** candidate it acquires and returns. `isDispatchable()` is
-  unconditionally `true` for `PENDING`/`FAILED_RETRYABLE`, so the loop does not accumulate a second
-  row lock while holding the first.
-- Path 1 returned nothing, so the transaction holds **no** outbox row lock when the fallback blocks.
+- The fallback **can retain a lock on one candidate while acquiring the next**: if a candidate is no
+  longer dispatchable after it is locked, the loop moves on and the first row lock is held until the
+  transaction ends. Hold-and-wait inside one claim is therefore possible, and the correctness of the
+  claim path does not depend on it being impossible.
+- Path 1 returned nothing, so the transaction holds no outbox row lock *when it starts* the fallback.
+  It acquires them one at a time as it walks the candidate list.
 
-Therefore two `claimPending` transactions cannot be both legs of a lock cycle, and the fallback's
-lock ordering within a single claim cannot deadlock on its own. The remaining degree of freedom is the
-**order in which candidates are handed to the loop**.
+The reachable post-lock divergences are guarded rather than skipped: a row whose column state and
+payload disagree fails closed (`audit-outbox-column-status-mismatch`) instead of being claimed, and
+that failure releases the lock it had taken.
+
+Because candidates are acquired in sequence, the **order in which they are handed to the loop** is the
+property that has to be deterministic.
 
 ## 2. Root cause: `ORDER BY created_at` is not a total order
 
-`audit_outbox.created_at` is `TIMESTAMPTZ NOT NULL DEFAULT now()` and is not unique
-(`V1__sovereign_persistence.sql`). `now()` is **transaction time**, so every row written by one
-transaction carries an identical timestamp. Ties are the normal case, not an edge case.
+`audit_outbox.created_at` is not unique (`V1__sovereign_persistence.sql`), and the insert path writes
+it explicitly from `record.createdAt` — the column default `now()` is not the mechanism. Ties come
+from callers supplying the same instant: one decision writing several outbox rows from a single clock
+reading, a reconstructed timestamp, a coarse or fixed clock, or a batch whose records were built
+together. Those are normal writes, so ties are not an edge case.
 
 All claim and scan queries ordered by `created_at` alone. Tied rows come back in whatever order the
 scan yields, and that order is not stable across statements. Two claimers can therefore receive
 overlapping candidate sets in different orders and acquire row locks in different orders — a
-lock-order cycle, reachable only under contention with the fallback engaged, which is why the failure
-is intermittent by construction.
+lock-order cycle, reachable when the fallback engages under contention, which is why such a failure
+would be intermittent.
 
 ## 3. Inherited, amplified, or introduced?
 
@@ -64,18 +71,27 @@ untouched — its liveness role is exactly why deleting it was not an option.
 ## 5. Evidence
 
 **Deterministic discriminator** — `claim order is total when every row shares a timestamp`
-(`JdbcClaimDeadlockStressTest`): rows seeded back to front with identical timestamps claim as
+(`JdbcClaimDeadlockStressTest`): rows seeded back to front with identical `createdAt` claim as
 `row-001 .. row-012`. Removing `, outbox_id` returns them in heap order (descending) and **kills the
-test**, which proves both that ties are real in this schema and that the order was previously
-unconstrained.
+test**, which proves the order was previously unconstrained.
+
+**Stale-candidate probe race** — `a candidate whose stored state diverges after the probe fails
+closed`: a holder locks every row so the fast path finds nothing; while the claimer is blocked in the
+fallback, the holder emits the row that was probed; the claimer then locks it, detects that column and
+payload disagree, fails closed with `audit-outbox-column-status-mismatch`, leaves `attempt_count` at 0,
+and releases the lock (`FOR UPDATE NOWAIT` succeeds afterwards).
 
 **Contention harness** — PostgreSQL 17, `deadlock_timeout=200ms`, 20 rounds each:
 
-| Scenario | Ops | 40P01 | Other SQLSTATEs | Invariants |
+Each scenario **asserts** rather than prints: zero 40P01, only the named benign key permitted in the
+SQLSTATE map, a full batch claimed per round, unique ownership, and a bounded run (the suite finishes
+in ~19s).
+
+| Scenario | Ops | 40P01 | Other SQLSTATEs | Asserted invariants |
 | --- | --- | --- | --- | --- |
-| Claimers only (8 × batch 12, ties) | 240 claims | 0 | 0 | no duplicate claims; every row owned by its own worker |
-| Claimers + 4 terminal transitions | 240 claims + 300 lost races | 0 | 0 | lost races surface as benign `IllegalArgumentException` |
-| Claimers + quarantine scan (undecodable rows) | 240 claims + 120 scans | 0 | 0 | no rows lost; quarantined ciphertext still readable |
+| Claimers only (8 × batch 12, ties) | 240 claims | 0 | none | every round claims all 12 rows exactly once; every row owned by its own worker |
+| Claimers + 4 terminal transitions | 240 claims + 301 lost races | 0 | none (only `benign:IllegalArgumentException`) | lost races never surface as SQLSTATEs |
+| Claimers + quarantine scan (undecodable rows) | 240 claims + 120 scans | 0 | none (`IllegalStateException` decode failures only) | quarantine is non-empty, ciphertext byte-identical to the stored payload, no rows lost |
 
 ## 6. Limits — what this does not establish
 
@@ -92,7 +108,14 @@ unconstrained.
 4. **Retry was deliberately not added.** A bounded 40P01 retry would mask a lock-order defect that has
    a deterministic fix, and the issue ranks lock ordering ahead of retry.
 
-## 7. Next steps
+## 7. Status of Issue #568
+
+**Issue #568 stays open as an investigation of the original deadlock.** This PR is an ordering
+hardening with its own regression proof; it does not demonstrate that ordering caused the observed
+40P01, because the failure was never reproduced before the fix. Closing it would overstate the
+evidence.
+
+## 8. Next steps
 
 - 0.7.6g adversarial qualification (next authorized track).
 - If further 40P01 evidence appears, capture the server-side deadlock report (both processes and both
