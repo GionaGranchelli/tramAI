@@ -152,7 +152,7 @@ private fun decodeLegacy(json: String): DecodedOutboxRecord {
     // The released V1 shape has no evidence fields: one appearing here would be versioned evidence read as
     // unversioned attribution.
     val carriesEvidence = v1.actorIssuer != null || v1.previousApprovalStatus != null
-    val carriesKind = v1.evidenceKind != null
+    val carriesKind = v1.evidenceKind != null || v1.refusalReason != null
     val carriesRest = v1.actorIdentityDigest != null || v1.previousApprovalVersion != null
     if (carriesEvidence || carriesKind || carriesRest) {
         throw FileStoreCorruptionException("$ERROR_CORRUPTED_RECORD: legacy payload carries 0.7.6f evidence fields")
@@ -167,7 +167,7 @@ private fun decodeLegacy(json: String): DecodedOutboxRecord {
 private fun decodeGoverned(json: String): DecodedOutboxRecord {
     val v2 = strictOpsOutboxReadValue<PersistedSovereignOpsAuditOutboxRecordV2>(json)
     val carriesEvidence = v2.record.actorIssuer != null || v2.record.previousApprovalStatus != null
-    val carriesKind = v2.record.evidenceKind != null
+    val carriesKind = v2.record.evidenceKind != null || v2.record.refusalReason != null
     val carriesRest = v2.record.actorIdentityDigest != null || v2.record.previousApprovalVersion != null
     if (carriesEvidence || carriesKind || carriesRest) {
         throw FileStoreCorruptionException("$ERROR_CORRUPTED_RECORD: V2 payload carries 0.7.6f evidence fields")
@@ -228,9 +228,15 @@ internal fun encodeOutboxRecord(
     outboxRecordVersion: Long,
 ): String {
     val persisted = decoded.record.toPersistedV1(outboxRecordVersion)
-    val hasIdentity = decoded.record.actorIssuer != null || decoded.record.actorIdentityDigest != null
-    val hasPrevious = decoded.record.previousApprovalStatus != null || decoded.record.previousApprovalVersion != null
-    return if (hasIdentity || hasPrevious || decoded.record.evidenceKind != null) {
+    // Two named groups rather than one long condition: attribution and kind are different reasons to
+    // need the V3 shape, and neither may be silently dropped from the check.
+    val hasAttribution =
+        decoded.record.actorIssuer != null ||
+            decoded.record.actorIdentityDigest != null ||
+            decoded.record.previousApprovalStatus != null ||
+            decoded.record.previousApprovalVersion != null
+    val hasKind = decoded.record.evidenceKind != null || decoded.record.refusalReason != null
+    return if (hasAttribution || hasKind) {
         PersistedSovereignOpsAuditOutboxRecordV3(
             record = persisted,
             governedRunIdentity = decoded.runIdentity?.toPersisted(),

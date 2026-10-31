@@ -62,6 +62,9 @@ import java.util.UUID
  * @property previousApprovalVersion The approval version before the transition, recorded rather than derived.
  * @property evidenceKind What this record is evidence of. Null on records written before 0.7.6f; a reader
  *   derives those from persisted state instead of guessing (0.7.6f slice 4).
+ * @property refusalReason For [SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL] evidence, the refusal
+ *   reason's wire name (e.g. `missing-capability`). Persisted because it is part of the refusal's identity,
+ *   not derived at dispatch time. `null` for decision evidence.
  */
 data class SovereignOpsAuditOutboxRecord(
     val outboxId: String = UUID.randomUUID().toString(),
@@ -89,6 +92,7 @@ data class SovereignOpsAuditOutboxRecord(
     val previousApprovalStatus: String? = null,
     val previousApprovalVersion: Long? = null,
     val evidenceKind: SovereignOpsAuditEvidenceKind? = null,
+    val refusalReason: String? = null,
 ) {
     companion object {
         /** Default claim expiry duration for stuck-EMITTING recovery. */

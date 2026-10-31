@@ -12,12 +12,15 @@ import java.time.Instant
  * 1. Claims up to [limit] dispatchable records (PENDING, FAILED_RETRYABLE,
  *    or expired EMITTING).
  * 2. For each claimed record, emits the audit event via
- *    [SovereignOpsAuditEmitter.approvalDeniedFromOutbox] — this uses
- *    pre-digested values from the outbox record without re-hashing.
+ *    [SovereignOpsAuditEmitter.evidenceFromOutbox] — this uses pre-digested values from the outbox record
+ *    without re-hashing, and dispatches on what the record is evidence of (0.7.6f §6).
  * 3. On success: marks the record as [SovereignOpsAuditOutboxStatus.EMITTED].
- * 4. On [RuntimeException] (including emission failure): marks as
+ * 4. On an [EvidenceFailure] — an unrepresentable kind, or legacy evidence whose persisted state cannot
+ *    name a kind — marks as [SovereignOpsAuditOutboxStatus.FAILED_PERMANENT]. Parking is deliberate: the
+ *    evidence is retained and visible, and retrying cannot make it representable.
+ * 5. On any other [RuntimeException] (including emission failure): marks as
  *    [SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE].
- * 5. On [CancellationException]: rethrows without marking.
+ * 6. On [CancellationException]: rethrows without marking.
  *
  * @param outboxStore The outbox store to claim and update records.
  * @param auditEmitter The audit emitter for actual emission.
@@ -53,26 +56,10 @@ class SovereignOpsAuditOutboxDispatcher(
         var failedPermanent = 0
 
         for (record in claimed) {
-            try {
-                auditEmitter.approvalDeniedFromOutbox(record)
-                outboxStore.markEmitted(
-                    outboxId = record.outboxId,
-                    expectedStatus = SovereignOpsAuditOutboxStatus.EMITTING,
-                    expectedAttemptCount = record.attemptCount,
-                    emittedAt = clock.instant(),
-                )
-                emitted++
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                outboxStore.markFailed(
-                    outboxId = record.outboxId,
-                    expectedStatus = SovereignOpsAuditOutboxStatus.EMITTING,
-                    expectedAttemptCount = record.attemptCount,
-                    errorCode = e::class.simpleName ?: "unknown",
-                    retryable = true,
-                )
-                failedRetryable++
+            when (emitOne(record)) {
+                Outcome.EMITTED -> emitted++
+                Outcome.RETRYABLE -> failedRetryable++
+                Outcome.PERMANENT -> failedPermanent++
             }
         }
 
@@ -81,6 +68,69 @@ class SovereignOpsAuditOutboxDispatcher(
             emitted = emitted,
             failedRetryable = failedRetryable,
             failedPermanent = failedPermanent,
+        )
+    }
+
+    /**
+     * Emits one claimed record and records the outcome.
+     *
+     * The classification is total: the emitter is asked for the record's own kind, and every failure mode
+     * is named rather than collapsed into "retry later".
+     */
+    private suspend fun emitOne(record: SovereignOpsAuditOutboxRecord): Outcome =
+        try {
+            auditEmitter.evidenceFromOutbox(record)
+            outboxStore.markEmitted(
+                outboxId = record.outboxId,
+                expectedStatus = SovereignOpsAuditOutboxStatus.EMITTING,
+                expectedAttemptCount = record.attemptCount,
+                emittedAt = clock.instant(),
+            )
+            Outcome.EMITTED
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: EvidenceFailure) {
+            // Evidence the deployment cannot represent is parked: retrying cannot make it representable.
+            park(record, e.errorCode)
+            Outcome.PERMANENT
+        } catch (e: UnsupportedOperationException) {
+            // Narrow on purpose: only the evidence contract's own "I cannot represent this kind" codes are
+            // permanent. An unrelated UnsupportedOperationException from inside an emitter is an ordinary
+            // failure and stays retryable -- swallowing it would park evidence for someone else's bug.
+            if (e.message in UNSUPPORTED_EVIDENCE_CODES) {
+                park(record, ERROR_UNSUPPORTED_EVIDENCE_KIND)
+                Outcome.PERMANENT
+            } else {
+                retry(record, e)
+            }
+        } catch (e: Exception) {
+            retry(record, e)
+        }
+
+    private suspend fun retry(
+        record: SovereignOpsAuditOutboxRecord,
+        e: Exception,
+    ): Outcome {
+        outboxStore.markFailed(
+            outboxId = record.outboxId,
+            expectedStatus = SovereignOpsAuditOutboxStatus.EMITTING,
+            expectedAttemptCount = record.attemptCount,
+            errorCode = e::class.simpleName ?: "unknown",
+            retryable = true,
+        )
+        return Outcome.RETRYABLE
+    }
+
+    private suspend fun park(
+        record: SovereignOpsAuditOutboxRecord,
+        errorCode: String,
+    ) {
+        outboxStore.markFailed(
+            outboxId = record.outboxId,
+            expectedStatus = SovereignOpsAuditOutboxStatus.EMITTING,
+            expectedAttemptCount = record.attemptCount,
+            errorCode = errorCode,
+            retryable = false,
         )
     }
 
@@ -112,3 +162,18 @@ data class SovereignOpsAuditOutboxDispatchResult(
     val failedRetryable: Int,
     val failedPermanent: Int,
 )
+
+/** What one emission attempt did to its record. */
+private enum class Outcome {
+    EMITTED,
+    RETRYABLE,
+    PERMANENT,
+}
+
+/** The messages an emitter uses to say "this build cannot represent this evidence kind". */
+private val UNSUPPORTED_EVIDENCE_CODES: Set<String> =
+    setOf(
+        "tramai-sovereign-ops-approval-evidence-unsupported",
+        "tramai-sovereign-ops-refusal-evidence-unsupported",
+        "tramai-sovereign-ops-outbox-emission-unsupported",
+    )

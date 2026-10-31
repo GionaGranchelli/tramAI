@@ -1386,6 +1386,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
             assertThat(reloaded.actorIdentityDigest).isEqualTo(refusalIdentityDigest)
             assertThat(reloaded.previousApprovalStatus).isNull()
             assertThat(reloaded.previousApprovalVersion).isNull()
+            assertThat(reloaded.refusalReason).isEqualTo("missing-capability")
         }
 
     @Test
@@ -1613,6 +1614,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     private fun refusalRecord(
         outboxId: String,
         status: SovereignOpsAuditOutboxStatus = SovereignOpsAuditOutboxStatus.PENDING,
+        refusalReason: String = "missing-capability",
     ): SovereignOpsAuditOutboxRecord =
         SovereignOpsAuditOutboxRecord(
             outboxId = outboxId,
@@ -1630,6 +1632,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
             createdAt = t0,
             status = status,
             evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
+            refusalReason = refusalReason,
             actorIssuer = refusalIssuer,
             actorIdentityDigest = refusalIdentityDigest,
         )

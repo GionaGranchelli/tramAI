@@ -208,7 +208,9 @@ class FileSovereignOpsAuditOutboxQuarantineTest {
                         correlationId: String?,
                     ) = Unit
 
-                    override suspend fun approvalDeniedFromOutbox(record: SovereignOpsAuditOutboxRecord) {
+                    // 0.7.6f slice 4: dispatch asks for the record's own kind, so an emitter that can
+                    // represent refusal evidence overrides the kind-aware entry point.
+                    override suspend fun evidenceFromOutbox(record: SovereignOpsAuditOutboxRecord) {
                         emittedIds.add(record.outboxId)
                     }
                 }
