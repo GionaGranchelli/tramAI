@@ -555,10 +555,19 @@ def validate_runtime_evidence():
                             f"boundary '{boundary_id}' is registered for {registered_point} but the record "
                             f"enforces at {meta.get('enforcementPoint')}"
                         )
+                    # Legacy mode relaxes the tuple shape, never the registration contract: the record may
+                    # carry its registration-derived entitlement, and nothing else.
+                    if strength != registered_strength:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary '{boundary_id}' is registered at '{registered_strength}' and cannot "
+                            f"claim '{strength}'"
+                        )
                     warn(
                         f"legacy provenance (written before 0.7.6g1) at {filename} line {line_num}: "
-                        f"boundary '{boundary_id}' strength '{strength}' is registration-derived, not "
-                        f"attested, and its origin is unknown; do not read it as verified enforcement"
+                        f"boundary '{boundary_id}' strength '{strength}' is the strength its registration "
+                        f"grants, not an attested finding: origin is unknown, so do not read it as verified "
+                        f"enforcement"
                     )
                 elif 0 < len(present_boundary_keys) < len(GOVERNED_BOUNDARY_KEYS):
                     missing_boundary_keys = sorted(GOVERNED_BOUNDARY_KEYS - set(present_boundary_keys))

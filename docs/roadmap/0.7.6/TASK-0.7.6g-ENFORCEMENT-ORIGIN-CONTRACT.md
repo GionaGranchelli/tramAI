@@ -1,8 +1,8 @@
 # 0.7.6g — Enforcement-origin attestation contract (Issue #524)
 
-Status: **contract + threat model only. No implementation until the authority boundary below is
-ratified.**
-Base: `release/0.7.0` at `212706c7`. Owner decisions required: §7.
+Status: **ratified and implemented as 0.7.6g1 (PR #573); Slice 2 deferred by owner decision.**
+Base: `release/0.7.0` at `212706c7`. Owner decisions: ratified in §8 — R3, classify-and-cap, Slice 2
+deferred. §7 is kept as the record of what was asked, not as an open question.
 
 ## 1. The claim under review
 
@@ -185,6 +185,10 @@ distinguishable.
 
 - **Sealed bundles are never rewritten.** Editing history to satisfy a new rule would destroy exactly
   the property the evidence exists to provide.
+- **Legacy mode enforces the registration entitlement.** A legacy record may carry the strength its
+  registration grants and nothing else: `OBSERVED`, an invented value, or an unregistered identifier are
+  refused there exactly as in strict mode. Relaxing the format must not relax validation, otherwise the
+  legacy warning ("registration-derived, not attested") would be describing a value nobody verified.
 - **`Runtime-evidence.v1` two-key provenance was never published as a supported external contract.**
   It shipped only on `release/0.7.0` while the release is still uncertified; there is no external
   consumer whose bundle is entitled to the old reading. (STATUS: INFERRED from the release state; if a

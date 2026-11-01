@@ -251,6 +251,14 @@ class RuntimeEvidenceBundleIntegrationTest {
         val output: String get() = "exitCode: $exitCode\nstdout:\n$stdout\nstderr:\n$stderr"
     }
 
+    private val repositoryRoot: Path by lazy { findRepositoryRoot() }
+
+    private val finalizeScript: Path
+        get() = repositoryRoot.resolve("examples/sovereign-lab/finalize-evidence-bundle.sh")
+
+    private val verifyScript: Path
+        get() = repositoryRoot.resolve("examples/sovereign-lab/verify-evidence-bundle.sh")
+
     private fun findRepositoryRoot(): Path {
         var current: Path? = Path.of("").toAbsolutePath().normalize()
         while (current != null) {
@@ -552,20 +560,8 @@ class RuntimeEvidenceBundleIntegrationTest {
 
     @Test
     fun `a pre-g1 two-key bundle verifies only in legacy mode and never as attested`() {
-        val root = findRepositoryRoot()
-        val finalizeScript = root.resolve("examples/sovereign-lab/finalize-evidence-bundle.sh")
-        val verifyScript = root.resolve("examples/sovereign-lab/verify-evidence-bundle.sh")
+        twoKeyBundle()
 
-        createSovereignLabManifest(tempDir)
-        bundleWriter.write(
-            tempDir,
-            listOf(produceAttributedToolPermissionRecord(boundaryAttributes = registeredBoundary)),
-        )
-        // The shape a 0.7.4-era writer produced: identifier and strength, no origin axis.
-        mutateToolPermissionsRecord(tempDir) { node -> node.metadataNode().remove("boundary.origin") }
-        assertEquals(0, runScript(finalizeScript, tempDir).exitCode, "Finalize must exit 0")
-
-        // Default policy: a two-key tuple is partial provenance, and the refusal must say so.
         val strict = runScript(verifyScript, tempDir)
         assertNotEquals(0, strict.exitCode, "a two-key bundle must not verify under the current policy")
         assertTrue(
@@ -573,8 +569,7 @@ class RuntimeEvidenceBundleIntegrationTest {
             "the refusal must name the rule:\n${strict.output}",
         )
 
-        // Historical reading mode: the bundle stays verifiable, and its strength is labelled for what
-        // it is -- registration-derived, not attested.
+        // Historical reading: the bundle stays verifiable, and its strength is labelled for what it is.
         val legacy = runScript(verifyScript, tempDir, listOf("--legacy-provenance"))
         assertEquals(
             0,
@@ -582,16 +577,55 @@ class RuntimeEvidenceBundleIntegrationTest {
             "a pre-g1 bundle must remain verifiable in legacy mode:\n${legacy.output}",
         )
         assertTrue(
-            legacy.stderr.contains("registration-derived, not attested"),
+            legacy.stderr.contains("not an attested finding"),
             "legacy mode must say the strength was never attested:\n${legacy.output}",
         )
         assertTrue(
             legacy.stdout.contains("Evidence bundle verified:"),
             "legacy mode must still report the bundle verified:\n${legacy.output}",
         )
+    }
 
-        // Legacy reading relaxes the tuple shape, not the registration: an identifier no contract covers
-        // must stay refused, or the old format becomes a bypass for unknown boundaries.
+    @Test
+    fun `a pre-g1 bundle cannot invent a strength or name an unregistered boundary`() {
+        // Legacy mode relaxes format compatibility, not validation: the strength must be the one the
+        // registration grants, so the warning above stays true.
+        listOf("OBSERVED", "TOTALLY_AUTHORITATIVE").forEach { claimed ->
+            twoKeyBundle(strength = claimed)
+
+            val invented = runScript(verifyScript, tempDir, listOf("--legacy-provenance"))
+            assertNotEquals(
+                0,
+                invented.exitCode,
+                "legacy mode must refuse a strength '$claimed' the registration does not grant:" +
+                    "\n${invented.output}",
+            )
+            assertTrue(
+                invented.stderr.contains("is registered at 'AUTHORITATIVE' and cannot claim '$claimed'"),
+                "the refusal must name the entitlement rule for '$claimed':\n${invented.output}",
+            )
+        }
+
+        // An identifier no contract covers must stay refused, or the old format becomes a bypass.
+        twoKeyBundle(boundaryId = "some-other-adapter")
+
+        val unknown = runScript(verifyScript, tempDir, listOf("--legacy-provenance"))
+        assertNotEquals(
+            0,
+            unknown.exitCode,
+            "legacy mode must not accept an unregistered boundary:\n${unknown.output}",
+        )
+        assertTrue(
+            unknown.stderr.contains("unregistered enforcement boundary 'some-other-adapter'"),
+            "legacy mode must still apply the registry:\n${unknown.output}",
+        )
+    }
+
+    /** Writes a bundle in the shape a 0.7.4-era writer produced: identifier, strength, no origin axis. */
+    private fun twoKeyBundle(
+        strength: String = "AUTHORITATIVE",
+        boundaryId: String = "spring-ai-tool-callback",
+    ) {
         createSovereignLabManifest(tempDir)
         bundleWriter.write(
             tempDir,
@@ -599,84 +633,82 @@ class RuntimeEvidenceBundleIntegrationTest {
         )
         mutateToolPermissionsRecord(tempDir) { node ->
             node.metadataNode().remove("boundary.origin")
-            node.metadataNode().put("boundary.id", "some-other-adapter")
+            node.metadataNode().put("boundary.enforcementStrength", strength)
+            node.metadataNode().put("boundary.id", boundaryId)
         }
         assertEquals(0, runScript(finalizeScript, tempDir).exitCode, "Finalize must exit 0")
-
-        val unknownInLegacyMode = runScript(verifyScript, tempDir, listOf("--legacy-provenance"))
-        assertNotEquals(
-            0,
-            unknownInLegacyMode.exitCode,
-            "legacy mode must not accept an unregistered boundary:\n${unknownInLegacyMode.output}",
-        )
-        assertTrue(
-            unknownInLegacyMode.stderr.contains("unregistered enforcement boundary 'some-other-adapter'"),
-            "legacy mode must still apply the registry:\n${unknownInLegacyMode.output}",
-        )
     }
 
     @Test
     fun `reviewer verifier refuses boundary provenance the registration does not cover`() {
-        val root = findRepositoryRoot()
-        val finalizeScript = root.resolve("examples/sovereign-lab/finalize-evidence-bundle.sh")
-        val verifyScript = root.resolve("examples/sovereign-lab/verify-evidence-bundle.sh")
-
-        val cases =
-            listOf<Triple<String, (ObjectNode) -> Unit, String>>(
-                Triple(
-                    "an unregistered boundary identifier",
-                    { node -> node.metadataNode().put("boundary.id", "some-other-adapter") },
-                    "unregistered enforcement boundary 'some-other-adapter'",
-                ),
-                Triple(
-                    "a strength above the declaration",
-                    { node -> node.metadataNode().put("boundary.enforcementStrength", "AUTHORITATIVE") },
-                    "cannot claim 'AUTHORITATIVE'",
-                ),
-                Triple(
-                    "a caller-asserted attested origin",
-                    { node -> node.metadataNode().put("boundary.origin", "attested") },
-                    "has no attester in this runtime",
-                ),
-                Triple(
-                    "partial provenance",
-                    { node -> node.metadataNode().remove("boundary.enforcementStrength") },
-                    "partial enforcement-boundary provenance",
-                ),
-                Triple(
-                    "a pre-g1 two-key provenance tuple",
-                    { node -> node.metadataNode().remove("boundary.origin") },
-                    "partial enforcement-boundary provenance",
-                ),
-                Triple(
-                    "a registration applied at the wrong enforcement point",
-                    { node -> node.metadataNode().put("enforcementPoint", "BEFORE_TOOL_EXPOSURE") },
-                    "is registered for BEFORE_TOOL_EXECUTION",
-                ),
-            )
-
-        cases.forEach { (label, mutation, expectedReason) ->
-            createSovereignLabManifest(tempDir)
-            bundleWriter.write(
-                tempDir,
-                listOf(produceAttributedToolPermissionRecord(boundaryAttributes = registeredBoundary)),
-            )
-            mutateToolPermissionsRecord(tempDir, mutation)
-            // Re-finalize so the digests match and the refusal can only be the provenance rule.
-            assertEquals(0, runScript(finalizeScript, tempDir).exitCode, "Finalize must exit 0 for: $label")
-
-            val verifyResult = runScript(verifyScript, tempDir)
-            assertNotEquals(
-                0,
-                verifyResult.exitCode,
-                "the verifier must refuse $label:\n${verifyResult.output}",
-            )
-            assertTrue(
-                verifyResult.stderr.contains(expectedReason),
-                "the refusal for $label must name the rule, expected '$expectedReason':\n${verifyResult.output}",
-            )
+        provenanceRefusals().forEach { (label, mutation, expectedReason) ->
+            assertVerifierRefuses(label, mutation, expectedReason)
         }
     }
+
+    private fun assertVerifierRefuses(
+        label: String,
+        mutation: (ObjectNode) -> Unit,
+        expectedReason: String,
+    ) {
+        createSovereignLabManifest(tempDir)
+        bundleWriter.write(
+            tempDir,
+            listOf(produceAttributedToolPermissionRecord(boundaryAttributes = registeredBoundary)),
+        )
+        mutateToolPermissionsRecord(tempDir, mutation)
+        // Re-finalize so the digests match and the refusal can only be the provenance rule.
+        assertEquals(0, runScript(finalizeScript, tempDir).exitCode, "Finalize must exit 0 for: $label")
+
+        val verifyResult = runScript(verifyScript, tempDir)
+        assertNotEquals(
+            0,
+            verifyResult.exitCode,
+            "the verifier must refuse $label:\n${verifyResult.output}",
+        )
+        assertTrue(
+            verifyResult.stderr.contains(expectedReason),
+            "the refusal for $label must name the rule, expected '$expectedReason':\n${verifyResult.output}",
+        )
+    }
+
+    private fun provenanceRefusals(): List<Triple<String, (ObjectNode) -> Unit, String>> =
+        listOf(
+            Triple(
+                "an unregistered boundary identifier",
+                { node -> node.metadataNode().put("boundary.id", "some-other-adapter") },
+                "unregistered enforcement boundary 'some-other-adapter'",
+            ),
+            Triple(
+                "a strength above the declaration",
+                { node -> node.metadataNode().put("boundary.enforcementStrength", "AUTHORITATIVE") },
+                "cannot claim 'AUTHORITATIVE'",
+            ),
+            Triple(
+                "a caller-asserted attested origin",
+                { node -> node.metadataNode().put("boundary.origin", "attested") },
+                "has no attester in this runtime",
+            ),
+            Triple(
+                "partial provenance",
+                { node -> node.metadataNode().remove("boundary.enforcementStrength") },
+                "partial enforcement-boundary provenance",
+            ),
+            Triple(
+                "a pre-g1 two-key provenance tuple",
+                { node ->
+                    node.metadataNode().remove("boundary.origin")
+                    // The real pre-g1 shape: the registration-derived strength, not DECLARED.
+                    node.metadataNode().put("boundary.enforcementStrength", "AUTHORITATIVE")
+                },
+                "partial enforcement-boundary provenance",
+            ),
+            Triple(
+                "a registration applied at the wrong enforcement point",
+                { node -> node.metadataNode().put("enforcementPoint", "BEFORE_TOOL_EXPOSURE") },
+                "is registered for BEFORE_TOOL_EXECUTION",
+            ),
+        )
 
     private fun ObjectNode.metadataNode(): ObjectNode = get("metadata") as ObjectNode
 
