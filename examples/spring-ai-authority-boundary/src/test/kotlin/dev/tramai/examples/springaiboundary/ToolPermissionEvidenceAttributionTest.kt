@@ -115,7 +115,7 @@ class ToolPermissionEvidenceAttributionTest {
     // ── G2: registered enforcement-boundary provenance, through the real boundary ──────────────
 
     @Test
-    fun `exported evidence names the declared registered boundary and its registered strength`() {
+    fun `exported evidence names the declared boundary and declares rather than asserts strength`() {
         val boundary = boundary(governedIdentity())
         boundary.call("""{"value":"denied"}""")
 
@@ -124,7 +124,7 @@ class ToolPermissionEvidenceAttributionTest {
         assertEquals(
             EXPECTED_PROVENANCE,
             record.metadata.filterKeys { it.startsWith("boundary.") },
-            "the record must name the declared boundary and the strength its registration grants",
+            "the record must name the declared boundary and say its strength is a declaration",
         )
         assertEquals(
             "policy-engine",
@@ -226,7 +226,11 @@ class ToolPermissionEvidenceAttributionTest {
         val EXPECTED_PROVENANCE =
             mapOf(
                 "boundary.id" to "spring-ai-tool-callback",
-                "boundary.enforcementStrength" to "AUTHORITATIVE",
+                // 0.7.6g1: the boundary genuinely prevents (GovernanceBoundaryTest proves it), but a
+                // data-only export cannot attest that this event came from it, so the strongest true
+                // claim here is a declaration. Eventual AUTHORITATIVE needs the Slice 2 attester.
+                "boundary.enforcementStrength" to "DECLARED",
+                "boundary.origin" to "declared",
             )
     }
 }

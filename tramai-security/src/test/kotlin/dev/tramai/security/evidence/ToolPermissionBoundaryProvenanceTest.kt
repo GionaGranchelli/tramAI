@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
  */
 class ToolPermissionBoundaryProvenanceTest {
     @Test
-    fun `a registered boundary's strength is resolved from the registration and reaches the record`() {
+    fun `a declared boundary reaches the record as a declaration, not as registered strength`() {
         val record = export(boundaryEvent(metadata = boundaryMetadata()))
 
         assertEquals(
@@ -37,9 +37,14 @@ class ToolPermissionBoundaryProvenanceTest {
             "the declared boundary identifier must reach the record",
         )
         assertEquals(
-            RuntimeBoundaryProvenance.AUTHORITATIVE,
+            RuntimeBoundaryProvenance.DECLARED,
             record.metadata[RuntimeBoundaryProvenance.STRENGTH_KEY],
-            "the strength must be the one the registration grants, resolved by the framework",
+            "a data-only export cannot report the registration's entitlement as a finding about this event",
+        )
+        assertEquals(
+            RuntimeBoundaryProvenance.ORIGIN_DECLARED,
+            record.metadata[RuntimeBoundaryProvenance.ORIGIN_KEY],
+            "origin must say declaration, because nothing established that the boundary emitted this",
         )
     }
 
@@ -74,6 +79,20 @@ class ToolPermissionBoundaryProvenanceTest {
             failure.message.orEmpty().contains("self-asserted claim"),
             "a caller-supplied strength must be refused as self-assertion, got: ${failure.message}",
         )
+    }
+
+    @Test
+    fun `a caller-supplied boundary origin is refused for every value`() {
+        listOf(RuntimeBoundaryProvenance.ORIGIN_ATTESTED, RuntimeBoundaryProvenance.ORIGIN_DECLARED).forEach { origin ->
+            val metadata = boundaryMetadata() + mapOf(RuntimeBoundaryProvenance.ORIGIN_KEY to origin)
+
+            val failure = assertFailsWith<IllegalStateException> { export(boundaryEvent(metadata = metadata)) }
+
+            assertTrue(
+                failure.message.orEmpty().contains("self-asserted origin"),
+                "a caller-supplied origin '$origin' must be refused, got: ${failure.message}",
+            )
+        }
     }
 
     @Test
@@ -120,14 +139,38 @@ class ToolPermissionBoundaryProvenanceTest {
     }
 
     @Test
-    fun `a strength the registration does not grant is refused`() {
+    fun `pre-g1 two-key provenance is refused as partial`() {
+        // The shape a 0.7.4 producer emitted: identifier plus strength, no origin. It must be refused as
+        // partial provenance, not accepted as governed provenance and not crash on the missing key.
+        val twoKeys =
+            mapOf(
+                "toolName" to TOOL_NAME,
+                "enforcementPoint" to ENFORCEMENT_POINT,
+                RuntimeBoundaryProvenance.ID_KEY to BOUNDARY_ID,
+                RuntimeBoundaryProvenance.STRENGTH_KEY to RuntimeBoundaryProvenance.AUTHORITATIVE,
+            )
+
+        val failure =
+            assertFailsWith<IllegalStateException> {
+                RuntimeBoundaryProvenance.validate(ENFORCEMENT_POINT, twoKeys)
+            }
+
+        assertTrue(
+            failure.message.orEmpty().contains("partial enforcement-boundary provenance"),
+            "a two-key provenance tuple must be refused as partial, got: ${failure.message}",
+        )
+    }
+
+    @Test
+    fun `a declared origin cannot claim a strength above declared`() {
         val record =
             recordWith(
                 mapOf(
                     "toolName" to TOOL_NAME,
                     "enforcementPoint" to ENFORCEMENT_POINT,
                     RuntimeBoundaryProvenance.ID_KEY to BOUNDARY_ID,
-                    RuntimeBoundaryProvenance.STRENGTH_KEY to RuntimeBoundaryProvenance.OBSERVED,
+                    RuntimeBoundaryProvenance.STRENGTH_KEY to RuntimeBoundaryProvenance.AUTHORITATIVE,
+                    RuntimeBoundaryProvenance.ORIGIN_KEY to RuntimeBoundaryProvenance.ORIGIN_DECLARED,
                 ),
             )
 
@@ -150,6 +193,7 @@ class ToolPermissionBoundaryProvenanceTest {
                 "enforcementPoint" to ENFORCEMENT_POINT,
                 RuntimeBoundaryProvenance.ID_KEY to BOUNDARY_ID,
                 RuntimeBoundaryProvenance.STRENGTH_KEY to "TOTALLY_AUTHORITATIVE",
+                RuntimeBoundaryProvenance.ORIGIN_KEY to RuntimeBoundaryProvenance.ORIGIN_DECLARED,
             )
 
         val failure =
@@ -172,25 +216,30 @@ class ToolPermissionBoundaryProvenanceTest {
     }
 
     @Test
-    fun `the registration does not verify the origin of a declared identifier`() {
-        // LIMITATION, pinned deliberately so it cannot be forgotten or overclaimed.
+    fun `a fabricated event naming a registered boundary cannot claim authoritative enforcement`() {
+        // The fabricated event is built directly: GovernedToolCallback is never constructed, no delegate
+        // exists, nothing is prevented. Naming a registered identifier must not buy the registration's
+        // strength -- that is the defect Issue #524 reports.
         //
-        // provenanceFor resolves a DECLARED identifier against the registration. It does not establish
-        // that the event came from that boundary: nothing in the evidence path observes which code
-        // emitted the event. This test fabricates an event directly -- GovernedToolCallback is never
-        // constructed, no delegate exists, and no prevention happens -- and the record still advertises
-        // the registered boundary at its registered strength.
-        //
-        // So the strength states what the registration grants the DECLARED boundary, not that this
-        // boundary enforced this call. Closing that gap needs the event's ORIGIN authenticated (workload
-        // identity), which is explicitly outside this slice's scope. This test must be revisited if the
-        // gap is closed, and it must not be read as evidence that origin is checked.
+        // Still open after this slice: nothing establishes that a *legitimate* event came from the
+        // boundary either. The record now says so (declared) instead of implying prevention, and
+        // `attested` is refused outright until an attester exists.
         val fabricated = export(boundaryEvent(metadata = boundaryMetadata()))
 
         assertEquals(
-            "AUTHORITATIVE",
-            fabricated.metadata["boundary.enforcementStrength"],
-            "an identifier alone currently yields the registered strength; origin is not verified",
+            RuntimeBoundaryProvenance.DECLARED,
+            fabricated.metadata[RuntimeBoundaryProvenance.STRENGTH_KEY],
+            "an identifier alone must yield a declaration, never the registered strength",
+        )
+        assertEquals(
+            RuntimeBoundaryProvenance.ORIGIN_DECLARED,
+            fabricated.metadata[RuntimeBoundaryProvenance.ORIGIN_KEY],
+            "origin must record that this is a declaration",
+        )
+        assertNotEquals(
+            RuntimeBoundaryProvenance.AUTHORITATIVE,
+            fabricated.metadata[RuntimeBoundaryProvenance.STRENGTH_KEY],
+            "fabricated evidence must never read as authoritative enforcement",
         )
         assertEquals(
             BOUNDARY_ID,
@@ -236,6 +285,43 @@ class ToolPermissionBoundaryProvenanceTest {
             event.computeToolPermissionPayloadDigest(authoritative),
             event.computeToolPermissionPayloadDigest(observed),
             "changing only the enforcement-strength value must change the digest of a provenance-bearing record",
+        )
+    }
+
+    @Test
+    fun `a record claiming attested origin is refused because no attester exists`() {
+        val claimed =
+            recordWith(
+                mapOf(
+                    "toolName" to TOOL_NAME,
+                    "enforcementPoint" to ENFORCEMENT_POINT,
+                    RuntimeBoundaryProvenance.ID_KEY to BOUNDARY_ID,
+                    RuntimeBoundaryProvenance.STRENGTH_KEY to RuntimeBoundaryProvenance.DECLARED,
+                    RuntimeBoundaryProvenance.ORIGIN_KEY to RuntimeBoundaryProvenance.ORIGIN_ATTESTED,
+                ),
+            )
+
+        val failure =
+            assertFailsWith<IllegalArgumentException> {
+                RuntimeEvidenceContractValidator.validate(listOf(claimed))
+            }
+
+        assertTrue(
+            failure.message.orEmpty().contains("no attester in this runtime"),
+            "an attested claim with no attester must fail closed, got: ${failure.message}",
+        )
+    }
+
+    @Test
+    fun `the digest binds the enforcement-origin value`() {
+        val event = boundaryEvent(metadata = boundaryMetadata())
+        val declared = fullProvenance(RuntimeBoundaryProvenance.ORIGIN_DECLARED)
+        val attested = fullProvenance(RuntimeBoundaryProvenance.ORIGIN_ATTESTED)
+
+        assertNotEquals(
+            event.computeToolPermissionPayloadDigest(declared),
+            event.computeToolPermissionPayloadDigest(attested),
+            "changing only the origin value must change the digest of a provenance-bearing record",
         )
     }
 
@@ -307,6 +393,13 @@ class ToolPermissionBoundaryProvenanceTest {
     private fun familyMetadata() = mapOf("toolName" to TOOL_NAME, "enforcementPoint" to ENFORCEMENT_POINT)
 
     private fun boundaryMetadata() = familyMetadata() + mapOf(RuntimeBoundaryProvenance.ID_KEY to BOUNDARY_ID)
+
+    private fun fullProvenance(origin: String) =
+        boundaryMetadata() +
+            mapOf(
+                RuntimeBoundaryProvenance.STRENGTH_KEY to RuntimeBoundaryProvenance.DECLARED,
+                RuntimeBoundaryProvenance.ORIGIN_KEY to origin,
+            )
 
     private fun completeIdentity(): Map<String, String> =
         mapOf(
