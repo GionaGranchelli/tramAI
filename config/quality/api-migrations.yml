@@ -436,8 +436,9 @@ migrations:
       migration step; a store must not admit work it cannot fence, so the default refuses.
     migration: >-
       Run JdbcWorkflowCheckpointStore.lifecycleMigrationSql() against an existing checkpoint table before
-      enabling cancellation: the four lifecycle columns are nullable, existing rows read as never cancelled,
-      and ordinary checkpoint reads are unaffected. Until the migration runs, lifecycle() fails closed rather
-      than reporting "not cancelled". Deployments using the markdown or file checkpoint stores are unaffected
+      enabling cancellation: the columns are nullable or defaulted, existing rows read as never cancelled, and
+      ordinary checkpoint reads are unaffected. Until the migration runs, lifecycle() fails closed rather than
+      reporting "not cancelled", and the guarded UPDATE/DELETE that enforce terminality reject the statement, so
+      writing to an existing checkpoint fails loudly instead of proceeding unguarded. Deployments using the markdown or file checkpoint stores are unaffected
       and cannot cancel authoritatively: those stores refuse with WorkflowCancellationUnsupportedException
       instead of falling back to a local-only cancellation.

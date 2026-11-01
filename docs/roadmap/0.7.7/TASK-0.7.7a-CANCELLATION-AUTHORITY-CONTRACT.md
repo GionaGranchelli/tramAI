@@ -238,7 +238,7 @@ campaign by never running (recorded during 0.7.6g1).
 | `WorkflowCancellationRequest` | same | identity + expected revision **and** generation + actor + reason + uncertain |
 | `lifecycle()` / `cancel()` | `WorkflowCheckpointStore` | default **refuses** with `WorkflowCancellationUnsupportedException` |
 | In-memory store | `WorkflowPersistence.kt` | full implementation; cancel bumps the row revision; cancelled rows refuse deletion |
-| JDBC store | `JdbcWorkflowCheckpointStore` | four nullable columns, one conditional `UPDATE … WHERE revision AND generation AND lifecycle_status IS NULL`; cancelled rows refuse deletion; `lifecycleMigrationSql()` adds the columns |
+| JDBC store | `JdbcWorkflowCheckpointStore` | four nullable columns, one conditional `UPDATE … WHERE revision AND generation AND lifecycle_status IS NULL`; `lifecycleMigrationSql()` adds the columns |
 | Markdown / file stores | unchanged | inherit the refusal: they cannot answer atomically, so they do not answer at all |
 
 Store-level tests: `WorkflowCancellationAuthorityTest` (13 cases) covers commit-at-next-revision, one
@@ -252,11 +252,37 @@ retention refusal; recording an uncertain cancellation as a clean one. Five of f
 `lifecycle_status` guard needed a test that retries **against the committed revision** before it was
 distinguishable from an equivalent mutant, which is why that case exists.
 
-Two properties of slice (a) that an operator must know:
+## 8a-bis. Terminality of ordinary writes
 
-- **The migration is a precondition, not an optional step.** On a table without the lifecycle columns the
-  lifecycle read fails closed (`READ_FAILED`); it never reports "not cancelled" from a column that is not
-  there. Ordinary checkpoint reads are unaffected.
+Terminal means terminal for the *row*, not just for the lifecycle column. Slice (a) refused deletion of a
+cancelled checkpoint and slice (b) refused admission, but an ordinary checkpoint write could still overwrite a
+cancelled run: the writer holds the revision the cancellation left behind, so the CAS precondition passes and
+nothing else said no.
+
+Both write paths now carry the guard **in the statement**:
+
+| Path | Guard |
+| --- | --- |
+| `UPDATE` (checkpoint save with an expected revision) | `AND lifecycle_status IS NULL` |
+| `DELETE` | `AND lifecycle_status IS NULL` |
+
+The earlier delete implementation asked a probe question first and deleted second; a cancellation committing
+between the two would have found the evidence removed. There is no probe now: the same statement decides
+whether the row is still live, so a delete either removes a live row or removes nothing, and a zero-row delete
+of a row that still exists is reported as a conflict rather than as a silent success.
+
+Consequence an operator must plan for:
+
+- **The migration is a precondition for writes, not only for cancellation.** A table without the lifecycle
+  columns rejects the guarded `UPDATE`/`DELETE`, and the store reports a persistence failure instead of
+  deleting blind. Reads (`load`, `list`) do not reference the columns and are unaffected, and a first `save`
+  inserts a fresh row, which needs none of them. So an un-migrated deployment keeps reading and keeps starting
+  new runs, while completing or updating an existing run fails loudly until the migration runs.
+
+Two further properties of slice (a) that an operator must know:
+
+- **The lifecycle read fails closed.** On a table without the lifecycle columns it reports a read failure; it
+  never reports "not cancelled" from a column that is not there.
 - **`uncertain` was caller-supplied in slice (a).** Slice (b) closes that: the store now derives it from
   admission state, so a run that admitted work cannot be recorded as a clean cancellation even if the caller
   asks for one. What remains outside this slice is that *nothing calls `admit()` yet* — see §8c.
@@ -306,6 +332,9 @@ call on the exact edges where a call leaves the process — and each of those ed
 - It does not claim cancellation is currently safe. §2 shows it is not: the only `CANCELLED` state is
   in-memory.
 - It does not claim the fence prevents in-flight effects (§5).
+- It does not claim that a cancelled run is *unreachable* by writers holding the current revision unless the
+  guard is in the statement: that is why the update and delete paths carry it rather than re-reading the
+  lifecycle state first.
 - It does not claim that cancellation currently stops execution: the admission protocol exists and is tested at
   store level (§8c), but the runner does not call it yet, so no execution path is fenced in this slice.
 - It does not claim the file/in-memory profiles give the same guarantee as JDBC: the file store is

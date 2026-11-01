@@ -411,6 +411,15 @@ class InMemoryWorkflowCheckpointStore(
             synchronized(monitor) {
                 val key = CheckpointKey(checkpoint.workflowName, checkpoint.workflowId)
                 val existing = checkpoints[key]
+                // A cancelled run is not a run whose checkpoint moves: the terminal state is authority over the
+                // row, not something a writer holding a matching revision may overwrite.
+                if (cancellations.containsKey(key)) {
+                    throw safePersistenceFailure(
+                        PersistenceResourceKind.CHECKPOINT,
+                        PersistenceOperation.SAVE,
+                        PersistenceFailureCode.CONFLICT,
+                    )
+                }
                 if (expectedRevision == null && existing != null) {
                     throw safePersistenceFailure(
                         PersistenceResourceKind.CHECKPOINT,

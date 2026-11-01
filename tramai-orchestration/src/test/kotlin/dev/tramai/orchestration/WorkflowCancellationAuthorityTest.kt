@@ -252,7 +252,61 @@ class WorkflowCancellationAuthorityTest {
     }
 
     @Test
-    fun `a schema without the lifecycle columns can still delete a checkpoint`() {
+    fun `a cancelled checkpoint cannot be saved over`() {
+        val store = JdbcWorkflowCheckpointStore(dataSource)
+        val saved = runBlocking { store.save(checkpoint(workflowId = "terminal-save")) }
+        val cancelled =
+            runBlocking {
+                store.cancel(request(saved.revision, saved.checkpointGeneration, workflowId = "terminal-save"))
+            }
+
+        // Built from the stored row so revision AND generation both match: with the terminality guard removed
+        // this write would succeed, which is exactly what the test has to catch.
+        val current = runBlocking { store.load("checkout", "terminal-save") }!!
+        assertEquals(cancelled.revision, current.revision)
+        assertFailsWith<WorkflowCheckpointConflictException> {
+            runBlocking {
+                store.save(current.copy(nextStepIndex = 5), expectedRevision = current.revision)
+            }
+        }
+
+        assertEquals(0, runBlocking { store.load("checkout", "terminal-save") }?.nextStepIndex)
+    }
+
+    @Test
+    fun `the in-memory store refuses the same write`() {
+        val store = InMemoryWorkflowCheckpointStore()
+        val saved = runBlocking { store.save(checkpoint(workflowId = "terminal-memory")) }
+        val cancelled =
+            runBlocking {
+                store.cancel(request(saved.revision, saved.checkpointGeneration, workflowId = "terminal-memory"))
+            }
+
+        val current = runBlocking { store.load("checkout", "terminal-memory") }!!
+        assertFailsWith<WorkflowCheckpointConflictException> {
+            runBlocking {
+                store.save(current.copy(nextStepIndex = 5), expectedRevision = current.revision)
+            }
+        }
+
+        assertEquals(0, runBlocking { store.load("checkout", "terminal-memory") }?.nextStepIndex)
+    }
+
+    @Test
+    fun `deleting a checkpoint that is already gone stays idempotent`() {
+        val store = JdbcWorkflowCheckpointStore(dataSource)
+        val saved = runBlocking { store.save(checkpoint(workflowId = "gone")) }
+        runBlocking { store.delete("checkout", "gone", saved.revision, saved.checkpointGeneration) }
+
+        // The terminality guard must not turn an already-completed cleanup into a conflict: an unconditional
+        // delete of a row that is gone stays a no-op.
+        runBlocking { store.delete("checkout", "gone", null, null) }
+
+        assertNull(runBlocking { store.load("checkout", "gone") })
+    }
+
+    @Test
+    fun `a schema without the lifecycle columns refuses the write instead of deleting blind`() {
         val legacy =
             JdbcWorkflowCheckpointStore(
                 dataSource,
@@ -268,11 +322,14 @@ class WorkflowCancellationAuthorityTest {
         }
         val saved = runBlocking { legacy.save(checkpoint(workflowId = "legacy-delete")) }
 
-        // Run completion must keep working on an un-migrated schema: no lifecycle column means no cancellation
-        // can be recorded, so there is no evidence to retain.
-        runBlocking { legacy.delete("checkout", "legacy-delete", saved.revision, saved.checkpointGeneration) }
-
-        assertNull(runBlocking { legacy.load("checkout", "legacy-delete") })
+        // The terminality guard is part of the statement, so a schema that cannot express it gets a refusal
+        // rather than a delete that might have removed the evidence of a cancellation.
+        assertFailsWith<WorkflowPersistenceFailureException> {
+            runBlocking {
+                legacy.delete("checkout", "legacy-delete", saved.revision, saved.checkpointGeneration)
+            }
+        }
+        assertEquals(saved, runBlocking { legacy.load("checkout", "legacy-delete") })
     }
 
     private fun connect() = DriverManager.getConnection(H2_URL, "sa", "")

@@ -192,45 +192,41 @@ class JdbcWorkflowCheckpointStore(
         expectedRevision: Long?,
         expectedGeneration: String?,
     ) {
-        // Retention: the cancelled row is the evidence of the cancellation. Refuse the delete outright rather
-        // than letting it look like an ordinary completed run that was cleaned up.
-        val cancellation =
-            try {
-                lifecycleInConnection(connection, workflowName, workflowId)
-            } catch (error: SQLException) {
-                // A schema that predates the lifecycle columns cannot hold a cancellation, so there is no
-                // evidence to retain and an ordinary completion must still be able to delete its checkpoint.
-                // Anything else (a real read failure) keeps the delete refused.
-                if (error.sqlState?.startsWith(SQLSTATE_ACCESS_RULE_VIOLATION) == true) null else throw error
-            }
-        if (cancellation != null) {
-            throw safePersistenceFailure(
-                PersistenceResourceKind.CHECKPOINT,
-                PersistenceOperation.DELETE,
-                PersistenceFailureCode.CONFLICT,
-            )
-        }
-        connection.prepareStatement(deleteSql(expectedRevision != null, expectedGeneration != null)).use { statement ->
-            statement.setString(1, workflowName)
-            statement.setString(2, workflowId)
-            if (expectedRevision != null) {
-                statement.setLong(3, expectedRevision)
-                if (expectedGeneration != null) {
-                    statement.setString(4, expectedGeneration)
+        // Retention and terminality in the statement itself: the cancelled row is the evidence of the
+        // cancellation, and a probe followed by a delete would let a cancellation commit in between. The delete
+        // carries the guard, so it either removes a live row or removes nothing.
+        connection
+            .prepareStatement(deleteSql(expectedRevision != null, expectedGeneration != null))
+            .use { statement ->
+                statement.setString(1, workflowName)
+                statement.setString(2, workflowId)
+                if (expectedRevision != null) {
+                    statement.setLong(3, expectedRevision)
+                    if (expectedGeneration != null) {
+                        statement.setString(4, expectedGeneration)
+                    }
+                }
+                val updated = statement.executeUpdate()
+                if (updated == 0) {
+                    val existing = load(connection, workflowName, workflowId)
+                    // The row is still there, so the statement refused for a reason: a stale precondition or a
+                    // committed cancellation. Either way this delete did not happen and must not look like it did.
+                    if (existing != null) {
+                        throw safePersistenceFailure(
+                            PersistenceResourceKind.CHECKPOINT,
+                            PersistenceOperation.DELETE,
+                            PersistenceFailureCode.CONFLICT,
+                        )
+                    }
+                    validateDeleteExpectedRevision(
+                        workflowName = workflowName,
+                        workflowId = workflowId,
+                        existing = null,
+                        expectedRevision = expectedRevision,
+                        expectedGeneration = expectedGeneration,
+                    )
                 }
             }
-            val updated = statement.executeUpdate()
-            if (expectedRevision != null && updated == 0) {
-                val existing = load(connection, workflowName, workflowId)
-                validateDeleteExpectedRevision(
-                    workflowName = workflowName,
-                    workflowId = workflowId,
-                    existing = existing,
-                    expectedRevision = expectedRevision,
-                    expectedGeneration = expectedGeneration,
-                )
-            }
-        }
     }
 
     internal fun admitInConnection(
@@ -402,34 +398,52 @@ class JdbcWorkflowCheckpointStore(
                 revision = expectedRevision + 1,
                 checkpointGeneration = checkpoint.checkpointGeneration ?: newCheckpointGeneration(),
             )
-        connection.prepareStatement(updateSql(checkpoint.checkpointGeneration != null)).use { statement ->
-            statement.setInt(1, persisted.nextStepIndex)
-            statement.setInt(2, persisted.stepExecutions)
-            statement.setString(3, persisted.lastCompletedStepName)
-            statement.setString(4, persisted.statePayload)
-            statement.setLong(5, persisted.revision)
-            statement.setString(6, encodeMetadata(persisted.metadata))
-            statement.setLong(7, persisted.savedAtEpochMillis)
-            statement.setString(8, encodeRecoveryState(persisted.recoveryState))
-            statement.setString(9, persisted.checkpointGeneration)
-            statement.setString(10, checkpoint.workflowName)
-            statement.setString(11, checkpoint.workflowId)
-            statement.setLong(12, expectedRevision)
-            if (checkpoint.checkpointGeneration != null) {
-                statement.setString(13, checkpoint.checkpointGeneration)
+        connection
+            .prepareStatement(updateSql(checkpoint.checkpointGeneration != null))
+            .use { statement ->
+                statement.setInt(1, persisted.nextStepIndex)
+                statement.setInt(2, persisted.stepExecutions)
+                statement.setString(3, persisted.lastCompletedStepName)
+                statement.setString(4, persisted.statePayload)
+                statement.setLong(5, persisted.revision)
+                statement.setString(6, encodeMetadata(persisted.metadata))
+                statement.setLong(7, persisted.savedAtEpochMillis)
+                statement.setString(8, encodeRecoveryState(persisted.recoveryState))
+                statement.setString(9, persisted.checkpointGeneration)
+                statement.setString(10, checkpoint.workflowName)
+                statement.setString(11, checkpoint.workflowId)
+                statement.setLong(12, expectedRevision)
+                if (checkpoint.checkpointGeneration != null) {
+                    statement.setString(13, checkpoint.checkpointGeneration)
+                }
+                val updated = statement.executeUpdate()
+                if (updated == 0) {
+                    val existing = load(connection, checkpoint.workflowName, checkpoint.workflowId)
+                    // Preconditions still hold, and yet nothing was written: the lifecycle guard refused it, which
+                    // only happens when the run is cancelled. A cancelled run is not a run whose checkpoint moves.
+                    val preconditionsStillHold =
+                        existing != null &&
+                            existing.revision == expectedRevision &&
+                            (
+                                checkpoint.checkpointGeneration == null ||
+                                    existing.checkpointGeneration == checkpoint.checkpointGeneration
+                            )
+                    if (preconditionsStillHold) {
+                        throw safePersistenceFailure(
+                            PersistenceResourceKind.CHECKPOINT,
+                            PersistenceOperation.SAVE,
+                            PersistenceFailureCode.CONFLICT,
+                        )
+                    }
+                    validateExpectedRevision(
+                        workflowName = checkpoint.workflowName,
+                        workflowId = checkpoint.workflowId,
+                        existing = existing,
+                        expectedRevision = expectedRevision,
+                        expectedGeneration = checkpoint.checkpointGeneration,
+                    )
+                }
             }
-            val updated = statement.executeUpdate()
-            if (updated == 0) {
-                val existing = load(connection, checkpoint.workflowName, checkpoint.workflowId)
-                validateExpectedRevision(
-                    workflowName = checkpoint.workflowName,
-                    workflowId = checkpoint.workflowId,
-                    existing = existing,
-                    expectedRevision = expectedRevision,
-                    expectedGeneration = checkpoint.checkpointGeneration,
-                )
-            }
-        }
         return persisted
     }
 
@@ -450,24 +464,26 @@ class JdbcWorkflowCheckpointStore(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """.trimIndent()
 
-    private fun updateSql(generationAware: Boolean): String =
-        """
-        UPDATE ${table.tableName}
-        SET
-            ${table.nextStepIndexColumn} = ?,
-            ${table.stepExecutionsColumn} = ?,
-            ${table.lastCompletedStepNameColumn} = ?,
-            ${table.statePayloadColumn} = ?,
-            ${table.revisionColumn} = ?,
-            ${table.metadataColumn} = ?,
-            ${table.savedAtEpochMillisColumn} = ?,
-            ${table.recoveryStateColumn} = ?,
-            ${table.checkpointGenerationColumn} = ?
-        WHERE ${table.workflowNameColumn} = ?
-            AND ${table.workflowIdColumn} = ?
-            AND ${table.revisionColumn} = ?
-            AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}
-        """.trimIndent()
+    private fun updateSql(generationAware: Boolean): String {
+        val live = "\n            AND ${table.lifecycleStatusColumn} IS NULL"
+        return """
+            UPDATE ${table.tableName}
+            SET
+                ${table.nextStepIndexColumn} = ?,
+                ${table.stepExecutionsColumn} = ?,
+                ${table.lastCompletedStepNameColumn} = ?,
+                ${table.statePayloadColumn} = ?,
+                ${table.revisionColumn} = ?,
+                ${table.metadataColumn} = ?,
+                ${table.savedAtEpochMillisColumn} = ?,
+                ${table.recoveryStateColumn} = ?,
+                ${table.checkpointGenerationColumn} = ?
+            WHERE ${table.workflowNameColumn} = ?
+                AND ${table.workflowIdColumn} = ?
+                AND ${table.revisionColumn} = ?
+                AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}$live
+            """.trimIndent()
+    }
 
     /**
      * Admission is the fence: one conditional write that only succeeds while the run is not cancelled. It is
@@ -564,22 +580,24 @@ class JdbcWorkflowCheckpointStore(
     private fun deleteSql(
         revisionAware: Boolean,
         generationAware: Boolean,
-    ): String =
-        if (revisionAware) {
+    ): String {
+        val live = "\n            AND ${table.lifecycleStatusColumn} IS NULL"
+        return if (revisionAware) {
             """
             DELETE FROM ${table.tableName}
             WHERE ${table.workflowNameColumn} = ?
                 AND ${table.workflowIdColumn} = ?
                 AND ${table.revisionColumn} = ?
-                AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}
+                AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}$live
             """.trimIndent()
         } else {
             """
             DELETE FROM ${table.tableName}
             WHERE ${table.workflowNameColumn} = ?
-                AND ${table.workflowIdColumn} = ?
+                AND ${table.workflowIdColumn} = ?$live
             """.trimIndent()
         }
+    }
 
     private fun java.sql.PreparedStatement.bindCheckpoint(checkpoint: WorkflowCheckpoint) {
         setString(1, checkpoint.workflowName)
@@ -700,9 +718,6 @@ internal fun requireValidSqlIdentifier(
 }
 
 private val sqlIdentifierPattern = Regex("^[A-Za-z][A-Za-z0-9_]*$")
-
-/** SQLState class for syntax/access-rule violations, which is how both supported drivers report a missing column. */
-private const val SQLSTATE_ACCESS_RULE_VIOLATION = "42"
 
 private const val LABEL_LIFECYCLESTATUSCOLUMN = "JdbcWorkflowCheckpointTable.lifecycleStatusColumn"
 private const val LABEL_CANCELLEDBYCOLUMN = "JdbcWorkflowCheckpointTable.cancelledByColumn"
