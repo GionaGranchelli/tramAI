@@ -81,8 +81,11 @@ That asymmetry is a stated limit, not a gap to paper over:
 - At E8 the guarantee is only "this executor invocation was admitted". Third-party executors that perform their own
   outbound work are **outside** the enforcement claim unless they consume a per-effect admission capability
   themselves. Providing that capability is future work; claiming their effects are fenced today is not permitted.
-- The contract therefore permits the claim "no *instrumented* effect begins after cancellation commits", and
-  forbids the claim "no external effect begins after cancellation commits" while E8 remains opaque.
+- The contract therefore permits one claim and forbids another. Permitted: **"after cancellation commits, no new
+  instrumented-effect admission can succeed; previously admitted effects may still dispatch or complete and remain
+  conservatively uncertain."** Forbidden: "no *instrumented* effect begins after cancellation commits" — an effect
+  admitted before cancellation can physically start afterwards — and equally forbidden: "no external effect begins
+  after cancellation commits", while E8 remains opaque.
 
 The model call of a step is dispatched by the same step executor as E8 for remote executors and inside the CLI
 steps for E5–E7; there is no separate model-dispatch site in `tramai-orchestration` on this base. If one appears,
@@ -104,6 +107,11 @@ receive a new `admissionSeq`, which is correct and not a leak. Concretely, exact
 never be presented as, or relied upon for, exactly-once external execution. A remote side may have processed the
 admitted call the first time. That is why the outcome is `CANCELLED_UNCERTAIN`, not "not executed".
 
+**A grant is only a grant if the write took.** The increment must affect exactly one row; zero affected rows means
+no durable grant exists, and returning `admitted = true` there would hand out a permit for a sequence that was never
+recorded. The store refuses in that case (a conflict), and the transaction rolls back so no partial increment
+survives. The admission is proven by its own write, never by the locked read that preceded it.
+
 **Retries need fresh admission.** An attempt that fails and is retried calls `admit()` again. Reusing an earlier
 permit is forbidden even if no dispatch happened, because the retry is a new decision point: cancellation may have
 committed in between, and the store is the only authority that can answer whether it did.
@@ -114,7 +122,10 @@ The guarantee is over **admission ordering**, never over physical effect complet
 
 - Admission that commits first ⇒ the dispatch is permitted, even if it physically starts after cancellation
   commits. The run's outcome is then `CANCELLED_UNCERTAIN`.
-- Cancellation that commits first ⇒ every later admission is refused, so no new dispatch is authorized.
+- Cancellation that commits first ⇒ every later admission is refused. The guarantee is therefore about **new
+  admissions**, not about physical dispatch: "after cancellation commits, no new instrumented-effect admission can
+  succeed; previously admitted effects may still dispatch or complete and remain conservatively uncertain." Saying
+  "no instrumented effect begins after cancellation" would be a stronger claim than the mechanism supports.
 - An effect that completes later cannot be undone. No claim of "stopped" is made for it.
 
 Two consequences the implementation must respect, because both are easy to get subtly wrong:
@@ -152,6 +163,13 @@ cannot live on the attempt itself:
 
 The distinction between `ADMITTED` and `DISPATCHED` is required, not cosmetic: it is what allows an operator to see
 that a permit existed and was never used, without that being confused with an effect that happened.
+
+**Evidence can be missing, and its absence proves nothing (P2).** A durable admission can commit and the process can
+die before the child record is written, so no child record may be read as "this call was never admitted" or "this
+call was never dispatched". The `admission_seq` counter is the durable source of truth for the *existence* of
+earlier grants; the child records are a best-effort account of what those grants were used for. An operator reading
+evidence must therefore start from the counter — a sequence exists that has no child record — and treat the effect
+as uncertain, never as absent.
 
 ## 8. Mandatory adversarial tests
 

@@ -9,6 +9,7 @@ import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.sql.Connection
 import java.sql.DriverManager
+import java.sql.PreparedStatement
 import java.util.concurrent.Callable
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -232,6 +233,21 @@ class WorkflowAdmissionFenceTest {
         assertFalse(readBackAfterIncrement, "the receipt must not be read back after the increment")
     }
 
+    @Test
+    fun `an admission whose increment did not take is refused, not granted`() {
+        val saved = runBlocking { JdbcWorkflowCheckpointStore(dataSource).save(checkpoint("lost-increment")) }
+        val faulted = RecordingDataSource(dataSource)
+        faulted.suppressAdmissionIncrement = true
+        val store = JdbcWorkflowCheckpointStore(faulted)
+
+        // The write reports zero affected rows. A grant here would hand out a permit for a sequence that does not
+        // exist, and the caller would dispatch on the strength of it.
+        assertFailsWith<WorkflowCheckpointConflictException> {
+            runBlocking { store.admit(admissionRequest(saved)) }
+        }
+        assertEquals(0L, persistedAdmissionSequence("lost-increment"), "the counter must be unchanged")
+    }
+
     private fun persistedAdmissionSequence(workflowId: String): Long =
         connect().use { connection ->
             val sql = "SELECT admission_seq FROM ${JdbcWorkflowCheckpointTable().tableName} WHERE workflow_id = ?"
@@ -249,6 +265,9 @@ class WorkflowAdmissionFenceTest {
     ) : DataSource by delegate {
         val statements = CopyOnWriteArrayList<String>()
 
+        /** When set, the admission's increment reports zero affected rows: a write that did not take. */
+        var suppressAdmissionIncrement: Boolean = false
+
         override fun getConnection(): Connection = record(delegate.connection)
 
         override fun getConnection(
@@ -256,14 +275,28 @@ class WorkflowAdmissionFenceTest {
             password: String?,
         ): Connection = record(delegate.getConnection(username, password))
 
+        private fun suppressIncrement(statement: PreparedStatement): PreparedStatement =
+            Proxy.newProxyInstance(
+                javaClass.classLoader,
+                arrayOf(PreparedStatement::class.java),
+            ) { _, method, args ->
+                if (method.name == "executeUpdate") 0 else method.invoke(statement, *(args ?: emptyArray()))
+            } as PreparedStatement
+
         private fun record(connection: Connection): Connection =
             Proxy.newProxyInstance(
                 javaClass.classLoader,
                 arrayOf(Connection::class.java),
             ) { _, method, args ->
                 val result = method.invoke(connection, *(args ?: emptyArray()))
-                if (method.name == "prepareStatement" && args != null && args.isNotEmpty()) {
-                    (args[0] as? String)?.let { statements += it }
+                val sql =
+                    if (method.name == "prepareStatement" && args != null && args.isNotEmpty()) {
+                        (args[0] as? String)?.also { statements += it }
+                    } else {
+                        null
+                    }
+                if (suppressAdmissionIncrement && sql != null && sql.contains(ADMISSION_INCREMENT)) {
+                    return@newProxyInstance suppressIncrement(result as PreparedStatement)
                 }
                 result
             } as Connection
@@ -316,3 +349,6 @@ class WorkflowAdmissionFenceTest {
             )
     }
 }
+
+/** The admission increment statement, matched by the fault-injecting test double. */
+private const val ADMISSION_INCREMENT = "admission_seq = admission_seq + 1"

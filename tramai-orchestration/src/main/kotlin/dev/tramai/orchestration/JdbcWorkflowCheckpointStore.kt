@@ -18,6 +18,8 @@ class JdbcWorkflowCheckpointStore(
         NoOpPersistenceFailureDiagnosticObserver
         internal set
 
+    private val admissions = JdbcAdmissionCounter(table, ::lifecycleInConnection)
+
     constructor(
         dataSource: DataSource,
         table: JdbcWorkflowCheckpointTable,
@@ -109,7 +111,7 @@ class JdbcWorkflowCheckpointStore(
             classify = ::classifyCheckpointFailure,
         ) {
             executeJdbcCancellable(dataSource, transactional = true) { conn ->
-                admitInConnection(conn, request)
+                admissions.admitInConnection(conn, request)
             }
         }
 
@@ -229,73 +231,6 @@ class JdbcWorkflowCheckpointStore(
             }
     }
 
-    internal fun admitInConnection(
-        connection: java.sql.Connection,
-        request: WorkflowAdmissionRequest,
-    ): WorkflowAdmission {
-        // The receipt must be this grant's own increment. Reading admission_seq back after an UPDATE in autocommit
-        // lets a concurrent admission increment first, and two grants then return the same sequence — a permit
-        // identity that is not unique. So the counter is read under a row lock inside one transaction, and the
-        // receipt is that read plus one: never an observation of somebody else's write.
-        val observed = admissionSelectForUpdateInConnection(connection, request)
-        if (observed == null) {
-            // Refused: the row is cancelled, or the preconditions no longer hold.
-            lifecycleInConnection(connection, request.workflowName, request.workflowId)?.let { cancellation ->
-                return WorkflowAdmission(false, admissionSequenceInConnection(connection, request), cancellation)
-            }
-            throw safePersistenceFailure(
-                PersistenceResourceKind.CHECKPOINT,
-                PersistenceOperation.COMPARE_AND_SET,
-                PersistenceFailureCode.CONFLICT,
-            )
-        }
-        connection.prepareStatement(admitSql()).use { statement ->
-            statement.setLong(1, observed)
-            statement.setString(2, request.workflowName)
-            statement.setString(3, request.workflowId)
-            statement.executeUpdate()
-        }
-        return WorkflowAdmission(true, observed + 1L)
-    }
-
-    /**
-     * The counter under a row lock, or null when the run cannot be admitted.
-     *
-     * [java.sql.Connection] must be inside a transaction for the lock to mean anything; [admit] opens one.
-     */
-    private fun admissionSelectForUpdateInConnection(
-        connection: java.sql.Connection,
-        request: WorkflowAdmissionRequest,
-    ): Long? =
-        connection.prepareStatement(admissionSelectForUpdateSql(request.expectedGeneration != null)).use { statement ->
-            statement.setString(1, request.workflowName)
-            statement.setString(2, request.workflowId)
-            statement.setLong(3, request.expectedRevision)
-            if (request.expectedGeneration != null) {
-                statement.setString(4, request.expectedGeneration)
-            }
-            statement.executeQuery().use { resultSet ->
-                if (!resultSet.next()) null else resultSet.getLong(table.admissionSequenceColumn)
-            }
-        }
-
-    private fun admissionSequenceInConnection(
-        connection: java.sql.Connection,
-        request: WorkflowAdmissionRequest,
-    ): Long =
-        connection.prepareStatement(admissionSequenceSelectSql()).use { statement ->
-            statement.setString(1, request.workflowName)
-            statement.setString(2, request.workflowId)
-            statement.executeQuery().use { resultSet ->
-                if (!resultSet.next()) 0L else resultSet.getLong(table.admissionSequenceColumn)
-            }
-        }
-
-    /**
-     * The cancellation write is one conditional UPDATE on the row that already holds the run: exactly one
-     * command can win it, and the winner is the linearization point. A loser either sees an already-cancelled
-     * row (idempotent, returns the recorded state) or a stale precondition (conflict).
-     */
     internal fun cancelInConnection(
         connection: java.sql.Connection,
         request: WorkflowCancellationRequest,
@@ -330,6 +265,23 @@ class JdbcWorkflowCheckpointStore(
             PersistenceFailureCode.CONFLICT,
         )
     }
+
+    private fun cancelSql(generationAware: Boolean): String =
+        """
+        UPDATE ${table.tableName}
+        SET
+            ${table.lifecycleStatusColumn} =
+                CASE WHEN ${table.admissionSequenceColumn} > 0 THEN ? ELSE ? END,
+            ${table.cancelledAtEpochMillisColumn} = ?,
+            ${table.cancelledByColumn} = ?,
+            ${table.cancellationReasonColumn} = ?,
+            ${table.revisionColumn} = ${table.revisionColumn} + 1
+        WHERE ${table.workflowNameColumn} = ?
+            AND ${table.workflowIdColumn} = ?
+            AND ${table.revisionColumn} = ?
+            AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}
+            AND ${table.lifecycleStatusColumn} IS NULL
+        """.trimIndent()
 
     internal fun lifecycleInConnection(
         connection: java.sql.Connection,
@@ -514,53 +466,6 @@ class JdbcWorkflowCheckpointStore(
      * ordered against cancellation by the same row, so a cancellation that commits first refuses every later
      * admission, and an admission that commits first makes the cancellation uncertain.
      */
-    private fun admissionSelectForUpdateSql(generationAware: Boolean): String =
-        """
-        SELECT ${table.admissionSequenceColumn}
-        FROM ${table.tableName}
-        WHERE ${table.workflowNameColumn} = ?
-            AND ${table.workflowIdColumn} = ?
-            AND ${table.revisionColumn} = ?
-            AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}
-            AND ${table.lifecycleStatusColumn} IS NULL
-        FOR UPDATE
-        """.trimIndent()
-
-    private fun admitSql(): String =
-        """
-        UPDATE ${table.tableName}
-        SET ${table.admissionSequenceColumn} = ${table.admissionSequenceColumn} + 1
-        WHERE ${table.admissionSequenceColumn} = ?
-            AND ${table.workflowNameColumn} = ?
-            AND ${table.workflowIdColumn} = ?
-            AND ${table.lifecycleStatusColumn} IS NULL
-        """.trimIndent()
-
-    private fun admissionSequenceSelectSql(): String =
-        """
-        SELECT ${table.admissionSequenceColumn}
-        FROM ${table.tableName}
-        WHERE ${table.workflowNameColumn} = ?
-            AND ${table.workflowIdColumn} = ?
-        """.trimIndent()
-
-    private fun cancelSql(generationAware: Boolean): String =
-        """
-        UPDATE ${table.tableName}
-        SET
-            ${table.lifecycleStatusColumn} =
-                CASE WHEN ${table.admissionSequenceColumn} > 0 THEN ? ELSE ? END,
-            ${table.cancelledAtEpochMillisColumn} = ?,
-            ${table.cancelledByColumn} = ?,
-            ${table.cancellationReasonColumn} = ?,
-            ${table.revisionColumn} = ${table.revisionColumn} + 1
-        WHERE ${table.workflowNameColumn} = ?
-            AND ${table.workflowIdColumn} = ?
-            AND ${table.revisionColumn} = ?
-            AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}
-            AND ${table.lifecycleStatusColumn} IS NULL
-        """.trimIndent()
-
     private fun lifecycleSelectSql(): String =
         """
         SELECT
