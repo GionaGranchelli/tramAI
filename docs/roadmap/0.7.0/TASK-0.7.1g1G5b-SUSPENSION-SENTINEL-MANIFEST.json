@@ -1,0 +1,1284 @@
+{
+  "schemaVersion": 1,
+  "task": "TASK-0.7.1g1G5b",
+  "parent": "TASK-0.7.1g1G5",
+  "title": "Suspension-sentinel tooling-limitation adjudication of G5A-M01 (36 identities)",
+  "g5bBase": "aa0cc52cc30a9ec53467712b85e2343b780cafca",
+  "frozenParentCohortDigest": "92a9d06d5a8e43c5fb659f9d65bdd2e73d6ed5f45c1a8536ac70781b03503584",
+  "cohort": {
+    "name": "G5A-M01",
+    "size": 36,
+    "digest": "cda7b483580008f967879925a87ff8a2892cc83667c6720b0e973241cf384f92",
+    "mappingConfidence": "EXACT",
+    "generalization": "EXACT_STRUCTURAL",
+    "mechanism": "coroutine suspension sentinel: the mutated instruction is the result != COROUTINE_SUSPENDED comparison immediately following a child suspend call",
+    "evidenceSource": "docs/roadmap/0.7.0/TASK-0.7.1g1G5a-BYTECODE-MECHANISM-PARTITION-MANIFEST.json"
+  },
+  "campaigns": {
+    "campaign1": {
+      "role": "frozen discovery measurement (source of the 36 raw statuses)",
+      "measuredCommit": "18f10dbb2c90fbfeafc374e1d7fe0d8814e342b1",
+      "populationDigest": "7081ed7416f759ecca7cae00c7cf4e6261ef0cd16db49fe32bc3bb6f280bbddd",
+      "reportRoot": "/tmp/xk9p1-fresh",
+      "measuredCommitCorrection": "5856530e is the stale committed population's historical measuredCommit, not the discovery campaign commit"
+    },
+    "campaign2": {
+      "role": "independent second measurement for determinism",
+      "base": "aa0cc52cc30a9ec53467712b85e2343b780cafca",
+      "throwawayMeasurementCommit": "2341829c35d81e6269ac6d92c87a62a5d312da96",
+      "configDiff": "family-list narrowing only: 53 deletions in config/quality/test-quality.yml, the approval family block untouched",
+      "generatedBaselineMeasuredCommit": "2341829c35d81e6269ac6d92c87a62a5d312da96",
+      "analyzer": {
+        "pluginVersion": "1.19.0",
+        "engineVersion": "1.22.1",
+        "mutators": [
+          "CONDITIONALS_BOUNDARY",
+          "INCREMENTS",
+          "INVERT_NEGS",
+          "MATH",
+          "NEGATE_CONDITIONALS",
+          "TRUE_RETURNS",
+          "FALSE_RETURNS",
+          "PRIMITIVE_RETURNS",
+          "EMPTY_RETURNS",
+          "NULL_RETURNS",
+          "VOID_METHOD_CALLS"
+        ],
+        "timeoutConst": 4000,
+        "timeoutFactor": 1.25
+      },
+      "durationSeconds": 1014,
+      "buildResult": "BUILD SUCCESSFUL",
+      "familyCensus": {
+        "family": "approval",
+        "total": 918,
+        "byModule": {
+          ":tramai-engine": 492,
+          ":tramai-security": 426
+        },
+        "killed": 661,
+        "survived": 133,
+        "noCoverage": 62,
+        "timedOut": 62
+      },
+      "rawReportSha256": {
+        "approval/tramai-engine": "068c0ddc3857c9d313cc322e34fd5fefed6f68e78ba110bd45ab2d907c388ac0",
+        "approval/tramai-security": "567bbb4eedc544ef07146f14105c047e828068c559bf43a4641195aae7610b64"
+      },
+      "rejectedArtifacts": [
+        "attempt-1 partial engine report (342/492, mid-write)",
+        "attempt-2 malformed security report (Content is not allowed in trailing section) caused by two PIT runs sharing one report root",
+        "a copied mutation-baseline.json that was byte-identical to the committed baseline and therefore not a campaign-2 artifact"
+      ]
+    }
+  },
+  "reconciliation": {
+    "inputFrozenIdentities": 36,
+    "recovered": 36,
+    "missing": 0,
+    "duplicates": 0,
+    "timedOutToTimedOut": 36,
+    "statusMovement": 0,
+    "layers": [
+      "canonical generated population (identity-equality asserted for every member)",
+      "raw PIT report (independent status agreement for all 36)"
+    ]
+  },
+  "concealmentAudit": {
+    "bytecodeAbsenceProof": 36,
+    "siblingProtectionRequired": 0,
+    "conditionalJumpsOnLine": {
+      "1": 36
+    }
+  },
+  "numberOfTestsRunNote": "numberOfTestsRun='0' is an XML ATTRIBUTE on <mutation> and is present on every TIMED_OUT mutation (70/70 discovery, 62/62 approval family in this campaign), as on all 190 NO_COVERAGE mutations. The frozen manifest's 0 is PIT's own measurement. An earlier revision of this manifest wrongly stated the attribute was absent; superseded, not erased.",
+  "controls": {
+    "ApprovalResumeCoordinator": {
+      "KILLED": 107,
+      "SURVIVED": 24,
+      "NO_COVERAGE": 1,
+      "TIMED_OUT": 18
+    },
+    "ApprovalResumeCoordinator$resume$2": {
+      "KILLED": 2,
+      "SURVIVED": 2,
+      "NO_COVERAGE": 0,
+      "TIMED_OUT": 1
+    },
+    "ApprovalSuspensionCoordinator": {
+      "KILLED": 71,
+      "SURVIVED": 6,
+      "NO_COVERAGE": 2,
+      "TIMED_OUT": 8
+    },
+    "ApprovalSuspensionCoordinator$compensateSuspension$2$1": {
+      "KILLED": 2,
+      "SURVIVED": 2,
+      "NO_COVERAGE": 0,
+      "TIMED_OUT": 1
+    },
+    "ApprovalSuspensionCoordinator$compensateSuspension$2$2": {
+      "KILLED": 2,
+      "SURVIVED": 2,
+      "NO_COVERAGE": 0,
+      "TIMED_OUT": 1
+    },
+    "DefaultApprovalGateway": {
+      "KILLED": 57,
+      "SURVIVED": 8,
+      "NO_COVERAGE": 2,
+      "TIMED_OUT": 12
+    }
+  },
+  "adjudication": {
+    "toolingLimitation": 36,
+    "undetermined": 0,
+    "killed": 0,
+    "equivalent": 0,
+    "note": "TOOLING_LIMITATION is not EQUIVALENT and not KILLED. PIT cannot execute or measure these mutations normally, so the result carries no information about authored test adequacy."
+  },
+  "parentAccounting": {
+    "parentFrozenCohort": 52,
+    "settledByThisTask": 36,
+    "remainingUndetermined": 16,
+    "remainingBreakdown": {
+      "SURVIVED": 12,
+      "NO_COVERAGE": 4
+    },
+    "excluded": "the 16 already-adjudicated identities of the 68-row P1 manifest are not part of the frozen G5 52 and are not counted here"
+  },
+  "identities": [
+    {
+      "identity": "f571f62614e6f584322a29fa5ef9b4f9bb0e6bf6e5d48f72181d7778088e3a53",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "authorizeResume",
+      "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/approval/ApprovalResumeCoordinator$ResumePreparation;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 148,
+      "pitBlock": 11,
+      "pitIndex": 67,
+      "bytecodePc": 144,
+      "opcode": "if_acmpne",
+      "lineAtPc": 148,
+      "stateMachineCase": null,
+      "childSuspendCall": "#428 // Method dev/tramai/engine/approval/ReplayAuthorizationService.decideResumePolicy:(Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/core/model/ResolvedTool;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "5d700610726248849d6141d8f8159c688932d1759e3f3d20bbb6fe966cb670e4",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "executeClaimedResume",
+      "methodDescription": "(Ldev/tramai/engine/approval/ResumeExecutionContext;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 183,
+      "pitBlock": 19,
+      "pitIndex": 167,
+      "bytecodePc": 308,
+      "opcode": "if_acmpne",
+      "lineAtPc": 183,
+      "stateMachineCase": null,
+      "childSuspendCall": "#507 // Method \"validateClaimedResumeArguments-4uOHQ0s\":(Ldev/tramai/engine/approval/ResumeUncertainOutcome;Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ToolArgumentsDigester;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "f23b4d0921a0e5daca1b271f41357982ca9e52de09f0e1e5d72933b1b87f3ac6",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "executeClaimedResume",
+      "methodDescription": "(Ldev/tramai/engine/approval/ResumeExecutionContext;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 196,
+      "pitBlock": 39,
+      "pitIndex": 323,
+      "bytecodePc": 567,
+      "opcode": "if_acmpne",
+      "lineAtPc": 196,
+      "stateMachineCase": null,
+      "childSuspendCall": "#560, 3 // InterfaceMethod dev/tramai/engine/approval/ClaimedResumeExecutor.execute:(Ldev/tramai/engine/approval/ClaimedResumeExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "6cadd3397125ba1bdc4b72d2267c73f6b9ab4fdcd77205691f0d10adc07e5101",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "executeClaimedResume",
+      "methodDescription": "(Ldev/tramai/engine/approval/ResumeExecutionContext;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 208,
+      "pitBlock": 54,
+      "pitIndex": 441,
+      "bytecodePc": 804,
+      "opcode": "if_acmpne",
+      "lineAtPc": 208,
+      "stateMachineCase": null,
+      "childSuspendCall": "#569 // Method completeClaimedResume:(Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "9e3d60d7a85525416ee27ca9ce1abac74612ec1ba1134a64f13b3148d85cbd04",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "prepareResume",
+      "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 121,
+      "pitBlock": 11,
+      "pitIndex": 68,
+      "bytecodePc": 147,
+      "opcode": "if_acmpne",
+      "lineAtPc": 121,
+      "stateMachineCase": null,
+      "childSuspendCall": "#319, 3 // InterfaceMethod dev/tramai/core/approval/ApprovalContinuationStore.get:(Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "c3509c6487f8933fbec46bb166eba697f54ba5808453016a45978d21953c7e53",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "prepareResume",
+      "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 138,
+      "pitBlock": 53,
+      "pitIndex": 332,
+      "bytecodePc": 568,
+      "opcode": "if_acmpne",
+      "lineAtPc": 138,
+      "stateMachineCase": null,
+      "childSuspendCall": "#384 // Method dev/tramai/engine/approval/ContinuationClaimService.loadPendingForResume:(Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/approval/RegisteredResumeOperation;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "a25dbb8c0826d5df57d94e0003d897c2ac066acefe43d7f1e087414be5fc3feb",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "prepareResume",
+      "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 140,
+      "pitBlock": 61,
+      "pitIndex": 423,
+      "bytecodePc": 738,
+      "opcode": "if_acmpne",
+      "lineAtPc": 140,
+      "stateMachineCase": null,
+      "childSuspendCall": "#398 // Method dev/tramai/engine/approval/ReplayAuthorizationService.validateToken:(Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/core/approval/ApprovalContinuation;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "4865b74caf50c74ee8bfb7994960e3bf640e3a8c6ecc32cd9a99eef5bafc94bf",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "resume",
+      "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 65,
+      "pitBlock": 9,
+      "pitIndex": 59,
+      "bytecodePc": 143,
+      "opcode": "if_acmpne",
+      "lineAtPc": 65,
+      "stateMachineCase": null,
+      "childSuspendCall": "#105 // Method prepareResume:(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "611bdacfe9f54230f4c152506c0491fa01445042d992cacdfaad2cee031d2cd4",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "resume",
+      "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 66,
+      "pitBlock": 14,
+      "pitIndex": 95,
+      "bytecodePc": 198,
+      "opcode": "if_acmpne",
+      "lineAtPc": 66,
+      "stateMachineCase": null,
+      "childSuspendCall": "#116 // Method authorizeResume:(Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/approval/ApprovalResumeCoordinator$ResumePreparation;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "9b9bfadffcdc04d8b2b0b8c2a07f6d86863e455634d52cded8e90259765ea318",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "resume",
+      "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 81,
+      "pitBlock": 42,
+      "pitIndex": 264,
+      "bytecodePc": 465,
+      "opcode": "if_acmpne",
+      "lineAtPc": 81,
+      "stateMachineCase": null,
+      "childSuspendCall": "#199 // Method executeClaimedResume:(Ldev/tramai/engine/approval/ResumeExecutionContext;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "252596080a3a8e97a347ef98bc08ae9af6fa6c3db5d8c432744148d5109f9848",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "resume",
+      "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 85,
+      "pitBlock": 54,
+      "pitIndex": 356,
+      "bytecodePc": 634,
+      "opcode": "if_acmpne",
+      "lineAtPc": 85,
+      "stateMachineCase": null,
+      "childSuspendCall": "#219 // Method kotlinx/coroutines/BuildersKt.withContext:(Lkotlin/coroutines/CoroutineContext;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "827431d2f104e64e451d5a2c6993ba211604b8ca06048ea4b681fc017ab4815f",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "resume",
+      "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 90,
+      "pitBlock": 67,
+      "pitIndex": 459,
+      "bytecodePc": 803,
+      "opcode": "if_acmpne",
+      "lineAtPc": 90,
+      "stateMachineCase": null,
+      "childSuspendCall": "#228 // Method emitResumeUncertainOutcomeOnce:(Ldev/tramai/engine/approval/ResumeUncertainOutcome;Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "10512d6c6e0078e866ab5926dcb17a5b3d77edf65a3e0bb77df3820bc8ba65e1",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+      "method": "revealAndValidateReplayPayload",
+      "methodDescription": "(Ldev/tramai/engine/approval/ResumeUncertainOutcome;Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 223,
+      "pitBlock": 31,
+      "pitIndex": 170,
+      "bytecodePc": 321,
+      "opcode": "if_acmpne",
+      "lineAtPc": 223,
+      "stateMachineCase": null,
+      "childSuspendCall": "#228 // Method emitResumeUncertainOutcomeOnce:(Ldev/tramai/engine/approval/ResumeUncertainOutcome;Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "09ea31d4d0e8b35c80543a6c812d206ce3d949fad35e2c5ad14e48e1332f89c0",
+      "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator$resume$2",
+      "method": "invokeSuspend",
+      "methodDescription": "(Ljava/lang/Object;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalResumeCoordinator.kt",
+      "sourceLine": 86,
+      "pitBlock": 5,
+      "pitIndex": 32,
+      "bytecodePc": 69,
+      "opcode": "if_acmpne",
+      "lineAtPc": 86,
+      "stateMachineCase": null,
+      "childSuspendCall": "#81 // Method dev/tramai/engine/approval/ApprovalResumeCoordinator.access$executeClaimedResume:(Ldev/tramai/engine/approval/ApprovalResumeCoordinator;Ldev/tramai/engine/approval/ResumeExecutionContext;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "2b197f5cd3cba2e7f02c6ebfc6701d945e397b4166f04f4218a2e591892b85fe",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+      "method": "compensateStep",
+      "methodDescription": "(Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalSuspensionCoordinator.kt",
+      "sourceLine": 301,
+      "pitBlock": 10,
+      "pitIndex": 63,
+      "bytecodePc": 120,
+      "opcode": "if_acmpne",
+      "lineAtPc": 301,
+      "stateMachineCase": null,
+      "childSuspendCall": "#733, 2 // InterfaceMethod kotlin/jvm/functions/Function1.invoke:(Ljava/lang/Object;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "8610dc7e970e4c48ae0d47971626c7769a141837b34d53d5610af7d596bf8593",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+      "method": "compensateSuspension",
+      "methodDescription": "(Ljava/lang/String;JLdev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ApprovalGateCoordinator;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalSuspensionCoordinator.kt",
+      "sourceLine": 293,
+      "pitBlock": 12,
+      "pitIndex": 90,
+      "bytecodePc": 187,
+      "opcode": "if_acmpne",
+      "lineAtPc": 293,
+      "stateMachineCase": null,
+      "childSuspendCall": "#705 // Method compensateStep:(Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "7f06a51c79515d82dcabce9af7ae1d77d8a3691fd2b99528f3e17212204ee512",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+      "method": "compensateSuspension",
+      "methodDescription": "(Ljava/lang/String;JLdev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ApprovalGateCoordinator;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalSuspensionCoordinator.kt",
+      "sourceLine": 295,
+      "pitBlock": 30,
+      "pitIndex": 239,
+      "bytecodePc": 478,
+      "opcode": "if_acmpne",
+      "lineAtPc": 295,
+      "stateMachineCase": null,
+      "childSuspendCall": "#705 // Method compensateStep:(Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "6e83174c379e04bed5f19fcf1b87028e3230064cd5c85e570c00e164acf9dada",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+      "method": "suspendToolExecution",
+      "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalSuspensionCoordinator.kt",
+      "sourceLine": 145,
+      "pitBlock": 11,
+      "pitIndex": 74,
+      "bytecodePc": 158,
+      "opcode": "if_acmpne",
+      "lineAtPc": 145,
+      "stateMachineCase": null,
+      "childSuspendCall": "#359 // Method resolveGovernedSuspension:(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "c3a3a1cf672fe44f75d9cee697e72d78449b353258d8cba49600c62021beaa31",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+      "method": "suspendToolExecution",
+      "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalSuspensionCoordinator.kt",
+      "sourceLine": 152,
+      "pitBlock": 35,
+      "pitIndex": 206,
+      "bytecodePc": 362,
+      "opcode": "if_acmpne",
+      "lineAtPc": 152,
+      "stateMachineCase": null,
+      "childSuspendCall": "#423, 3 // InterfaceMethod dev/tramai/core/approval/ApprovalGateCoordinator.createApproval:(Ldev/tramai/core/approval/CreateApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "43dd0cdff07a1d862bc17951e50cbb1b7d8a5d77d91348744b2910467c01f204",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+      "method": "suspendToolExecution",
+      "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalSuspensionCoordinator.kt",
+      "sourceLine": 218,
+      "pitBlock": 109,
+      "pitIndex": 668,
+      "bytecodePc": 1072,
+      "opcode": "if_acmpne",
+      "lineAtPc": 218,
+      "stateMachineCase": null,
+      "childSuspendCall": "#550 // Method persistSuspendedInvocation:(Ldev/tramai/engine/approval/ApprovalSuspensionCoordinator$GovernedSuspension;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "16f71d24dc95007e1a903b98c660c2bf0ec975915a1e9c41ed727689f2ccd5a2",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+      "method": "suspendToolExecution",
+      "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalSuspensionCoordinator.kt",
+      "sourceLine": 219,
+      "pitBlock": 132,
+      "pitIndex": 853,
+      "bytecodePc": 1420,
+      "opcode": "if_acmpne",
+      "lineAtPc": 219,
+      "stateMachineCase": null,
+      "childSuspendCall": "#560, 9 // InterfaceMethod dev/tramai/core/approval/ApprovalLifecycleAuditEmitter.\"onToolExecutionSuspended-0ERvcow\":(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "ce65c0b75a83a7cbaf0ff52ed87aee8fe45d571587e78da263663124ea64326d",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+      "method": "suspendToolExecution",
+      "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalSuspensionCoordinator.kt",
+      "sourceLine": 239,
+      "pitBlock": 157,
+      "pitIndex": 1067,
+      "bytecodePc": 1785,
+      "opcode": "if_acmpne",
+      "lineAtPc": 239,
+      "stateMachineCase": null,
+      "childSuspendCall": "#577 // Method compensateSuspension:(Ljava/lang/String;JLdev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ApprovalGateCoordinator;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "8d5bb41c2eaa72679422c10b5d20524d7605a23c839b989c83952f93eb0cebcf",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator$compensateSuspension$2$1",
+      "method": "invokeSuspend",
+      "methodDescription": "(Ljava/lang/Object;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalSuspensionCoordinator.kt",
+      "sourceLine": 293,
+      "pitBlock": 5,
+      "pitIndex": 28,
+      "bytecodePc": 63,
+      "opcode": "if_acmpne",
+      "lineAtPc": 293,
+      "stateMachineCase": null,
+      "childSuspendCall": "#73, 3 // InterfaceMethod dev/tramai/engine/SuspendedInvocationStore.remove:(Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "e22c7dcc1e36b6956165d91403a12a340160639592be69fe070caa3736bd8851",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator$compensateSuspension$2$2",
+      "method": "invokeSuspend",
+      "methodDescription": "(Ljava/lang/Object;)Ljava/lang/Object;",
+      "sourceFile": "ApprovalSuspensionCoordinator.kt",
+      "sourceLine": 294,
+      "pitBlock": 4,
+      "pitIndex": 29,
+      "bytecodePc": 64,
+      "opcode": "if_acmpne",
+      "lineAtPc": 294,
+      "stateMachineCase": null,
+      "childSuspendCall": "#70, 5 // InterfaceMethod dev/tramai/core/approval/ApprovalContinuationStore.cancel:(Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "050d2b83c8527c768c73ba7fdaa77021fd04a05638d3b665a724cfccd98f9164",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "persistGoverned",
+      "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 248,
+      "pitBlock": 12,
+      "pitIndex": 74,
+      "bytecodePc": 145,
+      "opcode": "if_acmpne",
+      "lineAtPc": 248,
+      "stateMachineCase": null,
+      "childSuspendCall": "#413, 4 // InterfaceMethod dev/tramai/engine/approval/GovernedApprovalStore.createGovernedApproval:(Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/engine/approval/ApprovalRunAttribution$Governed;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "c98ac92dc495b7162789fc13c1d2318f1f5d2aa07bb3c051df7946fe638d3cff",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "persistGoverned",
+      "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 253,
+      "pitBlock": 22,
+      "pitIndex": 132,
+      "bytecodePc": 228,
+      "opcode": "if_acmpne",
+      "lineAtPc": 253,
+      "stateMachineCase": null,
+      "childSuspendCall": "#422, 4 // InterfaceMethod dev/tramai/engine/GovernedSuspendedInvocationStore.createGoverned:(Ldev/tramai/engine/GovernedSuspendedInvocation;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "e602fa9990536c07017cc7764ed989526f964e395f82e05d456f7dca523c4610",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "persistGoverned",
+      "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 261,
+      "pitBlock": 31,
+      "pitIndex": 181,
+      "bytecodePc": 306,
+      "opcode": "if_acmpne",
+      "lineAtPc": 261,
+      "stateMachineCase": null,
+      "childSuspendCall": "#401, 4 // InterfaceMethod dev/tramai/core/approval/ApprovalContinuationStore.create:(Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "d68d0252ca2d0c4e59ad7655508624e507633be914605effb2324b63022ba289",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "persistUngoverned",
+      "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 223,
+      "pitBlock": 10,
+      "pitIndex": 61,
+      "bytecodePc": 130,
+      "opcode": "if_acmpne",
+      "lineAtPc": 223,
+      "stateMachineCase": null,
+      "childSuspendCall": "#381, 3 // InterfaceMethod dev/tramai/core/approval/ApprovalStore.create:(Ldev/tramai/core/approval/ApprovalRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "2436750ccd7646d3803f335216c2fdecf27a58b90acb8250b5929a634201d5c5",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "persistUngoverned",
+      "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 225,
+      "pitBlock": 17,
+      "pitIndex": 101,
+      "bytecodePc": 185,
+      "opcode": "if_acmpne",
+      "lineAtPc": 225,
+      "stateMachineCase": null,
+      "childSuspendCall": "#388, 4 // InterfaceMethod dev/tramai/engine/SuspendedInvocationStore.create:(Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "ae609c23ce293d1e7c19723fbfe113c0644d63437e360e323bad136091f7d1e1",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "persistUngoverned",
+      "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 230,
+      "pitBlock": 25,
+      "pitIndex": 142,
+      "bytecodePc": 243,
+      "opcode": "if_acmpne",
+      "lineAtPc": 230,
+      "stateMachineCase": null,
+      "childSuspendCall": "#401, 4 // InterfaceMethod dev/tramai/core/approval/ApprovalContinuationStore.create:(Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "f5e8c455520a32d816751b0ec4adb9d4619a38afdf67b81256a615a68b779590",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "requestApproval-Atj0Sqo",
+      "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 82,
+      "pitBlock": 9,
+      "pitIndex": 68,
+      "bytecodePc": 159,
+      "opcode": "if_acmpne",
+      "lineAtPc": 82,
+      "stateMachineCase": null,
+      "childSuspendCall": "#107 // Method \"resolveGovernedIdentity-jFE5hGw\":(Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "6f9609fdbbabaf152fc2ccc4f9728c40bcefc962cd0377592fc6684ae18acb58",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "requestApproval-Atj0Sqo",
+      "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 93,
+      "pitBlock": 23,
+      "pitIndex": 160,
+      "bytecodePc": 304,
+      "opcode": "if_acmpne",
+      "lineAtPc": 93,
+      "stateMachineCase": null,
+      "childSuspendCall": "#139, 6 // InterfaceMethod dev/tramai/engine/approval/ApprovalGatewayRequestFactory.\"createRequest-Atj0Sqo\":(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "4245a1aa59c91bc59bd4fe50b0a42bcef26b9c5b4c39e10771b3f6e3602de63d",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "requestApproval-Atj0Sqo",
+      "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 105,
+      "pitBlock": 35,
+      "pitIndex": 243,
+      "bytecodePc": 457,
+      "opcode": "if_acmpne",
+      "lineAtPc": 105,
+      "stateMachineCase": null,
+      "childSuspendCall": "#163, 3 // InterfaceMethod dev/tramai/core/approval/ApprovalStore.get:(Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "e44e3a71b7ef3e7a1ac87d6f7c96dfb9d33350285ed9dc9512e3d99a88276a42",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "requestApproval-Atj0Sqo",
+      "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 107,
+      "pitBlock": 46,
+      "pitIndex": 328,
+      "bytecodePc": 618,
+      "opcode": "if_acmpne",
+      "lineAtPc": 107,
+      "stateMachineCase": null,
+      "childSuspendCall": "#170 // Method requireExistingAttributionMatches:(Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "9f7ce30fc6da401efe187481149db12210e987367a547e032c9cc182d0e187be",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "requestApproval-Atj0Sqo",
+      "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 112,
+      "pitBlock": 60,
+      "pitIndex": 426,
+      "bytecodePc": 799,
+      "opcode": "if_acmpne",
+      "lineAtPc": 112,
+      "stateMachineCase": null,
+      "childSuspendCall": "#178 // Method persistUngoverned:(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    },
+    {
+      "identity": "1b17d7d30c234dcb3e0e8081542d742c2c5ec6b4716c5ba787b4edf3be5a22a1",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "requireExistingAttributionMatches",
+      "methodDescription": "(Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "sourceFile": "DefaultApprovalGateway.kt",
+      "sourceLine": 210,
+      "pitBlock": 14,
+      "pitIndex": 79,
+      "bytecodePc": 151,
+      "opcode": "if_acmpne",
+      "lineAtPc": 210,
+      "stateMachineCase": null,
+      "childSuspendCall": "#354, 3 // InterfaceMethod dev/tramai/engine/approval/GovernedApprovalStore.attributionOf:(Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "dupBeforeSentinelCompare": true,
+      "campaign1": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "campaign2": {
+        "status": "TIMED_OUT",
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
+      },
+      "concealmentProof": "BYTECODE_ABSENCE",
+      "authoredSiblingIdentity": null,
+      "killingTest": null,
+      "finalDisposition": "TOOLING_LIMITATION",
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
+    }
+  ],
+  "corrections": [
+    {
+      "field": "numberOfTestsRun",
+      "supersededClaim": "the raw report carries no numberOfTestsRun element for TIMED_OUT mutations, so the frozen 0 was a coercion of that absence",
+      "correctedClaim": "numberOfTestsRun='0' is an attribute present on every TIMED_OUT mutation; the 0 is PIT's own measurement",
+      "foundDuring": "TASK-0.7.1g1G5c phase 1 preparation (PIT XML schema inspection)",
+      "effectOnDispositions": "none \u2014 36/36 TOOLING_LIMITATION stands; the evidence is strengthened"
+    },
+    {
+      "field": "campaign1.measuredCommit; campaign2.testsRun; evidenceReason",
+      "supersededClaim": "campaign1.measuredCommit=5856530e (the stale committed population's historical value); campaign2.testsRun=-1 contradicting its own numberOfTestsRunAttribute=0; evidenceReason said 'TIMED_OUT with no test count reported in two independent campaigns'",
+      "correctedClaim": "campaign1.measuredCommit=18f10dbb2c90fbfeafc374e1d7fe0d8814e342b1 (the P1 discovery campaign tip that produced 7081ed74); campaign2.testsRun=0 consistent with the PIT attribute; evidenceReason now reads 'TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns'",
+      "foundDuring": "owner review of #462 at head 162be323",
+      "effectOnDispositions": "none \u2014 36/36 TOOLING_LIMITATION stands"
+    }
+  ]
+}

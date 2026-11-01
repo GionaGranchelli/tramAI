@@ -10,17 +10,22 @@ import java.io.File
  */
 
 /** Newest dated release heading in CHANGELOG.md: `## X.Y.Z - YYYY-MM-DD`, releases listed newest first. */
-private val DATED_RELEASE_HEADING = Regex("""(?m)^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}""")
+private val DATED_RELEASE_HEADING = Regex("""(?m)^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})""")
 
 /**
  * The last promoted release: the first dated CHANGELOG heading, which is the newest by the
- * repository's newest-first changelog convention. Fails closed when no dated heading exists.
+ * repository's newest-first changelog convention. This is the single authority for "what is the
+ * newest promoted release, and when was it cut?" — [promotedReleaseDate] reads the same heading
+ * rather than re-parsing CHANGELOG.md. Fails closed when no dated heading exists.
  */
-internal fun promotedReleaseVersion(rootDir: File): String =
+internal fun promotedReleaseVersion(rootDir: File): String = datedReleaseHeading(rootDir).groupValues[1]
+
+/** The date carried by the [promotedReleaseVersion] heading. */
+internal fun promotedReleaseDate(rootDir: File): String = datedReleaseHeading(rootDir).groupValues[2]
+
+private fun datedReleaseHeading(rootDir: File): MatchResult =
     DATED_RELEASE_HEADING
         .find(File(rootDir, "CHANGELOG.md").readText())
-        ?.groupValues
-        ?.get(1)
         ?: error(
             "CHANGELOG.md must contain a dated release heading " +
                 "(## X.Y.Z - YYYY-MM-DD)",

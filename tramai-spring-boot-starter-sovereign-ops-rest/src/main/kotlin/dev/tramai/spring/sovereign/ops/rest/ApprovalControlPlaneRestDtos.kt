@@ -4,12 +4,17 @@ import java.time.Instant
 
 /**
  * Request body for POST approve and deny endpoints.
+ *
+ * [expectedVersion] is nullable **only** so the adapter can answer a missing or explicit-null value with a
+ * non-sensitive 400 instead of letting Jackson's coercion decide. It is never defaulted, never inferred and
+ * never substituted: without it the request does not reach a control-plane command at all.
+ *
+ * [actorId] and [actorRole] are untrusted caller claims. They are not authentication and are not treated as
+ * such; operator authorization is 0.7.6e.
  */
 data class ApproveDenyRequest(
-    val actorId: String,
-    val actorRole: String,
-    val comment: String? = null,
     val expectedVersion: Long? = null,
+    val comment: String? = null,
     val correlationId: String? = null,
 )
 
@@ -34,6 +39,10 @@ data class ApprovalControlPlaneResponse(
     val approvalId: String,
     val actorId: String? = null,
     val version: Long? = null,
+    /** For `STALE`: the version the request carried. */
+    val expectedVersion: Long? = null,
+    /** For `STALE`: the authoritative version, so the caller can re-read and re-decide. */
+    val currentVersion: Long? = null,
     val message: String? = null,
 )
 

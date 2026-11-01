@@ -10,13 +10,16 @@
 | examples:kotlin-consumer-smoke | applications-examples | internal | excluded | No | examples | excluded |
 | examples:sovereign-document-intelligence | applications-examples | internal | excluded | No | examples | excluded |
 | examples:sovereign-offline-verification | applications-examples | internal | excluded | No | examples | excluded |
+| examples:spring-ai-authority-boundary | applications-examples | internal | excluded | No | examples | excluded |
 | examples:spring-sovereign-starter | applications-examples | internal | excluded | No | examples | excluded |
 | examples:support-agent | applications-examples | internal | excluded | No | examples | excluded |
+| examples:timeline-reconstruction | applications-examples | internal | excluded | No | examples | excluded |
 | examples:tool-governance | applications-examples | internal | excluded | No | examples | excluded |
 | tramai-anthropic | provider-adapters | preview | preview | Yes | providers | included |
 | tramai-azure-openai | provider-adapters | preview | preview | Yes | providers | included |
 | tramai-bedrock | provider-adapters | preview | preview | Yes | providers | included |
 | tramai-bom | core-contracts | stable | stable | Yes | core | included |
+| tramai-control-plane | core-contracts | preview | preview | Yes | core | included |
 | tramai-core | core-contracts | stable | stable | Yes | core | included |
 | tramai-dashboard | operations-observability | internal | internal | No | runtime | internal_only |
 | tramai-deepseek | provider-adapters | preview | preview | Yes | providers | included |

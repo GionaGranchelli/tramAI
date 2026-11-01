@@ -19,6 +19,7 @@ Zero- to near-zero-dependency contracts and SPI surface: `@AiService`/`@Operatio
 - Policy: `PolicyEngine`, `EnforcementPoint`, `PolicyDecision`
 - Approval: `ApprovalStore`, `ApprovalContinuationStore`, `ApprovalGateway`, `ApprovalToken`
 - Events: `RuntimeEventCatalogue` (authoritative event/reason-code catalogue)
+- Attempt observation (0.7.5b): `OperationObserver`, `OperationCallContext`, `AttemptIdentity`, `ModelAttemptObservation`, `AttemptObservationStore`, `AttemptHistory`, `AttemptRecordingObserver`
 - Exceptions: `TramaiException` hierarchy
 
 Verify the full public surface against `tramai-core/api/tramai-core.api`.
@@ -46,8 +47,22 @@ Verify the full public surface against `tramai-core/api/tramai-core.api`.
 ### Contract tests / TCKs
 
 - Core contract tests in `tramai-core/src/test`; TCK fixtures under `tramai-testing` (provider, store, lifecycle models)
+- `OperatorCapabilityContractTest` guards the 0.7.6b operator-identity contracts: operator identity is
+  subject **and** issuer, capability wire names fail closed, and no operator capability may name a runtime
+  execution resource
 
 ### Do not
+
+- treat `dev.tramai.core.operator.OperatorPrincipal` as proof of authentication. It is data: constructing one
+  grants nothing. Privileged operations must accept it only from the trusted authentication boundary (0.7.6c)
+  and enforce capability checks at one server-side boundary (0.7.6e). Until that enforcement exists, no surface
+  in this repository is operator-authorized — see `docs/roadmap/0.7.6/AUDIT-0.7.6a-SECURITY-CONTROL-BASELINE.md`.
+- express a runtime capability (tool, MCP operation, remote agent, model, provider, network destination) as an
+  `OperatorCapability`. The two authorities are separate vocabularies and must stay that way.
+- claim IdP-neutral subject support without mapping first. `OperatorPrincipal.subject` is validated by
+  `SafeActorIdPolicy` (`[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}`), so Auth0-style `auth0|abc123` and URL-shaped
+  subjects are **rejected** — fail-closed on purpose, because this subject becomes the approval actor id.
+  0.7.6c must map such subjects into a recordable form or report the conflict, never widen the rule quietly.
 
 - Do not add provider/vendor, Spring, or framework dependencies here
 - Do not add new runtime event/reason-code string literals outside `RuntimeEventCatalogue`

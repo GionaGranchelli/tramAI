@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 <evidence-bundle-dir>" >&2
+LEGACY_PROVENANCE=0
+BUNDLE_DIR=""
+for arg in "$@"; do
+  case "$arg" in
+    --legacy-provenance) LEGACY_PROVENANCE=1 ;;
+    -*) echo "Unknown option: $arg" >&2; exit 2 ;;
+    *) BUNDLE_DIR="$arg" ;;
+  esac
+done
+
+if [[ -z "$BUNDLE_DIR" ]]; then
+  echo "Usage: $0 [--legacy-provenance] <evidence-bundle-dir>" >&2
   exit 2
 fi
-
-BUNDLE_DIR="$1"
 MANIFEST="$BUNDLE_DIR/manifest.json"
 
 if [[ ! -d "$BUNDLE_DIR" ]]; then
@@ -24,7 +32,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-python3 - "$BUNDLE_DIR" <<'PY'
+python3 - "$BUNDLE_DIR" "$LEGACY_PROVENANCE" <<'PY'
 import hashlib
 import json
 import os
@@ -33,8 +41,15 @@ import re
 import sys
 from datetime import datetime
 
+# Pre-0.7.6g1 bundles carry a two-key provenance tuple (id + strength). They are immutable history, not
+# corruption, so they stay verifiable -- but only in an explicit mode, and never as attested evidence.
+# argv: <bundle-dir> <legacy-provenance 0|1>
+legacy_mode = len(sys.argv) > 2 and sys.argv[2] == "1"
 bundle_dir = pathlib.Path(sys.argv[1]).resolve()
 manifest_path = bundle_dir / "manifest.json"
+
+def warn(message: str) -> None:
+    print(f"Evidence bundle warning: {message}", file=sys.stderr)
 
 def fail(message: str) -> None:
     print(f"Evidence bundle verification failed: {message}", file=sys.stderr)
@@ -220,11 +235,50 @@ TOOL_PERMISSION_METADATA_KEYS = {
     "toolName", "enforcementPoint", "riskLevel", "classification",
     "classificationSource",
 }
+GOVERNED_IDENTITY_KEYS = {
+    "identity.workloadId",
+    "identity.configurationId",
+    "identity.configurationVersion",
+    "identity.environmentId",
+    "identity.deploymentId",
+}
+
+# Registered enforcement-boundary provenance. This table mirrors the framework-owned registry in
+# tramai-security (RuntimeBoundaryProvenance). The registered strength is an ENTITLEMENT, not something a
+# record may assert:
+#   * a modern three-key record carries `DECLARED` with origin `declared` -- it declares the boundary and
+#     claims no prevention, because attribution from data cannot establish that the boundary acted;
+#   * a legacy two-key record (before 0.7.6g1, read only under --legacy-provenance) carries the
+#     registration-derived strength, and must carry exactly the one this table grants -- the value is
+#     never taken from the record;
+#   * a record naming a boundary outside this table is rejected rather than downgraded: an identifier no
+#     contract covers cannot be validated against one.
+GOVERNED_BOUNDARY_ID_KEY = "boundary.id"
+GOVERNED_BOUNDARY_STRENGTH_KEY = "boundary.enforcementStrength"
+# 0.7.6g1: strength and origin are separate axes. Strength says what a registration ENTITLES; origin says
+# who established that this event came from that boundary. A data-only producer establishes only a
+# declaration, so a record asserting `attested` is rejected here exactly as the framework rejects it.
+GOVERNED_BOUNDARY_ORIGIN_KEY = "boundary.origin"
+GOVERNED_BOUNDARY_KEYS = {
+    GOVERNED_BOUNDARY_ID_KEY, GOVERNED_BOUNDARY_STRENGTH_KEY, GOVERNED_BOUNDARY_ORIGIN_KEY,
+}
+ENFORCEMENT_STRENGTHS = {"AUTHORITATIVE", "INSTRUMENTED", "OBSERVED", "IMPORTED", "DECLARED"}
+ENFORCEMENT_ORIGINS = {"declared", "attested"}
+ORIGIN_ATTESTED = "attested"
+
+# boundary id -> (applicable enforcement point, the strength its contract ENTITLES). The entitlement is
+# only spendable by an attester: a data-only record carries `DECLARED` plus origin `declared`, and a
+# two-key record from before 0.7.6g1 is readable only under --legacy-provenance, with a warning.
+REGISTERED_BOUNDARIES = {
+    "spring-ai-tool-callback": ("BEFORE_TOOL_EXECUTION", "AUTHORITATIVE"),
+}
 EVIDENCE_METADATA_KEYS = {
-    "policy.decision": POLICY_METADATA_KEYS,
-    "approval.decision": APPROVAL_METADATA_KEYS,
-    "provider.route": ROUTING_METADATA_KEYS,
-    "tool.permission": TOOL_PERMISSION_METADATA_KEYS,
+    "policy.decision": POLICY_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
+    "approval.decision": APPROVAL_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
+    "provider.route": ROUTING_METADATA_KEYS | GOVERNED_IDENTITY_KEYS,
+    # Enforcement-boundary provenance is scoped to the family that declares a boundary. Composing it
+    # across families would let another family claim tool-boundary provenance.
+    "tool.permission": TOOL_PERMISSION_METADATA_KEYS | GOVERNED_IDENTITY_KEYS | GOVERNED_BOUNDARY_KEYS,
 }
 
 SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -465,6 +519,109 @@ def validate_runtime_evidence():
                         fail(
                             f"runtime-evidence/{filename} line {line_num}: "
                             f"metadata value for '{key}' must be a string"
+                        )
+
+                # Governed identity atomic attribution
+                present_identity_keys = [k for k in meta if k in GOVERNED_IDENTITY_KEYS]
+                if 0 < len(present_identity_keys) < len(GOVERNED_IDENTITY_KEYS):
+                    missing_identity_keys = sorted(GOVERNED_IDENTITY_KEYS - set(present_identity_keys))
+                    fail(
+                        f"runtime-evidence/{filename} line {line_num}: "
+                        f"partial governed identity attribution, expected all five reserved keys or none, missing: {missing_identity_keys}"
+                    )
+                elif len(present_identity_keys) == len(GOVERNED_IDENTITY_KEYS):
+                    wfr = record.get("workflowRunId")
+                    if not isinstance(wfr, str) or not wfr.strip():
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"missing or blank canonical workflowRunId for governed identity attribution, got: {wfr!r}"
+                        )
+
+                # Registered enforcement-boundary provenance (G2). Atomic like identity, and validated
+                # against the registration rather than trusted from the record: the strength must be the
+                # one the registered contract grants, at the enforcement point that contract covers.
+                present_boundary_keys = [k for k in meta if k in GOVERNED_BOUNDARY_KEYS]
+                legacy_pair = {GOVERNED_BOUNDARY_ID_KEY, GOVERNED_BOUNDARY_STRENGTH_KEY}
+                if set(present_boundary_keys) == legacy_pair and legacy_mode:
+                    # A bundle written before 0.7.6g1: immutable history, not corruption. It stays
+                    # readable, it is still checked against the registration, and its strength is
+                    # reported for what it is -- registration-derived with no established origin.
+                    boundary_id = meta.get(GOVERNED_BOUNDARY_ID_KEY)
+                    strength = meta.get(GOVERNED_BOUNDARY_STRENGTH_KEY)
+                    registration = REGISTERED_BOUNDARIES.get(boundary_id)
+                    if registration is None:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unregistered enforcement boundary '{boundary_id}'"
+                        )
+                    registered_point, registered_strength = registration
+                    if meta.get("enforcementPoint") != registered_point:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary '{boundary_id}' is registered for {registered_point} but the record "
+                            f"enforces at {meta.get('enforcementPoint')}"
+                        )
+                    # Legacy mode relaxes the tuple shape, never the registration contract: the record may
+                    # carry its registration-derived entitlement, and nothing else.
+                    if strength != registered_strength:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary '{boundary_id}' is registered at '{registered_strength}' and cannot "
+                            f"claim '{strength}'"
+                        )
+                    warn(
+                        f"legacy provenance (written before 0.7.6g1) at {filename} line {line_num}: "
+                        f"boundary '{boundary_id}' strength '{strength}' is the strength its registration "
+                        f"grants, not an attested finding: origin is unknown, so do not read it as verified "
+                        f"enforcement"
+                    )
+                elif 0 < len(present_boundary_keys) < len(GOVERNED_BOUNDARY_KEYS):
+                    missing_boundary_keys = sorted(GOVERNED_BOUNDARY_KEYS - set(present_boundary_keys))
+                    fail(
+                        f"runtime-evidence/{filename} line {line_num}: "
+                        f"partial enforcement-boundary provenance, expected all reserved keys or none, "
+                        f"missing: {missing_boundary_keys}"
+                    )
+                elif len(present_boundary_keys) == len(GOVERNED_BOUNDARY_KEYS):
+                    boundary_id = meta.get(GOVERNED_BOUNDARY_ID_KEY)
+                    strength = meta.get(GOVERNED_BOUNDARY_STRENGTH_KEY)
+                    registration = REGISTERED_BOUNDARIES.get(boundary_id)
+                    if registration is None:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unregistered enforcement boundary '{boundary_id}'"
+                        )
+                    if strength not in ENFORCEMENT_STRENGTHS:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unknown enforcement strength '{strength}'; "
+                            f"the vocabulary is {sorted(ENFORCEMENT_STRENGTHS)}"
+                        )
+                    registered_point, registered_strength = registration
+                    if meta.get("enforcementPoint") != registered_point:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary '{boundary_id}' is registered for {registered_point} but the record "
+                            f"enforces at {meta.get('enforcementPoint')}"
+                        )
+                    origin = meta.get(GOVERNED_BOUNDARY_ORIGIN_KEY)
+                    if origin not in ENFORCEMENT_ORIGINS:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unknown enforcement origin '{origin}'; "
+                            f"the vocabulary is {sorted(ENFORCEMENT_ORIGINS)}"
+                        )
+                    if origin == ORIGIN_ATTESTED:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary origin 'attested' has no attester in this runtime: verified origin "
+                            f"attribution is not implemented, so no record may claim it"
+                        )
+                    if strength != "DECLARED":
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary '{boundary_id}' carries declared origin and cannot claim '{strength}'; "
+                            f"the registered entitlement {registered_strength} requires an attester"
                         )
 
                 # ── Family-specific metadata value validation ────────

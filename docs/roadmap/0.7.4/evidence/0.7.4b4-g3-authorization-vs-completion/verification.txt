@@ -1,0 +1,106 @@
+G3 verification - recorded transcript
+========================================================================
+Task: 0.7.4b4 / G3 - authorization vs completion in tool.permission evidence
+Change class: documentation (verifyChangePolicy: 4 changed files at the time of the run)
+Base (prerequisite G2 / PR #523): 2c7e3206f271a86e525c37be21a06da4b6fa8288
+Branch: task/0.7.4b4-g3-authorization-vs-completion
+
+Content state under test (stated exactly, because the verification ran one commit before this file landed):
+  2c7e3206  base (release/0.7.0 after G2 / PR #523)
+  4e642eb2  docs(g3): state the tool.permission authorization semantics normatively
+  6352830e  docs(g3): make the example's ALLOW evidence mean authorization, not completion
+  + working tree: docs/roadmap/0.7.4/0.7.4b4-G3-AUTHORIZATION-VS-COMPLETION.md and this evidence
+    directory untracked (documentation only)
+  The only change made after the run is the addition of the two transcript files in this directory.
+  No production source, no test source and no build file is modified by this branch.
+
+Environment: JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 (the JDK ci.yml uses), Gradle 9.0.0 wrapper.
+
+========================================================================
+1. Acceptance test suite (the task's required invocation)
+========================================================================
+2026-10-13T19:16:23+02:00
+CMD: ./gradlew :examples:spring-ai-authority-boundary:test --no-build-cache --rerun-tasks
+  > Task :examples:spring-ai-authority-boundary:test          (executed, not up-to-date)
+  BUILD SUCCESSFUL in 19s
+  14 actionable tasks: 14 executed
+  EXIT: 0
+
+Fresh results, read from build/test-results/test/*.xml (name: tests/failures/errors/skipped):
+  AdversarialDiscriminatorTest         tests=7 failures=0 errors=0 skipped=0
+  EvidenceIntegrityTest                tests=4 failures=0 errors=0 skipped=0
+  FrameworkDispatchTest                tests=2 failures=0 errors=0 skipped=0
+  GovernanceBoundaryTest               tests=8 failures=0 errors=0 skipped=0
+  GovernedIdentityCarriageTest         tests=5 failures=0 errors=0 skipped=0
+  ToolPermissionEvidenceAttributionTest tests=5 failures=0 errors=0 skipped=0
+  ------------------------------------------------------------------
+  total 31 tests, 0 failures, 0 errors, 0 skipped, 31 PASSED lines in the log
+
+Note: the count is 31 at this head (G2's record in docs/roadmap/0.7.4/evidence/0.7.4b3-g2-boundary-provenance/
+verification.txt reads 30 for the same module). The number is reported here as measured, per class, from the
+fresh XML rather than carried forward.
+
+========================================================================
+2. Repository gates
+========================================================================
+2026-10-13T19:16:43+02:00
+CMD: ./gradlew verifyToolGovernanceExample
+  > Task :verifyToolGovernanceExample
+  verifyToolGovernanceExample: documentation contract verification complete.
+  BUILD SUCCESSFUL in 1s
+  EXIT: 0
+  (run because this branch edits docs/guides/governed-tool-use.md, the file that guard reads; its required
+   literals - run command, the three enforcement points, the three decisions, tool.permission, the
+   exposure-is-not-execution sentence, the privacy and non-certification boundaries - all still resolve)
+
+2026-10-13T19:16:45+02:00
+CMD: ./gradlew spotlessCheck
+  > Task :spotlessKotlin
+  > Task :spotlessKotlinCheck
+  > Task :spotlessCheck
+  BUILD SUCCESSFUL in 13s
+  EXIT: 0
+
+2026-10-13T19:16:58+02:00
+CMD: ./gradlew verifyStaticAnalysis
+  > Task :verifyStaticAnalysis
+  static-analysis: Detekt baseline OK: base 4792 -> current 4792; 0 removed, 0 added.
+  BUILD SUCCESSFUL in 2s
+  EXIT: 0
+
+2026-10-13T19:17:39+02:00
+CMD: ./gradlew verifyChangePolicy -PchangeClass=documentation \
+       -PchangePolicyBase=2c7e3206f271a86e525c37be21a06da4b6fa8288
+  > Task :verifyChangePolicy
+  verifyChangePolicy: WARNING - working tree has uncommitted changes.
+    Policy evaluation includes staged, unstaged, and untracked files.
+    However, CI evaluates only committed branch changes.
+    Commit before pushing to avoid CI vs local mismatch.
+  verifyChangePolicy PASSED - 4 changed file(s), change class: documentation, no policy violations.
+  BUILD SUCCESSFUL in 2s
+  EXIT: 0
+  (the run counted the two committed documentation edits plus the two untracked new files; the branch is
+   committed before pushing, which is exactly what the WARNING asks for)
+
+========================================================================
+3. Diff scope - no production, serialization, API or schema change
+========================================================================
+Every path this branch changes is markdown or text:
+  docs/evidence/runtime-evidence-export-model.md                  (modified)
+  docs/guides/governed-tool-use.md                                (modified)
+  docs/roadmap/0.7.4/0.7.4b4-G3-AUTHORIZATION-VS-COMPLETION.md    (added)
+  docs/roadmap/0.7.4/evidence/0.7.4b4-g3-authorization-vs-completion/discriminators.txt (added)
+  docs/roadmap/0.7.4/evidence/0.7.4b4-g3-authorization-vs-completion/verification.txt   (added)
+No .kt, .kts, .yml, .json, .api, .jsonl or script file appears in the diff. The comment reconciliation of
+G3.4 required no edit (docs/roadmap/0.7.4/0.7.4b4-G3-AUTHORIZATION-VS-COMPLETION.md, section G3.4).
+
+========================================================================
+4. Not run, and why
+========================================================================
+- No mutation experiment: the task forbids manufacturing one for a documentation-only change. The contract
+  rests on the source ordering and on existing discriminators (see discriminators.txt).
+- No full ./gradlew verifyPr: the branch touches no Kotlin source, build file, baseline or workflow; the
+  acceptance criteria name the three gates above plus the example suite, all of which ran. Exact-head CI on
+  the pushed PR is the certifying signal for the aggregate.
+- No commit of the transient probe: it was deleted before the branch was committed; its transcript is in
+  discriminators.txt, labelled OBSERVED.

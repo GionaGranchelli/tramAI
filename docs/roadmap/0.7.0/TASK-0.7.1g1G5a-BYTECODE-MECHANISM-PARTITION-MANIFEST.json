@@ -1,0 +1,1683 @@
+{
+ "schemaVersion": 1,
+ "task": "TASK-0.7.1g1G5a",
+ "purpose": "evidence only - diagnosis/partition; assigns no disposition and grants no authority",
+ "baseSha": "19703cfe9d81fbca11c8e11cde5af876ff731f1c",
+ "parentCohortManifest": "docs/roadmap/0.7.0/TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json",
+ "frozenCohortDigest": "92a9d06d5a8e43c5fb659f9d65bdd2e73d6ed5f45c1a8536ac70781b03503584",
+ "discoveryPopulationDigest": "7081ed7416f759ecca7cae00c7cf4e6261ef0cd16db49fe32bc3bb6f280bbddd",
+ "compilation": {
+  "module": ":tramai-engine",
+  "jdk": "21.0.12.1",
+  "kotlin": "2.3.0",
+  "command": "./gradlew :tramai-engine:compileKotlin",
+  "classOutput": "tramai-engine/build/classes/kotlin/main",
+  "classSetIdenticalToMeasuredCampaignCompile": true,
+  "javap": "javap -p -c -l -s",
+  "classesAnalysed": 7,
+  "classSha256": {
+   "dev.tramai.engine.approval.ApprovalResumeCoordinator": "32d0dd5b32276ae8f3cc642c7d5e5132126ed778cc0d9b0a0000d439d24004f8",
+   "dev.tramai.engine.approval.ApprovalResumeCoordinator$resume$2": "4c3fbc3974a997ec595c435aae8176996e0b1a74f6cbb5e5bbd53b7abdf57e19",
+   "dev.tramai.engine.approval.ApprovalRunAttributionKt": "93dcef8e9e2a915b9ada91b919350b36fb0d7c022c8c9c811e58e843a0efd260",
+   "dev.tramai.engine.approval.ApprovalSuspensionCoordinator": "5851de0a8440fdbb52b058ccf88d10601aed719fc7d2e6b7780b957906dce9b9",
+   "dev.tramai.engine.approval.ApprovalSuspensionCoordinator$compensateSuspension$2$1": "b84bbf4e6d268da595021370cb824f32edbf4d43e3cccb88449fb690a2e65946",
+   "dev.tramai.engine.approval.ApprovalSuspensionCoordinator$compensateSuspension$2$2": "247805ed2d5b2da933159819123fe25b995ece6d9587d399534fd843aedb8e57",
+   "dev.tramai.engine.approval.DefaultApprovalGateway": "b663394b438c336cb6405118dc47fb96d6845ea0dfc1ed93f82a407be9d6354f"
+  }
+ },
+ "method": "Mapping uses the mutation identity plus class/method/descriptor/mutator/description/block/index, the pc-ordered instruction sequence and the line-number table. PIT block/index are NOT bytecode offsets. Alignment rule: the candidate instruction set for a method+mutator is restricted to line-bearing instructions of that mutator's kind and aligned in pc order to every PIT mutant of that method+mutator (including KILLED ones), then corroborated by requiring PIT's reported line to equal the mapped pc's line-table line. A count mismatch leaves the row AMBIGUOUS.",
+ "invariants": {
+  "entries": 52,
+  "uniqueIdentities": 52,
+  "missing": 0,
+  "extra": 0,
+  "duplicates": 0,
+  "EXACT": 45,
+  "AMBIGUOUS": 7,
+  "finalDispositionsAssigned": 0
+ },
+ "distribution": {
+  "TIMED_OUT": 36,
+  "SURVIVED": 12,
+  "NO_COVERAGE": 4
+ },
+ "cohorts": [
+  {
+   "id": "G5A-M01",
+   "mechanism": "coroutine suspension-sentinel comparison",
+   "members": [
+    "9e3d60d7a85525416ee27ca9ce1abac74612ec1ba1134a64f13b3148d85cbd04",
+    "c3509c6487f8933fbec46bb166eba697f54ba5808453016a45978d21953c7e53",
+    "a25dbb8c0826d5df57d94e0003d897c2ac066acefe43d7f1e087414be5fc3feb",
+    "050d2b83c8527c768c73ba7fdaa77021fd04a05638d3b665a724cfccd98f9164",
+    "c98ac92dc495b7162789fc13c1d2318f1f5d2aa07bb3c051df7946fe638d3cff",
+    "e602fa9990536c07017cc7764ed989526f964e395f82e05d456f7dca523c4610",
+    "09ea31d4d0e8b35c80543a6c812d206ce3d949fad35e2c5ad14e48e1332f89c0",
+    "10512d6c6e0078e866ab5926dcb17a5b3d77edf65a3e0bb77df3820bc8ba65e1",
+    "f571f62614e6f584322a29fa5ef9b4f9bb0e6bf6e5d48f72181d7778088e3a53",
+    "f5e8c455520a32d816751b0ec4adb9d4619a38afdf67b81256a615a68b779590",
+    "6f9609fdbbabaf152fc2ccc4f9728c40bcefc962cd0377592fc6684ae18acb58",
+    "4245a1aa59c91bc59bd4fe50b0a42bcef26b9c5b4c39e10771b3f6e3602de63d",
+    "e44e3a71b7ef3e7a1ac87d6f7c96dfb9d33350285ed9dc9512e3d99a88276a42",
+    "9f7ce30fc6da401efe187481149db12210e987367a547e032c9cc182d0e187be",
+    "8610dc7e970e4c48ae0d47971626c7769a141837b34d53d5610af7d596bf8593",
+    "7f06a51c79515d82dcabce9af7ae1d77d8a3691fd2b99528f3e17212204ee512",
+    "6e83174c379e04bed5f19fcf1b87028e3230064cd5c85e570c00e164acf9dada",
+    "c3a3a1cf672fe44f75d9cee697e72d78449b353258d8cba49600c62021beaa31",
+    "43dd0cdff07a1d862bc17951e50cbb1b7d8a5d77d91348744b2910467c01f204",
+    "16f71d24dc95007e1a903b98c660c2bf0ec975915a1e9c41ed727689f2ccd5a2",
+    "ce65c0b75a83a7cbaf0ff52ed87aee8fe45d571587e78da263663124ea64326d",
+    "1b17d7d30c234dcb3e0e8081542d742c2c5ec6b4716c5ba787b4edf3be5a22a1",
+    "d68d0252ca2d0c4e59ad7655508624e507633be914605effb2324b63022ba289",
+    "2436750ccd7646d3803f335216c2fdecf27a58b90acb8250b5929a634201d5c5",
+    "ae609c23ce293d1e7c19723fbfe113c0644d63437e360e323bad136091f7d1e1",
+    "4865b74caf50c74ee8bfb7994960e3bf640e3a8c6ecc32cd9a99eef5bafc94bf",
+    "611bdacfe9f54230f4c152506c0491fa01445042d992cacdfaad2cee031d2cd4",
+    "9b9bfadffcdc04d8b2b0b8c2a07f6d86863e455634d52cded8e90259765ea318",
+    "252596080a3a8e97a347ef98bc08ae9af6fa6c3db5d8c432744148d5109f9848",
+    "827431d2f104e64e451d5a2c6993ba211604b8ca06048ea4b681fc017ab4815f",
+    "2b197f5cd3cba2e7f02c6ebfc6701d945e397b4166f04f4218a2e591892b85fe",
+    "5d700610726248849d6141d8f8159c688932d1759e3f3d20bbb6fe966cb670e4",
+    "f23b4d0921a0e5daca1b271f41357982ca9e52de09f0e1e5d72933b1b87f3ac6",
+    "6cadd3397125ba1bdc4b72d2267c73f6b9ab4fdcd77205691f0d10adc07e5101",
+    "8d5bb41c2eaa72679422c10b5d20524d7605a23c839b989c83952f93eb0cebcf",
+    "e22c7dcc1e36b6956165d91403a12a340160639592be69fe070caa3736bd8851"
+   ],
+   "count": 36,
+   "rawStatusDistribution": {
+    "TIMED_OUT": 36
+   },
+   "structuralCommonality": "opcode if_acmpne immediately preceded by `dup; aload <sentinel>` following an invoke, itself preceded by `iconst_N; putfield label`; rule held for 36/36",
+   "semanticCommonality": "Kotlin state-machine suspension protocol: compare the child call result against COROUTINE_SUSPENDED",
+   "counterexamplesChecked": "all 36 members satisfy the rule programmatically; no member is a value comparison",
+   "candidateNextAction": "G5b tooling-mechanism adjudication against the g1E standard",
+   "generalizationStrength": "EXACT_STRUCTURAL"
+  },
+  {
+   "id": "G5A-M02",
+   "mechanism": "null guard",
+   "members": [
+    "a9760bea3a92a752255a2becee7edb3ffa0957cf0e88cb75a0a11db850dcc747"
+   ],
+   "count": 1,
+   "rawStatusDistribution": {
+    "SURVIVED": 1
+   },
+   "structuralCommonality": "single ifnonnull",
+   "semanticCommonality": "single row",
+   "counterexamplesChecked": "n/a",
+   "candidateNextAction": "G5c per-identity semantic discriminator",
+   "generalizationStrength": "NO_GENERALIZATION"
+  },
+  {
+   "id": "G5A-M03",
+   "mechanism": "line-bearing integer/flag conditional",
+   "members": [
+    "66c311cf4f0ae36396880146f9059264308168b0286cdee72b852076560df61e",
+    "a542bbe6db3f9f551bbbea6972a28dc670945d1232221bd1d9a3f98814a6defb",
+    "e52f1c1f657020d5f63b247fbc7fd432c886258cf5059a5e2a9a5fdc4981bc32",
+    "3a5c5213b226f1f86b48c12172489ee618b9af890d750ab3ac1d7d2032854e0a",
+    "56d3366434a6608d7b5ccd59b6c1377be7324ab2078ec7a09b872153968e4466",
+    "6a1ce2f46d2ad5cdb7fb857a56fcf4ca0d3d87ffc3825279121386e04c3f7c88",
+    "f4463604928886b61038161dfacada30be5fa9dcd62178ac329b83c4568e3ffd",
+    "eb21aaed31923633c541c603ebf29c170343b1e822874768f732093a099b3a18"
+   ],
+   "count": 8,
+   "rawStatusDistribution": {
+    "SURVIVED": 6,
+    "NO_COVERAGE": 2
+   },
+   "structuralCommonality": "conditional branches that are not sentinel comparisons and are not null guards",
+   "semanticCommonality": "mixed - several distinct authored/inlined conditions may share this shape",
+   "counterexamplesChecked": "source lines differ per member",
+   "candidateNextAction": "G5c (SURVIVED members) and G5d (NO_COVERAGE members), adjudicated per identity",
+   "generalizationStrength": "PARTIAL_ONLY"
+  },
+  {
+   "id": "G5A-M04",
+   "mechanism": "unresolved mapping (candidate-count mismatch)",
+   "members": [
+    "564517b2fdab899eceefac4eb9dbb40f3a60139a5c6f917f5fe7c1b172fc9d67",
+    "3658ba45eaedbf6a946036d210a91578d65fda8b0f0f295137393d3454e9a5e0",
+    "1ce5967ee60b6f4380d69dead598dde89212eeb17c2b9be6348bf9dfc3928981",
+    "8e18b4b48968d65f181bd226d6e81d99c6c9abb3427463ae77773eb4c901e658",
+    "d38ac52f2843448a4df4cba789ae27ddf9df3f73356c9c8ef972f2f03cc180c3",
+    "c7774df8ccdcefaaac0c151f68b24313cc511a6a0800951cd375dfe217d265b6",
+    "5a7edac3a982221ce692e032184362a1db8efc49292d9ea0b5716824303ecef1"
+   ],
+   "count": 7,
+   "rawStatusDistribution": {
+    "SURVIVED": 5,
+    "NO_COVERAGE": 2
+   },
+   "structuralCommonality": "the per-method candidate set of the mutator's kind exceeds the PIT mutant count, so no unique bijection is established",
+   "semanticCommonality": "none established",
+   "counterexamplesChecked": "n/a - explicitly ambiguous",
+   "candidateNextAction": "resolve the per-mutator skip rule from PIT evidence, then re-map; do NOT dispose these rows until mapped",
+   "generalizationStrength": "NO_GENERALIZATION"
+  }
+ ],
+ "g1eComparison": {
+  "cohort": "G5A-M01",
+  "sameCompilerConstructType": "YES",
+  "numberOfTestsRunZeroConsistently": "YES (36/36)",
+  "deterministicTimeoutEvidence": "YES for the single fresh campaign; NOT_YET for a second independent campaign inside this increment",
+  "authoredSourceBranchHidden": "NO - the mutated instruction is the suspension-protocol comparison, not an authored condition",
+  "semanticBehaviourIndependentlyProtected": "NOT_YET",
+  "independentlyKilledControl": "YES for same-mutator different-role controls in the same methods (authorizeResume 6, prepareResume 7, resume 5, resolveAndValidateResumeTool 6, revealAndValidateReplayPayload 2 KILLED); NOT_YET for a same-role control",
+  "safeToApplyG1EAtCohortLevel": "NOT_YET"
+ },
+ "identities": {
+  "9e3d60d7a85525416ee27ca9ce1abac74612ec1ba1134a64f13b3148d85cbd04": {
+   "identity": "9e3d60d7a85525416ee27ca9ce1abac74612ec1ba1134a64f13b3148d85cbd04",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "prepareResume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 11,
+   "pitIndex": 68,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 121,
+   "bytecode": {
+    "pc": 147,
+    "opcode": "if_acmpne",
+    "instruction": "178",
+    "line": 121,
+    "successorJumpPc": 178,
+    "successorFallthroughPc": 1
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "c3509c6487f8933fbec46bb166eba697f54ba5808453016a45978d21953c7e53": {
+   "identity": "c3509c6487f8933fbec46bb166eba697f54ba5808453016a45978d21953c7e53",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "prepareResume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 53,
+   "pitIndex": 332,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 138,
+   "bytecode": {
+    "pc": 568,
+    "opcode": "if_acmpne",
+    "instruction": "639",
+    "line": 138,
+    "successorJumpPc": 639,
+    "successorFallthroughPc": 20
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "a25dbb8c0826d5df57d94e0003d897c2ac066acefe43d7f1e087414be5fc3feb": {
+   "identity": "a25dbb8c0826d5df57d94e0003d897c2ac066acefe43d7f1e087414be5fc3feb",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "prepareResume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 61,
+   "pitIndex": 423,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 140,
+   "bytecode": {
+    "pc": 738,
+    "opcode": "if_acmpne",
+    "instruction": "829",
+    "line": 140,
+    "successorJumpPc": 829,
+    "successorFallthroughPc": 21
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "564517b2fdab899eceefac4eb9dbb40f3a60139a5c6f917f5fe7c1b172fc9d67": {
+   "identity": "564517b2fdab899eceefac4eb9dbb40f3a60139a5c6f917f5fe7c1b172fc9d67",
+   "frozenStatus": "NO_COVERAGE",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "suspendToolExecution",
+   "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "VoidMethodCall",
+   "pitBlock": 13,
+   "pitIndex": 96,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 142,
+   "bytecode": null,
+   "mechanism": {
+    "kind": "UNRESOLVED",
+    "semanticRole": "not mapped",
+    "compilerGenerated": null
+   },
+   "mappingConfidence": "AMBIGUOUS",
+   "mappingReason": "candidate count 7 != all-mutant count 10 for this method+mutator",
+   "hypothesis": "HYPOTHESIS: not established - mapping is ambiguous, resolve the per-mutator skip rule first",
+   "requiredNextEvidence": "resolve the candidate-count mismatch so the exact instruction is unique"
+  },
+  "3658ba45eaedbf6a946036d210a91578d65fda8b0f0f295137393d3454e9a5e0": {
+   "identity": "3658ba45eaedbf6a946036d210a91578d65fda8b0f0f295137393d3454e9a5e0",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "95",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "suspendToolExecution",
+   "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "VoidMethodCall",
+   "pitBlock": 31,
+   "pitIndex": 168,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 160,
+   "bytecode": null,
+   "mechanism": {
+    "kind": "UNRESOLVED",
+    "semanticRole": "not mapped",
+    "compilerGenerated": null
+   },
+   "mappingConfidence": "AMBIGUOUS",
+   "mappingReason": "candidate count 7 != all-mutant count 10 for this method+mutator",
+   "hypothesis": "HYPOTHESIS: not established - mapping is ambiguous, resolve the per-mutator skip rule first",
+   "requiredNextEvidence": "resolve the candidate-count mismatch so the exact instruction is unique"
+  },
+  "050d2b83c8527c768c73ba7fdaa77021fd04a05638d3b665a724cfccd98f9164": {
+   "identity": "050d2b83c8527c768c73ba7fdaa77021fd04a05638d3b665a724cfccd98f9164",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "persistGoverned",
+   "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 12,
+   "pitIndex": 74,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 248,
+   "bytecode": {
+    "pc": 145,
+    "opcode": "if_acmpne",
+    "instruction": "176",
+    "line": 248,
+    "successorJumpPc": 176,
+    "successorFallthroughPc": 1
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "c98ac92dc495b7162789fc13c1d2318f1f5d2aa07bb3c051df7946fe638d3cff": {
+   "identity": "c98ac92dc495b7162789fc13c1d2318f1f5d2aa07bb3c051df7946fe638d3cff",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "persistGoverned",
+   "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 22,
+   "pitIndex": 132,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 253,
+   "bytecode": {
+    "pc": 228,
+    "opcode": "if_acmpne",
+    "instruction": "259",
+    "line": 253,
+    "successorJumpPc": 259,
+    "successorFallthroughPc": 4
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "e602fa9990536c07017cc7764ed989526f964e395f82e05d456f7dca523c4610": {
+   "identity": "e602fa9990536c07017cc7764ed989526f964e395f82e05d456f7dca523c4610",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "persistGoverned",
+   "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 31,
+   "pitIndex": 181,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 261,
+   "bytecode": {
+    "pc": 306,
+    "opcode": "if_acmpne",
+    "instruction": "337",
+    "line": 261,
+    "successorJumpPc": 337,
+    "successorFallthroughPc": 7
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "1ce5967ee60b6f4380d69dead598dde89212eeb17c2b9be6348bf9dfc3928981": {
+   "identity": "1ce5967ee60b6f4380d69dead598dde89212eeb17c2b9be6348bf9dfc3928981",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "20",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "VoidMethodCall",
+   "pitBlock": 91,
+   "pitIndex": 641,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 108,
+   "bytecode": null,
+   "mechanism": {
+    "kind": "UNRESOLVED",
+    "semanticRole": "not mapped",
+    "compilerGenerated": null
+   },
+   "mappingConfidence": "AMBIGUOUS",
+   "mappingReason": "candidate count 1 != all-mutant count 11 for this method+mutator",
+   "hypothesis": "HYPOTHESIS: not established - mapping is ambiguous, resolve the per-mutator skip rule first",
+   "requiredNextEvidence": "resolve the candidate-count mismatch so the exact instruction is unique"
+  },
+  "09ea31d4d0e8b35c80543a6c812d206ce3d949fad35e2c5ad14e48e1332f89c0": {
+   "identity": "09ea31d4d0e8b35c80543a6c812d206ce3d949fad35e2c5ad14e48e1332f89c0",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator$resume$2",
+   "method": "invokeSuspend",
+   "methodDescription": "(Ljava/lang/Object;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 5,
+   "pitIndex": 32,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 86,
+   "bytecode": {
+    "pc": 69,
+    "opcode": "if_acmpne",
+    "instruction": "79",
+    "line": 86,
+    "successorJumpPc": 79,
+    "successorFallthroughPc": 3
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "10512d6c6e0078e866ab5926dcb17a5b3d77edf65a3e0bb77df3820bc8ba65e1": {
+   "identity": "10512d6c6e0078e866ab5926dcb17a5b3d77edf65a3e0bb77df3820bc8ba65e1",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "revealAndValidateReplayPayload",
+   "methodDescription": "(Ldev/tramai/engine/approval/ResumeUncertainOutcome;Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 31,
+   "pitIndex": 170,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 223,
+   "bytecode": {
+    "pc": 321,
+    "opcode": "if_acmpne",
+    "instruction": "391",
+    "line": 223,
+    "successorJumpPc": 391,
+    "successorFallthroughPc": 10
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "f571f62614e6f584322a29fa5ef9b4f9bb0e6bf6e5d48f72181d7778088e3a53": {
+   "identity": "f571f62614e6f584322a29fa5ef9b4f9bb0e6bf6e5d48f72181d7778088e3a53",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "authorizeResume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/approval/ApprovalResumeCoordinator$ResumePreparation;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 11,
+   "pitIndex": 67,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 148,
+   "bytecode": {
+    "pc": 144,
+    "opcode": "if_acmpne",
+    "instruction": "175",
+    "line": 148,
+    "successorJumpPc": 175,
+    "successorFallthroughPc": 1
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "f5e8c455520a32d816751b0ec4adb9d4619a38afdf67b81256a615a68b779590": {
+   "identity": "f5e8c455520a32d816751b0ec4adb9d4619a38afdf67b81256a615a68b779590",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "requestApproval-Atj0Sqo",
+   "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 9,
+   "pitIndex": 68,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 82,
+   "bytecode": {
+    "pc": 159,
+    "opcode": "if_acmpne",
+    "instruction": "209",
+    "line": 82,
+    "successorJumpPc": 209,
+    "successorFallthroughPc": 2
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "6f9609fdbbabaf152fc2ccc4f9728c40bcefc962cd0377592fc6684ae18acb58": {
+   "identity": "6f9609fdbbabaf152fc2ccc4f9728c40bcefc962cd0377592fc6684ae18acb58",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "requestApproval-Atj0Sqo",
+   "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 23,
+   "pitIndex": 160,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 93,
+   "bytecode": {
+    "pc": 304,
+    "opcode": "if_acmpne",
+    "instruction": "364",
+    "line": 93,
+    "successorJumpPc": 364,
+    "successorFallthroughPc": 8
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "4245a1aa59c91bc59bd4fe50b0a42bcef26b9c5b4c39e10771b3f6e3602de63d": {
+   "identity": "4245a1aa59c91bc59bd4fe50b0a42bcef26b9c5b4c39e10771b3f6e3602de63d",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "requestApproval-Atj0Sqo",
+   "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 35,
+   "pitIndex": 243,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 105,
+   "bytecode": {
+    "pc": 457,
+    "opcode": "if_acmpne",
+    "instruction": "528",
+    "line": 105,
+    "successorJumpPc": 528,
+    "successorFallthroughPc": 10
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "e44e3a71b7ef3e7a1ac87d6f7c96dfb9d33350285ed9dc9512e3d99a88276a42": {
+   "identity": "e44e3a71b7ef3e7a1ac87d6f7c96dfb9d33350285ed9dc9512e3d99a88276a42",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "requestApproval-Atj0Sqo",
+   "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 46,
+   "pitIndex": 328,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 107,
+   "bytecode": {
+    "pc": 618,
+    "opcode": "if_acmpne",
+    "instruction": "699",
+    "line": 107,
+    "successorJumpPc": 699,
+    "successorFallthroughPc": 15
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "9f7ce30fc6da401efe187481149db12210e987367a547e032c9cc182d0e187be": {
+   "identity": "9f7ce30fc6da401efe187481149db12210e987367a547e032c9cc182d0e187be",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "requestApproval-Atj0Sqo",
+   "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 60,
+   "pitIndex": 426,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 112,
+   "bytecode": {
+    "pc": 799,
+    "opcode": "if_acmpne",
+    "instruction": "880",
+    "line": 112,
+    "successorJumpPc": 880,
+    "successorFallthroughPc": 20
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "8610dc7e970e4c48ae0d47971626c7769a141837b34d53d5610af7d596bf8593": {
+   "identity": "8610dc7e970e4c48ae0d47971626c7769a141837b34d53d5610af7d596bf8593",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "compensateSuspension",
+   "methodDescription": "(Ljava/lang/String;JLdev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ApprovalGateCoordinator;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 12,
+   "pitIndex": 90,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 293,
+   "bytecode": {
+    "pc": 187,
+    "opcode": "if_acmpne",
+    "instruction": "252",
+    "line": 293,
+    "successorJumpPc": 252,
+    "successorFallthroughPc": 5
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "7f06a51c79515d82dcabce9af7ae1d77d8a3691fd2b99528f3e17212204ee512": {
+   "identity": "7f06a51c79515d82dcabce9af7ae1d77d8a3691fd2b99528f3e17212204ee512",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "compensateSuspension",
+   "methodDescription": "(Ljava/lang/String;JLdev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ApprovalGateCoordinator;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 30,
+   "pitIndex": 239,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 295,
+   "bytecode": {
+    "pc": 478,
+    "opcode": "if_acmpne",
+    "instruction": "543",
+    "line": 295,
+    "successorJumpPc": 543,
+    "successorFallthroughPc": 10
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "6e83174c379e04bed5f19fcf1b87028e3230064cd5c85e570c00e164acf9dada": {
+   "identity": "6e83174c379e04bed5f19fcf1b87028e3230064cd5c85e570c00e164acf9dada",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "suspendToolExecution",
+   "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 11,
+   "pitIndex": 74,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 145,
+   "bytecode": {
+    "pc": 158,
+    "opcode": "if_acmpne",
+    "instruction": "199",
+    "line": 145,
+    "successorJumpPc": 199,
+    "successorFallthroughPc": 1
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "c3a3a1cf672fe44f75d9cee697e72d78449b353258d8cba49600c62021beaa31": {
+   "identity": "c3a3a1cf672fe44f75d9cee697e72d78449b353258d8cba49600c62021beaa31",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "suspendToolExecution",
+   "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 35,
+   "pitIndex": 206,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 152,
+   "bytecode": {
+    "pc": 362,
+    "opcode": "if_acmpne",
+    "instruction": "444",
+    "line": 152,
+    "successorJumpPc": 444,
+    "successorFallthroughPc": 4
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "43dd0cdff07a1d862bc17951e50cbb1b7d8a5d77d91348744b2910467c01f204": {
+   "identity": "43dd0cdff07a1d862bc17951e50cbb1b7d8a5d77d91348744b2910467c01f204",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "suspendToolExecution",
+   "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 109,
+   "pitIndex": 668,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 218,
+   "bytecode": {
+    "pc": 1072,
+    "opcode": "if_acmpne",
+    "instruction": "1231",
+    "line": 218,
+    "successorJumpPc": 1231,
+    "successorFallthroughPc": 11
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "16f71d24dc95007e1a903b98c660c2bf0ec975915a1e9c41ed727689f2ccd5a2": {
+   "identity": "16f71d24dc95007e1a903b98c660c2bf0ec975915a1e9c41ed727689f2ccd5a2",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "suspendToolExecution",
+   "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 132,
+   "pitIndex": 853,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 219,
+   "bytecode": {
+    "pc": 1420,
+    "opcode": "if_acmpne",
+    "instruction": "1579",
+    "line": 219,
+    "successorJumpPc": 1579,
+    "successorFallthroughPc": 13
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "ce65c0b75a83a7cbaf0ff52ed87aee8fe45d571587e78da263663124ea64326d": {
+   "identity": "ce65c0b75a83a7cbaf0ff52ed87aee8fe45d571587e78da263663124ea64326d",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "suspendToolExecution",
+   "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 157,
+   "pitIndex": 1067,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 239,
+   "bytecode": {
+    "pc": 1785,
+    "opcode": "if_acmpne",
+    "instruction": "1883",
+    "line": 239,
+    "successorJumpPc": 1883,
+    "successorFallthroughPc": 18
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "66c311cf4f0ae36396880146f9059264308168b0286cdee72b852076560df61e": {
+   "identity": "66c311cf4f0ae36396880146f9059264308168b0286cdee72b852076560df61e",
+   "frozenStatus": "NO_COVERAGE",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "suspendToolExecution",
+   "methodDescription": "(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NullReturnVals",
+   "pitBlock": 12,
+   "pitIndex": 78,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 142,
+   "bytecode": {
+    "pc": 163,
+    "opcode": "areturn",
+    "instruction": "",
+    "line": 142,
+    "successorJumpPc": null,
+    "successorFallthroughPc": 1
+   },
+   "mechanism": {
+    "kind": "OTHER_CONDITIONAL",
+    "semanticRole": "other conditional (areturn)",
+    "compilerGenerated": false
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: not established in G5a - requires the per-identity discriminator/proof named in the cohort's candidateNextAction",
+   "requiredNextEvidence": "per-identity semantic discriminator or instruction-level equivalence/unreachability proof"
+  },
+  "1b17d7d30c234dcb3e0e8081542d742c2c5ec6b4716c5ba787b4edf3be5a22a1": {
+   "identity": "1b17d7d30c234dcb3e0e8081542d742c2c5ec6b4716c5ba787b4edf3be5a22a1",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "requireExistingAttributionMatches",
+   "methodDescription": "(Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 14,
+   "pitIndex": 79,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 210,
+   "bytecode": {
+    "pc": 151,
+    "opcode": "if_acmpne",
+    "instruction": "192",
+    "line": 210,
+    "successorJumpPc": 192,
+    "successorFallthroughPc": 4
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "a542bbe6db3f9f551bbbea6972a28dc670945d1232221bd1d9a3f98814a6defb": {
+   "identity": "a542bbe6db3f9f551bbbea6972a28dc670945d1232221bd1d9a3f98814a6defb",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "3",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "persistGoverned",
+   "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NullReturnVals",
+   "pitBlock": 35,
+   "pitIndex": 204,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 265,
+   "bytecode": {
+    "pc": 341,
+    "opcode": "areturn",
+    "instruction": "",
+    "line": 265,
+    "successorJumpPc": null,
+    "successorFallthroughPc": 8
+   },
+   "mechanism": {
+    "kind": "OTHER_CONDITIONAL",
+    "semanticRole": "other conditional (areturn)",
+    "compilerGenerated": false
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: not established in G5a - requires the per-identity discriminator/proof named in the cohort's candidateNextAction",
+   "requiredNextEvidence": "per-identity semantic discriminator or instruction-level equivalence/unreachability proof"
+  },
+  "d68d0252ca2d0c4e59ad7655508624e507633be914605effb2324b63022ba289": {
+   "identity": "d68d0252ca2d0c4e59ad7655508624e507633be914605effb2324b63022ba289",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "persistUngoverned",
+   "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 10,
+   "pitIndex": 61,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 223,
+   "bytecode": {
+    "pc": 130,
+    "opcode": "if_acmpne",
+    "instruction": "150",
+    "line": 223,
+    "successorJumpPc": 150,
+    "successorFallthroughPc": 1
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "2436750ccd7646d3803f335216c2fdecf27a58b90acb8250b5929a634201d5c5": {
+   "identity": "2436750ccd7646d3803f335216c2fdecf27a58b90acb8250b5929a634201d5c5",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "persistUngoverned",
+   "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 17,
+   "pitIndex": 101,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 225,
+   "bytecode": {
+    "pc": 185,
+    "opcode": "if_acmpne",
+    "instruction": "205",
+    "line": 225,
+    "successorJumpPc": 205,
+    "successorFallthroughPc": 4
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "ae609c23ce293d1e7c19723fbfe113c0644d63437e360e323bad136091f7d1e1": {
+   "identity": "ae609c23ce293d1e7c19723fbfe113c0644d63437e360e323bad136091f7d1e1",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "persistUngoverned",
+   "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 25,
+   "pitIndex": 142,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 230,
+   "bytecode": {
+    "pc": 243,
+    "opcode": "if_acmpne",
+    "instruction": "263",
+    "line": 230,
+    "successorJumpPc": 263,
+    "successorFallthroughPc": 7
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "4865b74caf50c74ee8bfb7994960e3bf640e3a8c6ecc32cd9a99eef5bafc94bf": {
+   "identity": "4865b74caf50c74ee8bfb7994960e3bf640e3a8c6ecc32cd9a99eef5bafc94bf",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 9,
+   "pitIndex": 59,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 65,
+   "bytecode": {
+    "pc": 143,
+    "opcode": "if_acmpne",
+    "instruction": "165",
+    "line": 65,
+    "successorJumpPc": 165,
+    "successorFallthroughPc": 1
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "611bdacfe9f54230f4c152506c0491fa01445042d992cacdfaad2cee031d2cd4": {
+   "identity": "611bdacfe9f54230f4c152506c0491fa01445042d992cacdfaad2cee031d2cd4",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 14,
+   "pitIndex": 95,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 66,
+   "bytecode": {
+    "pc": 198,
+    "opcode": "if_acmpne",
+    "instruction": "229",
+    "line": 66,
+    "successorJumpPc": 229,
+    "successorFallthroughPc": 4
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "9b9bfadffcdc04d8b2b0b8c2a07f6d86863e455634d52cded8e90259765ea318": {
+   "identity": "9b9bfadffcdc04d8b2b0b8c2a07f6d86863e455634d52cded8e90259765ea318",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 42,
+   "pitIndex": 264,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 81,
+   "bytecode": {
+    "pc": 465,
+    "opcode": "if_acmpne",
+    "instruction": "537",
+    "line": 81,
+    "successorJumpPc": 537,
+    "successorFallthroughPc": 11
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "252596080a3a8e97a347ef98bc08ae9af6fa6c3db5d8c432744148d5109f9848": {
+   "identity": "252596080a3a8e97a347ef98bc08ae9af6fa6c3db5d8c432744148d5109f9848",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 54,
+   "pitIndex": 356,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 85,
+   "bytecode": {
+    "pc": 634,
+    "opcode": "if_acmpne",
+    "instruction": "706",
+    "line": 85,
+    "successorJumpPc": 706,
+    "successorFallthroughPc": 13
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "827431d2f104e64e451d5a2c6993ba211604b8ca06048ea4b681fc017ab4815f": {
+   "identity": "827431d2f104e64e451d5a2c6993ba211604b8ca06048ea4b681fc017ab4815f",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 67,
+   "pitIndex": 459,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 90,
+   "bytecode": {
+    "pc": 803,
+    "opcode": "if_acmpne",
+    "instruction": "884",
+    "line": 90,
+    "successorJumpPc": 884,
+    "successorFallthroughPc": 15
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "a9760bea3a92a752255a2becee7edb3ffa0957cf0e88cb75a0a11db850dcc747": {
+   "identity": "a9760bea3a92a752255a2becee7edb3ffa0957cf0e88cb75a0a11db850dcc747",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "5",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 76,
+   "pitIndex": 533,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 102,
+   "bytecode": {
+    "pc": 912,
+    "opcode": "ifnonnull",
+    "instruction": "918",
+    "line": 102,
+    "successorJumpPc": 918,
+    "successorFallthroughPc": 18
+   },
+   "mechanism": {
+    "kind": "NULL_GUARD",
+    "semanticRole": "null guard",
+    "compilerGenerated": false
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: not established - single-row null guard, needs its own discriminator",
+   "requiredNextEvidence": "per-identity semantic discriminator"
+  },
+  "2b197f5cd3cba2e7f02c6ebfc6701d945e397b4166f04f4218a2e591892b85fe": {
+   "identity": "2b197f5cd3cba2e7f02c6ebfc6701d945e397b4166f04f4218a2e591892b85fe",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "compensateStep",
+   "methodDescription": "(Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 10,
+   "pitIndex": 63,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 301,
+   "bytecode": {
+    "pc": 120,
+    "opcode": "if_acmpne",
+    "instruction": "143",
+    "line": 301,
+    "successorJumpPc": 143,
+    "successorFallthroughPc": 1
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "8e18b4b48968d65f181bd226d6e81d99c6c9abb3427463ae77773eb4c901e658": {
+   "identity": "8e18b4b48968d65f181bd226d6e81d99c6c9abb3427463ae77773eb4c901e658",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "5",
+   "className": "dev.tramai.engine.approval.ApprovalRunAttributionKt",
+   "method": "decodeApprovalAttribution",
+   "methodDescription": "(Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/engine/approval/ApprovalRunAttribution;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 22,
+   "pitIndex": 127,
+   "sourceFile": "ApprovalRunAttribution.kt",
+   "sourceLine": 174,
+   "bytecode": null,
+   "mechanism": {
+    "kind": "UNRESOLVED",
+    "semanticRole": "not mapped",
+    "compilerGenerated": null
+   },
+   "mappingConfidence": "AMBIGUOUS",
+   "mappingReason": "candidate count 16 != all-mutant count 8 for this method+mutator",
+   "hypothesis": "HYPOTHESIS: not established - mapping is ambiguous, resolve the per-mutator skip rule first",
+   "requiredNextEvidence": "resolve the candidate-count mismatch so the exact instruction is unique"
+  },
+  "d38ac52f2843448a4df4cba789ae27ddf9df3f73356c9c8ef972f2f03cc180c3": {
+   "identity": "d38ac52f2843448a4df4cba789ae27ddf9df3f73356c9c8ef972f2f03cc180c3",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "5",
+   "className": "dev.tramai.engine.approval.ApprovalRunAttributionKt",
+   "method": "decodeApprovalAttribution",
+   "methodDescription": "(Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/engine/approval/ApprovalRunAttribution;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 24,
+   "pitIndex": 131,
+   "sourceFile": "ApprovalRunAttribution.kt",
+   "sourceLine": 174,
+   "bytecode": null,
+   "mechanism": {
+    "kind": "UNRESOLVED",
+    "semanticRole": "not mapped",
+    "compilerGenerated": null
+   },
+   "mappingConfidence": "AMBIGUOUS",
+   "mappingReason": "candidate count 16 != all-mutant count 8 for this method+mutator",
+   "hypothesis": "HYPOTHESIS: not established - mapping is ambiguous, resolve the per-mutator skip rule first",
+   "requiredNextEvidence": "resolve the candidate-count mismatch so the exact instruction is unique"
+  },
+  "e52f1c1f657020d5f63b247fbc7fd432c886258cf5059a5e2a9a5fdc4981bc32": {
+   "identity": "e52f1c1f657020d5f63b247fbc7fd432c886258cf5059a5e2a9a5fdc4981bc32",
+   "frozenStatus": "NO_COVERAGE",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "requestApproval-Atj0Sqo",
+   "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NullReturnVals",
+   "pitBlock": 10,
+   "pitIndex": 72,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 73,
+   "bytecode": {
+    "pc": 164,
+    "opcode": "areturn",
+    "instruction": "",
+    "line": 73,
+    "successorJumpPc": null,
+    "successorFallthroughPc": 2
+   },
+   "mechanism": {
+    "kind": "OTHER_CONDITIONAL",
+    "semanticRole": "other conditional (areturn)",
+    "compilerGenerated": false
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: not established in G5a - requires the per-identity discriminator/proof named in the cohort's candidateNextAction",
+   "requiredNextEvidence": "per-identity semantic discriminator or instruction-level equivalence/unreachability proof"
+  },
+  "c7774df8ccdcefaaac0c151f68b24313cc511a6a0800951cd375dfe217d265b6": {
+   "identity": "c7774df8ccdcefaaac0c151f68b24313cc511a6a0800951cd375dfe217d265b6",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "4",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "compensateStep",
+   "methodDescription": "(Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "VoidMethodCall",
+   "pitBlock": 16,
+   "pitIndex": 101,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 305,
+   "bytecode": null,
+   "mechanism": {
+    "kind": "UNRESOLVED",
+    "semanticRole": "not mapped",
+    "compilerGenerated": null
+   },
+   "mappingConfidence": "AMBIGUOUS",
+   "mappingReason": "candidate count 2 != all-mutant count 3 for this method+mutator",
+   "hypothesis": "HYPOTHESIS: not established - mapping is ambiguous, resolve the per-mutator skip rule first",
+   "requiredNextEvidence": "resolve the candidate-count mismatch so the exact instruction is unique"
+  },
+  "3a5c5213b226f1f86b48c12172489ee618b9af890d750ab3ac1d7d2032854e0a": {
+   "identity": "3a5c5213b226f1f86b48c12172489ee618b9af890d750ab3ac1d7d2032854e0a",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "13",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "compensateStep",
+   "methodDescription": "(Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NullReturnVals",
+   "pitBlock": 17,
+   "pitIndex": 106,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 307,
+   "bytecode": {
+    "pc": 161,
+    "opcode": "areturn",
+    "instruction": "",
+    "line": 307,
+    "successorJumpPc": null,
+    "successorFallthroughPc": 4
+   },
+   "mechanism": {
+    "kind": "OTHER_CONDITIONAL",
+    "semanticRole": "other conditional (areturn)",
+    "compilerGenerated": false
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: not established in G5a - requires the per-identity discriminator/proof named in the cohort's candidateNextAction",
+   "requiredNextEvidence": "per-identity semantic discriminator or instruction-level equivalence/unreachability proof"
+  },
+  "5a7edac3a982221ce692e032184362a1db8efc49292d9ea0b5716824303ecef1": {
+   "identity": "5a7edac3a982221ce692e032184362a1db8efc49292d9ea0b5716824303ecef1",
+   "frozenStatus": "NO_COVERAGE",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "requestApproval-Atj0Sqo",
+   "methodDescription": "(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "VoidMethodCall",
+   "pitBlock": 11,
+   "pitIndex": 92,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 73,
+   "bytecode": null,
+   "mechanism": {
+    "kind": "UNRESOLVED",
+    "semanticRole": "not mapped",
+    "compilerGenerated": null
+   },
+   "mappingConfidence": "AMBIGUOUS",
+   "mappingReason": "candidate count 0 != all-mutant count 8 for this method+mutator",
+   "hypothesis": "HYPOTHESIS: not established - mapping is ambiguous, resolve the per-mutator skip rule first",
+   "requiredNextEvidence": "resolve the candidate-count mismatch so the exact instruction is unique"
+  },
+  "56d3366434a6608d7b5ccd59b6c1377be7324ab2078ec7a09b872153968e4466": {
+   "identity": "56d3366434a6608d7b5ccd59b6c1377be7324ab2078ec7a09b872153968e4466",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "6",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "requireExistingAttributionMatches",
+   "methodDescription": "(Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NullReturnVals",
+   "pitBlock": 9,
+   "pitIndex": 50,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 205,
+   "bytecode": {
+    "pc": 100,
+    "opcode": "areturn",
+    "instruction": "",
+    "line": 205,
+    "successorJumpPc": null,
+    "successorFallthroughPc": 1
+   },
+   "mechanism": {
+    "kind": "OTHER_CONDITIONAL",
+    "semanticRole": "other conditional (areturn)",
+    "compilerGenerated": false
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: not established in G5a - requires the per-identity discriminator/proof named in the cohort's candidateNextAction",
+   "requiredNextEvidence": "per-identity semantic discriminator or instruction-level equivalence/unreachability proof"
+  },
+  "6a1ce2f46d2ad5cdb7fb857a56fcf4ca0d3d87ffc3825279121386e04c3f7c88": {
+   "identity": "6a1ce2f46d2ad5cdb7fb857a56fcf4ca0d3d87ffc3825279121386e04c3f7c88",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "2",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "requireExistingAttributionMatches",
+   "methodDescription": "(Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NullReturnVals",
+   "pitBlock": 26,
+   "pitIndex": 141,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 219,
+   "bytecode": {
+    "pc": 244,
+    "opcode": "areturn",
+    "instruction": "",
+    "line": 219,
+    "successorJumpPc": null,
+    "successorFallthroughPc": 7
+   },
+   "mechanism": {
+    "kind": "OTHER_CONDITIONAL",
+    "semanticRole": "other conditional (areturn)",
+    "compilerGenerated": false
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: not established in G5a - requires the per-identity discriminator/proof named in the cohort's candidateNextAction",
+   "requiredNextEvidence": "per-identity semantic discriminator or instruction-level equivalence/unreachability proof"
+  },
+  "5d700610726248849d6141d8f8159c688932d1759e3f3d20bbb6fe966cb670e4": {
+   "identity": "5d700610726248849d6141d8f8159c688932d1759e3f3d20bbb6fe966cb670e4",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "executeClaimedResume",
+   "methodDescription": "(Ldev/tramai/engine/approval/ResumeExecutionContext;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 19,
+   "pitIndex": 167,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 183,
+   "bytecode": {
+    "pc": 308,
+    "opcode": "if_acmpne",
+    "instruction": "384",
+    "line": 183,
+    "successorJumpPc": 384,
+    "successorFallthroughPc": 5
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "f23b4d0921a0e5daca1b271f41357982ca9e52de09f0e1e5d72933b1b87f3ac6": {
+   "identity": "f23b4d0921a0e5daca1b271f41357982ca9e52de09f0e1e5d72933b1b87f3ac6",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "executeClaimedResume",
+   "methodDescription": "(Ldev/tramai/engine/approval/ResumeExecutionContext;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 39,
+   "pitIndex": 323,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 196,
+   "bytecode": {
+    "pc": 567,
+    "opcode": "if_acmpne",
+    "instruction": "677",
+    "line": 196,
+    "successorJumpPc": 677,
+    "successorFallthroughPc": 8
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "6cadd3397125ba1bdc4b72d2267c73f6b9ab4fdcd77205691f0d10adc07e5101": {
+   "identity": "6cadd3397125ba1bdc4b72d2267c73f6b9ab4fdcd77205691f0d10adc07e5101",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "executeClaimedResume",
+   "methodDescription": "(Ldev/tramai/engine/approval/ResumeExecutionContext;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 54,
+   "pitIndex": 441,
+   "sourceFile": "ApprovalResumeCoordinator.kt",
+   "sourceLine": 208,
+   "bytecode": {
+    "pc": 804,
+    "opcode": "if_acmpne",
+    "instruction": "921",
+    "line": 208,
+    "successorJumpPc": 921,
+    "successorFallthroughPc": 10
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "f4463604928886b61038161dfacada30be5fa9dcd62178ac329b83c4568e3ffd": {
+   "identity": "f4463604928886b61038161dfacada30be5fa9dcd62178ac329b83c4568e3ffd",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "7",
+   "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+   "method": "persistUngoverned",
+   "methodDescription": "(Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NullReturnVals",
+   "pitBlock": 29,
+   "pitIndex": 161,
+   "sourceFile": "DefaultApprovalGateway.kt",
+   "sourceLine": 234,
+   "bytecode": {
+    "pc": 267,
+    "opcode": "areturn",
+    "instruction": "",
+    "line": 234,
+    "successorJumpPc": null,
+    "successorFallthroughPc": 8
+   },
+   "mechanism": {
+    "kind": "OTHER_CONDITIONAL",
+    "semanticRole": "other conditional (areturn)",
+    "compilerGenerated": false
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: not established in G5a - requires the per-identity discriminator/proof named in the cohort's candidateNextAction",
+   "requiredNextEvidence": "per-identity semantic discriminator or instruction-level equivalence/unreachability proof"
+  },
+  "8d5bb41c2eaa72679422c10b5d20524d7605a23c839b989c83952f93eb0cebcf": {
+   "identity": "8d5bb41c2eaa72679422c10b5d20524d7605a23c839b989c83952f93eb0cebcf",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator$compensateSuspension$2$1",
+   "method": "invokeSuspend",
+   "methodDescription": "(Ljava/lang/Object;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 5,
+   "pitIndex": 28,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 293,
+   "bytecode": {
+    "pc": 63,
+    "opcode": "if_acmpne",
+    "instruction": "73",
+    "line": 293,
+    "successorJumpPc": 73,
+    "successorFallthroughPc": 3
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  },
+  "eb21aaed31923633c541c603ebf29c170343b1e822874768f732093a099b3a18": {
+   "identity": "eb21aaed31923633c541c603ebf29c170343b1e822874768f732093a099b3a18",
+   "frozenStatus": "SURVIVED",
+   "numberOfTestsRun": "4",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "persistSuspendedInvocation",
+   "methodDescription": "(Ldev/tramai/engine/approval/ApprovalSuspensionCoordinator$GovernedSuspension;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "mutator": "NullReturnVals",
+   "pitBlock": 9,
+   "pitIndex": 38,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 284,
+   "bytecode": {
+    "pc": 54,
+    "opcode": "areturn",
+    "instruction": "",
+    "line": 284,
+    "successorJumpPc": null,
+    "successorFallthroughPc": 4
+   },
+   "mechanism": {
+    "kind": "OTHER_CONDITIONAL",
+    "semanticRole": "other conditional (areturn)",
+    "compilerGenerated": false
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: not established in G5a - requires the per-identity discriminator/proof named in the cohort's candidateNextAction",
+   "requiredNextEvidence": "per-identity semantic discriminator or instruction-level equivalence/unreachability proof"
+  },
+  "e22c7dcc1e36b6956165d91403a12a340160639592be69fe070caa3736bd8851": {
+   "identity": "e22c7dcc1e36b6956165d91403a12a340160639592be69fe070caa3736bd8851",
+   "frozenStatus": "TIMED_OUT",
+   "numberOfTestsRun": "0",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator$compensateSuspension$2$2",
+   "method": "invokeSuspend",
+   "methodDescription": "(Ljava/lang/Object;)Ljava/lang/Object;",
+   "mutator": "NegateConditionals",
+   "pitBlock": 4,
+   "pitIndex": 29,
+   "sourceFile": "ApprovalSuspensionCoordinator.kt",
+   "sourceLine": 294,
+   "bytecode": {
+    "pc": 64,
+    "opcode": "if_acmpne",
+    "instruction": "74",
+    "line": 294,
+    "successorJumpPc": 74,
+    "successorFallthroughPc": 3
+   },
+   "mechanism": {
+    "kind": "SUSPENSION_SENTINEL",
+    "semanticRole": "suspension sentinel comparison: result of a suspend call !== COROUTINE_SUSPENDED (canonical `dup; aload; if_acmpne` after the call)",
+    "compilerGenerated": true
+   },
+   "mappingConfidence": "EXACT",
+   "mappingReason": "line-bearing candidate set aligned to all PIT mutants of this method+mutator in pc order; PIT line == pc line",
+   "hypothesis": "HYPOTHESIS: compiler-generated suspension-protocol sentinel; PIT cannot execute the mutated branch normally (numberOfTestsRun=0) and the source-level behaviour is carried by the resumed-frame checks elsewhere in the same method",
+   "requiredNextEvidence": "a second independent campaign for timeout determinism plus per-mechanism proof that the sentinel branch is protocol-only and that authored behaviour is independently protected"
+  }
+ }
+}

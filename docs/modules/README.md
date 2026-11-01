@@ -4,7 +4,7 @@ Per-module architecture and navigation cards for TramAI. The authoritative modul
 
 - Classification / ownership: [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml)
 - Dependency boundaries: [`config/quality/module-boundaries.yml`](../../config/quality/module-boundaries.yml)
-- Generated module matrix (all 60 modules): [`docs/reference/module-matrix.md`](../reference/module-matrix.md)
+- Generated module matrix (all 62 modules): [`docs/reference/module-matrix.md`](../reference/module-matrix.md)
 - Root navigation map: [`ARCHITECTURE.md`](../../ARCHITECTURE.md)
 
 ## Card contract
@@ -28,13 +28,13 @@ Below the architecture section, cards may carry long-form usage/design content (
 
 ## Coverage
 
-Coverage is computed against the 60-module authoritative manifest (`module-catalog.yml`). `sovereign-runtime-module-matrix.md` is a reference document, not a module card, and is not counted.
+Coverage is computed against the 63-module authoritative manifest (`module-catalog.yml`). `sovereign-runtime-module-matrix.md` is a reference document, not a module card, and is not counted.
 
 | Metric | Count |
 |--------|-------|
-| Manifest modules | 60 |
-| Module cards | 60 |
-| Conforming cards | 60 |
+| Manifest modules | 63 |
+| Module cards | 63 |
+| Conforming cards | 63 |
 | Existing non-conforming | 0 |
 | Missing cards | 0 |
 | Orphans | 0 |
@@ -43,7 +43,7 @@ Coverage is computed against the 60-module authoritative manifest (`module-catal
 
 `./gradlew verifyModuleDocContract` mechanically enforces the contract: one card per manifest module (no missing/orphan), required headings, resolvable local links/inline paths, no legacy hand-maintained classification metadata, no versionless `dev.tramai:*` dependency snippets without a BOM import or explicit version, and no external Maven-coordinate examples for internal/unpublished modules. It is wired into `verify060Architecture` and `verifyPr`.
 
-### Cards (60)
+### Cards (62)
 
 - approval-resume
 - governed-workflow
@@ -51,6 +51,7 @@ Coverage is computed against the 60-module authoritative manifest (`module-catal
 - kotlin-consumer-smoke
 - sovereign-document-intelligence
 - sovereign-offline-verification
+- spring-ai-authority-boundary
 - spring-sovereign-starter
 - support-agent
 - tool-governance
@@ -58,6 +59,7 @@ Coverage is computed against the 60-module authoritative manifest (`module-catal
 - tramai-azure-openai
 - tramai-bedrock
 - tramai-bom
+- tramai-control-plane
 - tramai-core
 - tramai-dashboard
 - tramai-deepseek

@@ -10,7 +10,6 @@ import java.time.Instant
  * [SovereignOpsApprovalMutationStore].
  */
 interface SovereignOpsAuditOutboxStore {
-
     /**
      * Whether this store provides durable persistence (survives restarts).
      *
@@ -32,6 +31,32 @@ interface SovereignOpsAuditOutboxStore {
      * @throws IllegalArgumentException if the record status is not PREPARED.
      */
     suspend fun append(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord
+
+    /**
+     * Append a new outbox record directly in [SovereignOpsAuditOutboxStatus.PENDING] state.
+     *
+     * A refusal has no business transition to wait for, so it must be dispatchable at commit. This is a
+     * separate operation instead of a relaxation of [append]: [append] stays PREPARED-only, and a store
+     * that has not implemented this one cannot record refusal evidence at all.
+     *
+     * Accepts only a `PENDING` record whose `evidenceKind` is [SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL].
+     * Rejections use the same fixed codes [append] uses.
+     *
+     * @throws UnsupportedOperationException if the implementation has not implemented it, which fails the
+     *   caller closed rather than silently writing the record nowhere.
+     * @throws IllegalArgumentException if an identifier is blank, the status is not PENDING, the evidence
+     *   kind is not a refusal kind, or the outbox id or event key is already taken.
+     */
+    suspend fun appendDispatchable(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord =
+        throw UnsupportedOperationException("tramai-sovereign-ops-outbox-dispatchable-append-unsupported")
+
+    /**
+     * 0.7.6f: the metadata-only recovery surface for evidence this store cannot decode.
+     *
+     * Returns null when the store has no durable quarantine, which is an explicit "unsupported" rather
+     * than an empty result: callers must not read it as "nothing is quarantined".
+     */
+    fun quarantineStore(): SovereignOpsAuditOutboxQuarantineStore? = null
 
     /**
      * Move a PREPARED record to PENDING, making it eligible for dispatch.

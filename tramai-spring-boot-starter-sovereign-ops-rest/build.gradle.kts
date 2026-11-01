@@ -11,6 +11,8 @@ plugins {
 dependencies {
     api(project(":tramai-spring-boot-starter-sovereign-ops"))
 
+    compileOnly(libs.spring.boot.starter.security)
+    compileOnly(libs.spring.boot.starter.oauth2.resource.server)
     implementation(libs.spring.boot.starter.web)
     implementation(libs.jackson.module.kotlin)
     implementation(libs.jackson.datatype.jsr310)
@@ -21,6 +23,9 @@ dependencies {
 
                 testImplementation(libs.coroutines.core)
     testImplementation(libs.spring.boot.starter.test)
+    testImplementation(libs.spring.boot.starter.security)
+    testImplementation(libs.spring.boot.starter.oauth2.resource.server)
+    testImplementation(libs.spring.security.test)
     testImplementation("org.junit.jupiter:junit-jupiter")
 }
 
