@@ -1,6 +1,8 @@
 # TASK-0.7.7b — Per-Effect Execution Admission Wiring
 
-Status: **contract for review. No runner code is changed by this document.**
+Status: **ratified with amendments; wiring still held.** D6-D8 ruled by the owner (review 5730382997), and the
+admission-receipt defect that review found is fixed in the store (`admit()` now derives its receipt from a locked
+read inside one transaction). No runner, subprocess or transport edge is wired yet.
 Base: `release/0.7.0` @ `d68fab5b` (PR #575 merged: durable cancellation authority + store-level admission).
 Supersedes nothing. Extends `TASK-0.7.7a-CANCELLATION-AUTHORITY-CONTRACT.md` §11 from "the boundary is defined"
 to "each boundary is named, guarded and tested".
@@ -32,6 +34,16 @@ unenforced. This contract wires it, effect by effect, and bounds the claim.
 | **Effect completion** | The remote side finished. Not observable as a single instant, and not what cancellation orders against. |
 | **`admission_seq`** | The run's monotonic admission counter. Evidence that admission happened historically. **Never** evidence that an effect is outstanding or in flight. |
 
+For the MCP edge the ratified ordering is four steps, and each is separately admitted:
+
+```
+admit MCP_SERVER_START  ->  start process / establish transport
+admit MCP_TOOL          ->  dispatch callTool
+```
+
+A permit for server startup cannot authorize subsequent tool calls, and a server that receives no call is still an
+admitted effect: starting an arbitrary command can create files, open sockets or run anything the command does.
+
 A **step admission is not an authorization for every external effect the step may trigger.** A step that loops over
 twenty tool calls needs twenty permits or it is not fenced. This is the whole point of the task: one step-level
 permit authorizing an unbounded sequence of later calls would reproduce, in code, the defect the store slice fixed.
@@ -46,14 +58,31 @@ on this list, so a new step type that dispatches externally must add itself here
 | E1 | HTTP step, transport path | `HttpStep.kt:131` `httpClient.send(...)` | effect permit `HTTP` immediately before `send` |
 | E2 | HTTP step, dispatcher path | `HttpStep.kt:328` `execution.transport.send(...)` | same permit; E1 and E2 must not both fire for one permit |
 | E3 | MCP tool call | `McpStep.kt:393` `client.callTool(...)` | effect permit `MCP_TOOL` immediately before the call |
-| E4 | MCP server spawn | `McpStep.kt:155` `ProcessBuilder(toolCall.serverCommand)` | infrastructure, not an effect — see open decision **D8** |
+| E4 | MCP server spawn | `McpStep.kt:155` `ProcessBuilder(toolCall.serverCommand)` | effect permit `MCP_SERVER_START` before `start()`; cannot authorize the later `callTool` (D8) |
 | E5 | Codex CLI dispatch | `CodexStep.kt:93` `ProcessBuilder(...)` | effect permit `PROCESS` before `start()` |
 | E6 | Hermes CLI dispatch | `HermesStep.kt:92` `ProcessBuilder(...)` | effect permit `PROCESS` before `start()` |
 | E7 | Shell command | `ShellStep.kt:219` `ProcessBuilder(...)` | effect permit `PROCESS` before `start()` |
-| E8 | External step executor | `WorkflowStepExecution.kt:179` `ExternalStepExecutor.execute(spec)` | effect permit `EXTERNAL`, kind taken from the registered type id |
+| E8 | External step executor | `WorkflowStepExecution.kt:179` `ExternalStepExecutor.execute(spec)` | effect permit `EXTERNAL`, kind from the registered type id — **and see §3a: a permit here governs the call into the executor, not the effects it makes internally** |
 | E9 | Approval continuation | `ApprovalResumeCoordinator.kt:174` `executeClaimedResume` | effect permit `APPROVAL_RESUME` before the resumed tool invocation |
 | E10 | Worker recovery re-execution | `WorkflowRecoveryCoordinator` → `WorkflowRunner` | step admission only; every effect inside re-admits at E1–E9 |
 | E11 | Step dispatch choke point | `WorkflowStepExecutor.kt:36` `executeStep(...)` | place where step admission is taken, and where a cancelled run is refused before any step work |
+
+### 3a. The opaque extension point at E8
+
+`ExternalStepExecutor` is a third-party extension point. A permit taken at its entry authorizes **one call into that
+executor**; it cannot authorize, observe or count the outbound operations the executor performs inside its own code.
+An instrumented built-in edge and an opaque plugin edge therefore do not carry the same guarantee, and the runtime
+cannot distinguish one admitted dispatch from an arbitrary number of effects that dispatch triggers.
+
+That asymmetry is a stated limit, not a gap to paper over:
+
+- The 0.7.7 guarantee is scoped to **instrumented boundaries** — E1-E7, E9, E11 — where the permit is taken
+  immediately before the transport or process leaves the process.
+- At E8 the guarantee is only "this executor invocation was admitted". Third-party executors that perform their own
+  outbound work are **outside** the enforcement claim unless they consume a per-effect admission capability
+  themselves. Providing that capability is future work; claiming their effects are fenced today is not permitted.
+- The contract therefore permits the claim "no *instrumented* effect begins after cancellation commits", and
+  forbids the claim "no external effect begins after cancellation commits" while E8 remains opaque.
 
 The model call of a step is dispatched by the same step executor as E8 for remote executors and inside the CLI
 steps for E5–E7; there is no separate model-dispatch site in `tramai-orchestration` on this base. If one appears,
@@ -102,7 +131,7 @@ Two consequences the implementation must respect, because both are easy to get s
 | Situation | Required behaviour |
 | --- | --- |
 | Store implements no admission support | refuse the effect: `WorkflowCancellationUnsupportedException`. Never dispatch unfenced. |
-| Store cannot decide atomically (markdown, file) | same refusal — see **D6**, this needs a decision because it changes file-profile behaviour. |
+| Store cannot decide atomically (markdown, file) | **fail closed (D6 ratified)**: the same refusal. These profiles do not dispatch instrumented effects until a single-node admission is separately qualified as durable and atomic. Introducing a weaker local fallback now would create exactly the "looks equivalent, is not" failure D5 rejected. |
 | Admission refused because the run is cancelled | do not dispatch; surface the run's recorded cancellation state to the caller. |
 | Admission refused because the revision/generation precondition is stale | do not dispatch; the worker is stale. |
 | Store unreachable / admission throws | do not dispatch. An effect that cannot be authorized must not be sent. |
@@ -110,8 +139,9 @@ Two consequences the implementation must respect, because both are easy to get s
 
 ## 7. Evidence states
 
-Every effect attempt is observable in exactly one of these states, and the recording site is an open decision
-(**D7**):
+Every effect attempt is observable in exactly one of these states, recorded as a **per-effect child record under the
+step-attempt lineage (D7 ratified)** — one step attempt can produce several outbound effects, so effect evidence
+cannot live on the attempt itself:
 
 | State | Meaning |
 | --- | --- |
@@ -152,21 +182,38 @@ must fail a named test, and the mutants must be applied to the actual call site 
 - Recovery re-execution (E10) keeps its current lease semantics; this contract only requires that its effects pass
   through the same guards.
 
-## 10. Open decisions requiring owner ratification
+## 10. Decisions (ratified, review 5730382997)
 
-| ID | Decision | Recommendation |
+| ID | Decision | Ruling |
 | --- | --- | --- |
-| **D6** | File/markdown profiles cannot decide admission atomically today, so fail-closed means they stop dispatching external effects. Options: (a) refuse on those profiles, (b) implement a *declared* local admission for the file profile (single-node claim, documented as weaker like D5), (c) opt-in per deployment to run unfenced. | **(b), plus (a) as the default for any store that implements nothing.** It keeps local development working, never claims multi-node authority, and keeps "no silent fallback": the profile's claim is declared on the profile, not inferred from a flag. |
-| **D7** | Where the four evidence states are recorded: new columns on the checkpoint row, or fields on the step-attempt record. | Step-attempt record: it already models per-attempt history, and effect evidence is per-attempt by nature. The checkpoint row stays about checkpoint content. |
-| **D8** | Whether the MCP server process spawn (E4) is an effect requiring a permit, or infrastructure that may start so the effect can be authorized. | Infrastructure. The permit guards `callTool` (E3). A spawned server that receives no call is not an external effect, and requiring a permit to boot it would invert the ordering the contract needs. |
+| **D6** | File/markdown profile behaviour | **Fail closed.** Single-node admission is not yet proven durable and atomic; qualify it separately rather than shipping a weaker fallback. |
+| **D7** | Evidence location | **Step-attempt lineage, per-effect child records.** One attempt can produce several effects. |
+| **D8** | MCP server spawn | **An external effect with its own permit**, ordered before the tool call; a startup permit never authorizes `callTool`. |
+
+### 10a. Admission-receipt correction (P1, fixed in this PR)
+
+The permit identity includes `admissionSeq`, so a sequence must be unique to the grant that produced it. The
+implementation incremented `admission_seq` and then read it back on an autocommit connection; two concurrent grants
+could both observe the later value and return the same sequence. `admit()` now reads the counter under a row lock
+inside one transaction and returns `observed + 1`, so the receipt is the grant's own increment and cannot be another
+caller's observation.
+
+Qualified by two tests and two mutants:
+
+- **Concurrency:** eight callers on separate connections, released by a `CountDownLatch`, must receive distinct
+  sequences `1..8`, and the stored counter must equal the number of grants.
+- **Statement order:** a recording `DataSource` asserts that no `SELECT` of the counter follows the `UPDATE` inside a
+  granted admission — the deterministic form of the same requirement, independent of interleaving.
+- Mutants: receipt taken from a read-back after the write (killed by the ordering test); `FOR UPDATE` removed from
+  the locked read (killed by the concurrency test).
 
 ## 11. What approval of this contract authorizes
 
 Approval authorizes implementation of the guards **in this order**, each with its own adversarial tests:
 
 1. `WorkflowStepExecutor` step admission (E11) and the refusal path for a cancelled run.
-2. Effect permits at the process boundaries E5–E7, then the HTTP boundaries E1–E2, then MCP E3 and external
-   executors E8.
+2. Effect permits at the process boundaries E5–E7, then the HTTP boundaries E1–E2, then MCP server startup E4 and
+   MCP tool calls E3, then external executors E8.
 3. Approval continuation E9, and recovery re-execution E10.
 4. Evidence recording per D7.
 

@@ -5,12 +5,20 @@ import org.h2.jdbcx.JdbcDataSource
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.TestInstance
+import java.lang.reflect.Proxy
 import java.nio.file.Files
+import java.sql.Connection
 import java.sql.DriverManager
+import java.util.concurrent.Callable
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import javax.sql.DataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -166,6 +174,99 @@ class WorkflowAdmissionFenceTest {
         assertFailsWith<WorkflowCancellationUnsupportedException> {
             runBlocking { store.admit(admissionRequest(saved)) }
         }
+    }
+
+    @Test
+    fun `concurrent admissions on separate connections receive distinct receipts`() {
+        val saved = runBlocking { JdbcWorkflowCheckpointStore(dataSource).save(checkpoint("concurrent")) }
+        val request = admissionRequest(saved)
+        val callers = 8
+        val start = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(callers)
+        try {
+            val futures =
+                (1..callers).map {
+                    pool.submit(
+                        Callable {
+                            start.await()
+                            runBlocking { JdbcWorkflowCheckpointStore(dataSource).admit(request) }
+                        },
+                    )
+                }
+            start.countDown()
+            val granted = futures.map { it.get(30, TimeUnit.SECONDS) }
+
+            assertTrue(granted.all { it.admitted }, "no cancellation is in play, so every caller is admitted")
+            assertEquals(
+                (1L..callers.toLong()).toSet(),
+                granted.map { it.sequence }.toSet(),
+                "each grant must carry its own sequence: a shared one is not a permit identity",
+            )
+            assertEquals(
+                callers.toLong(),
+                persistedAdmissionSequence("concurrent"),
+                "the stored counter must equal the number of grants",
+            )
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `a granted admission does not read its receipt back after the increment`() {
+        val recording = RecordingDataSource(dataSource)
+        val store = JdbcWorkflowCheckpointStore(recording)
+        val saved = runBlocking { JdbcWorkflowCheckpointStore(dataSource).save(checkpoint("receipt")) }
+        recording.statements.clear()
+
+        val admission = runBlocking { store.admit(admissionRequest(saved)) }
+        assertTrue(admission.admitted)
+
+        // A receipt read after the write can observe another caller's increment, so two grants may return the same
+        // sequence. The receipt therefore has to come from the write's own locked read, never from a later SELECT.
+        val statements = recording.statements.map { it.trimStart() }
+        val incrementIndex = statements.indexOfLast { it.startsWith("UPDATE") }
+        assertTrue(incrementIndex >= 0, "the admission must increment the counter")
+        val readBackAfterIncrement =
+            statements.drop(incrementIndex + 1).any { it.startsWith("SELECT") && it.contains("admission") }
+        assertFalse(readBackAfterIncrement, "the receipt must not be read back after the increment")
+    }
+
+    private fun persistedAdmissionSequence(workflowId: String): Long =
+        connect().use { connection ->
+            val sql = "SELECT admission_seq FROM ${JdbcWorkflowCheckpointTable().tableName} WHERE workflow_id = ?"
+            connection.prepareStatement(sql).use { it.readSequence(workflowId) }
+        }
+
+    private fun java.sql.PreparedStatement.readSequence(workflowId: String): Long {
+        setString(1, workflowId)
+        return executeQuery().use { resultSet -> if (resultSet.next()) resultSet.getLong(1) else -1L }
+    }
+
+    /** Records the SQL a store prepares, so statement order can be asserted without touching timing. */
+    private class RecordingDataSource(
+        private val delegate: DataSource,
+    ) : DataSource by delegate {
+        val statements = CopyOnWriteArrayList<String>()
+
+        override fun getConnection(): Connection = record(delegate.connection)
+
+        override fun getConnection(
+            username: String?,
+            password: String?,
+        ): Connection = record(delegate.getConnection(username, password))
+
+        private fun record(connection: Connection): Connection =
+            Proxy.newProxyInstance(
+                javaClass.classLoader,
+                arrayOf(Connection::class.java),
+            ) { _, method, args ->
+                val result = method.invoke(connection, *(args ?: emptyArray()))
+                if (method.name == "prepareStatement" && args != null && args.isNotEmpty()) {
+                    (args[0] as? String)?.let { statements += it }
+                }
+                result
+            } as Connection
     }
 
     private fun jdbcStore() = JdbcWorkflowCheckpointStore(dataSource)
