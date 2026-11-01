@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 <evidence-bundle-dir>" >&2
+LEGACY_PROVENANCE=0
+BUNDLE_DIR=""
+for arg in "$@"; do
+  case "$arg" in
+    --legacy-provenance) LEGACY_PROVENANCE=1 ;;
+    -*) echo "Unknown option: $arg" >&2; exit 2 ;;
+    *) BUNDLE_DIR="$arg" ;;
+  esac
+done
+
+if [[ -z "$BUNDLE_DIR" ]]; then
+  echo "Usage: $0 [--legacy-provenance] <evidence-bundle-dir>" >&2
   exit 2
 fi
-
-BUNDLE_DIR="$1"
 MANIFEST="$BUNDLE_DIR/manifest.json"
 
 if [[ ! -d "$BUNDLE_DIR" ]]; then
@@ -24,7 +32,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-python3 - "$BUNDLE_DIR" <<'PY'
+python3 - "$BUNDLE_DIR" "$LEGACY_PROVENANCE" <<'PY'
 import hashlib
 import json
 import os
@@ -33,8 +41,15 @@ import re
 import sys
 from datetime import datetime
 
+# Pre-0.7.6g1 bundles carry a two-key provenance tuple (id + strength). They are immutable history, not
+# corruption, so they stay verifiable -- but only in an explicit mode, and never as attested evidence.
+# argv: <bundle-dir> <legacy-provenance 0|1>
+legacy_mode = len(sys.argv) > 2 and sys.argv[2] == "1"
 bundle_dir = pathlib.Path(sys.argv[1]).resolve()
 manifest_path = bundle_dir / "manifest.json"
+
+def warn(message: str) -> None:
+    print(f"Evidence bundle warning: {message}", file=sys.stderr)
 
 def fail(message: str) -> None:
     print(f"Evidence bundle verification failed: {message}", file=sys.stderr)
@@ -245,7 +260,9 @@ ENFORCEMENT_STRENGTHS = {"AUTHORITATIVE", "INSTRUMENTED", "OBSERVED", "IMPORTED"
 ENFORCEMENT_ORIGINS = {"declared", "attested"}
 ORIGIN_ATTESTED = "attested"
 
-# boundary id -> (applicable enforcement point, the strength its contract grants)
+# boundary id -> (applicable enforcement point, the strength its contract ENTITLES). The entitlement is
+# only spendable by an attester: a data-only record carries `DECLARED` plus origin `declared`, and a
+# two-key record from before 0.7.6g1 is readable only under --legacy-provenance, with a warning.
 REGISTERED_BOUNDARIES = {
     "spring-ai-tool-callback": ("BEFORE_TOOL_EXECUTION", "AUTHORITATIVE"),
 }
@@ -518,7 +535,32 @@ def validate_runtime_evidence():
                 # against the registration rather than trusted from the record: the strength must be the
                 # one the registered contract grants, at the enforcement point that contract covers.
                 present_boundary_keys = [k for k in meta if k in GOVERNED_BOUNDARY_KEYS]
-                if 0 < len(present_boundary_keys) < len(GOVERNED_BOUNDARY_KEYS):
+                legacy_pair = {GOVERNED_BOUNDARY_ID_KEY, GOVERNED_BOUNDARY_STRENGTH_KEY}
+                if set(present_boundary_keys) == legacy_pair and legacy_mode:
+                    # A bundle written before 0.7.6g1: immutable history, not corruption. It stays
+                    # readable, it is still checked against the registration, and its strength is
+                    # reported for what it is -- registration-derived with no established origin.
+                    boundary_id = meta.get(GOVERNED_BOUNDARY_ID_KEY)
+                    strength = meta.get(GOVERNED_BOUNDARY_STRENGTH_KEY)
+                    registration = REGISTERED_BOUNDARIES.get(boundary_id)
+                    if registration is None:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unregistered enforcement boundary '{boundary_id}'"
+                        )
+                    registered_point, registered_strength = registration
+                    if meta.get("enforcementPoint") != registered_point:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary '{boundary_id}' is registered for {registered_point} but the record "
+                            f"enforces at {meta.get('enforcementPoint')}"
+                        )
+                    warn(
+                        f"legacy provenance (written before 0.7.6g1) at {filename} line {line_num}: "
+                        f"boundary '{boundary_id}' strength '{strength}' is registration-derived, not "
+                        f"attested, and its origin is unknown; do not read it as verified enforcement"
+                    )
+                elif 0 < len(present_boundary_keys) < len(GOVERNED_BOUNDARY_KEYS):
                     missing_boundary_keys = sorted(GOVERNED_BOUNDARY_KEYS - set(present_boundary_keys))
                     fail(
                         f"runtime-evidence/{filename} line {line_num}: "

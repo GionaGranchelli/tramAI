@@ -1,44 +1,45 @@
 package dev.tramai.security.evidence
 
 /**
- * 0.7.4b3 G2: registered enforcement-boundary provenance at the evidence boundary.
+ * 0.7.6g1: registered enforcement-boundary provenance at the evidence boundary, split into two facts.
  *
- * Authorization and enforcement are different facts. A `tool.permission` record reports the policy
- * engine's decision, and [RuntimeEvidenceRecord] pins `source.component` to the decision producer
- * (`"policy-engine"`). This object supplies the *other* half of that pair, and only that half: the
- * enforcement strength the registration grants the boundary a producer **declares**, resolved from the
- * declared identifier. It resolves a declared identifier's strength; it does **not** establish that the
- * declared boundary emitted, or enforced, this particular event.
+ * Authorization and enforcement are different facts, and so are **strength** and **origin**:
  *
- * ## Strength is derived, never asserted
+ * - [STRENGTH_KEY] says what a registration **entitles** a boundary to claim.
+ * - [ORIGIN_KEY] says **who established** that this particular event came from that boundary.
  *
- * The central invariant: an integration cannot claim AUTHORITATIVE **strength** by asserting strength.
- * Strength is therefore a property of a framework-owned registration, resolved here from the boundary's
- * declared identifier. A producing boundary supplies only `boundary.id`; a caller-supplied
- * `boundary.enforcementStrength` is refused rather than silently overwritten, because accepting it would
- * make the field a self-asserted claim and ignoring it would hide the attempt.
+ * Conflating them is how a declared identifier came to read as proven prevention. This object keeps
+ * them apart, and the split is enforced on both sides.
  *
- * **The identifier itself is producer-declared and its origin is unverified, and the invariant above does
- * not cover that.** A producer that names a registered identifier obtains that registration's strength
- * without having gone through the boundary — pinned by
- * `ToolPermissionBoundaryProvenanceTest.the registration does not verify the origin of a declared
- * identifier`. What this object delivers is registered-strength resolution for a declared identifier, not
- * attestation that the boundary emitted or enforced this event. Verified event-origin attribution is
- * tracked as a separate security requirement; it is not established here.
+ * ## The data path can only declare
  *
- * Registration is what makes [AUTHORITATIVE] reachable, and nothing outside this module can add an
- * entry. An unregistered identifier is refused: a record naming a boundary that no contract covers
- * cannot be validated against anything, so it is not silently capped to [OBSERVED] — that would let an
- * unknown adapter's identifier into evidence as if it were recognised. This is a deliberate choice of
- * refusal over downgrade, and it is what enforces "registered boundary identity".
+ * [provenanceFor] sees event metadata, not the boundary. Given a registered identifier it emits
+ * [DECLARED] with [ORIGIN_DECLARED] -- never the registration's entitlement, which only an attester may
+ * spend, and no attester exists in this runtime yet:
  *
- * ## What this does and does not prove
+ * - a caller-supplied [STRENGTH_KEY] is refused as self-assertion;
+ * - a caller-supplied [ORIGIN_KEY] is refused for the same reason, in either direction, because an
+ *   origin a producer can write is an origin a producer can forge;
+ * - an unregistered identifier is refused rather than downgraded: an identifier no contract covers
+ *   cannot be validated against anything.
  *
- * A registration plus its prevention tests is a **declared, framework-owned claim backed by tests**.
- * It is not cryptographic authentication of an arbitrary external caller: any process able to reach
- * the boundary may attempt a call. Stronger workload identity authentication remains separate,
- * unresolved work. The strength is scoped to one declared enforcement point and says nothing about any
- * other path by which the host application might reach the same side effect.
+ * [DECLARED] is deliberately not [OBSERVED]. Observation asserts the boundary behaved; a declaration
+ * asserts only that a producer named an identifier. Unknown identifiers, a strength above the
+ * declaration, and an `attested` origin are refusals, not capped evidence.
+ *
+ * ## What this does not prove
+ *
+ * A record's `declared` origin is true of a genuine boundary event and of a fabricated one alike. This
+ * object removes the false positive (fabrication can no longer read as authoritative enforcement); it
+ * does not yet add the true positive. Verified origin attribution needs a capability minted by the
+ * framework at wiring and held by the governed boundary (0.7.6g Slice 2), and out-of-process custody
+ * when evidence crosses a deployment boundary. Pinned by
+ * `ToolPermissionBoundaryProvenanceTest.a fabricated event naming a registered boundary cannot claim
+ * authoritative enforcement`.
+ *
+ * The in-process ceiling is part of the claim: any code able to reach the boundary may attempt a call,
+ * and hostile code with unrestricted reflection can forge process-internal state. This is an authority
+ * statement, not cryptographic authentication.
  */
 internal object RuntimeBoundaryProvenance {
     /** The boundary consulted the engine before delegating and prevents execution on DENY/approval/unavailable. */

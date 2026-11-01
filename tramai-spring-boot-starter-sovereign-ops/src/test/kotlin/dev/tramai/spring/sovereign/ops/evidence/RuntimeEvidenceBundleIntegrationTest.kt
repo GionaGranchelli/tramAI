@@ -277,9 +277,14 @@ class RuntimeEvidenceBundleIntegrationTest {
     private fun runScript(
         scriptPath: Path,
         bundleDir: Path,
+        extraArgs: List<String> = emptyList(),
     ): ScriptResult {
+        val command =
+            listOf("bash", scriptPath.toAbsolutePath().toString()) +
+                extraArgs +
+                bundleDir.toAbsolutePath().toString()
         val process =
-            ProcessBuilder("bash", scriptPath.toAbsolutePath().toString(), bundleDir.toAbsolutePath().toString())
+            ProcessBuilder(command)
                 .redirectOutput(ProcessBuilder.Redirect.PIPE)
                 .redirectError(ProcessBuilder.Redirect.PIPE)
                 .start()
@@ -546,6 +551,71 @@ class RuntimeEvidenceBundleIntegrationTest {
     }
 
     @Test
+    fun `a pre-g1 two-key bundle verifies only in legacy mode and never as attested`() {
+        val root = findRepositoryRoot()
+        val finalizeScript = root.resolve("examples/sovereign-lab/finalize-evidence-bundle.sh")
+        val verifyScript = root.resolve("examples/sovereign-lab/verify-evidence-bundle.sh")
+
+        createSovereignLabManifest(tempDir)
+        bundleWriter.write(
+            tempDir,
+            listOf(produceAttributedToolPermissionRecord(boundaryAttributes = registeredBoundary)),
+        )
+        // The shape a 0.7.4-era writer produced: identifier and strength, no origin axis.
+        mutateToolPermissionsRecord(tempDir) { node -> node.metadataNode().remove("boundary.origin") }
+        assertEquals(0, runScript(finalizeScript, tempDir).exitCode, "Finalize must exit 0")
+
+        // Default policy: a two-key tuple is partial provenance, and the refusal must say so.
+        val strict = runScript(verifyScript, tempDir)
+        assertNotEquals(0, strict.exitCode, "a two-key bundle must not verify under the current policy")
+        assertTrue(
+            strict.stderr.contains("partial enforcement-boundary provenance"),
+            "the refusal must name the rule:\n${strict.output}",
+        )
+
+        // Historical reading mode: the bundle stays verifiable, and its strength is labelled for what
+        // it is -- registration-derived, not attested.
+        val legacy = runScript(verifyScript, tempDir, listOf("--legacy-provenance"))
+        assertEquals(
+            0,
+            legacy.exitCode,
+            "a pre-g1 bundle must remain verifiable in legacy mode:\n${legacy.output}",
+        )
+        assertTrue(
+            legacy.stderr.contains("registration-derived, not attested"),
+            "legacy mode must say the strength was never attested:\n${legacy.output}",
+        )
+        assertTrue(
+            legacy.stdout.contains("Evidence bundle verified:"),
+            "legacy mode must still report the bundle verified:\n${legacy.output}",
+        )
+
+        // Legacy reading relaxes the tuple shape, not the registration: an identifier no contract covers
+        // must stay refused, or the old format becomes a bypass for unknown boundaries.
+        createSovereignLabManifest(tempDir)
+        bundleWriter.write(
+            tempDir,
+            listOf(produceAttributedToolPermissionRecord(boundaryAttributes = registeredBoundary)),
+        )
+        mutateToolPermissionsRecord(tempDir) { node ->
+            node.metadataNode().remove("boundary.origin")
+            node.metadataNode().put("boundary.id", "some-other-adapter")
+        }
+        assertEquals(0, runScript(finalizeScript, tempDir).exitCode, "Finalize must exit 0")
+
+        val unknownInLegacyMode = runScript(verifyScript, tempDir, listOf("--legacy-provenance"))
+        assertNotEquals(
+            0,
+            unknownInLegacyMode.exitCode,
+            "legacy mode must not accept an unregistered boundary:\n${unknownInLegacyMode.output}",
+        )
+        assertTrue(
+            unknownInLegacyMode.stderr.contains("unregistered enforcement boundary 'some-other-adapter'"),
+            "legacy mode must still apply the registry:\n${unknownInLegacyMode.output}",
+        )
+    }
+
+    @Test
     fun `reviewer verifier refuses boundary provenance the registration does not cover`() {
         val root = findRepositoryRoot()
         val finalizeScript = root.resolve("examples/sovereign-lab/finalize-evidence-bundle.sh")
@@ -571,6 +641,11 @@ class RuntimeEvidenceBundleIntegrationTest {
                 Triple(
                     "partial provenance",
                     { node -> node.metadataNode().remove("boundary.enforcementStrength") },
+                    "partial enforcement-boundary provenance",
+                ),
+                Triple(
+                    "a pre-g1 two-key provenance tuple",
+                    { node -> node.metadataNode().remove("boundary.origin") },
                     "partial enforcement-boundary provenance",
                 ),
                 Triple(
@@ -606,8 +681,9 @@ class RuntimeEvidenceBundleIntegrationTest {
     private fun ObjectNode.metadataNode(): ObjectNode = get("metadata") as ObjectNode
 
     /**
-     * The declared boundary identifier only. The strength is deliberately absent: the framework
-     * resolves it from the registration, and the exporter refuses a caller-supplied strength.
+     * The declared boundary identifier only. Strength and origin are deliberately absent: the framework
+     * emits `DECLARED` plus origin `declared` from the registration, and refuses a caller-supplied value
+     * for either.
      */
     private val registeredBoundary = mapOf("boundary.id" to "spring-ai-tool-callback")
 }

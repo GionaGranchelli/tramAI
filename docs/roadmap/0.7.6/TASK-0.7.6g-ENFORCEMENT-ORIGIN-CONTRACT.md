@@ -24,7 +24,7 @@ The question is whether **naming** a registered boundary is evidence that the bo
 | F4 | `ToolPermissionRuntimeEvidenceExporter.export(List<AuditEvent>)` is public, accepts any list, and never reads the store | exporter L41 |
 | F5 | The append path computes a hash chain (`eventHash` / `previousEventHash`); the exporter ignores both fields entirely | `AuditEngine.emit`, exporter |
 | F6 | **No production implementation of the registered boundary exists.** `spring-ai-tool-callback` appears only in the registration table, the KDoc, and tests | `grep -rn GovernedToolCallback --include=*.kt tramai-*/src/main` → 0 hits |
-| F7 | The gap is already documented and pinned: `ToolPermissionBoundaryProvenanceTest.the registration does not verify the origin of a declared identifier` | test L175 |
+| F7 | The gap is already documented and pinned: `ToolPermissionBoundaryProvenanceTest.the registration does not verify the origin of a declared identifier` — renamed in 0.7.6g1 to `a fabricated event naming a registered boundary cannot claim authoritative enforcement` | test L175 |
 
 **Consequence (INFERRED, mechanically followable):** any code that can construct an `AuditEvent` —
 or call `AuditEngine.emit` — can produce a record that reads
@@ -176,7 +176,34 @@ origin dropped from the reserved tuple → pre-g1 two-key test dies.
 **Issue #524 stays open**: the exporter can no longer emit fabricated AUTHORITATIVE evidence, but
 genuine origin attribution requires the Slice 2 attester.
 
-## 9. What this contract does not claim
+## 9. Historical bundles written before 0.7.6g1
+
+A pre-g1 `runtime-evidence.v1` record carries a **two-key** provenance tuple (`boundary.id` plus
+`boundary.enforcementStrength`). Under the current policy that tuple is *partial provenance* and is
+rejected. That is a **validation-policy change, not evidence corruption**, and the two must stay
+distinguishable.
+
+- **Sealed bundles are never rewritten.** Editing history to satisfy a new rule would destroy exactly
+  the property the evidence exists to provide.
+- **`Runtime-evidence.v1` two-key provenance was never published as a supported external contract.**
+  It shipped only on `release/0.7.0` while the release is still uncertified; there is no external
+  consumer whose bundle is entitled to the old reading. (STATUS: INFERRED from the release state; if a
+  downstream consumer is ever declared, this paragraph is the one to revisit.)
+- **Historical verification is preserved explicitly.** `verify-evidence-bundle.sh --legacy-provenance`
+  reads a two-key tuple, still checks it against the registration and the enforcement point, and emits
+  a warning stating that the strength is *registration-derived, not attested, origin unknown*. Default
+  mode keeps refusing it.
+- **Legacy reading never confers authority.** A legacy record's `AUTHORITATIVE` string is not evidence
+  of prevention and is not upgraded, capped-and-hidden, or re-signed. It is reported for what it is.
+
+Mutation proof for the legacy rule (each removes one guard from the verifier): removing the legacy
+branch kills the read-back test; granting legacy reading without the flag kills it too; removing the
+registry lookup from the legacy branch kills the unregistered-in-legacy-mode assertion. **The third
+mutation initially reported SURVIVED — that was a harness defect, not a guard**: the shell verifier is
+not a Gradle task input, so an up-to-date `test` task returned success without executing anything.
+Re-run with `--rerun-tasks`, it kills. Any future mutation over this verifier must force execution.
+
+## 10. What this contract does not claim
 
 - It does not make fabricated evidence impossible inside a JVM. It makes AUTHORITATIVE
   unreachable from event data, and labels everything else honestly.
