@@ -176,6 +176,14 @@ interface WorkflowCheckpointStore {
     suspend fun cancel(request: WorkflowCancellationRequest): WorkflowLifecycleState = throw refuseCancellation(this)
 
     /**
+     * Decide whether one unit of authoritative execution may be admitted for this run.
+     *
+     * The default refuses, for the same reason cancellation refuses: a profile that cannot decide this with a
+     * conditional write cannot fence execution, and refusing is the only honest answer.
+     */
+    suspend fun admit(request: WorkflowAdmissionRequest): WorkflowAdmission = throw refuseAdmission(this)
+
+    /**
      * Atomically clear the recovery state on this checkpoint, returning it to [Normal].
      *
      * Uses the default implementation: loads the current checkpoint, sets
@@ -377,6 +385,7 @@ class InMemoryWorkflowCheckpointStore(
 
     private val checkpoints = linkedMapOf<CheckpointKey, WorkflowCheckpoint>()
     private val cancellations = linkedMapOf<CheckpointKey, WorkflowLifecycleState>()
+    private val admissions = linkedMapOf<CheckpointKey, Long>()
     private val stepAttempts = linkedMapOf<AttemptKey, StepAttemptRecord>()
     internal val monitor = Any()
 
@@ -527,9 +536,18 @@ class InMemoryWorkflowCheckpointStore(
                         PersistenceFailureCode.CONFLICT,
                     )
                 }
+                // Derived, not claimed: work was already admitted, so an external effect may have landed and
+                // this cancellation can never be reported as clean.
+                val someoneWasAdmitted = (admissions[key] ?: 0L) > 0L
+                val status =
+                    if (someoneWasAdmitted || request.uncertain) {
+                        WorkflowLifecycleStatus.CANCELLED_UNCERTAIN
+                    } else {
+                        WorkflowLifecycleStatus.CANCELLED
+                    }
                 val cancelled =
                     WorkflowLifecycleState(
-                        status = request.status,
+                        status = status,
                         revision = existing.revision + 1,
                         checkpointGeneration = existing.checkpointGeneration,
                         cancelledAtEpochMillis = request.cancelledAtEpochMillis,
@@ -539,6 +557,39 @@ class InMemoryWorkflowCheckpointStore(
                 checkpoints[key] = existing.copy(revision = cancelled.revision)
                 cancellations[key] = cancelled
                 cancelled
+            }
+        }
+
+    override suspend fun admit(request: WorkflowAdmissionRequest): WorkflowAdmission =
+        persistenceBoundary(
+            PersistenceResourceKind.CHECKPOINT,
+            PersistenceOperation.COMPARE_AND_SET,
+            persistenceFailureDiagnosticObserver,
+        ) {
+            synchronized(monitor) {
+                val key = CheckpointKey(request.workflowName, request.workflowId)
+                val existing =
+                    checkpoints[key] ?: throw safePersistenceFailure(
+                        PersistenceResourceKind.CHECKPOINT,
+                        PersistenceOperation.COMPARE_AND_SET,
+                        PersistenceFailureCode.CONFLICT,
+                    )
+                cancellations[key]?.let { cancelled ->
+                    return@synchronized WorkflowAdmission(false, admissions[key] ?: 0L, cancelled)
+                }
+                val preconditionHolds =
+                    existing.revision == request.expectedRevision &&
+                        existing.checkpointGeneration == request.expectedGeneration
+                if (!preconditionHolds) {
+                    throw safePersistenceFailure(
+                        PersistenceResourceKind.CHECKPOINT,
+                        PersistenceOperation.COMPARE_AND_SET,
+                        PersistenceFailureCode.CONFLICT,
+                    )
+                }
+                val sequence = (admissions[key] ?: 0L) + 1L
+                admissions[key] = sequence
+                WorkflowAdmission(true, sequence)
             }
         }
 

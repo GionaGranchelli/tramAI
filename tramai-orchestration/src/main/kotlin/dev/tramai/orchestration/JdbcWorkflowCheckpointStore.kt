@@ -101,6 +101,18 @@ class JdbcWorkflowCheckpointStore(
             }
         }
 
+    override suspend fun admit(request: WorkflowAdmissionRequest): WorkflowAdmission =
+        persistenceBoundary(
+            PersistenceResourceKind.CHECKPOINT,
+            PersistenceOperation.COMPARE_AND_SET,
+            persistenceFailureDiagnosticObserver,
+            classify = ::classifyCheckpointFailure,
+        ) {
+            executeJdbcCancellable(dataSource) { conn ->
+                admitInConnection(conn, request)
+            }
+        }
+
     override suspend fun listCheckpoints(): List<WorkflowCheckpoint> =
         persistenceBoundary(
             PersistenceResourceKind.CHECKPOINT,
@@ -139,6 +151,7 @@ class JdbcWorkflowCheckpointStore(
             ${table.cancelledAtEpochMillisColumn} BIGINT NULL,
             ${table.cancelledByColumn} TEXT NULL,
             ${table.cancellationReasonColumn} TEXT NULL,
+            ${table.admissionSequenceColumn} BIGINT NOT NULL DEFAULT 0,
             PRIMARY KEY (${table.workflowNameColumn}, ${table.workflowIdColumn})
         )
         """.trimIndent()
@@ -158,6 +171,7 @@ class JdbcWorkflowCheckpointStore(
             "ALTER TABLE ${table.tableName} ADD COLUMN ${table.cancelledAtEpochMillisColumn} BIGINT NULL",
             "ALTER TABLE ${table.tableName} ADD COLUMN ${table.cancelledByColumn} TEXT NULL",
             "ALTER TABLE ${table.tableName} ADD COLUMN ${table.cancellationReasonColumn} TEXT NULL",
+            "ALTER TABLE ${table.tableName} ADD COLUMN ${table.admissionSequenceColumn} BIGINT NOT NULL DEFAULT 0",
         )
 
     internal fun saveInConnection(
@@ -219,6 +233,44 @@ class JdbcWorkflowCheckpointStore(
         }
     }
 
+    internal fun admitInConnection(
+        connection: java.sql.Connection,
+        request: WorkflowAdmissionRequest,
+    ): WorkflowAdmission {
+        connection.prepareStatement(admitSql(request.expectedGeneration != null)).use { statement ->
+            statement.setString(1, request.workflowName)
+            statement.setString(2, request.workflowId)
+            statement.setLong(3, request.expectedRevision)
+            if (request.expectedGeneration != null) {
+                statement.setString(4, request.expectedGeneration)
+            }
+            if (statement.executeUpdate() > 0) {
+                return WorkflowAdmission(true, admissionSequenceInConnection(connection, request))
+            }
+        }
+        // Refused. Either the run is cancelled (the decisive case) or the precondition no longer holds.
+        lifecycleInConnection(connection, request.workflowName, request.workflowId)?.let { cancellation ->
+            return WorkflowAdmission(false, admissionSequenceInConnection(connection, request), cancellation)
+        }
+        throw safePersistenceFailure(
+            PersistenceResourceKind.CHECKPOINT,
+            PersistenceOperation.COMPARE_AND_SET,
+            PersistenceFailureCode.CONFLICT,
+        )
+    }
+
+    private fun admissionSequenceInConnection(
+        connection: java.sql.Connection,
+        request: WorkflowAdmissionRequest,
+    ): Long =
+        connection.prepareStatement(admissionSequenceSelectSql()).use { statement ->
+            statement.setString(1, request.workflowName)
+            statement.setString(2, request.workflowId)
+            statement.executeQuery().use { resultSet ->
+                if (!resultSet.next()) 0L else resultSet.getLong(table.admissionSequenceColumn)
+            }
+        }
+
     /**
      * The cancellation write is one conditional UPDATE on the row that already holds the run: exactly one
      * command can win it, and the winner is the linearization point. A loser either sees an already-cancelled
@@ -229,25 +281,26 @@ class JdbcWorkflowCheckpointStore(
         request: WorkflowCancellationRequest,
     ): WorkflowLifecycleState {
         connection.prepareStatement(cancelSql(request.expectedGeneration != null)).use { statement ->
-            statement.setString(1, request.status.wireName)
-            statement.setLong(2, request.cancelledAtEpochMillis)
-            statement.setString(3, request.actor)
-            statement.setString(4, request.reason)
-            statement.setString(5, request.workflowName)
-            statement.setString(6, request.workflowId)
-            statement.setLong(7, request.expectedRevision)
+            statement.setString(1, WorkflowLifecycleStatus.CANCELLED_UNCERTAIN.wireName)
+            statement.setString(2, request.status.wireName)
+            statement.setLong(3, request.cancelledAtEpochMillis)
+            statement.setString(4, request.actor)
+            statement.setString(5, request.reason)
+            statement.setString(6, request.workflowName)
+            statement.setString(7, request.workflowId)
+            statement.setLong(8, request.expectedRevision)
             if (request.expectedGeneration != null) {
-                statement.setString(8, request.expectedGeneration)
+                statement.setString(9, request.expectedGeneration)
             }
             if (statement.executeUpdate() > 0) {
-                return WorkflowLifecycleState(
-                    status = request.status,
-                    revision = request.expectedRevision + 1,
-                    checkpointGeneration = request.expectedGeneration,
-                    cancelledAtEpochMillis = request.cancelledAtEpochMillis,
-                    cancelledBy = request.actor,
-                    reason = request.reason,
-                )
+                // Read back instead of predicting: the stored status may have been derived as uncertain because
+                // work was admitted before this commit, and predicting it here would be a second opinion.
+                return lifecycleInConnection(connection, request.workflowName, request.workflowId)
+                    ?: throw safePersistenceFailure(
+                        PersistenceResourceKind.CHECKPOINT,
+                        PersistenceOperation.COMPARE_AND_SET,
+                        PersistenceFailureCode.CONFLICT,
+                    )
             }
         }
         lifecycleInConnection(connection, request.workflowName, request.workflowId)?.let { return it }
@@ -416,11 +469,36 @@ class JdbcWorkflowCheckpointStore(
             AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}
         """.trimIndent()
 
+    /**
+     * Admission is the fence: one conditional write that only succeeds while the run is not cancelled. It is
+     * ordered against cancellation by the same row, so a cancellation that commits first refuses every later
+     * admission, and an admission that commits first makes the cancellation uncertain.
+     */
+    private fun admitSql(generationAware: Boolean): String =
+        """
+        UPDATE ${table.tableName}
+        SET ${table.admissionSequenceColumn} = ${table.admissionSequenceColumn} + 1
+        WHERE ${table.workflowNameColumn} = ?
+            AND ${table.workflowIdColumn} = ?
+            AND ${table.revisionColumn} = ?
+            AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}
+            AND ${table.lifecycleStatusColumn} IS NULL
+        """.trimIndent()
+
+    private fun admissionSequenceSelectSql(): String =
+        """
+        SELECT ${table.admissionSequenceColumn}
+        FROM ${table.tableName}
+        WHERE ${table.workflowNameColumn} = ?
+            AND ${table.workflowIdColumn} = ?
+        """.trimIndent()
+
     private fun cancelSql(generationAware: Boolean): String =
         """
         UPDATE ${table.tableName}
         SET
-            ${table.lifecycleStatusColumn} = ?,
+            ${table.lifecycleStatusColumn} =
+                CASE WHEN ${table.admissionSequenceColumn} > 0 THEN ? ELSE ? END,
             ${table.cancelledAtEpochMillisColumn} = ?,
             ${table.cancelledByColumn} = ?,
             ${table.cancellationReasonColumn} = ?,
@@ -559,6 +637,7 @@ data class JdbcWorkflowCheckpointTable(
     val cancelledAtEpochMillisColumn: String = "cancelled_at_epoch_millis",
     val cancelledByColumn: String = "cancelled_by",
     val cancellationReasonColumn: String = "cancellation_reason",
+    val admissionSequenceColumn: String = "admission_seq",
 ) {
     init {
         requireValidSqlIdentifier(tableName, "JdbcWorkflowCheckpointTable.tableName")
@@ -580,6 +659,7 @@ data class JdbcWorkflowCheckpointTable(
         )
         requireValidSqlIdentifier(cancelledByColumn, LABEL_CANCELLEDBYCOLUMN)
         requireValidSqlIdentifier(cancellationReasonColumn, LABEL_CANCELLATIONREASONCOLUMN)
+        requireValidSqlIdentifier(admissionSequenceColumn, LABEL_ADMISSIONSEQUENCECOLUMN)
     }
 }
 
@@ -627,3 +707,4 @@ private const val SQLSTATE_ACCESS_RULE_VIOLATION = "42"
 private const val LABEL_LIFECYCLESTATUSCOLUMN = "JdbcWorkflowCheckpointTable.lifecycleStatusColumn"
 private const val LABEL_CANCELLEDBYCOLUMN = "JdbcWorkflowCheckpointTable.cancelledByColumn"
 private const val LABEL_CANCELLATIONREASONCOLUMN = "JdbcWorkflowCheckpointTable.cancellationReasonColumn"
+private const val LABEL_ADMISSIONSEQUENCECOLUMN = "JdbcWorkflowCheckpointTable.admissionSequenceColumn"

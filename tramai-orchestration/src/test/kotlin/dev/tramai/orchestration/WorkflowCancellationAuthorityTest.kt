@@ -309,7 +309,15 @@ class WorkflowCancellationAuthorityTest {
 
     private companion object {
         const val H2_URL = "jdbc:h2:mem:cancellation_authority;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE"
+
+        // Everything 0.7.7a adds: the pre-migration schema predates the whole feature, not just the status.
         val LIFECYCLE_COLUMNS =
-            listOf("lifecycle_status", "cancelled_at_epoch_millis", "cancelled_by", "cancellation_reason")
+            listOf(
+                "lifecycle_status",
+                "cancelled_at_epoch_millis",
+                "cancelled_by",
+                "cancellation_reason",
+                "admission_seq",
+            )
     }
 }

@@ -71,6 +71,45 @@ data class WorkflowCancellationRequest(
 }
 
 /**
+ * A request to admit one unit of authoritative execution for a run.
+ *
+ * Admission is an act, not a read: the authority must decide it with a conditional write, so that a
+ * cancellation committing at the same instant either loses to it or wins it — never both. [expectedRevision]
+ * and [expectedGeneration] are preconditions for the same ABA reason they are on cancellation: a worker
+ * holding a generation that has since been rotated must not be able to admit work.
+ */
+data class WorkflowAdmissionRequest(
+    val workflowName: String,
+    val workflowId: String,
+    val expectedRevision: Long,
+    val expectedGeneration: String?,
+) {
+    init {
+        require(workflowName.isNotBlank()) { "workflowName must not be blank" }
+        require(workflowId.isNotBlank()) { "workflowId must not be blank" }
+    }
+}
+
+/**
+ * The authority's answer to a [WorkflowAdmissionRequest].
+ *
+ * [sequence] is the run's admission count after this decision: a successful admission increments it, and a
+ * refusal leaves it unchanged. Cancellation reads it to derive its own outcome, which is why an admitted run
+ * can never be reported as a clean cancellation.
+ */
+data class WorkflowAdmission(
+    val admitted: Boolean,
+    val sequence: Long,
+    val cancellation: WorkflowLifecycleState? = null,
+) {
+    init {
+        require(admitted == (cancellation == null)) {
+            "an admission is either granted with no cancellation, or refused with the cancellation that refused it"
+        }
+    }
+}
+
+/**
  * Raised when a store cannot record a cancellation authoritatively.
  *
  * This is a capability refusal, not a persistence failure: a profile that cannot answer atomically must
@@ -79,6 +118,12 @@ data class WorkflowCancellationRequest(
 class WorkflowCancellationUnsupportedException(
     message: String,
 ) : UnsupportedOperationException(message)
+
+internal fun refuseAdmission(store: WorkflowCheckpointStore): WorkflowCancellationUnsupportedException =
+    WorkflowCancellationUnsupportedException(
+        "${store::class.simpleName} cannot admit workflow execution authoritatively; " +
+            "an unsupported profile must not admit work it cannot fence against cancellation",
+    )
 
 internal fun refuseCancellation(store: WorkflowCheckpointStore): WorkflowCancellationUnsupportedException =
     WorkflowCancellationUnsupportedException(

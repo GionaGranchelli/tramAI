@@ -257,16 +257,57 @@ Two properties of slice (a) that an operator must know:
 - **The migration is a precondition, not an optional step.** On a table without the lifecycle columns the
   lifecycle read fails closed (`READ_FAILED`); it never reports "not cancelled" from a column that is not
   there. Ordinary checkpoint reads are unaffected.
-- **`uncertain` is still caller-supplied.** Slice (a) has no admission protocol, so nothing in the store can
-  derive whether an attempt was in flight. Until §11's admission boundary exists, a caller could pass
-  `uncertain = false` for a run that had a call in flight — a false clean-cancellation claim. The state
-  machine is correct; the *input* to it is not yet trustworthy, and slice (b) must derive it.
+- **`uncertain` was caller-supplied in slice (a).** Slice (b) closes that: the store now derives it from
+  admission state, so a run that admitted work cannot be recorded as a clean cancellation even if the caller
+  asks for one. What remains outside this slice is that *nothing calls `admit()` yet* — see §8c.
+
+## 8c. Slice (b) as implemented: execution admission
+
+Cancellation decides whether a run *may* continue; it cannot stop a call that starts a moment later. §11 defines
+the boundary; this slice implements it as a store-level act.
+
+| Element | Where | Behaviour |
+| --- | --- | --- |
+| `WorkflowAdmissionRequest` | `WorkflowLifecycle.kt` | run identity + expected revision **and** generation |
+| `WorkflowAdmission` | same | `admitted`, `sequence`, and the cancellation that refused it (mutually exclusive, enforced in `init`) |
+| `admit()` | `WorkflowCheckpointStore` | default **refuses**: a profile that cannot decide admission with a conditional write must not admit work |
+| In-memory store | `WorkflowPersistence.kt` | synchronized count-and-check; cancelled runs refuse; the count survives across calls |
+| JDBC store | `JdbcWorkflowCheckpointStore` | one conditional `UPDATE … SET admission_seq = admission_seq + 1 WHERE key AND revision AND generation AND lifecycle_status IS NULL`; `admission_seq BIGINT NOT NULL DEFAULT 0`; `lifecycleMigrationSql()` adds it |
+
+Two properties make the ordering meaningful:
+
+- **Admission is ordered against cancellation by the same row.** Cancellation's conditional write carries
+  `lifecycle_status IS NULL`, and admission's carries it too. Whichever commits first wins; the loser sees the
+  winner's state. Neither is a read followed by a write.
+- **Cancellation's outcome is derived, not claimed.** The cancel `UPDATE` sets
+  `lifecycle_status = CASE WHEN admission_seq > 0 THEN 'cancelled_uncertain' ELSE ? END`, so the uncertain verdict
+  is computed by the same statement that commits the cancellation. No reader can observe "admitted but cleanly
+  cancelled", because the two cannot be written by different statements.
+
+Admission deliberately does **not** move the checkpoint revision: it is not a checkpoint write, and advancing the
+revision would invalidate a concurrent saver's CAS for a state change that did not touch checkpoint content.
+
+Store-level tests: `WorkflowAdmissionFenceTest` (8 cases) — admitted-then-cancelled is uncertain;
+cancelled-then-admitted is refused with the recorded state; no admission cancels cleanly; admission is generation
+fenced; admissions count up without moving the revision; the in-memory store derives the same verdicts; admission
+fails closed on a pre-migration schema; a store that cannot fence refuses to admit.
+
+Mutations, each of which must fail a named test: dropping `lifecycle_status IS NULL` from the admission write;
+removing the `CASE WHEN admission_seq > 0` derivation from cancellation; ignoring the generation in the admission
+precondition.
+
+**What slice (b) does not do: nothing calls `admit()` yet.** The runner still dispatches model and tool calls
+without asking the authority, so the invariant `cancelled(run) ⇒ no future authoritative execution(run)` is
+*decidable* but not yet *enforced*. That wiring is B1-B5 and remains held, because it has to place the admission
+call on the exact edges where a call leaves the process — and each of those edges needs its own test.
 
 ## 9. What this contract does not claim
 
 - It does not claim cancellation is currently safe. §2 shows it is not: the only `CANCELLED` state is
   in-memory.
 - It does not claim the fence prevents in-flight effects (§5).
+- It does not claim that cancellation currently stops execution: the admission protocol exists and is tested at
+  store level (§8c), but the runner does not call it yet, so no execution path is fenced in this slice.
 - It does not claim the file/in-memory profiles give the same guarantee as JDBC: the file store is
   single-node, and "single-node" is a deployment assumption, not an invariant. Any claim must name the
   profile.

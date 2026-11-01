@@ -419,7 +419,7 @@ migrations:
       unrecorded. No data migration: refusal evidence uses the existing audit_outbox table.
   - module: ":tramai-orchestration"
     fromSha256: beefaf0846ba9d94964e0303b20a1014e415fb96150096502fb61e4ab2e07c34
-    toSha256: ebdd08f51e7d768230bbcacc6fc2ab3538e6d40f16e643cb716a545c1df8cd0e
+    toSha256: fe9e4ee10c471dba81d38bd5b933fd298a8e64dfc34f3fbe70e43b92ea79b2e8
     targetVersion: "0.7.0"
     rationale: >-
       Epic 0.7.7a: durable cancellation authority. Adds WorkflowLifecycleStatus (CANCELLED,
@@ -431,7 +431,9 @@ migrations:
       change for consumers that never cancel, and stores that cannot answer atomically refuse instead of
       cancelling locally. One source-compatible signature note: InMemoryWorkflowCheckpointStore's observer
       parameter now has a default, so the no-argument form is a Kotlin default rather than a separate
-      constructor; compiled callers must recompile.
+      constructor; compiled callers must recompile. Slice (b) adds WorkflowAdmissionRequest, WorkflowAdmission,
+      WorkflowCheckpointStore.admit() with a fail-closed default, and the admission_seq column with its own
+      migration step; a store must not admit work it cannot fence, so the default refuses.
     migration: >-
       Run JdbcWorkflowCheckpointStore.lifecycleMigrationSql() against an existing checkpoint table before
       enabling cancellation: the four lifecycle columns are nullable, existing rows read as never cancelled,
