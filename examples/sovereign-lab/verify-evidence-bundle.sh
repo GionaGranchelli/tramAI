@@ -243,10 +243,16 @@ GOVERNED_IDENTITY_KEYS = {
     "identity.deploymentId",
 }
 
-# G2: registered enforcement-boundary provenance. Enforcement strength is a REGISTRATION fact, never a
-# value the record is trusted to assert, so this table mirrors the framework-owned registry in
-# tramai-security (RuntimeBoundaryProvenance). A record naming a boundary outside this table is
-# rejected rather than downgraded: an identifier no contract covers cannot be validated against one.
+# Registered enforcement-boundary provenance. This table mirrors the framework-owned registry in
+# tramai-security (RuntimeBoundaryProvenance). The registered strength is an ENTITLEMENT, not something a
+# record may assert:
+#   * a modern three-key record carries `DECLARED` with origin `declared` -- it declares the boundary and
+#     claims no prevention, because attribution from data cannot establish that the boundary acted;
+#   * a legacy two-key record (before 0.7.6g1, read only under --legacy-provenance) carries the
+#     registration-derived strength, and must carry exactly the one this table grants -- the value is
+#     never taken from the record;
+#   * a record naming a boundary outside this table is rejected rather than downgraded: an identifier no
+#     contract covers cannot be validated against one.
 GOVERNED_BOUNDARY_ID_KEY = "boundary.id"
 GOVERNED_BOUNDARY_STRENGTH_KEY = "boundary.enforcementStrength"
 # 0.7.6g1: strength and origin are separate axes. Strength says what a registration ENTITLES; origin says
