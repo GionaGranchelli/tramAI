@@ -559,9 +559,14 @@ class RuntimeEvidenceBundleIntegrationTest {
                     "unregistered enforcement boundary 'some-other-adapter'",
                 ),
                 Triple(
-                    "a strength the registration does not grant",
-                    { node -> node.metadataNode().put("boundary.enforcementStrength", "OBSERVED") },
-                    "cannot claim 'OBSERVED'",
+                    "a strength above the declaration",
+                    { node -> node.metadataNode().put("boundary.enforcementStrength", "AUTHORITATIVE") },
+                    "cannot claim 'AUTHORITATIVE'",
+                ),
+                Triple(
+                    "a caller-asserted attested origin",
+                    { node -> node.metadataNode().put("boundary.origin", "attested") },
+                    "has no attester in this runtime",
                 ),
                 Triple(
                     "partial provenance",

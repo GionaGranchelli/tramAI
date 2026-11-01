@@ -53,17 +53,37 @@ internal object RuntimeBoundaryProvenance {
     /** The boundary's evidence was imported from outside this runtime. */
     const val IMPORTED = "IMPORTED"
 
+    /**
+     * A producer **declared** this boundary. Nothing establishes that the boundary participated in the
+     * request, observed it, or prevented anything -- only that a producer named an identifier. This is
+     * the strength the data-only export path emits, and it is deliberately *not* [OBSERVED]: observation
+     * is a claim about the boundary's own behaviour, and a declaration makes no such claim.
+     */
+    const val DECLARED = "DECLARED"
+
     const val ID_KEY = "boundary.id"
     const val STRENGTH_KEY = "boundary.enforcementStrength"
+
+    /**
+     * The attribution axis, kept separate from strength on purpose: strength says what a registration
+     * grants, origin says who established that *this* event came from that boundary. Conflating them is
+     * how a declared identifier came to read as enforced behaviour.
+     */
+    const val ORIGIN_KEY = "boundary.origin"
+    const val ORIGIN_DECLARED = "declared"
+    const val ORIGIN_ATTESTED = "attested"
 
     /**
      * The strength vocabulary is closed. A value outside it is not a weaker claim that can be capped;
      * it is unparseable provenance and is refused by [validate].
      */
-    val strengths = setOf(AUTHORITATIVE, INSTRUMENTED, OBSERVED, IMPORTED)
+    val strengths = setOf(AUTHORITATIVE, INSTRUMENTED, OBSERVED, IMPORTED, DECLARED)
 
-    /** Reserved keys, validated atomically: zero is legacy evidence, exactly two is governed provenance. */
-    val metadataKeys = setOf(ID_KEY, STRENGTH_KEY)
+    /** Closed origin vocabulary. `attested` is reserved: nothing in this runtime may mint it yet. */
+    val origins = setOf(ORIGIN_DECLARED, ORIGIN_ATTESTED)
+
+    /** Reserved keys, validated atomically: zero is legacy evidence, exactly three is governed provenance. */
+    val metadataKeys = setOf(ID_KEY, STRENGTH_KEY, ORIGIN_KEY)
 
     /** The declared XR1 boundary: the Spring AI callback, consumed by `GovernedToolCallback`. */
     const val SPRING_AI_TOOL_CALLBACK = "spring-ai-tool-callback"
@@ -119,9 +139,21 @@ internal object RuntimeBoundaryProvenance {
         if (eventMetadata.containsKey(STRENGTH_KEY)) {
             reject("a caller-supplied $STRENGTH_KEY is a self-asserted claim; strength is framework-derived")
         }
+        if (eventMetadata.containsKey(ORIGIN_KEY)) {
+            reject(
+                "a caller-supplied $ORIGIN_KEY is a self-asserted origin; origin is established by the " +
+                    "attester that holds the boundary's authority, never by the event",
+            )
+        }
         val boundaryId = eventMetadata[ID_KEY] ?: return emptyMap()
         val boundary = resolve(boundaryId, enforcementPoint)
-        return mapOf(ID_KEY to boundary.id, STRENGTH_KEY to boundary.strength)
+        // The registration's strength is an ENTITLEMENT, not a finding about this event: this path sees
+        // data, not the boundary. Emitting [DECLARED] is the strongest true statement available here.
+        return mapOf(
+            ID_KEY to boundary.id,
+            STRENGTH_KEY to DECLARED,
+            ORIGIN_KEY to ORIGIN_DECLARED,
+        )
     }
 
     /**
@@ -148,13 +180,22 @@ internal object RuntimeBoundaryProvenance {
             else -> {
                 val boundaryId = metadata.getValue(ID_KEY)
                 val strength = metadata.getValue(STRENGTH_KEY)
+                val origin = metadata.getValue(ORIGIN_KEY)
                 require(strength in strengths) {
                     "unknown enforcement strength '$strength'; the vocabulary is ${strengths.sorted()}"
                 }
+                require(origin in origins) {
+                    "unknown enforcement origin '$origin'; the vocabulary is ${origins.sorted()}"
+                }
+                require(origin != ORIGIN_ATTESTED) {
+                    "boundary origin '$ORIGIN_ATTESTED' has no attester in this runtime: verified origin " +
+                        "attribution is not implemented, so no record may claim it"
+                }
                 val boundary = resolve(boundaryId, enforcementPoint)
-                require(boundary.strength == strength) {
-                    "boundary '${boundary.id}' is registered at ${boundary.strength} and cannot claim " +
-                        "'$strength'; a boundary may not exceed the strength its registration grants"
+                require(strength == DECLARED) {
+                    "boundary '${boundary.id}' carries declared origin and cannot claim '$strength'; a " +
+                        "declaration establishes neither participation nor prevention, and the registered " +
+                        "entitlement ${boundary.strength} requires an attester"
                 }
             }
         }

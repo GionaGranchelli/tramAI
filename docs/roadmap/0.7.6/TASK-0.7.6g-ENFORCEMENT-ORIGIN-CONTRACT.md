@@ -143,7 +143,40 @@ Mutations to run for each: remove the origin cap (T1), drop origin from the dige
 3. **Slice 2 timing:** hold the store Read-back (R2) until a real boundary exists (recommended, F6),
    or implement it against a test-only boundary now?
 
-## 8. What this contract does not claim
+## 8. Ratified decisions and Slice 1 as built (0.7.6g1)
+
+Owner ruling: **R3 approved** (wiring-held in-process capability, in-process ceiling documented),
+**classify-and-cap approved**, **Slice 2 deferred** until a real boundary exists and can prove that
+evaluation and prevention happen where attribution is established.
+
+Shipped in Slice 1:
+
+- **Vocabulary.** `boundary.enforcementStrength` gains `DECLARED`. It is deliberately *not* `OBSERVED`:
+  observation is a claim about the boundary's own behaviour, and a declaration makes no such claim.
+  `AUTHORITATIVE` remains the registration's **entitlement**, not something this path may report.
+- **Second axis.** `boundary.origin` ∈ {`declared`, `attested`}. Reserved, validated atomically with the
+  other two keys (zero = legacy, three = governed, anything between = corruption). `attested` is
+  **refused** until an attester exists, so the value cannot be reached by editing bytes either.
+- **Data-only export declares.** `provenanceFor` emits `{id, DECLARED, declared}` for a registered
+  identifier, and refuses a caller-supplied strength *or* origin as self-assertion. The registration's
+  entitlement is never copied into a record from data.
+- **Verifier parity.** `examples/sovereign-lab/verify-evidence-bundle.sh` carries the same three-key
+  tuple, the same closed vocabularies, the same attested refusal and the same declared-strength cap —
+  the out-of-process reviewer and the framework agree, so a bundle cannot be "valid" under one and not
+  the other.
+- **Consequence for the demo boundary.** `GovernanceBoundaryTest` still proves the Spring AI boundary
+  prevents execution, while its *evidence* now declares. Behavioural strength and evidence strength are
+  separate facts, and the tests pin both sides of that separation.
+
+Mutation proof (each removes one guard; the named test must die): declaration replaced by the
+entitlement → fabrication test dies; declared origin claiming a higher strength → cap test dies;
+`attested` accepted → attester test dies; caller-supplied origin copied → self-assertion test dies;
+origin dropped from the reserved tuple → pre-g1 two-key test dies.
+
+**Issue #524 stays open**: the exporter can no longer emit fabricated AUTHORITATIVE evidence, but
+genuine origin attribution requires the Slice 2 attester.
+
+## 9. What this contract does not claim
 
 - It does not make fabricated evidence impossible inside a JVM. It makes AUTHORITATIVE
   unreachable from event data, and labels everything else honestly.

@@ -193,7 +193,7 @@ class GovernanceBoundaryTest {
     // ── Enforcement-strength agreement ──────────────────────────────────────
 
     @Test
-    fun `every refusal declares the strength the framework resolves in the same call's evidence`() {
+    fun `every refusal's behavioural strength and its evidence strength stay separate facts`() {
         val cases =
             listOf(
                 "DENY" to DefaultPolicyEngine(PolicyConfiguration()),
@@ -220,10 +220,23 @@ class GovernanceBoundaryTest {
                     ?.get(1)
                     ?: error("the $label refusal must declare a strength: $refusal")
 
+            // The caller-visible outcome may claim prevention, because this boundary demonstrably
+            // prevents. The evidence may not repeat that claim: attribution from data is a declaration,
+            // and keeping the two apart is exactly what 0.7.6g1 fixes.
             assertEquals(
+                "AUTHORITATIVE",
                 declared,
+                "the $label refusal's behavioural strength is the boundary's own outcome",
+            )
+            assertEquals(
+                "DECLARED",
                 exported.metadata["boundary.enforcementStrength"],
-                "the $label refusal's declared strength must agree with the framework-resolved evidence strength",
+                "evidence from a data-only export must declare, not assert, the strength",
+            )
+            assertEquals(
+                "declared",
+                exported.metadata["boundary.origin"],
+                "evidence from a data-only export must record that origin is declared",
             )
         }
     }

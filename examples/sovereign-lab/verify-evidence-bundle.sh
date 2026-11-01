@@ -234,8 +234,16 @@ GOVERNED_IDENTITY_KEYS = {
 # rejected rather than downgraded: an identifier no contract covers cannot be validated against one.
 GOVERNED_BOUNDARY_ID_KEY = "boundary.id"
 GOVERNED_BOUNDARY_STRENGTH_KEY = "boundary.enforcementStrength"
-GOVERNED_BOUNDARY_KEYS = {GOVERNED_BOUNDARY_ID_KEY, GOVERNED_BOUNDARY_STRENGTH_KEY}
-ENFORCEMENT_STRENGTHS = {"AUTHORITATIVE", "INSTRUMENTED", "OBSERVED", "IMPORTED"}
+# 0.7.6g1: strength and origin are separate axes. Strength says what a registration ENTITLES; origin says
+# who established that this event came from that boundary. A data-only producer establishes only a
+# declaration, so a record asserting `attested` is rejected here exactly as the framework rejects it.
+GOVERNED_BOUNDARY_ORIGIN_KEY = "boundary.origin"
+GOVERNED_BOUNDARY_KEYS = {
+    GOVERNED_BOUNDARY_ID_KEY, GOVERNED_BOUNDARY_STRENGTH_KEY, GOVERNED_BOUNDARY_ORIGIN_KEY,
+}
+ENFORCEMENT_STRENGTHS = {"AUTHORITATIVE", "INSTRUMENTED", "OBSERVED", "IMPORTED", "DECLARED"}
+ENFORCEMENT_ORIGINS = {"declared", "attested"}
+ORIGIN_ATTESTED = "attested"
 
 # boundary id -> (applicable enforcement point, the strength its contract grants)
 REGISTERED_BOUNDARIES = {
@@ -514,7 +522,7 @@ def validate_runtime_evidence():
                     missing_boundary_keys = sorted(GOVERNED_BOUNDARY_KEYS - set(present_boundary_keys))
                     fail(
                         f"runtime-evidence/{filename} line {line_num}: "
-                        f"partial enforcement-boundary provenance, expected both reserved keys or none, "
+                        f"partial enforcement-boundary provenance, expected all reserved keys or none, "
                         f"missing: {missing_boundary_keys}"
                     )
                 elif len(present_boundary_keys) == len(GOVERNED_BOUNDARY_KEYS):
@@ -539,11 +547,24 @@ def validate_runtime_evidence():
                             f"boundary '{boundary_id}' is registered for {registered_point} but the record "
                             f"enforces at {meta.get('enforcementPoint')}"
                         )
-                    if strength != registered_strength:
+                    origin = meta.get(GOVERNED_BOUNDARY_ORIGIN_KEY)
+                    if origin not in ENFORCEMENT_ORIGINS:
                         fail(
                             f"runtime-evidence/{filename} line {line_num}: "
-                            f"boundary '{boundary_id}' is registered at {registered_strength} and cannot "
-                            f"claim '{strength}'"
+                            f"unknown enforcement origin '{origin}'; "
+                            f"the vocabulary is {sorted(ENFORCEMENT_ORIGINS)}"
+                        )
+                    if origin == ORIGIN_ATTESTED:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary origin 'attested' has no attester in this runtime: verified origin "
+                            f"attribution is not implemented, so no record may claim it"
+                        )
+                    if strength != "DECLARED":
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"boundary '{boundary_id}' carries declared origin and cannot claim '{strength}'; "
+                            f"the registered entitlement {registered_strength} requires an attester"
                         )
 
                 # ── Family-specific metadata value validation ────────
