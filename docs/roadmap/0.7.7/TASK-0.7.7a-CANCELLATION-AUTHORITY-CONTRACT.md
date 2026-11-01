@@ -1,8 +1,9 @@
 # TASK-0.7.7a — Authoritative cancellation & resume fencing: contract and threat model
 
-Status: **contract only. No implementation.** The authority analysis below concludes that no existing store
-can establish run-level cancellation authority atomically, so §7 states the required persistence change
-instead of improvising a second lifecycle authority.
+Status: **ratified; slice (a) implemented, slices (b)-(d) held.** D1-D5 frozen by owner ruling (review
+5727941344) and recorded in §10. Slice (a) — durable lifecycle state, generation-fenced CAS cancellation,
+migration, retention, store-level adversarial tests — is implemented in this PR. fences B1-B5 are held until
+the execution-admission race has the contract in §11.
 Base: `release/0.7.0` at `8de4f9d6`.
 Roadmap: `docs/ROADMAP-0.7.0-RELEASE-CUT.md` §P0.9 (runtime control), P0.12 bypass list.
 Owner decisions required: §10.
@@ -99,6 +100,20 @@ Under L-B the race resolves to exactly two outcomes, and both are safe:
 - **The worker wins the CAS.** The cancel's precondition is stale; it reloads and re-issues against N+1. The
   invariant holds as long as the cancel commits before the *next* side-effecting boundary — which is why
   §4's fence points bound the retry loop rather than allowing it to run unbounded.
+
+### 3.1 ABA protection: the generation is part of the precondition
+
+A revision alone is not enough. A run's identity can be re-established with a rotated
+`checkpointGeneration`, so a privileged command holding only a matching revision could adopt a generation it
+never observed and cancel a run it does not describe. `WorkflowCancellationRequest` therefore carries
+`expectedRevision` **and** `expectedGeneration`, and the store's conditional write matches both
+(`AND checkpoint_generation = ?`, or `IS NULL` for legacy rows that predate the column). A generation
+mismatch is a conflict and records nothing.
+
+Idempotency is defined so it cannot smuggle in a second linearization point: once a cancellation is
+committed, a repeated command returns the recorded state **without advancing the revision**, including a
+retry that presents the now-current revision. There is exactly one commit, and the returned
+`WorkflowLifecycleState.revision` identifies it.
 
 ---
 
@@ -214,6 +229,39 @@ campaign by never running (recorded during 0.7.6g1).
 
 ---
 
+## 8b. Slice (a) as implemented
+
+| Element | Where | Behaviour |
+| --- | --- | --- |
+| `WorkflowLifecycleStatus` | `WorkflowLifecycle.kt` | `CANCELLED`, `CANCELLED_UNCERTAIN` (wire names persisted) |
+| `WorkflowLifecycleState` | same | status, revision, generation, timestamp, actor, reason |
+| `WorkflowCancellationRequest` | same | identity + expected revision **and** generation + actor + reason + uncertain |
+| `lifecycle()` / `cancel()` | `WorkflowCheckpointStore` | default **refuses** with `WorkflowCancellationUnsupportedException` |
+| In-memory store | `WorkflowPersistence.kt` | full implementation; cancel bumps the row revision; cancelled rows refuse deletion |
+| JDBC store | `JdbcWorkflowCheckpointStore` | four nullable columns, one conditional `UPDATE … WHERE revision AND generation AND lifecycle_status IS NULL`; cancelled rows refuse deletion; `lifecycleMigrationSql()` adds the columns |
+| Markdown / file stores | unchanged | inherit the refusal: they cannot answer atomically, so they do not answer at all |
+
+Store-level tests: `WorkflowCancellationAuthorityTest` (13 cases) covers commit-at-next-revision, one
+linearization point under repeat and under a retry against the committed revision, stale revision, stale
+generation, uncertain-not-clean, retention (both stores), unknown run, unsupported profile refusal, durability
+across a new store instance, and the pre-migration upgrade path.
+
+Mutations, each of which must fail a named test: ignoring the generation in the in-memory cancel; removing
+`lifecycle_status IS NULL` from the JDBC cancel; removing the in-memory retention refusal; removing the JDBC
+retention refusal; recording an uncertain cancellation as a clean one. Five of five killed — the JDBC
+`lifecycle_status` guard needed a test that retries **against the committed revision** before it was
+distinguishable from an equivalent mutant, which is why that case exists.
+
+Two properties of slice (a) that an operator must know:
+
+- **The migration is a precondition, not an optional step.** On a table without the lifecycle columns the
+  lifecycle read fails closed (`READ_FAILED`); it never reports "not cancelled" from a column that is not
+  there. Ordinary checkpoint reads are unaffected.
+- **`uncertain` is still caller-supplied.** Slice (a) has no admission protocol, so nothing in the store can
+  derive whether an attempt was in flight. Until §11's admission boundary exists, a caller could pass
+  `uncertain = false` for a run that had a call in flight — a false clean-cancellation claim. The state
+  machine is correct; the *input* to it is not yet trustworthy, and slice (b) must derive it.
+
 ## 9. What this contract does not claim
 
 - It does not claim cancellation is currently safe. §2 shows it is not: the only `CANCELLED` state is
@@ -226,7 +274,53 @@ campaign by never running (recorded during 0.7.6g1).
 
 ---
 
-## 10. Owner decisions required
+## 11. Execution admission: the race the fence cannot read
+
+The Socratic case from the owner review is the reason B1-B5 are held:
+
+```text
+worker reads lifecycle: ACTIVE
+cancellation commits
+worker dispatches model/tool call       <- a read-then-act gap; no read can close it
+```
+
+A read-check before each call is not a linearizable admission protocol. The contract therefore defines
+admission as an **act**, not an observation:
+
+- **ADMITTED** — a conditional write on the run's own lifecycle row that (a) presents the revision and
+  generation the worker last observed, and (b) is guarded by `lifecycle_status IS NULL`. Because the
+  cancellation commit is a conditional write on the *same* row with the *same* guard, admission and
+  cancellation are totally ordered by the row: exactly one of them can present the revision that wins, and
+  after a cancellation commits, no admission write can succeed at all.
+- **DISPATCHED** — the in-process act of starting the call. Unobservable to the store.
+- **LANDED** — the external effect. Knowable only if the tool reports it.
+
+The guarantee is stated over ADMITTED, and only over ADMITTED:
+
+> If a cancellation commits before call *k* is admitted, call *k* is never dispatched. If call *k* is admitted
+> before the cancellation commits, the run terminates `CANCELLED_UNCERTAIN` — admission proves permission, never
+> absence of effect.
+
+Consequences that make this testable rather than aspirational:
+
+- The admission write reuses the path that already exists (`LeaseFencedCheckpointStore`): no new mechanism, no
+  second lifecycle authority, no per-call polling loop.
+- The row needs an admission counter (a monotonically increasing `admission_seq`, plus the outstanding-attempt
+  marker) so the cancellation commit can **derive** `CANCELLED` vs `CANCELLED_UNCERTAIN` instead of trusting a
+  caller boolean. This is the slice (b) schema addition; it is deliberately not in slice (a).
+- The physical gap between DISPATCHED and LANDED is not closed by any durable state, in this design or any
+  other. Claims must stop at ADMITTED, and the evidence must say so.
+
+Slice (b) is therefore gated on: the `admission_seq` column, the admittance write, derived uncertainty, and the
+tests T1-T8 re-expressed against admission rather than against a read.
+
+---
+
+## 10. Owner decisions (ratified)
+
+D1-D5 as ruled: dedicated lifecycle column; L-B (CAS without lease); strictly terminal; first-class
+`CANCELLED_UNCERTAIN`; JDBC authoritative with the file profile failing closed. The table below is the record
+of what was asked, not an open question.
 
 **D1 — Cancellation state location.** Dedicated lifecycle column (recommended) vs widening
 `WorkflowRecoveryState`.

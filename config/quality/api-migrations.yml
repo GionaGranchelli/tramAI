@@ -417,3 +417,25 @@ migrations:
       Deployments that serve privileged decisions must expose a SovereignOpsRefusalRecorder bean (the
       default outbox operations bean satisfies it) or refusals fail closed rather than being returned
       unrecorded. No data migration: refusal evidence uses the existing audit_outbox table.
+  - module: ":tramai-orchestration"
+    fromSha256: beefaf0846ba9d94964e0303b20a1014e415fb96150096502fb61e4ab2e07c34
+    toSha256: ebdd08f51e7d768230bbcacc6fc2ab3538e6d40f16e643cb716a545c1df8cd0e
+    targetVersion: "0.7.0"
+    rationale: >-
+      Epic 0.7.7a: durable cancellation authority. Adds WorkflowLifecycleStatus (CANCELLED,
+      CANCELLED_UNCERTAIN), WorkflowLifecycleState, WorkflowCancellationRequest (carrying both the expected
+      revision and the expected generation, so a privileged command cannot adopt a generation it never
+      observed), WorkflowCancellationUnsupportedException, and the lifecycle()/cancel() pair on
+      WorkflowCheckpointStore with fail-closed defaults. In-memory and JDBC stores implement it; JDBC adds four
+      nullable columns plus lifecycleMigrationSql(). Additive only: no existing signature changes, no behaviour
+      change for consumers that never cancel, and stores that cannot answer atomically refuse instead of
+      cancelling locally. One source-compatible signature note: InMemoryWorkflowCheckpointStore's observer
+      parameter now has a default, so the no-argument form is a Kotlin default rather than a separate
+      constructor; compiled callers must recompile.
+    migration: >-
+      Run JdbcWorkflowCheckpointStore.lifecycleMigrationSql() against an existing checkpoint table before
+      enabling cancellation: the four lifecycle columns are nullable, existing rows read as never cancelled,
+      and ordinary checkpoint reads are unaffected. Until the migration runs, lifecycle() fails closed rather
+      than reporting "not cancelled". Deployments using the markdown or file checkpoint stores are unaffected
+      and cannot cancel authoritatively: those stores refuse with WorkflowCancellationUnsupportedException
+      instead of falling back to a local-only cancellation.
