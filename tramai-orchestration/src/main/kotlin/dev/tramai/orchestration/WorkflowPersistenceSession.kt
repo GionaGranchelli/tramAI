@@ -77,6 +77,34 @@ internal class WorkflowPersistenceSession<S>(
         renewLeaseIfPresent()
     }
 
+    /**
+     * Step admission (E11): the run's durable authority must permit this step before the step is entered.
+     *
+     * Ordinary workflows are untouched. [governedRunIdentity] is the caller's declaration that this run claims the
+     * durable guarantees, so only a governed run is fenced: an ungoverned run has no cancellation authority to
+     * respect, and fencing it would break execution modes that never asked for the guarantee.
+     *
+     * A governed run with no persisted row is also not fenced, and that is not a hole: cancellation is a write to a
+     * row, so a run with no row cannot have been cancelled. Admission becomes mandatory from the first checkpoint on,
+     * which is exactly when the authority can start refusing.
+     */
+    suspend fun admitStep(stepName: String) {
+        if (governedRunIdentity == null) return
+        val revision = currentRevision ?: return
+        val admission =
+            persistence.checkpointStore.admit(
+                WorkflowAdmissionRequest(
+                    workflowName = workflowName,
+                    workflowId = context.workflowId,
+                    expectedRevision = revision,
+                    expectedGeneration = currentGeneration,
+                ),
+            )
+        if (!admission.admitted) {
+            throw refuseStepAdmission(workflowName, context.workflowId, stepName, admission)
+        }
+    }
+
     suspend fun scheduleDelayWakeup(
         stepName: String,
         resumeAt: Instant,

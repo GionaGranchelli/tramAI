@@ -61,9 +61,10 @@ internal class JdbcAdmissionCounter(
     /**
      * The counter under a row lock, or null when the run cannot be admitted.
      *
-     * [java.sql.Connection] must be inside a transaction for the lock to mean anything; [admit] opens one.
+     * The supplied connection must already be inside a transaction: outside one the lock dies with the statement and
+     * two callers could read the same value. `JdbcWorkflowCheckpointStore.admit()` is the caller that opens it, and
+     * this read decides nothing about lifecycle on its own -- it only refuses when the row is gone or cancelled.
      */
-
     private fun admissionSelectForUpdateInConnection(
         connection: java.sql.Connection,
         request: WorkflowAdmissionRequest,

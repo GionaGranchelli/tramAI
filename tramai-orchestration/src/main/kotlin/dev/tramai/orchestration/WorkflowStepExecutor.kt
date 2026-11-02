@@ -12,9 +12,10 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
  * [InternalWorkflowStep.execute]; this class never dispatches on a concrete
  * step type.
  *
- * Frozen contract (unchanged by the #246/#247 refactors):
+ * Frozen contract (unchanged by the #246/#247 refactors, extended by 0.7.7b E11):
  * ```
- * stepCounter.beforeStep
+ * persistenceSession.admitStep   (governed runs only; refusal stops the step here)
+ *   → stepCounter.beforeStep
  *   → observer.onStepStarted
  *   → step.execute(request)
  *   → Completed?  YES → observer.onStepCompleted
@@ -37,16 +38,20 @@ internal class WorkflowStepExecutor<S>(
         step: InternalWorkflowStep<S>,
         request: WorkflowStepExecutionRequest<S>,
     ): WorkflowStepExecutionResult<S> {
+        // E11: the durable authority gets asked before the step exists as work. A cancelled run never gets here,
+        // because the refusal happens at this line rather than somewhere inside a step that already began.
+        request.persistenceSession?.admitStep(step.name)
         request.stepCounter.beforeStep(workflowName, step.name)
         request.observer.onStepStarted(workflowName, step.name, request.context)
-        val result = try {
-            step.execute(request)
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            val sanitized = sanitizeStepFailure(step, workflowName, failureDiagnosticObserver, error)
-            request.observer.onStepFailed(workflowName, step.name, sanitized, request.context)
-            throw sanitized
-        }
+        val result =
+            try {
+                step.execute(request)
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                val sanitized = sanitizeStepFailure(step, workflowName, failureDiagnosticObserver, error)
+                request.observer.onStepFailed(workflowName, step.name, sanitized, request.context)
+                throw sanitized
+            }
         if (result is WorkflowStepExecutionResult.Completed) {
             request.observer.onStepCompleted(workflowName, step.name, request.context)
         }

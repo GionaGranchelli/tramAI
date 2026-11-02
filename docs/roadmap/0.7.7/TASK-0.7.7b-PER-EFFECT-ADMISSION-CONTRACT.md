@@ -225,6 +225,29 @@ Qualified by two tests and two mutants:
 - Mutants: receipt taken from a read-back after the write (killed by the ordering test); `FOR UPDATE` removed from
   the locked read (killed by the concurrency test).
 
+## 10b. Stage 1 as implemented (E11, step admission)
+
+`WorkflowStepExecutor.executeStep` now asks `WorkflowPersistenceSession.admitStep(stepName)` before the step exists
+as work, so a refusal happens at the choke point rather than somewhere inside a step that already began. Two limits
+are part of the design, not gaps to be closed later:
+
+- **Only governed runs are fenced.** `governedRunIdentity` is the caller's declaration that the run claims the durable
+  guarantees. An ordinary run carries no such identity, has no cancellation authority to respect, and keeps working
+  untouched: fencing every run would break execution modes that never asked for the guarantee, and would claim an
+  authority those modes do not have.
+- **A governed run with no persisted row is not yet fenced.** Cancellation is a write to a row, so a run with no row
+  cannot have been cancelled. Admission becomes mandatory from the first checkpoint onwards, which is exactly when the
+  authority can start refusing.
+
+Refusals are terminal for the attempt: `WorkflowAdmissionRefusedException` names the run, the step and the recorded
+lifecycle status, and the caller stops rather than retrying the same attempt. A store that cannot decide admission
+refuses a governed step outright (`WorkflowCancellationUnsupportedException`), which is the D6 ruling applied to
+execution rather than only to cancellation.
+
+Proven by `WorkflowStepAdmissionTest` (four cases: cancelled governed run refused, ordinary run unaffected,
+no-row run unaffected, admitting-incapable store refused) with three mutants killed -- fencing every run, ignoring the
+refusal, and admitting a made-up revision.
+
 ## 11. What approval of this contract authorizes
 
 Approval authorizes implementation of the guards **in this order**, each with its own adversarial tests:
