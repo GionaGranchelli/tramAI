@@ -238,9 +238,19 @@ Qualified by two tests and two mutants:
 
 ## 10b. Stage 1 as implemented (E11, step admission)
 
-`WorkflowStepExecutor.executeStep` now asks `WorkflowPersistenceSession.admitStep(stepName)` before the step exists
-as work, so a refusal happens at the choke point rather than somewhere inside a step that already began. Two limits
-are part of the design, not gaps to be closed later:
+`WorkflowStepExecutor.executeStep` -- the single choke point every built-in step passes through -- asks the durable
+authority for admission before the step exists as work, so a refusal happens at the boundary rather than somewhere
+inside a step that already began.
+
+The authority reaches the executor as a **capability**, never as a persistence session. `WorkflowStepExecutionServices`
+carries an `internal WorkflowStepAdmission`, established once per execution path from the run's own persistence session
+in `WorkflowRunner`, and `executeStep` calls `services.stepAdmission?.admit(step.name)`. Nested steps inherit it through
+the services they already receive, while their `persistenceSession` stays `null`: a nested step is admitted without
+becoming a checkpoint boundary, so admission authority is carried but checkpoint authority is not. The capability is
+`internal` on purpose -- its consumers are this module's execution infrastructure, and publishing it would be an API
+promise with no external caller behind it.
+
+Two limits are part of the design, not gaps to be closed later:
 
 - **Only governed runs are fenced.** `governedRunIdentity` is the caller's declaration that the run claims the durable
   guarantees. An ordinary run carries no such identity, has no cancellation authority to respect, and keeps working
@@ -255,9 +265,14 @@ lifecycle status, and the caller stops rather than retrying the same attempt. A 
 refuses a governed step outright (`WorkflowCancellationUnsupportedException`), which is the D6 ruling applied to
 execution rather than only to cancellation.
 
-Proven by `WorkflowStepAdmissionTest` (four cases: cancelled governed run refused, ordinary run unaffected,
-no-row run unaffected, admitting-incapable store refused) with three mutants killed -- fencing every run, ignoring the
-refusal, and admitting a made-up revision.
+Proven at two levels. `WorkflowStepAdmissionTest` (four session-level cases: cancelled governed run refused, ordinary run
+unaffected, no-row run unaffected, admitting-incapable store refused) with three mutants killed -- fencing every run,
+ignoring the refusal, and admitting a made-up revision. `WorkflowRunnerStepAdmissionTest` (three runner-level cases on
+the real runner): a nested step after cancellation commits is refused and its body never runs; an ordinary run with no
+cancellation completes its nested steps; an ordinary run *with* cancellation executes the nested step -- so no admission
+refusal applies to a run that never claimed the guarantee -- and then fails at the terminal checkpoint row, which proves
+cancellation still committed and terminal checkpoint authority was not overwritten. That last case deliberately does not
+expect the run to finish.
 
 ## 10c. Stage 2 discipline (ratified)
 
