@@ -12,8 +12,10 @@ import dev.tramai.core.identity.WorkloadId
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -25,6 +27,9 @@ import kotlin.test.assertTrue
  */
 class WorkflowRunnerStepAdmissionTest {
     private val store = InMemoryWorkflowCheckpointStore()
+
+    /** The row's revision right after cancellation committed, so "the refused save changed nothing" is measured. */
+    private var cancelledRevision: Long? = null
 
     @Test
     fun `a nested step is refused after cancellation commits, and its body never runs`() {
@@ -55,6 +60,21 @@ class WorkflowRunnerStepAdmissionTest {
         // and the run then fails on the terminal row instead of pretending to finish.
         assertFailsWith<WorkflowCheckpointConflictException> { ordinaryRun(charged, cancel = true) }
         assertTrue(charged.get(), "the nested step runs for an ordinary run, even after cancellation")
+
+        // Both halves of the claim, asserted against the store rather than inferred from the exception: the refused
+        // save did not advance the row, and the committed cancellation is still the row's lifecycle status.
+        val lifecycle = runBlocking { store.lifecycle("checkout", "run-1") }
+        assertNotNull(lifecycle, "the row still carries a lifecycle record after the refused save")
+        assertEquals(
+            WorkflowLifecycleStatus.CANCELLED,
+            lifecycle.status,
+            "cancellation stays committed for an ordinary run",
+        )
+        assertEquals(
+            cancelledRevision,
+            runBlocking { store.load("checkout", "run-1") }?.revision,
+            "the refused save must not overwrite terminal checkpoint authority",
+        )
     }
 
     private fun governedRun(
@@ -121,6 +141,7 @@ class WorkflowRunnerStepAdmissionTest {
                 cancelledAtEpochMillis = 0L,
             ),
         )
+        cancelledRevision = store.load("checkout", "run-1")?.revision
     }
 
     private object PlainCodec : WorkflowStateCodec<String> {
