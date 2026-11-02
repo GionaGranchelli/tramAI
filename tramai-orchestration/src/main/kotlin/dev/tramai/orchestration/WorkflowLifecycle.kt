@@ -119,6 +119,42 @@ class WorkflowCancellationUnsupportedException(
     message: String,
 ) : UnsupportedOperationException(message)
 
+/**
+ * Step admission as a capability, so an execution path can be fenced without being handed checkpoint semantics.
+ *
+ * Nested steps are not checkpoint boundaries, and must not become any to be fenced: they get this and nothing else.
+ */
+internal fun interface WorkflowStepAdmission {
+    suspend fun admit(stepName: String)
+}
+
+/**
+ * Raised at an execution boundary when the durable authority refuses admission.
+ *
+ * The refusal is not a transient error: the run is terminal, or this worker's view of it is stale, and the step (or
+ * effect) must not be entered. Callers clean up and stop; they never retry the same attempt.
+ */
+class WorkflowAdmissionRefusedException(
+    message: String,
+) : IllegalStateException(message)
+
+/**
+ * The refusal a governed step gets when its run can no longer be admitted.
+ *
+ * Deliberately not a persistence failure: nothing went wrong with the database, the answer was "no".
+ */
+internal fun refuseStepAdmission(
+    workflowName: String,
+    workflowId: String,
+    stepName: String,
+    admission: WorkflowAdmission,
+): WorkflowAdmissionRefusedException =
+    WorkflowAdmissionRefusedException(
+        "workflow '$workflowName' run '$workflowId' cannot enter step '$stepName': " +
+            "admission was refused (recorded lifecycle ${admission.cancellation?.status}, " +
+            "admission sequence ${admission.sequence})",
+    )
+
 internal fun refuseAdmission(store: WorkflowCheckpointStore): WorkflowCancellationUnsupportedException =
     WorkflowCancellationUnsupportedException(
         "${store::class.simpleName} cannot admit workflow execution authoritatively; " +

@@ -289,7 +289,7 @@ internal class WorkflowRunner<S, R>(
         frame: WorkflowExecutionFrame<S>,
     ): S {
         var currentState = state
-        val services = executionServices()
+        val services = executionServices().copy(stepAdmission = frame.persistenceSession?.stepAdmission())
         for (index in startIndex until steps.size) {
             val step = steps[index]
             val request =

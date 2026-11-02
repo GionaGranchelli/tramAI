@@ -442,3 +442,20 @@ migrations:
       writing to an existing checkpoint fails loudly instead of proceeding unguarded. Deployments using the markdown or file checkpoint stores are unaffected
       and cannot cancel authoritatively: those stores refuse with WorkflowCancellationUnsupportedException
       instead of falling back to a local-only cancellation.
+  - module: :tramai-orchestration
+    fromSha256: fe9e4ee10c471dba81d38bd5b933fd298a8e64dfc34f3fbe70e43b92ea79b2e8
+    toSha256: 51e630318b1244fa1133f212d8b2148838ff87e2e22edc5027d12ec500ee2d40
+    targetVersion: 0.7.0
+    rationale: >-
+      0.7.7b adds WorkflowAdmissionRefusedException: the refusal a governed step gets when the durable authority
+      says no. The admission capability itself stays internal -- its only consumers are this module's execution
+      infrastructure, and publishing it would be an API promise with no external caller behind it. So the public delta
+      is one exception type and nothing else moves.
+    migration: >-
+      Catch WorkflowAdmissionRefusedException where a workflow run is executed. A governed run (one created with a
+      GovernedRunIdentity) now asks the checkpoint store to admit each step before the step is entered, and a
+      cancelled or stale run stops there instead of starting the step. Ordinary runs are unchanged: they carry no
+      governed identity, so no admission is taken and nothing refuses. The exception reports the run, the step and
+      the recorded lifecycle status, and it is terminal for that attempt -- retrying the same attempt is not
+      meaningful, because the authority already answered. Nothing else changes for callers: nested execution is
+      fenced through an internal capability carried by the execution services, so no public signature grew.
