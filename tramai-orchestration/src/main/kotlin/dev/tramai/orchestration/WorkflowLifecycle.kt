@@ -1,5 +1,10 @@
 package dev.tramai.orchestration
 
+import kotlinx.coroutines.currentCoroutineContext
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+
 /**
  * Terminal lifecycle state of one workflow run.
  *
@@ -128,6 +133,91 @@ internal fun interface WorkflowStepAdmission {
     suspend fun admit(stepName: String)
 }
 
+/** The effect kind every E5-E7 grant is taken for: one local process dispatch. */
+internal const val PROCESS_EFFECT_KIND: String = "PROCESS"
+
+/**
+ * Process-dispatch admission (E5-E7) as a capability distinct from [WorkflowStepAdmission].
+ *
+ * A step admission answers "may this step begin" and never authorizes a process: the step was admitted, the effect was
+ * not. Every process dispatch therefore asks again for its own grant, immediately before acquisition, and the answer is
+ * a single-use permit. Keeping it a separate capability is what stops an admitted step from becoming an admitted
+ * process anywhere in the call graph.
+ */
+internal fun interface WorkflowProcessAdmission {
+    suspend fun admitProcess(
+        stepName: String,
+        effectKind: String,
+    ): WorkflowProcessPermit
+}
+
+/**
+ * One durable grant for one process dispatch, consumable exactly once.
+ *
+ * [admissionSequence] is the durable part of the permit's identity, because it is the only component the authority
+ * issues; the step name and effect kind are attribution, and attribution is evidence, not authority.
+ *
+ * Consumption is local to this attempt and deliberately not durable: a worker that dies after dispatch admits again on
+ * restart and correctly receives a new sequence. It must never be read as, or relied on for, exactly-once external
+ * execution -- the remote side may already have acted on the first grant.
+ */
+internal class WorkflowProcessPermit(
+    val stepName: String,
+    val effectKind: String,
+    val admissionSequence: Long,
+) {
+    private val consumed = AtomicBoolean(false)
+
+    /**
+     * Consume the permit: true exactly once. A second call is a programming error and fails rather than re-dispatching,
+     * because one permit authorizes at most one dispatch attempt.
+     */
+    fun tryConsume(): Boolean {
+        check(!consumed.getAndSet(true)) {
+            "process permit for '$effectKind' in step '$stepName' (admission $admissionSequence) " +
+                "was already consumed; one permit authorizes at most one dispatch"
+        }
+        return true
+    }
+}
+
+/**
+ * A governed run with no durable session cannot authorize a process, so nothing may dispatch.
+ *
+ * Fail-closed by construction rather than by a caller remembering to check: an effect that cannot be authorized must
+ * not be sent, and "no authority installed" is not permission.
+ */
+internal fun refusingProcessAdmission(
+    workflowName: String,
+    workflowId: String,
+): WorkflowProcessAdmission =
+    WorkflowProcessAdmission { stepName, effectKind ->
+        throw refuseProcessAdmission(workflowName, workflowId, stepName, effectKind)
+    }
+
+/**
+ * The process-dispatch authority in force for the current coroutine frame.
+ *
+ * Established once by [WorkflowRunner] around a run's step execution, for the same reason [GovernedRunScope] is:
+ * a dispatch site deep inside a step (or inside a nested step) asks the frame rather than threading a capability
+ * through every signature between the runner and `ProcessBuilder.start()`. Absent means no authority is installed, so
+ * an ungoverned dispatch site stays ungoverned instead of inventing one.
+ */
+internal class WorkflowProcessAdmissionScope(
+    val capability: WorkflowProcessAdmission?,
+) : AbstractCoroutineContextElement(WorkflowProcessAdmissionScope) {
+    companion object Key : CoroutineContext.Key<WorkflowProcessAdmissionScope>
+}
+
+/**
+ * The process authority for this frame, or null when no governed execution established one.
+ *
+ * Null is "nothing to ask", never "allowed": the fail-closed decision was already taken by the runner, which installs
+ * [refusingProcessAdmission] for a governed run that has nothing durable behind it.
+ */
+internal suspend fun currentProcessAdmission(): WorkflowProcessAdmission? =
+    currentCoroutineContext()[WorkflowProcessAdmissionScope]?.capability
+
 /**
  * Raised at an execution boundary when the durable authority refuses admission.
  *
@@ -153,6 +243,35 @@ internal fun refuseStepAdmission(
         "workflow '$workflowName' run '$workflowId' cannot enter step '$stepName': " +
             "admission was refused (recorded lifecycle ${admission.cancellation?.status}, " +
             "admission sequence ${admission.sequence})",
+    )
+
+/** A process dispatch the authority refused: the effect never leaves the process. */
+internal fun refuseProcessAdmission(
+    workflowName: String,
+    workflowId: String,
+    stepName: String,
+    effectKind: String,
+    admission: WorkflowAdmission,
+): WorkflowAdmissionRefusedException =
+    WorkflowAdmissionRefusedException(
+        "workflow '$workflowName' run '$workflowId' cannot dispatch $effectKind for step '$stepName': " +
+            "admission was refused (recorded lifecycle ${admission.cancellation?.status}, " +
+            "admission sequence ${admission.sequence})",
+    )
+
+/**
+ * A governed run with nothing durable to ask: no checkpoint row exists, so no admission precondition can be presented
+ * and an unfenced dispatch would be an unauthorized effect. Refusing is the fail-closed direction.
+ */
+internal fun refuseProcessAdmission(
+    workflowName: String,
+    workflowId: String,
+    stepName: String,
+    effectKind: String,
+): WorkflowAdmissionRefusedException =
+    WorkflowAdmissionRefusedException(
+        "workflow '$workflowName' run '$workflowId' cannot dispatch $effectKind for step '$stepName': " +
+            "the run is governed but has no durable checkpoint authority to admit the effect, so it must not dispatch",
     )
 
 internal fun refuseAdmission(store: WorkflowCheckpointStore): WorkflowCancellationUnsupportedException =

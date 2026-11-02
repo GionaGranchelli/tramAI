@@ -48,6 +48,9 @@ internal class WorkflowStepExecutor<S>(
                 step.execute(request)
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
+                // A refusal is not a step failure: it keeps its own type so a caller can tell "the authority said no"
+                // from "the step broke", and never becomes a sanitized domain failure.
+                error.rethrowIfAuthoritativeRefusal()
                 val sanitized = sanitizeStepFailure(step, workflowName, failureDiagnosticObserver, error)
                 request.observer.onStepFailed(workflowName, step.name, sanitized, request.context)
                 throw sanitized

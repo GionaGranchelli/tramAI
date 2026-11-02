@@ -108,6 +108,40 @@ internal class WorkflowPersistenceSession<S>(
     // The admission capability for this session: for execution paths that must be fenced but must not checkpoint.
     fun stepAdmission(): WorkflowStepAdmission = WorkflowStepAdmission { stepName -> admitStep(stepName) }
 
+    /**
+     * Process-dispatch admission (E5-E7): one fresh durable grant per dispatch, taken immediately before acquisition.
+     *
+     * Null for an ordinary run, which claims no durable guarantees and must keep dispatching untouched. A governed run
+     * always gets the capability -- the caller substitutes a refusing one when there is no session at all -- so a
+     * governed process can never dispatch unfenced. It fails closed when this session has no revision to present: no
+     * durable authority means no grant, and no grant means no dispatch.
+     */
+    fun processAdmission(): WorkflowProcessAdmission? {
+        if (governedRunIdentity == null) return null
+        return WorkflowProcessAdmission { stepName, effectKind ->
+            val revision =
+                currentRevision
+                    ?: throw refuseProcessAdmission(workflowName, context.workflowId, stepName, effectKind)
+            val admission =
+                persistence.checkpointStore.admit(
+                    WorkflowAdmissionRequest(
+                        workflowName = workflowName,
+                        workflowId = context.workflowId,
+                        expectedRevision = revision,
+                        expectedGeneration = currentGeneration,
+                    ),
+                )
+            if (!admission.admitted) {
+                throw refuseProcessAdmission(workflowName, context.workflowId, stepName, effectKind, admission)
+            }
+            WorkflowProcessPermit(
+                stepName = stepName,
+                effectKind = effectKind,
+                admissionSequence = admission.sequence,
+            )
+        }
+    }
+
     suspend fun scheduleDelayWakeup(
         stepName: String,
         resumeAt: Instant,
