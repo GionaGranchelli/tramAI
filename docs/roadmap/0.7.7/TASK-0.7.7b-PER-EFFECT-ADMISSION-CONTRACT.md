@@ -283,16 +283,18 @@ immediately before `ProcessBuilder.start()`, single-use, with cancellation teste
 
 ## 10d. Stage 2 as implemented (E5-E7, process permits)
 
-The authority reaches the execution paths as a **second capability**, `WorkflowProcessAdmission`, on the same
-`WorkflowStepExecutionServices` value that carries step admission. It is a separate type on purpose: a value that can
-admit a process is never the value that admits a step, so no call site can satisfy the process rule by holding a step
-grant.
+The authority reaches the execution paths as a **separate capability**, `WorkflowProcessAdmission`,
+installed once for each run or resume by `WorkflowRunner` in a `WorkflowProcessAdmissionScope` coroutine-context
+element. Each dispatch site reads it with `currentProcessAdmission()`. Nested steps inherit that context without
+receiving a checkpoint session or extra execution privileges. `WorkflowStepAdmission` instead travels on
+`WorkflowStepExecutionServices`: these are different capabilities, and a step grant never authorizes a process.
 
-**One grant per dispatch.** `ShellWorkflowStep` (E7), `CodexWorkflowStep` (E5) and `HermesWorkflowStep` (E6) each call
-`services.processAdmission?.admitProcess(stepName, PROCESS)?.tryConsume()` immediately before
+**One grant per dispatch.** `ShellWorkflowStep.executeCommand` (E7) and the shared
+`AgentCliSupport.executeAgentCli` path (Codex E5 and Hermes E6) each call
+`currentProcessAdmission()?.admitProcess(stepName, PROCESS_EFFECT_KIND)?.tryConsume()` immediately before
 `startOwnedProcess { start() }`, outside the launch `try` block. `startOwnedProcess` keeps its `NonCancellable`
 acquisition unchanged: the durable act happens before it, and the one-shot permit governs the start that follows.
-`tryConsume()` is true exactly once and throws on a second call, so a permit cannot authorize two dispatches.
+`tryConsume()` returns true exactly once and throws on a second call, so a permit cannot authorize two dispatches.
 
 **Refusals are not launch failures.** `WorkflowAdmissionRefusedException` and `WorkflowCancellationUnsupportedException`
 are re-thrown ahead of every wrapper that would otherwise convert a step-body error: the shell step's catch, the two
