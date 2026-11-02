@@ -14,7 +14,7 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
  *
  * Frozen contract (unchanged by the #246/#247 refactors, extended by 0.7.7b E11):
  * ```
- * persistenceSession.admitStep   (governed runs only; refusal stops the step here)
+ * stepAdmission                     (governed runs only; a refusal stops the step here)
  *   → stepCounter.beforeStep
  *   → observer.onStepStarted
  *   → step.execute(request)
@@ -40,7 +40,7 @@ internal class WorkflowStepExecutor<S>(
     ): WorkflowStepExecutionResult<S> {
         // E11: the durable authority gets asked before the step exists as work. A cancelled run never gets here,
         // because the refusal happens at this line rather than somewhere inside a step that already began.
-        request.persistenceSession?.admitStep(step.name)
+        request.stepAdmission?.admit(step.name)
         request.stepCounter.beforeStep(workflowName, step.name)
         request.observer.onStepStarted(workflowName, step.name, request.context)
         val result =

@@ -59,6 +59,11 @@ internal data class WorkflowStepExecutionRequest<S>(
     val context: WorkflowContext,
     val observer: WorkflowObserver,
     val stepCounter: StepCounter,
+    /**
+     * Step admission (E11). Deliberately separate from [persistenceSession]: a nested step must be fenced without
+     * becoming a checkpoint boundary, so the authority travels as this capability and nothing wider.
+     */
+    val stepAdmission: WorkflowStepAdmission? = null,
     val persistenceSession: WorkflowPersistenceSession<S>?,
     val topLevelStepIndex: Int?,
     val resumedCheckpointMetadata: Map<String, String>?,
@@ -83,9 +88,7 @@ internal sealed interface InternalWorkflowStep<S> {
     val suspensionMode: WorkflowStepSuspensionMode
         get() = WorkflowStepSuspensionMode.NONE
 
-    suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S>
+    suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S>
 }
 
 // ─── Built-in step implementations (simple steps) ───────────────────────────
@@ -94,11 +97,10 @@ internal data class LocalWorkflowStep<S>(
     override val name: String,
     val transform: suspend (S, WorkflowContext) -> S,
 ) : InternalWorkflowStep<S> {
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
-        transform(request.state, request.context),
-    )
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
+        WorkflowStepExecutionResult.Completed(
+            transform(request.state, request.context),
+        )
 }
 
 internal data class AiWorkflowStep<S, I, O>(
@@ -113,20 +115,17 @@ internal data class AiWorkflowStep<S, I, O>(
         context: WorkflowContext,
     ): S = merge(state, invoke(input(state, context), context), context)
 
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
-        execute(request.state, request.context),
-    )
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
+        WorkflowStepExecutionResult.Completed(
+            execute(request.state, request.context),
+        )
 }
 
 internal data class GateWorkflowStep<S>(
     override val name: String,
     val decide: suspend (S, WorkflowContext) -> GateDecision,
 ) : InternalWorkflowStep<S> {
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> {
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> {
         val decision = decide(request.state, request.context)
         if (!decision.allowed) {
             throw WorkflowGateRejectedException(
@@ -156,22 +155,22 @@ internal data class PluginWorkflowStep<S>(
         return merge(state, result, context)
     }
 
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
-        execute(
-            workflowName = request.workflowName,
-            state = request.state,
-            context = request.context,
-            executorResolver = request.services.externalStepExecutorResolver,
-        ),
-    )
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
+        WorkflowStepExecutionResult.Completed(
+            execute(
+                workflowName = request.workflowName,
+                state = request.state,
+                context = request.context,
+                executorResolver = request.services.externalStepExecutorResolver,
+            ),
+        )
 }
 
 // ─── External step executor support (plugin steps) ──────────────────────────
 
 interface ExternalStepExecutorFactory {
     val typeId: String
+
     fun create(): ExternalStepExecutor
 }
 
@@ -185,7 +184,9 @@ class ExternalStepExecutorNotRegisteredException(
 
 interface ExternalStepExecutorResolver {
     fun isRegistered(typeId: String): Boolean
+
     fun registeredTypeIds(): Set<String>
+
     fun create(typeId: String): ExternalStepExecutor
 }
 
@@ -230,6 +231,5 @@ object NoOpExternalStepExecutorResolver : ExternalStepExecutorResolver {
 
     override fun registeredTypeIds(): Set<String> = emptySet()
 
-    override fun create(typeId: String): ExternalStepExecutor =
-        throw ExternalStepExecutorNotRegisteredException(typeId)
+    override fun create(typeId: String): ExternalStepExecutor = throw ExternalStepExecutorNotRegisteredException(typeId)
 }

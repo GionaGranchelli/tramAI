@@ -105,6 +105,9 @@ internal class WorkflowPersistenceSession<S>(
         }
     }
 
+    // The admission capability for this session: for execution paths that must be fenced but must not checkpoint.
+    fun stepAdmission(): WorkflowStepAdmission = WorkflowStepAdmission { stepName -> admitStep(stepName) }
+
     suspend fun scheduleDelayWakeup(
         stepName: String,
         resumeAt: Instant,

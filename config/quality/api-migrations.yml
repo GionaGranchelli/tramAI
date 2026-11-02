@@ -444,15 +444,19 @@ migrations:
       instead of falling back to a local-only cancellation.
   - module: :tramai-orchestration
     fromSha256: fe9e4ee10c471dba81d38bd5b933fd298a8e64dfc34f3fbe70e43b92ea79b2e8
-    toSha256: 51e630318b1244fa1133f212d8b2148838ff87e2e22edc5027d12ec500ee2d40
+    toSha256: a99d93e730f1f86110af65e0b85145dfc4d9dee2419b11cf04eba015dcdab47f
     targetVersion: 0.7.0
     rationale: >-
-      0.7.7b adds WorkflowAdmissionRefusedException: the refusal a governed step gets when the durable authority
-      says no. It is a new public type and nothing else moves, so compiled callers are unaffected until they catch it.
+      0.7.7b adds WorkflowAdmissionRefusedException (the refusal a governed step gets when the durable authority
+      says no) and WorkflowStepAdmission (that authority as a capability, so a nested step can be fenced without
+      becoming a checkpoint boundary); WorkflowStepExecutionRequest carries it as a new optional stepAdmission field.
+      Nothing else moves, and compiled callers are unaffected until they catch the exception or build a request.
     migration: >-
       Catch WorkflowAdmissionRefusedException where a workflow run is executed. A governed run (one created with a
       GovernedRunIdentity) now asks the checkpoint store to admit each step before the step is entered, and a
       cancelled or stale run stops there instead of starting the step. Ordinary runs are unchanged: they carry no
       governed identity, so no admission is taken and nothing refuses. The exception reports the run, the step and
       the recorded lifecycle status, and it is terminal for that attempt -- retrying the same attempt is not
-      meaningful, because the authority already answered.
+      meaningful, because the authority already answered. If you build WorkflowStepExecutionRequest directly, pass
+      stepAdmission along with your nested execution: nested steps are fenced through that capability, not through a
+      persistence session, and a request built without it runs unfenced.

@@ -120,6 +120,15 @@ class WorkflowCancellationUnsupportedException(
 ) : UnsupportedOperationException(message)
 
 /**
+ * Step admission as a capability, so an execution path can be fenced without being handed checkpoint semantics.
+ *
+ * Nested steps are not checkpoint boundaries, and must not become any to be fenced: they get this and nothing else.
+ */
+fun interface WorkflowStepAdmission {
+    suspend fun admit(stepName: String)
+}
+
+/**
  * Raised at an execution boundary when the durable authority refuses admission.
  *
  * The refusal is not a transient error: the run is terminal, or this worker's view of it is stale, and the step (or

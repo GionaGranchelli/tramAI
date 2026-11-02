@@ -300,6 +300,7 @@ internal class WorkflowRunner<S, R>(
                     observer = frame.observer,
                     stepCounter = stepCounter,
                     persistenceSession = frame.persistenceSession,
+                    stepAdmission = frame.persistenceSession?.stepAdmission(),
                     topLevelStepIndex = index,
                     resumedCheckpointMetadata = if (index == startIndex) frame.resumedCheckpointMetadata else null,
                     services = services,
@@ -311,6 +312,7 @@ internal class WorkflowRunner<S, R>(
                             observer = frame.observer,
                             stepCounter = stepCounter,
                             services = services,
+                            stepAdmission = frame.persistenceSession?.stepAdmission(),
                         )
                     },
                 )
@@ -350,6 +352,7 @@ internal class WorkflowRunner<S, R>(
         observer: WorkflowObserver,
         stepCounter: StepCounter,
         services: WorkflowStepExecutionServices,
+        stepAdmission: WorkflowStepAdmission?,
     ): S {
         var currentState = state
         for (step in steps) {
@@ -361,6 +364,7 @@ internal class WorkflowRunner<S, R>(
                     observer = observer,
                     stepCounter = stepCounter,
                     persistenceSession = null,
+                    stepAdmission = stepAdmission,
                     topLevelStepIndex = null,
                     resumedCheckpointMetadata = null,
                     services = services,
@@ -372,6 +376,7 @@ internal class WorkflowRunner<S, R>(
                             observer = observer,
                             stepCounter = stepCounter,
                             services = services,
+                            stepAdmission = stepAdmission,
                         )
                     },
                 )
