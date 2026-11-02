@@ -14,6 +14,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.net.http.HttpClient
 import java.time.Clock
+import kotlin.coroutines.CoroutineContext
 
 /**
  * Explicit execution bounds for one workflow run.
@@ -102,7 +103,7 @@ internal class WorkflowRunner<S, R>(
                 stepExecutions = stepCounter.stepExecutions,
             )
             val finalState =
-                withContext(processAdmissionScope(persistenceSession, governedRunIdentity, context)) {
+                withContext(effectAdmissionContext(persistenceSession, governedRunIdentity, context)) {
                     executeTopLevelSteps(
                         startIndex = 0,
                         state = initialState,
@@ -167,7 +168,7 @@ internal class WorkflowRunner<S, R>(
         return try {
             val resumedState = persistence.stateCodec.decode(checkpoint.statePayload)
             val finalState =
-                withContext(processAdmissionScope(persistenceSession, governedRunIdentity, context)) {
+                withContext(effectAdmissionContext(persistenceSession, governedRunIdentity, context)) {
                     executeTopLevelSteps(
                         startIndex = checkpoint.nextStepIndex,
                         state = resumedState,
@@ -415,18 +416,23 @@ internal class WorkflowRunner<S, R>(
         throw error
     }
 
-    // The process authority for one run, established for the whole step execution. A governed run never runs a process
-    // unfenced: with no session to admit against it gets a capability that only refuses, so "no authority installed" is
-    // never read as permission. An ordinary run gets nothing and keeps dispatching as before.
-    private fun processAdmissionScope(
+    // The effect authorities for one run, established for the whole step execution. A governed run never sends or
+    // starts anything unfenced: with no session to admit against it gets capabilities that only refuse, so "no
+    // authority installed" is never read as permission. An ordinary run gets nulls and keeps dispatching as before.
+    private fun effectAdmissionContext(
         persistenceSession: WorkflowPersistenceSession<S>?,
         governedRunIdentity: GovernedRunIdentity?,
         context: WorkflowContext,
-    ): WorkflowProcessAdmissionScope =
-        WorkflowProcessAdmissionScope(
-            persistenceSession?.processAdmission()
-                ?: governedRunIdentity?.let { refusingProcessAdmission(name, context.workflowId) },
-        )
+    ): CoroutineContext {
+        val effects = persistenceSession?.effectAdmissions()
+        val process =
+            effects?.process ?: governedRunIdentity?.let { refusingProcessAdmission(name, context.workflowId) }
+        val http =
+            effects?.http ?: governedRunIdentity?.let { refusingHttpAdmission(name, context.workflowId) }
+        // One context, two authorities: the process and HTTP capabilities are separate types, and each dispatch site
+        // asks only its own. Both are installed here so no run has to remember to install the second one.
+        return WorkflowProcessAdmissionScope(process) + WorkflowHttpAdmissionScope(http)
+    }
 }
 
 /**

@@ -194,7 +194,7 @@ another, so the interleaving is forced rather than hoped for.
 | T1 | Cancellation before effect admission prevents dispatch | cancel commits, then admit → latch-ordered; assert the transport/process was never invoked |
 | T2 | Effect admission before cancellation yields `CANCELLED_UNCERTAIN` | admit granted, cancel commits before dispatch → assert dispatch happened, outcome uncertain |
 | T3 | A step admitted earlier cannot authorize a new effect after cancellation | step admit, cancel, then effect admit → refused; assert no second dispatch |
-| T4 | A consumed permit cannot authorize another invocation | one permit, two `tryConsume()` calls → second returns false and the transport sees one call |
+| T4 | A consumed permit cannot authorize another invocation | one permit, two `tryConsume()` calls → the second throws and the transport sees one call |
 | T5 | Retry requires fresh admission and cannot reuse a permit | attempt 1 fails, attempt 2 re-admits → two distinct `admissionSeq` values; reuse path is refused |
 | T6 | A stale worker or checkpoint generation cannot obtain admission | admit with an old generation → refused, no dispatch |
 | T7 | Late approval and delayed wakeup cannot bypass run-level authority | resume path forced after cancel → refused at E9 |
@@ -301,9 +301,9 @@ are re-thrown ahead of every wrapper that would otherwise convert a step-body er
 CLI steps' `codeForCliFailure` catch, and `WorkflowStepExecutor`'s sanitising catch. A refusal therefore never surfaces
 as `AgentCliStartException`, `START_FAILED` or a sanitised step failure -- it names the run, the step and the effect.
 
-**Fail-closed, including when there is nothing to ask.** `WorkflowPersistenceSession.processAdmission()` returns null
-for an ordinary run (backward compatible: no authority is consulted at all) and refuses when the session has no
-revision to present. A governed run whose execution has no persistence session at all receives
+**Fail-closed, including when there is nothing to ask.** `WorkflowPersistenceSession.effectAdmissions()` returns
+null for an ordinary run (backward compatible: no authority is consulted at all). Its process and HTTP capabilities
+refuse admission when a governed session has no revision to present. A governed run whose execution has no persistence session at all receives
 `refusingProcessAdmission(...)` from `WorkflowRunner`, so "no authority installed" is never read as permission.
 A store that cannot decide admission refuses through its own default, which propagates.
 
@@ -320,6 +320,64 @@ two distinct grants; and the codex and hermes boundaries each take their own gra
 of reporting a failed launch. Ordering is forced by a store decorator, never by sleeps, and the cases that must prove a
 process did *not* run use an executable that cannot start, so a launch attempt would surface as `START_FAILED` instead
 of an authoritative refusal.
+
+## 10e. Stage 3 as implemented (E1-E2, HTTP permits)
+
+**Topology first, because it decides the design.** `HttpTransport` is an `internal` interface; the only production
+constructor of `JdkHttpTransport` is `WorkflowRunner.executionServices()`; and the only production caller of
+`HttpTransport.send` is `HttpWorkflowStep.executeRequest` (E2). E1 therefore sits **behind** E2 on every runtime-owned
+path, and admitting at E2 covers the default JDK transport, any internal transport implementation, and the JDK
+`send(...)` behind them — with nothing left for E1 to ask. Taking a second grant at E1 would charge one HTTP attempt
+twice. So the single authoritative admission point is E2, immediately before the transport is invoked.
+
+That topology is not left as a comment: `WorkflowHttpAdmissionTest` asserts it from the sources — one `.admitHttp(`
+call site in the whole main tree, in `HttpStep.kt`; no other main file calls `.transport.send(`; and no admission call
+inside `JdkHttpTransport`. Re-introducing an E1 admission fails a named test instead of quietly double counting.
+
+**A third capability, not a reuse.** `WorkflowHttpAdmission` / `WorkflowHttpPermit` are distinct types from both
+`WorkflowStepAdmission` and `WorkflowProcessAdmission`, installed by `WorkflowRunner` in a
+`WorkflowHttpAdmissionScope` coroutine-context element **in the same `withContext` as the process scope** (one context,
+two authorities). Neither an admitted step nor a process permit can be presented at an HTTP send site, and the HTTP
+capability cannot authorize a process. Nested steps inherit the frame as they do for E5-E7.
+
+**One grant per attempt, retries included.** `HttpWorkflowStep.executeRequest` calls
+`currentHttpAdmission()?.admitHttp(name, HTTP_EFFECT_KIND)?.tryConsume()` immediately before
+`execution.transport.send(...)`, outside any block that rewrites a thrown error into a step failure code. Because
+`executeRequest` is called once per attempt inside the retry loop, the retry that follows a retryable status asks
+again and receives a new `admissionSeq`; the previous permit is not reused, and a cancellation committed between
+attempts refuses the next attempt before the transport is reached.
+
+**One authority implementation, two families.** `WorkflowPersistenceSession.effectAdmissions()` creates one
+`WorkflowEffectAdmissions(process, http)` containing two distinct capability types. Both use its shared local
+`grant(stepName, effectKind)` routine: present `currentRevision`, take the store's conditional write, and refuse when
+the write did not take. A later authority fix therefore lands once without the families drifting. The factory returns
+null for an ordinary run (no authority is consulted); governed capabilities refuse when the session has no revision.
+A governed run without a persistence session receives `refusingHttpAdmission(...)` from `WorkflowRunner`.
+
+**Refusals survive the HTTP error path.** `HttpWorkflowStep`'s retry-loop catch maps errors to `POLICY_REJECTED`,
+`TIMEOUT` and `TRANSPORT_FAILED`. `rethrowIfAuthoritativeRefusal()` now runs first, so
+`WorkflowAdmissionRefusedException` and `WorkflowCancellationUnsupportedException` are never reported as a failed send.
+Everything else in the HTTP path is untouched: redirect refusal, address validation, outbound policy, response limits
+and cancellation behaviour are exactly as they were.
+
+**Still outstanding.** §7's per-effect child records remain unimplemented, so an HTTP grant proves authorization and
+nothing about dispatch. `admission_seq > 0` continues to mean "this run admitted work", and the store's derived
+`CANCELLED_UNCERTAIN` is the correct reading of a run that admitted a request and did not finish.
+
+Proven by `WorkflowHttpAdmissionTest` (11 cases): a consumed permit cannot be reused; an ordinary run sends and asks no
+authority; one governed request takes exactly one HTTP grant; cancellation committed before the HTTP admission
+prevents the send (zero transport invocations); admission committed before cancellation still sends and leaves the run
+`CANCELLED_UNCERTAIN`; a retry takes a fresh grant per attempt (distinct sequences); cancellation between attempts
+refuses the next send; a store that cannot admit refuses; a governed run with no durable session never sends; a
+connected-address transport is guarded exactly like the default one; and the single-admission topology holds. Ordering
+is forced by a store decorator, never by sleeps, and the transport is a counting fake, so "no dispatch" is a zero on a
+counter.
+
+Mutants, all applied to the real call sites and all killed: the dispatch-site admission deleted; the grant hoisted to
+once per step instead of once per attempt (retry case red); the authoritative-refusal rethrow deleted (refusal
+reported as a transport failure); the ordinary-run null removed (an ungoverned run fenced, backward compatibility red);
+the runner installing no authority instead of a refusing one (governed run with no session dispatches); `tryConsume()`
+made reusable; and a second admission inserted at E1 (double count, and the topology assertion red).
 
 ## 11. What approval of this contract authorizes
 
