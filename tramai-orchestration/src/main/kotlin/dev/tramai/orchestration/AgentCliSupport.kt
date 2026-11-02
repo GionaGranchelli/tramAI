@@ -3,15 +3,15 @@ package dev.tramai.orchestration
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.job
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -67,16 +67,21 @@ internal suspend fun executeAgentCli(
     val promptLength = request.promptLength
     val context = request.context
     val observer = request.observer
-    val process = try {
-        startOwnedProcess(ioDispatcher) {
-            processBuilder
-                .redirectErrorStream(false)
-                .start()
+    // E5/E6: a fresh durable grant for THIS dispatch, consumed once, immediately before acquisition so the permit
+    // governs the corresponding start. Deliberately outside the start try/catch: a refusal is the authority saying no,
+    // not a failed launch, and must never surface as AgentCliStartException/START_FAILED.
+    currentProcessAdmission()?.admitProcess(stepName, PROCESS_EFFECT_KIND)?.tryConsume()
+    val process =
+        try {
+            startOwnedProcess(ioDispatcher) {
+                processBuilder
+                    .redirectErrorStream(false)
+                    .start()
+            }
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            throw AgentCliStartException(error)
         }
-    } catch (error: Throwable) {
-        error.rethrowIfCancellation()
-        throw AgentCliStartException(error)
-    }
     val lifecycle = CancellableProcessLifecycle(process)
     // Attach-then-active-check: parent cancellation requests process-tree termination
     // immediately, closing the pipes so the blocking readers below cannot delay
@@ -91,19 +96,22 @@ internal suspend fun executeAgentCli(
         observer.emitWorkflowEvent(
             workflowName = workflowName,
             context = context,
-            event = RuntimeEvent.of(startedEvent) {
-                set(RuntimeAttributes.STEP_NAME, stepName)
-                set(RuntimeAttributes.AGENT_TYPE, agentType)
-                set(RuntimeAttributes.PROMPT_LENGTH, promptLength.toLong())
-            },
+            event =
+                RuntimeEvent.of(startedEvent) {
+                    set(RuntimeAttributes.STEP_NAME, stepName)
+                    set(RuntimeAttributes.AGENT_TYPE, agentType)
+                    set(RuntimeAttributes.PROMPT_LENGTH, promptLength.toLong())
+                },
         )
         return coroutineScope {
-            val stdoutDeferred = async(ioDispatcher) {
-                process.inputStream.captureAgentOutput(maxOutputBytes, lifecycle)
-            }
-            val stderrDeferred = async(ioDispatcher) {
-                process.errorStream.captureAgentOutput(maxOutputBytes, lifecycle)
-            }
+            val stdoutDeferred =
+                async(ioDispatcher) {
+                    process.inputStream.captureAgentOutput(maxOutputBytes, lifecycle)
+                }
+            val stderrDeferred =
+                async(ioDispatcher) {
+                    process.errorStream.captureAgentOutput(maxOutputBytes, lifecycle)
+                }
 
             try {
                 withTimeout(timeoutSeconds.seconds) {
@@ -127,14 +135,15 @@ internal suspend fun executeAgentCli(
             observer.emitWorkflowEvent(
                 workflowName = workflowName,
                 context = context,
-                event = RuntimeEvent.of(completedEvent) {
-                    set(RuntimeAttributes.STEP_NAME, stepName)
-                    set(RuntimeAttributes.AGENT_TYPE, agentType)
-                    set(RuntimeAttributes.PROMPT_LENGTH, promptLength.toLong())
-                    set(RuntimeAttributes.RESPONSE_LENGTH, renderedOutput.length.toLong())
-                    set(RuntimeAttributes.DURATION_MS, durationMillis)
-                    set(RuntimeAttributes.EXIT_CODE, process.exitValue().toLong())
-                },
+                event =
+                    RuntimeEvent.of(completedEvent) {
+                        set(RuntimeAttributes.STEP_NAME, stepName)
+                        set(RuntimeAttributes.AGENT_TYPE, agentType)
+                        set(RuntimeAttributes.PROMPT_LENGTH, promptLength.toLong())
+                        set(RuntimeAttributes.RESPONSE_LENGTH, renderedOutput.length.toLong())
+                        set(RuntimeAttributes.DURATION_MS, durationMillis)
+                        set(RuntimeAttributes.EXIT_CODE, process.exitValue().toLong())
+                    },
             )
 
             AgentCliExecution(
@@ -175,14 +184,15 @@ private data class AgentStreamCapture(
         if (!truncated) {
             return text
         }
-        val footer = buildString {
-            appendLine()
-            append("[truncated output: captured ")
-            append(maxOutputBytes)
-            append(" bytes of ")
-            append(actualSizeBytes)
-            append(" total bytes]")
-        }
+        val footer =
+            buildString {
+                appendLine()
+                append("[truncated output: captured ")
+                append(maxOutputBytes)
+                append(" bytes of ")
+                append(actualSizeBytes)
+                append(" total bytes]")
+            }
         return text + footer
     }
 }
@@ -190,37 +200,39 @@ private data class AgentStreamCapture(
 private fun InputStream.captureAgentOutput(
     maxOutputBytes: Long,
     lifecycle: CancellableProcessLifecycle,
-): AgentStreamCapture = use { stream ->
-    val maxCapturedBytes = maxOutputBytes.toInt()
-    val capturedBytes = ByteArrayOutputStream(
-        min(maxCapturedBytes.coerceAtLeast(agentCliMinimumBufferSize), agentCliStreamChunkSize),
-    )
-    val buffer = ByteArray(agentCliStreamChunkSize)
-    var actualSizeBytes = 0L
-    var truncated = false
-    while (true) {
-        val bytesRead = lifecycle.readStreamChunk(stream, buffer) ?: break
-        if (bytesRead < 0) {
-            break
-        }
-        actualSizeBytes += bytesRead
-        val remaining = maxCapturedBytes - capturedBytes.size()
-        if (remaining > 0) {
-            val bytesToWrite = min(bytesRead, remaining)
-            capturedBytes.write(buffer, 0, bytesToWrite)
-            if (bytesToWrite < bytesRead) {
+): AgentStreamCapture =
+    use { stream ->
+        val maxCapturedBytes = maxOutputBytes.toInt()
+        val capturedBytes =
+            ByteArrayOutputStream(
+                min(maxCapturedBytes.coerceAtLeast(AGENT_CLI_MINIMUM_BUFFER_SIZE), AGENT_CLI_STREAM_CHUNK_SIZE),
+            )
+        val buffer = ByteArray(AGENT_CLI_STREAM_CHUNK_SIZE)
+        var actualSizeBytes = 0L
+        var truncated = false
+        while (true) {
+            val bytesRead = lifecycle.readStreamChunk(stream, buffer) ?: break
+            if (bytesRead < 0) {
+                break
+            }
+            actualSizeBytes += bytesRead
+            val remaining = maxCapturedBytes - capturedBytes.size()
+            if (remaining > 0) {
+                val bytesToWrite = min(bytesRead, remaining)
+                capturedBytes.write(buffer, 0, bytesToWrite)
+                if (bytesToWrite < bytesRead) {
+                    truncated = true
+                }
+            } else {
                 truncated = true
             }
-        } else {
-            truncated = true
         }
+        AgentStreamCapture(
+            bytes = capturedBytes.toByteArray(),
+            actualSizeBytes = actualSizeBytes,
+            truncated = truncated,
+        )
     }
-    AgentStreamCapture(
-        bytes = capturedBytes.toByteArray(),
-        actualSizeBytes = actualSizeBytes,
-        truncated = truncated,
-    )
-}
 
 internal fun AgentCliExecution.describeNonZeroExit(): String {
     val stderrSummary = stderr.trim()
@@ -231,10 +243,10 @@ internal fun AgentCliExecution.describeNonZeroExit(): String {
         append("failed with exit code ")
         append(exitCode)
         append("; stderr: ")
-        if (stderrSummary.length <= agentCliFailureMessageMaxChars) {
+        if (stderrSummary.length <= AGENT_CLI_FAILURE_MESSAGE_MAX_CHARS) {
             append(stderrSummary)
         } else {
-            append(stderrSummary.take(agentCliFailureMessageMaxChars))
+            append(stderrSummary.take(AGENT_CLI_FAILURE_MESSAGE_MAX_CHARS))
             append("... [truncated stderr]")
         }
     }
@@ -244,6 +256,6 @@ internal fun Throwable.rethrowAgentCancellation() {
     rethrowIfCancellation()
 }
 
-private const val agentCliStreamChunkSize = 8_192
-private const val agentCliMinimumBufferSize = 16
-private const val agentCliFailureMessageMaxChars = 4_096
+private const val AGENT_CLI_STREAM_CHUNK_SIZE = 8_192
+private const val AGENT_CLI_MINIMUM_BUFFER_SIZE = 16
+private const val AGENT_CLI_FAILURE_MESSAGE_MAX_CHARS = 4_096

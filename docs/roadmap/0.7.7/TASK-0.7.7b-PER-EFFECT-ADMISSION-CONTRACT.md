@@ -1,9 +1,10 @@
 # TASK-0.7.7b — Per-Effect Execution Admission Wiring
 
-Status: **contract ratified; stage 1 (E11) implemented.** D6-D8 ruled by the owner (review 5730382997), the
+Status: **contract ratified; stages 1 and 2 implemented.** D6-D8 ruled by the owner (review 5730382997), the
 admission-receipt defect that review found is fixed in the store (`admit()` now derives its receipt from a locked
-read inside one transaction), and **E11 step admission is wired** (see §10b). The external-effect edges E1-E9 remain
-unwired: nothing yet takes a per-effect permit.
+read inside one transaction), **E11 step admission is wired** (see §10b) and **E5-E7 process permits are wired** (see
+§10d). The remaining external-effect edges E1-E4, E8 and E9 are still unwired: nothing takes a permit for HTTP, MCP,
+an external executor or an approval continuation yet.
 Base: `release/0.7.0` @ `d68fab5b` (PR #575 merged: durable cancellation authority + store-level admission).
 Supersedes nothing. Extends `TASK-0.7.7a-CANCELLATION-AUTHORITY-CONTRACT.md` §11 from "the boundary is defined"
 to "each boundary is named, guarded and tested".
@@ -279,6 +280,44 @@ expect the run to finish.
 A per-effect permit must be a **distinct capability** from step admission. An E11 step admission is never
 authorization to start a process: the step was admitted, the effect was not. E5-E7 therefore take their own permit
 immediately before `ProcessBuilder.start()`, single-use, with cancellation tested on both sides of the admission.
+
+## 10d. Stage 2 as implemented (E5-E7, process permits)
+
+The authority reaches the execution paths as a **second capability**, `WorkflowProcessAdmission`, on the same
+`WorkflowStepExecutionServices` value that carries step admission. It is a separate type on purpose: a value that can
+admit a process is never the value that admits a step, so no call site can satisfy the process rule by holding a step
+grant.
+
+**One grant per dispatch.** `ShellWorkflowStep` (E7), `CodexWorkflowStep` (E5) and `HermesWorkflowStep` (E6) each call
+`services.processAdmission?.admitProcess(stepName, PROCESS)?.tryConsume()` immediately before
+`startOwnedProcess { start() }`, outside the launch `try` block. `startOwnedProcess` keeps its `NonCancellable`
+acquisition unchanged: the durable act happens before it, and the one-shot permit governs the start that follows.
+`tryConsume()` is true exactly once and throws on a second call, so a permit cannot authorize two dispatches.
+
+**Refusals are not launch failures.** `WorkflowAdmissionRefusedException` and `WorkflowCancellationUnsupportedException`
+are re-thrown ahead of every wrapper that would otherwise convert a step-body error: the shell step's catch, the two
+CLI steps' `codeForCliFailure` catch, and `WorkflowStepExecutor`'s sanitising catch. A refusal therefore never surfaces
+as `AgentCliStartException`, `START_FAILED` or a sanitised step failure -- it names the run, the step and the effect.
+
+**Fail-closed, including when there is nothing to ask.** `WorkflowPersistenceSession.processAdmission()` returns null
+for an ordinary run (backward compatible: no authority is consulted at all) and refuses when the session has no
+revision to present. A governed run whose execution has no persistence session at all receives
+`refusingProcessAdmission(...)` from `WorkflowRunner`, so "no authority installed" is never read as permission.
+A store that cannot decide admission refuses through its own default, which propagates.
+
+**One boundary deliberately left out.** §7's per-effect child records (`ADMITTED`/`DISPATCHED`) are **not** emitted
+yet: this slice records the durable grant (`admission_seq`) and nothing about its use. That is the D7 evidence slice
+(§11 step 4), and until it lands no operator may read the absence of an effect record as "never dispatched" -- §7's own
+rule already forbids that reading.
+
+Proven by `WorkflowProcessAdmissionTest` (12 cases): a consumed permit cannot be reused; an ordinary run dispatches and
+asks no authority; a cancelled governed run is stopped at the step fence; an admitted step does not authorize the
+process it wants; an effect admitted before cancellation still dispatches and leaves the run `CANCELLED_UNCERTAIN`; a
+store that cannot admit refuses the effect; a governed run with no durable session never dispatches; two dispatches take
+two distinct grants; and the codex and hermes boundaries each take their own grant and each refuse the process instead
+of reporting a failed launch. Ordering is forced by a store decorator, never by sleeps, and the cases that must prove a
+process did *not* run use an executable that cannot start, so a launch attempt would surface as `START_FAILED` instead
+of an authoritative refusal.
 
 ## 11. What approval of this contract authorizes
 

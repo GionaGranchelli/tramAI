@@ -102,19 +102,21 @@ internal class WorkflowRunner<S, R>(
                 stepExecutions = stepCounter.stepExecutions,
             )
             val finalState =
-                executeTopLevelSteps(
-                    startIndex = 0,
-                    state = initialState,
-                    stepCounter = stepCounter,
-                    frame =
-                        WorkflowExecutionFrame(
-                            context = context,
-                            observer = isolatedObserver,
-                            persistenceSession = persistenceSession,
-                            resumedCheckpointMetadata = null,
-                            governedRunIdentity = governedRunIdentity,
-                        ),
-                )
+                withContext(processAdmissionScope(persistenceSession, governedRunIdentity, context)) {
+                    executeTopLevelSteps(
+                        startIndex = 0,
+                        state = initialState,
+                        stepCounter = stepCounter,
+                        frame =
+                            WorkflowExecutionFrame(
+                                context = context,
+                                observer = isolatedObserver,
+                                persistenceSession = persistenceSession,
+                                resumedCheckpointMetadata = null,
+                                governedRunIdentity = governedRunIdentity,
+                            ),
+                    )
+                }
             persistenceSession?.complete(workflowName = name, context = context)
             isolatedObserver.onWorkflowCompleted(name, context)
             resultSelector(finalState)
@@ -165,23 +167,25 @@ internal class WorkflowRunner<S, R>(
         return try {
             val resumedState = persistence.stateCodec.decode(checkpoint.statePayload)
             val finalState =
-                executeTopLevelSteps(
-                    startIndex = checkpoint.nextStepIndex,
-                    state = resumedState,
-                    stepCounter =
-                        StepCounter(
-                            stopPolicy = stopPolicy,
-                            initialStepExecutions = checkpoint.stepExecutions,
-                        ),
-                    frame =
-                        WorkflowExecutionFrame(
-                            context = context,
-                            observer = isolatedObserver,
-                            persistenceSession = persistenceSession,
-                            resumedCheckpointMetadata = checkpoint.metadata,
-                            governedRunIdentity = governedRunIdentity,
-                        ),
-                )
+                withContext(processAdmissionScope(persistenceSession, governedRunIdentity, context)) {
+                    executeTopLevelSteps(
+                        startIndex = checkpoint.nextStepIndex,
+                        state = resumedState,
+                        stepCounter =
+                            StepCounter(
+                                stopPolicy = stopPolicy,
+                                initialStepExecutions = checkpoint.stepExecutions,
+                            ),
+                        frame =
+                            WorkflowExecutionFrame(
+                                context = context,
+                                observer = isolatedObserver,
+                                persistenceSession = persistenceSession,
+                                resumedCheckpointMetadata = checkpoint.metadata,
+                                governedRunIdentity = governedRunIdentity,
+                            ),
+                    )
+                }
             persistenceSession.complete(workflowName = name, context = context)
             isolatedObserver.onWorkflowCompleted(name, context)
             resultSelector(finalState)
@@ -410,6 +414,19 @@ internal class WorkflowRunner<S, R>(
         observer.onWorkflowFailed(name, error, context)
         throw error
     }
+
+    // The process authority for one run, established for the whole step execution. A governed run never runs a process
+    // unfenced: with no session to admit against it gets a capability that only refuses, so "no authority installed" is
+    // never read as permission. An ordinary run gets nothing and keeps dispatching as before.
+    private fun processAdmissionScope(
+        persistenceSession: WorkflowPersistenceSession<S>?,
+        governedRunIdentity: GovernedRunIdentity?,
+        context: WorkflowContext,
+    ): WorkflowProcessAdmissionScope =
+        WorkflowProcessAdmissionScope(
+            persistenceSession?.processAdmission()
+                ?: governedRunIdentity?.let { refusingProcessAdmission(name, context.workflowId) },
+        )
 }
 
 /**
