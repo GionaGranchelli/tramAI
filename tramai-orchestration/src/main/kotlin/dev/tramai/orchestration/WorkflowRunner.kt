@@ -289,7 +289,7 @@ internal class WorkflowRunner<S, R>(
         frame: WorkflowExecutionFrame<S>,
     ): S {
         var currentState = state
-        val services = executionServices()
+        val services = executionServices().copy(stepAdmission = frame.persistenceSession?.stepAdmission())
         for (index in startIndex until steps.size) {
             val step = steps[index]
             val request =
@@ -300,7 +300,7 @@ internal class WorkflowRunner<S, R>(
                     observer = frame.observer,
                     stepCounter = stepCounter,
                     persistenceSession = frame.persistenceSession,
-                    stepAdmission = frame.persistenceSession?.stepAdmission(),
+                    stepAdmission = services.stepAdmission,
                     topLevelStepIndex = index,
                     resumedCheckpointMetadata = if (index == startIndex) frame.resumedCheckpointMetadata else null,
                     services = services,
@@ -312,7 +312,6 @@ internal class WorkflowRunner<S, R>(
                             observer = frame.observer,
                             stepCounter = stepCounter,
                             services = services,
-                            stepAdmission = frame.persistenceSession?.stepAdmission(),
                         )
                     },
                 )
@@ -352,7 +351,6 @@ internal class WorkflowRunner<S, R>(
         observer: WorkflowObserver,
         stepCounter: StepCounter,
         services: WorkflowStepExecutionServices,
-        stepAdmission: WorkflowStepAdmission?,
     ): S {
         var currentState = state
         for (step in steps) {
@@ -364,7 +362,7 @@ internal class WorkflowRunner<S, R>(
                     observer = observer,
                     stepCounter = stepCounter,
                     persistenceSession = null,
-                    stepAdmission = stepAdmission,
+                    stepAdmission = services.stepAdmission,
                     topLevelStepIndex = null,
                     resumedCheckpointMetadata = null,
                     services = services,
@@ -376,7 +374,6 @@ internal class WorkflowRunner<S, R>(
                             observer = observer,
                             stepCounter = stepCounter,
                             services = services,
-                            stepAdmission = stepAdmission,
                         )
                     },
                 )

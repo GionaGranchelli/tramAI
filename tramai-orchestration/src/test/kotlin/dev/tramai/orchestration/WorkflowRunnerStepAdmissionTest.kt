@@ -95,60 +95,24 @@ class WorkflowRunnerStepAdmissionTest {
         )
     }
 
-    private fun plainStep(
-        name: String,
-        ran: AtomicBoolean,
-    ): InternalWorkflowStep<String> =
-        LocalWorkflowStep(name) { state, _ ->
-            ran.set(true)
-            state
-        }
-
-    private fun runner(steps: List<InternalWorkflowStep<String>>): WorkflowRunner<String, String> =
-        WorkflowRunner(
-            name = "checkout",
-            steps = steps,
-            resultSelector = { it },
-            stopPolicy = StopPolicy(),
-            clock = Clock.systemUTC(),
-            externalStepExecutorResolver = NoOpExternalStepExecutorResolver,
-            httpClient = HttpClient.newHttpClient(),
-            httpTransport = null,
-            outboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(),
-            failureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
-            definitionCompatibility = WorkflowDefinitionCompatibility("v1", "digest", "SHA-256"),
-        )
-
-    private fun checkpoint() =
-        WorkflowCheckpoint(
-            workflowName = "checkout",
-            workflowId = "run-1",
-            nextStepIndex = 0,
-            stepExecutions = 0,
-            lastCompletedStepName = null,
-            statePayload = "state",
-            metadata = emptyMap(),
-            savedAtEpochMillis = 0L,
-            checkpointGeneration = null,
-        )
-
-    private object PlainCodec : WorkflowStateCodec<String> {
-        override fun encode(state: String): String = state
-
-        override fun decode(payload: String): String = payload
-    }
-
     private companion object {
         private val GOVERNED =
             GovernedRunIdentity(
                 deployment =
                     WorkloadDeploymentIdentity(
                         workloadId = WorkloadId("checkout"),
-                        configuration = WorkloadConfigurationIdentity(ConfigurationId("conf"), ConfigurationVersion("1")),
+                        configuration =
+                            WorkloadConfigurationIdentity(ConfigurationId("conf"), ConfigurationVersion("1")),
                         environmentId = EnvironmentId("test"),
                         deploymentId = DeploymentId("dep"),
                     ),
                 runId = RunId("run-1"),
             )
+    }
+
+    private object PlainCodec : WorkflowStateCodec<String> {
+        override fun encode(state: String): String = state
+
+        override fun decode(payload: String): String = payload
     }
 }

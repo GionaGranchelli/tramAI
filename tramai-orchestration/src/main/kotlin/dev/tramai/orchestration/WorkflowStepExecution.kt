@@ -43,6 +43,8 @@ internal data class WorkflowStepExecutionServices(
     val outboundNetworkPolicy: OutboundNetworkPolicy,
     val externalStepExecutorResolver: ExternalStepExecutorResolver,
     val failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
+    /** E11 admission capability, when the run claims durable cancellation authority. */
+    val stepAdmission: WorkflowStepAdmission? = null,
 )
 
 /**
