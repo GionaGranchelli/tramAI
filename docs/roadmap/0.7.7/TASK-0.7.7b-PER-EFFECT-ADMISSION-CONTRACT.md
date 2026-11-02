@@ -301,9 +301,9 @@ are re-thrown ahead of every wrapper that would otherwise convert a step-body er
 CLI steps' `codeForCliFailure` catch, and `WorkflowStepExecutor`'s sanitising catch. A refusal therefore never surfaces
 as `AgentCliStartException`, `START_FAILED` or a sanitised step failure -- it names the run, the step and the effect.
 
-**Fail-closed, including when there is nothing to ask.** `WorkflowPersistenceSession.processAdmission()` returns null
-for an ordinary run (backward compatible: no authority is consulted at all) and refuses when the session has no
-revision to present. A governed run whose execution has no persistence session at all receives
+**Fail-closed, including when there is nothing to ask.** `WorkflowPersistenceSession.effectAdmissions()` returns
+null for an ordinary run (backward compatible: no authority is consulted at all). Its process and HTTP capabilities
+refuse admission when a governed session has no revision to present. A governed run whose execution has no persistence session at all receives
 `refusingProcessAdmission(...)` from `WorkflowRunner`, so "no authority installed" is never read as permission.
 A store that cannot decide admission refuses through its own default, which propagates.
 
@@ -347,12 +347,12 @@ capability cannot authorize a process. Nested steps inherit the frame as they do
 again and receives a new `admissionSeq`; the previous permit is not reused, and a cancellation committed between
 attempts refuses the next attempt before the transport is reached.
 
-**One authority implementation, two families.** `WorkflowPersistenceSession.durableEffectAdmission(...)` holds the
-grant logic — present `currentRevision`, take the store's conditional write, refuse when the write did not take — and
-`processAdmission()` and `httpAdmission()` are thin wrappers over it. A later fix to the authority lands once, and the
-two families cannot drift into different admission semantics. Both return null for an ordinary run (no authority is
-consulted) and both refuse a session with no revision to present; a governed run with no persistence session receives
-`refusingHttpAdmission(...)` from the runner.
+**One authority implementation, two families.** `WorkflowPersistenceSession.effectAdmissions()` creates one
+`WorkflowEffectAdmissions(process, http)` containing two distinct capability types. Both use its shared local
+`grant(stepName, effectKind)` routine: present `currentRevision`, take the store's conditional write, and refuse when
+the write did not take. A later authority fix therefore lands once without the families drifting. The factory returns
+null for an ordinary run (no authority is consulted); governed capabilities refuse when the session has no revision.
+A governed run without a persistence session receives `refusingHttpAdmission(...)` from `WorkflowRunner`.
 
 **Refusals survive the HTTP error path.** `HttpWorkflowStep`'s retry-loop catch maps errors to `POLICY_REJECTED`,
 `TIMEOUT` and `TRANSPORT_FAILED`. `rethrowIfAuthoritativeRefusal()` now runs first, so
