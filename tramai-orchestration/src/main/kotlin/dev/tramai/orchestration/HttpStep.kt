@@ -240,6 +240,8 @@ internal data class HttpWorkflowStep<S>(
                     )
                 } catch (error: Throwable) {
                     error.rethrowIfCancellation()
+                    // A refusal is the authority saying no, not a failed send: it must not become TRANSPORT_FAILED.
+                    error.rethrowIfAuthoritativeRefusal()
                     val code =
                         when (error) {
                             is HttpPolicyViolation -> WorkflowStepFailureCode.POLICY_REJECTED
@@ -323,6 +325,11 @@ internal data class HttpWorkflowStep<S>(
                         header(headerName, headerValue)
                     }
                 }.build()
+        // One durable grant per HTTP attempt, taken immediately before the transport is invoked and outside any block
+        // that rewrites a thrown error into a step failure code. This is the only production caller of
+        // HttpTransport.send, and HttpTransport is internal, so the grant taken here also covers the JDK send behind it:
+        // E1 never admits a second time for the same attempt.
+        currentHttpAdmission()?.admitHttp(name, HTTP_EFFECT_KIND)?.tryConsume()
         var connectedValidated = false
         val sendResult =
             execution.transport.send(httpRequest, blockingDispatcher) { address ->

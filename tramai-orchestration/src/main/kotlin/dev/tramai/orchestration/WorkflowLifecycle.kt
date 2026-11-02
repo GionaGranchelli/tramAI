@@ -218,6 +218,95 @@ internal class WorkflowProcessAdmissionScope(
 internal suspend fun currentProcessAdmission(): WorkflowProcessAdmission? =
     currentCoroutineContext()[WorkflowProcessAdmissionScope]?.capability
 
+/** The effect kind every E1-E2 grant is taken for: one outbound HTTP attempt. */
+internal const val HTTP_EFFECT_KIND: String = "HTTP"
+
+/**
+ * HTTP-dispatch admission (E1-E2) as a capability distinct from [WorkflowStepAdmission] and [WorkflowProcessAdmission].
+ *
+ * Neither answers for the other: an admitted step is not an admitted request, and a process permit is not an HTTP
+ * permit, so a site that wants to send must ask this capability and no other. One grant covers one HTTP attempt --
+ * the retry loop asks again per attempt, because the retry is a new decision point.
+ */
+internal fun interface WorkflowHttpAdmission {
+    suspend fun admitHttp(
+        stepName: String,
+        effectKind: String,
+    ): WorkflowHttpPermit
+}
+
+/**
+ * One durable grant for one HTTP attempt, consumable exactly once.
+ *
+ * Same contract as [WorkflowProcessPermit], kept as its own type so a process permit cannot be handed to an HTTP
+ * dispatch site: [admissionSequence] is the authority-issued identity, everything else is attribution, and consumption
+ * is local to this attempt and never a claim of exactly-once external execution.
+ */
+internal class WorkflowHttpPermit(
+    val stepName: String,
+    val effectKind: String,
+    val admissionSequence: Long,
+) {
+    private val consumed = AtomicBoolean(false)
+
+    /**
+     * Consume the permit: true exactly once. A second call is a programming error and fails rather than re-sending,
+     * because one permit authorizes at most one HTTP attempt.
+     */
+    fun tryConsume(): Boolean {
+        check(!consumed.getAndSet(true)) {
+            "http permit for '$effectKind' in step '$stepName' (admission $admissionSequence) " +
+                "was already consumed; one permit authorizes at most one dispatch"
+        }
+        return true
+    }
+}
+
+/**
+ * A governed run with no durable session cannot authorize an HTTP attempt, so nothing may be sent.
+ *
+ * The refusal message is effect-kind generic ("cannot dispatch HTTP for step ..."), so it shares one builder with the
+ * process family rather than duplicating the wording.
+ */
+internal fun refusingHttpAdmission(
+    workflowName: String,
+    workflowId: String,
+): WorkflowHttpAdmission =
+    WorkflowHttpAdmission { stepName, effectKind ->
+        throw refuseProcessAdmission(workflowName, workflowId, stepName, effectKind)
+    }
+
+/**
+ * The effect capabilities one governed session issues, built together: process dispatch (E5-E7) and HTTP dispatch
+ * (E1-E2). They share one durable authority but stay distinct types, so holding one never authorizes the other.
+ */
+internal class WorkflowEffectAdmissions(
+    val process: WorkflowProcessAdmission,
+    val http: WorkflowHttpAdmission,
+)
+
+/**
+ * The HTTP-dispatch authority in force for the current coroutine frame, established next to
+ * [WorkflowProcessAdmissionScope] by [WorkflowRunner], for the same reason: the send site is several frames below
+ * the runner, and a nested step inherits the frame rather than receiving a new authority.
+ */
+internal class WorkflowHttpAdmissionScope(
+    val capability: WorkflowHttpAdmission?,
+) : AbstractCoroutineContextElement(WorkflowHttpAdmissionScope) {
+    companion object Key : CoroutineContext.Key<WorkflowHttpAdmissionScope>
+}
+
+/**
+ * The HTTP authority for this frame, or null when no governed execution established one.
+ *
+ * Null is "nothing to ask", never "allowed": the fail-closed decision was taken by the runner, which installs
+ * [refusingHttpAdmission] for a governed run that has nothing durable behind it.
+ */
+internal suspend fun currentHttpAdmission(): WorkflowHttpAdmission? {
+    val scope = currentCoroutineContext()[WorkflowHttpAdmissionScope]
+    return scope?.capability
+}
+
 /**
  * Raised at an execution boundary when the durable authority refuses admission.
  *

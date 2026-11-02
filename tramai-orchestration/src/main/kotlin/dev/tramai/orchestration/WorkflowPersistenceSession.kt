@@ -109,16 +109,25 @@ internal class WorkflowPersistenceSession<S>(
     fun stepAdmission(): WorkflowStepAdmission = WorkflowStepAdmission { stepName -> admitStep(stepName) }
 
     /**
-     * Process-dispatch admission (E5-E7): one fresh durable grant per dispatch, taken immediately before acquisition.
+     * The effect capabilities for this session, built together because they share one durable authority: process
+     * dispatch (E5-E7) and HTTP dispatch (E1-E2).
      *
      * Null for an ordinary run, which claims no durable guarantees and must keep dispatching untouched. A governed run
-     * always gets the capability -- the caller substitutes a refusing one when there is no session at all -- so a
-     * governed process can never dispatch unfenced. It fails closed when this session has no revision to present: no
+     * always gets the capabilities -- the caller substitutes refusing ones when there is no session at all -- so a
+     * governed effect can never dispatch unfenced. It fails closed when this session has no revision to present: no
      * durable authority means no grant, and no grant means no dispatch.
      */
-    fun processAdmission(): WorkflowProcessAdmission? {
+    fun effectAdmissions(): WorkflowEffectAdmissions? {
         if (governedRunIdentity == null) return null
-        return WorkflowProcessAdmission { stepName, effectKind ->
+
+        // One grant, shared by both families: the authority logic (present the revision, take the write, refuse when
+        // the write did not take) must not exist twice, or a later fix to it lands in only one place. Local, because
+        // this class is already at the TooManyFunctions ceiling and a private helper would be a fourth member for what
+        // is one rule.
+        suspend fun grant(
+            stepName: String,
+            effectKind: String,
+        ): WorkflowAdmission {
             val revision =
                 currentRevision
                     ?: throw refuseProcessAdmission(workflowName, context.workflowId, stepName, effectKind)
@@ -134,12 +143,29 @@ internal class WorkflowPersistenceSession<S>(
             if (!admission.admitted) {
                 throw refuseProcessAdmission(workflowName, context.workflowId, stepName, effectKind, admission)
             }
-            WorkflowProcessPermit(
-                stepName = stepName,
-                effectKind = effectKind,
-                admissionSequence = admission.sequence,
-            )
+            return admission
         }
+
+        return WorkflowEffectAdmissions(
+            process =
+                WorkflowProcessAdmission { stepName, effectKind ->
+                    val admission = grant(stepName, effectKind)
+                    WorkflowProcessPermit(
+                        stepName = stepName,
+                        effectKind = effectKind,
+                        admissionSequence = admission.sequence,
+                    )
+                },
+            http =
+                WorkflowHttpAdmission { stepName, effectKind ->
+                    val admission = grant(stepName, effectKind)
+                    WorkflowHttpPermit(
+                        stepName = stepName,
+                        effectKind = effectKind,
+                        admissionSequence = admission.sequence,
+                    )
+                },
+        )
     }
 
     suspend fun scheduleDelayWakeup(
