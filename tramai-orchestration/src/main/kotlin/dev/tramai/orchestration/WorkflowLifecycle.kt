@@ -124,7 +124,7 @@ class WorkflowCancellationUnsupportedException(
  *
  * Nested steps are not checkpoint boundaries, and must not become any to be fenced: they get this and nothing else.
  */
-fun interface WorkflowStepAdmission {
+internal fun interface WorkflowStepAdmission {
     suspend fun admit(stepName: String)
 }
 

@@ -1639,10 +1639,6 @@ public abstract interface class dev/tramai/orchestration/WorkflowStateCodec {
 	public abstract fun encode (Ljava/lang/Object;)Ljava/lang/String;
 }
 
-public abstract interface class dev/tramai/orchestration/WorkflowStepAdmission {
-	public abstract fun admit (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
 public final class dev/tramai/orchestration/WorkflowStepFailureCode : java/lang/Enum {
 	public static final field CLEANUP_FAILED Ldev/tramai/orchestration/WorkflowStepFailureCode;
 	public static final field EXECUTION_FAILED Ldev/tramai/orchestration/WorkflowStepFailureCode;

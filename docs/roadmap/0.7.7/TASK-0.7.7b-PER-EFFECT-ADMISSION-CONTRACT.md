@@ -1,8 +1,9 @@
 # TASK-0.7.7b — Per-Effect Execution Admission Wiring
 
-Status: **ratified with amendments; wiring still held.** D6-D8 ruled by the owner (review 5730382997), and the
+Status: **contract ratified; stage 1 (E11) implemented.** D6-D8 ruled by the owner (review 5730382997), the
 admission-receipt defect that review found is fixed in the store (`admit()` now derives its receipt from a locked
-read inside one transaction). No runner, subprocess or transport edge is wired yet.
+read inside one transaction), and **E11 step admission is wired** (see §10b). The external-effect edges E1-E9 remain
+unwired: nothing yet takes a per-effect permit.
 Base: `release/0.7.0` @ `d68fab5b` (PR #575 merged: durable cancellation authority + store-level admission).
 Supersedes nothing. Extends `TASK-0.7.7a-CANCELLATION-AUTHORITY-CONTRACT.md` §11 from "the boundary is defined"
 to "each boundary is named, guarded and tested".
@@ -66,6 +67,16 @@ on this list, so a new step type that dispatches externally must add itself here
 | E9 | Approval continuation | `ApprovalResumeCoordinator.kt:174` `executeClaimedResume` | effect permit `APPROVAL_RESUME` before the resumed tool invocation |
 | E10 | Worker recovery re-execution | `WorkflowRecoveryCoordinator` → `WorkflowRunner` | step admission only; every effect inside re-admits at E1–E9 |
 | E11 | Step dispatch choke point | `WorkflowStepExecutor.kt:36` `executeStep(...)` | place where step admission is taken, and where a cancelled run is refused before any step work |
+
+### 3a-bis. Caller-supplied callbacks are opaque too
+
+`LocalWorkflowStep.transform` and `AiWorkflowStep.invoke` run caller-supplied code inside a step. That code can perform
+arbitrary outbound work without passing through E1-E8. E11 still holds for it — the callback *invocation* is admitted
+— but its internal effects are not individually governed, exactly like E8.
+
+So the edge inventory is a list of the boundaries this runtime owns, not a claim that every external operation a
+workflow can cause is enumerated. The 0.7.7 guarantee is limited to instrumented boundaries, and no wording may imply
+otherwise.
 
 ### 3a. The opaque extension point at E8
 
@@ -247,6 +258,12 @@ execution rather than only to cancellation.
 Proven by `WorkflowStepAdmissionTest` (four cases: cancelled governed run refused, ordinary run unaffected,
 no-row run unaffected, admitting-incapable store refused) with three mutants killed -- fencing every run, ignoring the
 refusal, and admitting a made-up revision.
+
+## 10c. Stage 2 discipline (ratified)
+
+A per-effect permit must be a **distinct capability** from step admission. An E11 step admission is never
+authorization to start a process: the step was admitted, the effect was not. E5-E7 therefore take their own permit
+immediately before `ProcessBuilder.start()`, single-use, with cancellation tested on both sides of the admission.
 
 ## 11. What approval of this contract authorizes
 

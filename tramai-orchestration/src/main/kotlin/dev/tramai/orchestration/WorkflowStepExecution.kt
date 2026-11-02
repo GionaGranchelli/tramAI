@@ -61,11 +61,6 @@ internal data class WorkflowStepExecutionRequest<S>(
     val context: WorkflowContext,
     val observer: WorkflowObserver,
     val stepCounter: StepCounter,
-    /**
-     * Step admission (E11). Deliberately separate from [persistenceSession]: a nested step must be fenced without
-     * becoming a checkpoint boundary, so the authority travels as this capability and nothing wider.
-     */
-    val stepAdmission: WorkflowStepAdmission? = null,
     val persistenceSession: WorkflowPersistenceSession<S>?,
     val topLevelStepIndex: Int?,
     val resumedCheckpointMetadata: Map<String, String>?,

@@ -40,7 +40,7 @@ internal class WorkflowStepExecutor<S>(
     ): WorkflowStepExecutionResult<S> {
         // E11: the durable authority gets asked before the step exists as work. A cancelled run never gets here,
         // because the refusal happens at this line rather than somewhere inside a step that already began.
-        request.stepAdmission?.admit(step.name)
+        request.services.stepAdmission?.admit(step.name)
         request.stepCounter.beforeStep(workflowName, step.name)
         request.observer.onStepStarted(workflowName, step.name, request.context)
         val result =
