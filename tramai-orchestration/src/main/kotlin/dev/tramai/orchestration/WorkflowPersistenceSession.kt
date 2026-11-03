@@ -110,7 +110,7 @@ internal class WorkflowPersistenceSession<S>(
 
     /**
      * The effect capabilities for this session, built together because they share one durable authority: process
-     * dispatch (E5-E7) and HTTP dispatch (E1-E2).
+     * (E5-E7), HTTP (E1-E2) and MCP (E3-E4).
      *
      * Null for an ordinary run, which claims no durable guarantees and must keep dispatching untouched. A governed run
      * always gets the capabilities -- the caller substitutes refusing ones when there is no session at all -- so a
@@ -120,10 +120,10 @@ internal class WorkflowPersistenceSession<S>(
     fun effectAdmissions(): WorkflowEffectAdmissions? {
         if (governedRunIdentity == null) return null
 
-        // One grant, shared by both families: the authority logic (present the revision, take the write, refuse when
-        // the write did not take) must not exist twice, or a later fix to it lands in only one place. Local, because
-        // this class is already at the TooManyFunctions ceiling and a private helper would be a fourth member for what
-        // is one rule.
+        // One grant routine, shared by all effect families: the authority logic (present the revision, take the
+        // write, refuse when the write did not take) must not exist twice, or a later fix to it lands in only one
+        // place. Local, because this class is already at the TooManyFunctions ceiling and a private helper would be a
+        // fourth member for what is one rule.
         suspend fun grant(
             stepName: String,
             effectKind: String,
@@ -164,6 +164,20 @@ internal class WorkflowPersistenceSession<S>(
                         effectKind = effectKind,
                         admissionSequence = admission.sequence,
                     )
+                },
+            mcp =
+                object : WorkflowMcpAdmission {
+                    override suspend fun admitServerStart(stepName: String): WorkflowMcpServerStartPermit =
+                        WorkflowMcpServerStartPermit(
+                            stepName = stepName,
+                            admissionSequence = grant(stepName, MCP_SERVER_START_EFFECT_KIND).sequence,
+                        )
+
+                    override suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit =
+                        WorkflowMcpToolPermit(
+                            stepName = stepName,
+                            admissionSequence = grant(stepName, MCP_TOOL_EFFECT_KIND).sequence,
+                        )
                 },
         )
     }

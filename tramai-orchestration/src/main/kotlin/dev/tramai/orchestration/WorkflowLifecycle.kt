@@ -152,7 +152,7 @@ internal fun interface WorkflowProcessAdmission {
 }
 
 /**
- * One durable grant for one process dispatch, consumable exactly once.
+ * One durable grant for one effect dispatch, consumable exactly once.
  *
  * [admissionSequence] is the durable part of the permit's identity, because it is the only component the authority
  * issues; the step name and effect kind are attribution, and attribution is evidence, not authority.
@@ -160,13 +160,19 @@ internal fun interface WorkflowProcessAdmission {
  * Consumption is local to this attempt and deliberately not durable: a worker that dies after dispatch admits again on
  * restart and correctly receives a new sequence. It must never be read as, or relied on for, exactly-once external
  * execution -- the remote side may already have acted on the first grant.
+ *
+ * One mechanism, one subtype per effect family: the subtypes exist so a permit for one effect cannot be presented at
+ * another effect's dispatch site, and the consumption rule cannot drift between them.
  */
-internal class WorkflowProcessPermit(
+internal abstract class EffectPermit(
     val stepName: String,
     val effectKind: String,
     val admissionSequence: Long,
 ) {
     private val consumed = AtomicBoolean(false)
+
+    /** How this family's permit names itself in the reuse error. */
+    protected abstract val effectLabel: String
 
     /**
      * Consume the permit: true exactly once. A second call is a programming error and fails rather than re-dispatching,
@@ -174,26 +180,51 @@ internal class WorkflowProcessPermit(
      */
     fun tryConsume(): Boolean {
         check(!consumed.getAndSet(true)) {
-            "process permit for '$effectKind' in step '$stepName' (admission $admissionSequence) " +
+            "$effectLabel permit for '$effectKind' in step '$stepName' (admission $admissionSequence) " +
                 "was already consumed; one permit authorizes at most one dispatch"
         }
         return true
     }
 }
 
+/** A durable grant for one process dispatch (E5-E7). */
+internal class WorkflowProcessPermit(
+    stepName: String,
+    effectKind: String,
+    admissionSequence: Long,
+) : EffectPermit(stepName, effectKind, admissionSequence) {
+    override val effectLabel: String get() = "process"
+}
+
 /**
- * A governed run with no durable session cannot authorize a process, so nothing may dispatch.
+ * The authorities a governed run gets when it has no durable session at all: every one of them only refuses.
  *
- * Fail-closed by construction rather than by a caller remembering to check: an effect that cannot be authorized must
- * not be sent, and "no authority installed" is not permission.
+ * Fail-closed by construction rather than by a caller remembering to check -- an effect that cannot be authorized must
+ * not be dispatched, and "no authority installed" is never permission. One factory for all families keeps that rule in
+ * one place; the messages are effect-kind generic, so the refusal builder is shared too.
  */
-internal fun refusingProcessAdmission(
+internal fun refusingEffectAdmissions(
     workflowName: String,
     workflowId: String,
-): WorkflowProcessAdmission =
-    WorkflowProcessAdmission { stepName, effectKind ->
-        throw refuseProcessAdmission(workflowName, workflowId, stepName, effectKind)
-    }
+): WorkflowEffectAdmissions =
+    WorkflowEffectAdmissions(
+        process =
+            WorkflowProcessAdmission { stepName, effectKind ->
+                throw refuseProcessAdmission(workflowName, workflowId, stepName, effectKind)
+            },
+        http =
+            WorkflowHttpAdmission { stepName, effectKind ->
+                throw refuseProcessAdmission(workflowName, workflowId, stepName, effectKind)
+            },
+        mcp =
+            object : WorkflowMcpAdmission {
+                override suspend fun admitServerStart(stepName: String): WorkflowMcpServerStartPermit =
+                    throw refuseProcessAdmission(workflowName, workflowId, stepName, MCP_SERVER_START_EFFECT_KIND)
+
+                override suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit =
+                    throw refuseProcessAdmission(workflowName, workflowId, stepName, MCP_TOOL_EFFECT_KIND)
+            },
+    )
 
 /**
  * The process-dispatch authority in force for the current coroutine frame.
@@ -213,7 +244,7 @@ internal class WorkflowProcessAdmissionScope(
  * The process authority for this frame, or null when no governed execution established one.
  *
  * Null is "nothing to ask", never "allowed": the fail-closed decision was already taken by the runner, which installs
- * [refusingProcessAdmission] for a governed run that has nothing durable behind it.
+ * [refusingEffectAdmissions] for a governed run that has nothing durable behind it.
  */
 internal suspend fun currentProcessAdmission(): WorkflowProcessAdmission? =
     currentCoroutineContext()[WorkflowProcessAdmissionScope]?.capability
@@ -235,54 +266,23 @@ internal fun interface WorkflowHttpAdmission {
     ): WorkflowHttpPermit
 }
 
-/**
- * One durable grant for one HTTP attempt, consumable exactly once.
- *
- * Same contract as [WorkflowProcessPermit], kept as its own type so a process permit cannot be handed to an HTTP
- * dispatch site: [admissionSequence] is the authority-issued identity, everything else is attribution, and consumption
- * is local to this attempt and never a claim of exactly-once external execution.
- */
+/** A durable grant for one HTTP attempt (E1-E2); a process permit cannot stand in for it. */
 internal class WorkflowHttpPermit(
-    val stepName: String,
-    val effectKind: String,
-    val admissionSequence: Long,
-) {
-    private val consumed = AtomicBoolean(false)
-
-    /**
-     * Consume the permit: true exactly once. A second call is a programming error and fails rather than re-sending,
-     * because one permit authorizes at most one HTTP attempt.
-     */
-    fun tryConsume(): Boolean {
-        check(!consumed.getAndSet(true)) {
-            "http permit for '$effectKind' in step '$stepName' (admission $admissionSequence) " +
-                "was already consumed; one permit authorizes at most one dispatch"
-        }
-        return true
-    }
+    stepName: String,
+    effectKind: String,
+    admissionSequence: Long,
+) : EffectPermit(stepName, effectKind, admissionSequence) {
+    override val effectLabel: String get() = "http"
 }
 
 /**
- * A governed run with no durable session cannot authorize an HTTP attempt, so nothing may be sent.
- *
- * The refusal message is effect-kind generic ("cannot dispatch HTTP for step ..."), so it shares one builder with the
- * process family rather than duplicating the wording.
- */
-internal fun refusingHttpAdmission(
-    workflowName: String,
-    workflowId: String,
-): WorkflowHttpAdmission =
-    WorkflowHttpAdmission { stepName, effectKind ->
-        throw refuseProcessAdmission(workflowName, workflowId, stepName, effectKind)
-    }
-
-/**
- * The effect capabilities one governed session issues, built together: process dispatch (E5-E7) and HTTP dispatch
- * (E1-E2). They share one durable authority but stay distinct types, so holding one never authorizes the other.
+ * The effect capabilities one governed session issues, built together: process (E5-E7), HTTP (E1-E2) and MCP
+ * (E3-E4). They share one durable authority but stay distinct types, so holding one never authorizes another.
  */
 internal class WorkflowEffectAdmissions(
     val process: WorkflowProcessAdmission,
     val http: WorkflowHttpAdmission,
+    val mcp: WorkflowMcpAdmission,
 )
 
 /**
@@ -300,10 +300,60 @@ internal class WorkflowHttpAdmissionScope(
  * The HTTP authority for this frame, or null when no governed execution established one.
  *
  * Null is "nothing to ask", never "allowed": the fail-closed decision was taken by the runner, which installs
- * [refusingHttpAdmission] for a governed run that has nothing durable behind it.
+ * [refusingEffectAdmissions] for a governed run that has nothing durable behind it.
  */
 internal suspend fun currentHttpAdmission(): WorkflowHttpAdmission? {
     val scope = currentCoroutineContext()[WorkflowHttpAdmissionScope]
+    return scope?.capability
+}
+
+/** The effect kinds E3-E4 grants are taken for: one MCP server start, one MCP tool invocation. */
+internal const val MCP_SERVER_START_EFFECT_KIND: String = "MCP_SERVER_START"
+internal const val MCP_TOOL_EFFECT_KIND: String = "MCP_TOOL"
+
+/**
+ * MCP admission (E3-E4) as a capability distinct from step, process and HTTP admission.
+ *
+ * The two MCP effects are independent external operations even though one step performs both: a permitted server start
+ * says nothing about the tool invocation that follows, and every reconnect is a new pair of decisions. Neither method's
+ * permit type can be presented at the other's dispatch site.
+ */
+internal interface WorkflowMcpAdmission {
+    suspend fun admitServerStart(stepName: String): WorkflowMcpServerStartPermit
+
+    suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit
+}
+
+/** A durable grant for one MCP server start (E4). Cannot authorize the tool call that follows it. */
+internal class WorkflowMcpServerStartPermit(
+    stepName: String,
+    admissionSequence: Long,
+) : EffectPermit(stepName, MCP_SERVER_START_EFFECT_KIND, admissionSequence) {
+    override val effectLabel: String get() = "mcp server start"
+}
+
+/** A durable grant for one MCP tool invocation (E3). Cannot be satisfied by a server-start permit. */
+internal class WorkflowMcpToolPermit(
+    stepName: String,
+    admissionSequence: Long,
+) : EffectPermit(stepName, MCP_TOOL_EFFECT_KIND, admissionSequence) {
+    override val effectLabel: String get() = "mcp tool"
+}
+
+/**
+ * The MCP authority in force for the current coroutine frame, established next to the process and HTTP scopes by
+ * [WorkflowRunner]. Attribution needs no transport-side plumbing: both dispatch sites sit in the step, which knows its
+ * own name.
+ */
+internal class WorkflowMcpAdmissionScope(
+    val capability: WorkflowMcpAdmission?,
+) : AbstractCoroutineContextElement(WorkflowMcpAdmissionScope) {
+    companion object Key : CoroutineContext.Key<WorkflowMcpAdmissionScope>
+}
+
+/** The MCP authority for this frame, or null when no governed execution established one. */
+internal suspend fun currentMcpAdmission(): WorkflowMcpAdmission? {
+    val scope = currentCoroutineContext()[WorkflowMcpAdmissionScope]
     return scope?.capability
 }
 
