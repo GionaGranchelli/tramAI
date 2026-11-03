@@ -425,13 +425,15 @@ internal class WorkflowRunner<S, R>(
         context: WorkflowContext,
     ): CoroutineContext {
         val effects = persistenceSession?.effectAdmissions()
-        val process =
-            effects?.process ?: governedRunIdentity?.let { refusingProcessAdmission(name, context.workflowId) }
-        val http =
-            effects?.http ?: governedRunIdentity?.let { refusingHttpAdmission(name, context.workflowId) }
-        // One context, two authorities: the process and HTTP capabilities are separate types, and each dispatch site
-        // asks only its own. Both are installed here so no run has to remember to install the second one.
-        return WorkflowProcessAdmissionScope(process) + WorkflowHttpAdmissionScope(http)
+        val refusing = governedRunIdentity?.let { refusingEffectAdmissions(name, context.workflowId) }
+        val process = effects?.process ?: refusing?.process
+        val http = effects?.http ?: refusing?.http
+        val mcp = effects?.mcp ?: refusing?.mcp
+        // One context, three authorities: the process, HTTP and MCP capabilities are separate types, and each dispatch
+        // site asks only its own. All are installed here so no run has to remember to install the next one.
+        return WorkflowProcessAdmissionScope(process) +
+            WorkflowHttpAdmissionScope(http) +
+            WorkflowMcpAdmissionScope(mcp)
     }
 }
 
