@@ -120,7 +120,7 @@ internal class WorkflowPersistenceSession<S>(
     fun effectAdmissions(): WorkflowEffectAdmissions? {
         if (governedRunIdentity == null) return null
 
-        // One grant, shared by both families: the authority logic (present the revision, take the write, refuse when
+        // One grant routine, shared by all effect families: the authority logic (present the revision, take the write, refuse when
         // the write did not take) must not exist twice, or a later fix to it lands in only one place. Local, because
         // this class is already at the TooManyFunctions ceiling and a private helper would be a fourth member for what
         // is one rule.

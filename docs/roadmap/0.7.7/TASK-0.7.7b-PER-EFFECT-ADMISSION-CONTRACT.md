@@ -304,7 +304,7 @@ as `AgentCliStartException`, `START_FAILED` or a sanitised step failure -- it na
 **Fail-closed, including when there is nothing to ask.** `WorkflowPersistenceSession.effectAdmissions()` returns
 null for an ordinary run (backward compatible: no authority is consulted at all). Its process and HTTP capabilities
 refuse admission when a governed session has no revision to present. A governed run whose execution has no persistence session at all receives
-`refusingProcessAdmission(...)` from `WorkflowRunner`, so "no authority installed" is never read as permission.
+`refusingEffectAdmissions(...).process` from `WorkflowRunner`, so "no authority installed" is never read as permission.
 A store that cannot decide admission refuses through its own default, which propagates.
 
 **One boundary deliberately left out.** §7's per-effect child records (`ADMITTED`/`DISPATCHED`) are **not** emitted
@@ -347,12 +347,12 @@ capability cannot authorize a process. Nested steps inherit the frame as they do
 again and receives a new `admissionSeq`; the previous permit is not reused, and a cancellation committed between
 attempts refuses the next attempt before the transport is reached.
 
-**One authority implementation, two families.** `WorkflowPersistenceSession.effectAdmissions()` creates one
+**One authority implementation, three capability families.** `WorkflowPersistenceSession.effectAdmissions()` creates one
 `WorkflowEffectAdmissions(process, http)` containing two distinct capability types. Both use its shared local
 `grant(stepName, effectKind)` routine: present `currentRevision`, take the store's conditional write, and refuse when
 the write did not take. A later authority fix therefore lands once without the families drifting. The factory returns
 null for an ordinary run (no authority is consulted); governed capabilities refuse when the session has no revision.
-A governed run without a persistence session receives `refusingHttpAdmission(...)` from `WorkflowRunner`.
+A governed run without a persistence session receives `refusingEffectAdmissions(...).http` from `WorkflowRunner`.
 
 **Refusals survive the HTTP error path.** `HttpWorkflowStep`'s retry-loop catch maps errors to `POLICY_REJECTED`,
 `TIMEOUT` and `TRANSPORT_FAILED`. `rethrowIfAuthoritativeRefusal()` now runs first, so
@@ -415,7 +415,7 @@ still has one grant routine, now feeding three capabilities from `effectAdmissio
 
 **Fail-closed.** `effectAdmissions()` returns null for an ordinary run (no authority is consulted at all), refuses when a
 governed session has no revision to present, and a governed run with no persistence session receives
-`refusingMcpAdmission(...)` from `WorkflowRunner`, installed in the same `withContext` as the process and HTTP
+`refusingEffectAdmissions(...).mcp` from `WorkflowRunner`, installed in the same `withContext` as the process and HTTP
 authorities.
 
 **Stated limits.** A custom `McpTransportProvider` is fenced at `connect()` and nothing more: its internal effects are

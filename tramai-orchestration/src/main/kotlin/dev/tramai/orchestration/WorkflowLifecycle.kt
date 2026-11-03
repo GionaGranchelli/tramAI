@@ -244,7 +244,7 @@ internal class WorkflowProcessAdmissionScope(
  * The process authority for this frame, or null when no governed execution established one.
  *
  * Null is "nothing to ask", never "allowed": the fail-closed decision was already taken by the runner, which installs
- * [refusingProcessAdmission] for a governed run that has nothing durable behind it.
+ * [refusingEffectAdmissions] for a governed run that has nothing durable behind it.
  */
 internal suspend fun currentProcessAdmission(): WorkflowProcessAdmission? =
     currentCoroutineContext()[WorkflowProcessAdmissionScope]?.capability
@@ -300,7 +300,7 @@ internal class WorkflowHttpAdmissionScope(
  * The HTTP authority for this frame, or null when no governed execution established one.
  *
  * Null is "nothing to ask", never "allowed": the fail-closed decision was taken by the runner, which installs
- * [refusingHttpAdmission] for a governed run that has nothing durable behind it.
+ * [refusingEffectAdmissions] for a governed run that has nothing durable behind it.
  */
 internal suspend fun currentHttpAdmission(): WorkflowHttpAdmission? {
     val scope = currentCoroutineContext()[WorkflowHttpAdmissionScope]
