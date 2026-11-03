@@ -2,6 +2,12 @@
 
 package dev.tramai.engine.approval
 
+import dev.tramai.core.approval.ApprovalRecoveryCoordinator
+import dev.tramai.core.approval.ApprovalResumeAdmission
+import dev.tramai.core.approval.ApprovalResumeAdmissionRequest
+import dev.tramai.core.approval.ForceCancelClaimedCommand
+import dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException
+import dev.tramai.core.identity.SuspensionBindingProvenance
 import dev.tramai.core.approval.ApprovalAuthorization
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
@@ -41,6 +47,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 
+/** Reason codes for a refused post-claim resume; all match the privileged-recovery pattern. */
+private const val REASON_NO_AUTHORITY: String = "resume-admission-authority-missing"
+private const val REASON_NO_BINDING: String = "resume-admission-binding-missing"
+private const val REASON_LEGACY_PROVENANCE: String = "resume-admission-provenance-unknown"
+
 /**
  * Orchestrates the resume state machine for a suspended approval.
  *
@@ -60,6 +71,16 @@ internal class ApprovalResumeCoordinator(
     private val engineEventObserver: EngineEventObserver,
     private val claimService: ContinuationClaimService,
     private val authorizationService: ReplayAuthorizationService,
+    /**
+     * E9: the workflow-bound resume authority, or null when this deployment claims no workflow-level admission. Absent
+     * means a standalone engine; a suspension that a workflow claims to own is then refused rather than waved through.
+     */
+    private val approvalResumeAdmission: ApprovalResumeAdmission? = null,
+    /**
+     * The audited CLAIMED → CANCELLED_UNCERTAIN transition. Required to close a continuation whose resume was admitted
+     * and then refused; without it the claim is left for the operator recovery sweep, and said so out loud.
+     */
+    private val approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
 ) {
     suspend fun resume(command: ResumeApprovalCommand): Any? {
         val prepared = prepareResume(command)
@@ -93,6 +114,9 @@ internal class ApprovalResumeCoordinator(
                 prepared.metadata,
                 "nested-approval-not-supported",
             )
+            throw e
+        } catch (e: ApprovalResumeAdmissionRefusedException) {
+            // Not an uncertain outcome: nothing was dispatched. Reporting it as one would claim a tool may have run.
             throw e
         } catch (e: StructuredOutputException) {
             emitResumeUncertainOutcomeOnce(
@@ -192,6 +216,7 @@ internal class ApprovalResumeCoordinator(
         val emitter: suspend (String) -> Unit = { reason ->
             emitResumeUncertainOutcomeOnce(context.uncertainOutcome, command, metadata, reason)
         }
+        admitResumeBeforeDispatch(context, claimed)
         val result =
             context.registered.resumeExecutor.execute(
                 ClaimedResumeExecutionRequest(
@@ -207,6 +232,109 @@ internal class ApprovalResumeCoordinator(
             )
         completeClaimedResume(command, metadata, claimed, store)
         return result
+    }
+
+    /**
+     * E9: the owning workflow's durable authority must admit this resumed invocation, after the claim and immediately
+     * before dispatch.
+     *
+     * Three provenances, three outcomes, and no inferred fourth:
+     * - [SuspensionBindingProvenance.WORKFLOW_BOUND] — the record names its checkpoint, so a fresh durable grant is
+     *   required. Without the capability or without the binding, the resume is refused.
+     * - [SuspensionBindingProvenance.STANDALONE] — the suspension declared at creation that no workflow owns it. No
+     *   workflow cancellation guarantee applies, and this release does not invent one.
+     * - [SuspensionBindingProvenance.LEGACY_UNKNOWN] — the record states nothing. A deployment that claims workflow-level
+     *   admission (that is, one that installed this capability) must not treat silence as standalone, so it refuses.
+     */
+    private suspend fun admitResumeBeforeDispatch(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+    ) {
+        val suspension =
+            (suspendedInvocationStore as? GovernedSuspendedInvocationStore)
+                ?.governedSuspension(context.command.approvalId)
+        val runIdentity = suspension?.runIdentity ?: return
+        val authority = approvalResumeAdmission
+        when (suspension?.provenance ?: SuspensionBindingProvenance.LEGACY_UNKNOWN) {
+            SuspensionBindingProvenance.STANDALONE -> Unit
+            SuspensionBindingProvenance.WORKFLOW_BOUND -> {
+                val binding = suspension?.checkpointBinding
+                if (authority == null) {
+                    refuseClaimedResume(context, claimed, REASON_NO_AUTHORITY, "no workflow admission authority is wired")
+                }
+                if (binding == null) {
+                    refuseClaimedResume(context, claimed, REASON_NO_BINDING, "the suspension names no checkpoint")
+                }
+                val permit =
+                    authority.admitResume(
+                        ApprovalResumeAdmissionRequest(
+                            approvalId = context.command.approvalId,
+                            toolName = context.metadata.toolName,
+                            runIdentity = runIdentity,
+                            checkpointBinding = requireNotNull(binding),
+                        ),
+                    )
+                permit.tryConsume()
+            }
+
+            SuspensionBindingProvenance.LEGACY_UNKNOWN -> {
+                if (authority == null) return
+                refuseClaimedResume(
+                    context,
+                    claimed,
+                    REASON_LEGACY_PROVENANCE,
+                    "the suspension records no binding provenance, so workflow authority cannot be established",
+                )
+            }
+        }
+    }
+
+    /**
+     * Refuse a resume whose continuation is already claimed, and close the claim through the audited privileged
+     * transition so it cannot sit CLAIMED forever.
+     *
+     * The recovery coordinator, not the raw store, is the only sanctioned path: it emits the durable
+     * request-before-mutation audit, validates the reason code, and maps store failures. If it is unavailable or fails,
+     * the continuation stays CLAIMED — which is safe, because a CLAIMED continuation is rejected by every later resume
+     * (`continuation-not-pending`) and is swept by the existing stale-claim recovery — and the exception says so rather
+     * than pretending the claim was closed.
+     */
+    private suspend fun refuseClaimedResume(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+        reasonCode: String,
+        detail: String,
+    ): Nothing {
+        val command = context.command
+        val recovery = approvalRecoveryCoordinator
+        var closed = false
+        if (recovery != null) {
+            closed =
+                try {
+                    recovery.forceCancelClaimed(
+                        ForceCancelClaimedCommand(
+                            approvalId = command.approvalId,
+                            expectedVersion = claimed.continuation.version,
+                            operatorId = command.resumedBy,
+                            reasonCode = reasonCode,
+                        ),
+                    )
+                    true
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    failure.rethrowIfCancellation()
+                    false
+                }
+        }
+        throw ApprovalResumeAdmissionRefusedException(
+            "approval '${command.approvalId}' cannot be resumed: $detail" +
+                if (closed) {
+                    "; the claimed continuation was cancelled through the audited recovery transition"
+                } else {
+                    "; the continuation remains CLAIMED and only the stale-claim recovery may reconcile it"
+                },
+        )
     }
 
     private suspend fun revealAndValidateReplayPayload(

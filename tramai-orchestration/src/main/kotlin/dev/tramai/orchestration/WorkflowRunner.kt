@@ -5,6 +5,8 @@ package dev.tramai.orchestration
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.core.identity.WorkflowCheckpointBinding
+import dev.tramai.core.identity.WorkflowCheckpointBindingScope
 import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
@@ -327,7 +329,19 @@ internal class WorkflowRunner<S, R>(
                     // step execution, so subsystems invoked from application step code (the
                     // engine, evidence emitters) read the same run identity instead of
                     // minting their own. Nested steps inherit this coroutine frame.context.
-                    withContext(GovernedRunScope(frame.governedRunIdentity)) {
+                    //
+                    // E9: the checkpoint binding travels with it. Identity says which run this is; the binding says
+                    // which durable row can admit an effect for it, and the two are not interchangeable — the row key
+                    // needs the workflow name, which no identity carries. Installed here, where both are in scope.
+                    withContext(
+                        GovernedRunScope(frame.governedRunIdentity) +
+                            WorkflowCheckpointBindingScope(
+                                WorkflowCheckpointBinding(
+                                    workflowName = name,
+                                    workflowId = frame.context.workflowId,
+                                ),
+                            ),
+                    ) {
                         stepExecutor.executeStep(step, request)
                     }
                 }

@@ -2,6 +2,8 @@ package dev.tramai.engine
 
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.model.ToolCall
@@ -23,11 +25,30 @@ import dev.tramai.core.policy.ToolSecurityMetadata
 data class GovernedSuspendedInvocation(
     val metadata: SuspendedInvocationMetadata,
     val runIdentity: GovernedRunIdentity,
+    /**
+     * How this suspension's provenance was established. Never inferred at resume time: a record that states nothing is
+     * [SuspensionBindingProvenance.LEGACY_UNKNOWN], which the workflow-authoritative profile treats as fail-closed.
+     */
+    val provenance: SuspensionBindingProvenance = SuspensionBindingProvenance.LEGACY_UNKNOWN,
+    /**
+     * The durable workflow checkpoint this suspension belongs to, when [provenance] is
+     * [SuspensionBindingProvenance.WORKFLOW_BOUND]. Supplied by the workflow execution context at suspension time,
+     * never derived from `deployment.workloadId` at resume time.
+     */
+    val checkpointBinding: WorkflowCheckpointBinding? = null,
 ) {
     init {
         require(runIdentity.runId.value == metadata.identity.workflowRunId) {
             "Governed suspension identity is inconsistent: engine workflowRunId " +
                 "'${metadata.identity.workflowRunId}' != canonical runId '${runIdentity.runId.value}'"
+        }
+        require((provenance == SuspensionBindingProvenance.WORKFLOW_BOUND) == (checkpointBinding != null)) {
+            "Governed suspension provenance '$provenance' and checkpoint binding '$checkpointBinding' disagree: " +
+                "a workflow-bound suspension needs its binding, and no other provenance may carry one"
+        }
+        require(checkpointBinding == null || checkpointBinding.workflowId == runIdentity.runId.value) {
+            "Governed suspension binds checkpoint '${checkpointBinding?.workflowId}' but its canonical run is " +
+                "'${runIdentity.runId.value}'"
         }
     }
 }
@@ -58,6 +79,16 @@ interface GovernedSuspendedInvocationStore : SuspendedInvocationStore {
      * is a legacy (ungoverned) suspension.
      */
     suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity?
+
+    /**
+     * The whole governed suspension record when the store can provide it, including its provenance and any checkpoint
+     * binding; null when the record is absent or ungoverned.
+     *
+     * Defaulted to null so existing third-party stores keep compiling: a store that cannot answer is treated as
+     * [SuspensionBindingProvenance.LEGACY_UNKNOWN], which the workflow-authoritative profile refuses rather than
+     * assumes. Implementations that persist bindings override this.
+     */
+    suspend fun governedSuspension(approvalId: String): GovernedSuspendedInvocation? = null
 }
 
 /**

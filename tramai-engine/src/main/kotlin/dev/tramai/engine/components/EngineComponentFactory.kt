@@ -5,6 +5,8 @@ package dev.tramai.engine.components
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ApprovalRecoveryCoordinator
+import dev.tramai.core.approval.ApprovalResumeAdmission
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
@@ -73,6 +75,8 @@ internal object EngineComponentFactory {
         approvalGateCoordinator: ApprovalGateCoordinator?,
         approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter,
         clock: Clock,
+        approvalResumeAdmission: ApprovalResumeAdmission? = null,
+        approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
         retryJitterSource: RetryJitterSource = DefaultRetryJitterSource,
         identitySource: EngineIdentitySource = DefaultEngineIdentitySource,
         structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
@@ -94,7 +98,13 @@ internal object EngineComponentFactory {
                 policyDecisionAuditEmitter,
                 (policyEngine as? ProviderRoutingConfigurationSource)?.providerRoutingConfiguration,
             ),
-            ApprovalComponents(suspendedInvocationStore, approvalLifecycleAuditEmitter, capability),
+            ApprovalComponents(
+                suspendedInvocationStore,
+                approvalLifecycleAuditEmitter,
+                capability,
+                approvalResumeAdmission,
+                approvalRecoveryCoordinator,
+            ),
             PersistenceComponents(responseCache, chatMemory, conversationIdProvider),
             ObservationComponents(
                 // Epic 5.3: telemetry observers are non-authoritative. The

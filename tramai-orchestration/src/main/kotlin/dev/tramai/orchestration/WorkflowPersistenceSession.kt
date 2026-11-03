@@ -127,24 +127,15 @@ internal class WorkflowPersistenceSession<S>(
         suspend fun grant(
             stepName: String,
             effectKind: String,
-        ): WorkflowAdmission {
-            val revision =
-                currentRevision
-                    ?: throw refuseProcessAdmission(workflowName, context.workflowId, stepName, effectKind)
-            val admission =
-                persistence.checkpointStore.admit(
-                    WorkflowAdmissionRequest(
-                        workflowName = workflowName,
-                        workflowId = context.workflowId,
-                        expectedRevision = revision,
-                        expectedGeneration = currentGeneration,
-                    ),
-                )
-            if (!admission.admitted) {
-                throw refuseProcessAdmission(workflowName, context.workflowId, stepName, effectKind, admission)
-            }
-            return admission
-        }
+        ): WorkflowAdmission =
+            persistence.checkpointStore.admitEffect(
+                workflowName = workflowName,
+                workflowId = context.workflowId,
+                currentRevision = currentRevision,
+                currentGeneration = currentGeneration,
+                stepName = stepName,
+                effectKind = effectKind,
+            )
 
         return WorkflowEffectAdmissions(
             process =

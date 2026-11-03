@@ -65,6 +65,8 @@ import dev.tramai.core.approval.ClaimedApprovalContinuation
 import dev.tramai.core.approval.ApprovalChallenge
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ApprovalResumeAdmission
+import dev.tramai.core.approval.ApprovalRecoveryCoordinator
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.AuthorizeResumeCommand
@@ -204,6 +206,8 @@ class TramaiEngine internal constructor(
     private val toolArgumentsDigester = (components.approvals.capability as? ApprovalCapability.Enabled)?.argumentsDigester
     private val approvalGateCoordinator = (components.approvals.capability as? ApprovalCapability.Enabled)?.gateCoordinator
     private val approvalLifecycleAuditEmitter = components.approvals.approvalLifecycleAuditEmitter
+    private val approvalResumeAdmission = components.approvals.resumeAdmission
+    private val approvalRecoveryCoordinator = components.approvals.recoveryCoordinator
     private val clock = components.execution.clock
     private val structuredOutputFailureDiagnosticObserver = components.observation.structuredOutputFailureDiagnosticObserver
 
@@ -237,6 +241,11 @@ class TramaiEngine internal constructor(
     toolArgumentsDigester: ToolArgumentsDigester? = null,
     approvalGateCoordinator: ApprovalGateCoordinator? = null,
     approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+    // E9: supply WorkflowApprovalResumeAdmission(store) here to enable workflow-bound approval resume admission. Null
+    // keeps a standalone engine: no workflow cancellation guarantee is claimed, and a suspension that a workflow claims
+    // to own is refused rather than executed.
+    approvalResumeAdmission: ApprovalResumeAdmission? = null,
+    approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
     clock: Clock = Clock.systemUTC(),
 ) : this(EngineComponentFactory.create(
     providerRegistry, structuredOutputHandler, toolRegistry, operationObserver, operationInterceptor, responseCache,
@@ -244,7 +253,7 @@ class TramaiEngine internal constructor(
     chatMemory, conversationIdProvider, policyEngine, dlpInterceptor, dlpRedactionAuditEmitter,
     toolResultFilteringSettings, engineEventObserver, toolFailureDiagnosticObserver, policyDecisionAuditEmitter,
     suspendedInvocationStore, approvalContinuationStore, toolArgumentsDigester, approvalGateCoordinator,
-    approvalLifecycleAuditEmitter, clock,
+    approvalLifecycleAuditEmitter, clock, approvalResumeAdmission, approvalRecoveryCoordinator,
 ))
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val migrationWarningGuard = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -268,6 +277,8 @@ class TramaiEngine internal constructor(
         engineEventObserver = engineEventObserver,
     )
     private val approvalResumeCoordinator = ApprovalResumeCoordinator(
+        approvalResumeAdmission = approvalResumeAdmission,
+        approvalRecoveryCoordinator = approvalRecoveryCoordinator,
         approvalContinuationStore = approvalContinuationStore,
         suspendedInvocationStore = suspendedInvocationStore,
         resumeOperationRegistry = resumeOperationRegistry,
