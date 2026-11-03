@@ -184,6 +184,7 @@ public final class dev/tramai/persistence/file/GovernedFileSuspendedInvocationSt
 	public fun createGoverned (Ldev/tramai/engine/GovernedSuspendedInvocation;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun governedRunIdentity (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun governedSuspension (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun remove (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun revealReplayEnvelope (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun revealSensitiveContext (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -464,6 +465,8 @@ public final class dev/tramai/persistence/file/PersistedContentPartV1$Companion 
 }
 
 public final class dev/tramai/persistence/file/PersistedDtosKt {
+	public static final field CHECKPOINT_BINDING_SCHEMA I
+	public static final field SUSPENDED_INVOCATION_RECORD_V3_SCHEMA I
 	public static final fun toDomain (Ldev/tramai/persistence/file/PersistedApprovalBindingV1;)Ldev/tramai/core/approval/ApprovalBinding;
 	public static final fun toDomain (Ldev/tramai/persistence/file/PersistedApprovalContinuationRecordV1;)Ldev/tramai/core/approval/ApprovalContinuation;
 	public static final fun toDomain (Ldev/tramai/persistence/file/PersistedApprovalContinuationV1;)Ldev/tramai/core/approval/ApprovalContinuation;
@@ -727,6 +730,34 @@ public final class dev/tramai/persistence/file/PersistedSuspendedInvocationRecor
 	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV2;
 }
 
+public final class dev/tramai/persistence/file/PersistedSuspendedInvocationRecordV3 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV3$Companion;
+	public fun <init> (ILdev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;Ldev/tramai/persistence/file/PersistedGovernedRunIdentityV1;Ljava/lang/String;Ldev/tramai/persistence/file/PersistedWorkflowCheckpointBindingV1;)V
+	public synthetic fun <init> (ILdev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;Ldev/tramai/persistence/file/PersistedGovernedRunIdentityV1;Ljava/lang/String;Ldev/tramai/persistence/file/PersistedWorkflowCheckpointBindingV1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ldev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;
+	public final fun component3 ()Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;
+	public final fun component4 ()Ldev/tramai/persistence/file/PersistedGovernedRunIdentityV1;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ldev/tramai/persistence/file/PersistedWorkflowCheckpointBindingV1;
+	public final fun copy (ILdev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;Ldev/tramai/persistence/file/PersistedGovernedRunIdentityV1;Ljava/lang/String;Ldev/tramai/persistence/file/PersistedWorkflowCheckpointBindingV1;)Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV3;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV3;ILdev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;Ldev/tramai/persistence/file/PersistedGovernedRunIdentityV1;Ljava/lang/String;Ldev/tramai/persistence/file/PersistedWorkflowCheckpointBindingV1;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV3;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCheckpointBinding ()Ldev/tramai/persistence/file/PersistedWorkflowCheckpointBindingV1;
+	public final fun getGovernedRunIdentity ()Ldev/tramai/persistence/file/PersistedGovernedRunIdentityV1;
+	public final fun getMetadata ()Ldev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;
+	public final fun getProvenance ()Ljava/lang/String;
+	public final fun getReplayEnvelope ()Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;
+	public final fun getSchemaVersion ()I
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedSuspendedInvocationRecordV3$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV3;
+}
+
 public final class dev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1 {
 	public static final field Companion Ldev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1$Companion;
 	public fun <init> (IJJDDZ)V
@@ -804,6 +835,21 @@ public final class dev/tramai/persistence/file/PersistedToolSecurityMetadataV1 {
 
 public final class dev/tramai/persistence/file/PersistedToolSecurityMetadataV1$Companion {
 	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedWorkflowCheckpointBindingV1 {
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedWorkflowCheckpointBindingV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedWorkflowCheckpointBindingV1;ILjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedWorkflowCheckpointBindingV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getSchemaVersion ()I
+	public final fun getWorkflowId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class dev/tramai/persistence/file/StoreManifestV1 {

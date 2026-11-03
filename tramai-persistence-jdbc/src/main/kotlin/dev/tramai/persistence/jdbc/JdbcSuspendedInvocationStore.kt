@@ -14,6 +14,8 @@ import dev.tramai.core.identity.DeploymentId
 import dev.tramai.core.identity.EnvironmentId
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
@@ -151,6 +153,24 @@ class JdbcSuspendedInvocationStore(
         }
 
     /**
+     * E9: the whole governed record, including provenance and the checkpoint binding an approval resume needs.
+     * Same row, same decrypt, same validation as [governedRunIdentity]: never a second read path.
+     */
+    internal suspend fun governedSuspension(approvalId: String): dev.tramai.engine.GovernedSuspendedInvocation? =
+        withSafeJdbc({ "Database operation failed for suspended invocation: $approvalId" }) {
+            validateIdField(approvalId, "approvalId")
+
+            val row = readCurrent(approvalId) ?: return@withSafeJdbc null
+            val identity = row.governedRunIdentity ?: return@withSafeJdbc null
+            dev.tramai.engine.GovernedSuspendedInvocation(
+                metadata = row.metadata.toDomain(),
+                runIdentity = identity,
+                provenance = row.provenance,
+                checkpointBinding = row.checkpointBinding,
+            )
+        }
+
+    /**
      * Validates non-sensitive create fields before any replay payload is serialized.
      */
     private fun validateCreateInput(metadata: SuspendedInvocationMetadata) {
@@ -169,16 +189,24 @@ class JdbcSuspendedInvocationStore(
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
         runIdentity: GovernedRunIdentity?,
+        provenance: SuspensionBindingProvenance = SuspensionBindingProvenance.LEGACY_UNKNOWN,
+        checkpointBinding: WorkflowCheckpointBinding? = null,
     ): ByteArray {
         val messages = replayEnvelope.revealForResume().messages
         validateReplayEnvelopeInvariants(metadata, messages)
         validateReplayEnvelopeDigest(metadata, messages)
         val payload =
             Payload(
-                payloadVersion = if (runIdentity == null) 1 else 2,
+                // Governed payloads are written as V3 so provenance is explicit: STANDALONE and "written before
+                // provenance existed" are different facts, and only one of them is resumable by a deployment that
+                // claims workflow authority. V2 stays readable, never written.
+                payloadVersion = if (runIdentity == null) 1 else 3,
                 metadata = PayloadMetadata.fromDomain(metadata),
                 persistedMessages = messages.map { toPersisted(it) },
                 governedRunIdentity = runIdentity?.let { PayloadGovernedRunIdentity.fromDomain(it) },
+                provenance = provenance.takeIf { runIdentity != null }?.name,
+                checkpointBinding =
+                    checkpointBinding?.let { PayloadCheckpointBinding(it.workflowName, it.workflowId) },
             )
         return mapper.writeValueAsBytes(payload)
     }
@@ -454,6 +482,11 @@ class JdbcSuspendedInvocationStore(
                         messages = payload.persistedMessages.map { toDomainMessage(it) },
                         version = version,
                         governedRunIdentity = payload.governedRunIdentity?.toDomain(),
+                        provenance = payload.provenance.toProvenance(),
+                        checkpointBinding =
+                            payload.checkpointBinding?.let {
+                                WorkflowCheckpointBinding(it.workflowName, it.workflowId)
+                            },
                     )
                 }
             }
@@ -465,6 +498,8 @@ class JdbcSuspendedInvocationStore(
         val messages: List<Message>,
         val version: Long,
         val governedRunIdentity: GovernedRunIdentity? = null,
+        val provenance: SuspensionBindingProvenance = SuspensionBindingProvenance.LEGACY_UNKNOWN,
+        val checkpointBinding: WorkflowCheckpointBinding? = null,
     )
 
     private fun readEncryptedFromRow(rs: ResultSet): JdbcEncryptedReplayEnvelope {
@@ -539,7 +574,7 @@ class JdbcSuspendedInvocationStore(
                 }
             }
 
-            2 -> {
+            2, 3 -> {
                 val identity =
                     payload.governedRunIdentity
                         ?: error("suspended-invocation-corrupted: governed payload without a run identity")
@@ -559,10 +594,48 @@ class JdbcSuspendedInvocationStore(
                 if (identity.runId != payload.metadata.identityWorkflowRunId) {
                     error("suspended-invocation-corrupted: governed identity names another run")
                 }
+                if (version == 3) {
+                    validateProvenanceAndBinding(payload, identity)
+                }
             }
 
             else -> {
                 error("suspended-invocation-unsupported-payload-version: $version")
+            }
+        }
+    }
+
+    private fun String?.toProvenance(): SuspensionBindingProvenance =
+        when (this) {
+            null -> {
+                SuspensionBindingProvenance.LEGACY_UNKNOWN
+            }
+
+            else -> {
+                SuspensionBindingProvenance.entries.firstOrNull { it.name == this }
+                    ?: error("suspended-invocation-corrupted: unknown suspension provenance '$this'")
+            }
+        }
+
+    /**
+     * V3 invariants: the record states its provenance, and when it claims a workflow owns it, the binding is
+     * complete and names this very run. Extracted so the version switch stays readable.
+     */
+    private fun validateProvenanceAndBinding(
+        payload: Payload,
+        identity: PayloadGovernedRunIdentity,
+    ) {
+        val provenance = payload.provenance.toProvenance()
+        val binding = payload.checkpointBinding
+        if ((provenance == SuspensionBindingProvenance.WORKFLOW_BOUND) != (binding != null)) {
+            error("suspended-invocation-corrupted: provenance and checkpoint binding disagree")
+        }
+        if (binding != null) {
+            if (binding.workflowName.isBlank() || binding.workflowId.isBlank()) {
+                error("suspended-invocation-corrupted: checkpoint binding is incomplete")
+            }
+            if (binding.workflowId != identity.runId) {
+                error("suspended-invocation-corrupted: checkpoint binding names another run")
             }
         }
     }
@@ -647,6 +720,16 @@ class JdbcSuspendedInvocationStore(
         val metadata: PayloadMetadata,
         val persistedMessages: List<PersistedMessage>,
         val governedRunIdentity: PayloadGovernedRunIdentity? = null,
+        /** E9/V3: how the suspension's provenance was stated when it was written. */
+        val provenance: String? = null,
+        /** E9/V3: the workflow checkpoint that owns this suspension, when a workflow does. */
+        val checkpointBinding: PayloadCheckpointBinding? = null,
+    )
+
+    /** Persisted checkpoint binding, inside the same encrypted payload as the attribution it belongs to. */
+    private data class PayloadCheckpointBinding(
+        val workflowName: String,
+        val workflowId: String,
     )
 
     /**

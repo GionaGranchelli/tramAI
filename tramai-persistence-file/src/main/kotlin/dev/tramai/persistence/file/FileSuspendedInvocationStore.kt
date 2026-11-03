@@ -1,6 +1,8 @@
 package dev.tramai.persistence.file
 
 import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.engine.GovernedSuspendedInvocation
 import dev.tramai.engine.GovernedSuspendedInvocationStore
 import dev.tramai.engine.SensitiveReplayEnvelope
@@ -25,9 +27,14 @@ class FileSuspendedInvocationStore internal constructor(
         val metadata: SuspendedInvocationMetadata,
         val envelope: SensitiveReplayEnvelope,
         val runIdentity: GovernedRunIdentity? = null,
+        val provenance: SuspensionBindingProvenance = SuspensionBindingProvenance.LEGACY_UNKNOWN,
+        val checkpointBinding: WorkflowCheckpointBinding? = null,
     )
 
     companion object {
+        /** V1 legacy, V2 governed, V3 governed with provenance and an optional checkpoint binding (E9). */
+        private val SUPPORTED_SUSPENDED_INVOCATION_SCHEMAS = setOf(1, 2, 3)
+        private const val CHECKPOINT_BINDING_SCHEMA_VERSION = 1
         private const val RECORD_TYPE = STORAGE_NAME
         private const val SUSPENDED_DIR = "suspended"
         private const val FILE_EXTENSION = ".tram.enc"
@@ -129,7 +136,13 @@ class FileSuspendedInvocationStore internal constructor(
                 failCorrupted("suspended-invocation-replay-envelope-invalid", e)
             }
 
-        return ValidatedSuspendedInvocationRecord(metadata, envelope, record.governedRunIdentity)
+        return ValidatedSuspendedInvocationRecord(
+            metadata,
+            envelope,
+            record.governedRunIdentity,
+            record.provenance,
+            record.checkpointBinding,
+        )
     }
 
     fun verifyAll() =
@@ -210,7 +223,40 @@ class FileSuspendedInvocationStore internal constructor(
     internal suspend fun createGoverned(
         suspended: GovernedSuspendedInvocation,
         replayEnvelope: SensitiveReplayEnvelope,
-    ) = writeRecord(suspended.metadata, replayEnvelope, suspended.runIdentity)
+    ) = writeRecord(
+        suspended.metadata,
+        replayEnvelope,
+        suspended.runIdentity,
+        suspended.provenance,
+        suspended.checkpointBinding,
+    )
+
+    /**
+     * E9: the whole governed record, including the provenance and checkpoint binding an approval resume needs.
+     *
+     * Reads the same single encrypted row through the same validated decode, so a suspension's attribution and its
+     * binding can never be read from two different records.
+     */
+    internal suspend fun governedSuspension(approvalId: String): GovernedSuspendedInvocation? =
+        lease.withOpenOperation {
+            FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
+            validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
+            val lock = getLock(approvalId)
+            lock.lock()
+            try {
+                val record = readCurrent(approvalId) ?: return null
+                val validated = decodeAndValidateRecord(record)
+                val identity = validated.runIdentity ?: return null
+                GovernedSuspendedInvocation(
+                    metadata = validated.metadata,
+                    runIdentity = identity,
+                    provenance = validated.provenance,
+                    checkpointBinding = validated.checkpointBinding,
+                )
+            } finally {
+                lock.unlock()
+            }
+        }
 
     internal suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity? =
         lease.withOpenOperation {
@@ -234,6 +280,8 @@ class FileSuspendedInvocationStore internal constructor(
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
         runIdentity: GovernedRunIdentity?,
+        provenance: SuspensionBindingProvenance = SuspensionBindingProvenance.LEGACY_UNKNOWN,
+        checkpointBinding: WorkflowCheckpointBinding? = null,
     ) = lease.withOpenOperation {
         FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
         validateIdField(metadata.approvalId, "approvalId", MAX_ID_LENGTH)
@@ -259,11 +307,23 @@ class FileSuspendedInvocationStore internal constructor(
                         replayEnvelope = persistedEnvelope,
                     ).toJson()
                 } else {
-                    PersistedSuspendedInvocationRecordV2(
-                        schemaVersion = 2,
+                    // Governed records are written as V3 so their provenance is stated explicitly: STANDALONE and
+                    // "written before provenance existed" are different facts, and only one of them is resumable by a
+                    // deployment that claims workflow authority. V2 stays readable, never written.
+                    PersistedSuspendedInvocationRecordV3(
+                        schemaVersion = 3,
                         metadata = metadata.toPersistedV1(),
                         replayEnvelope = persistedEnvelope,
                         governedRunIdentity = runIdentity.toPersistedV1(),
+                        provenance = provenance.name,
+                        checkpointBinding =
+                            checkpointBinding?.let {
+                                PersistedWorkflowCheckpointBindingV1(
+                                    schemaVersion = CHECKPOINT_BINDING_SCHEMA_VERSION,
+                                    workflowName = it.workflowName,
+                                    workflowId = it.workflowId,
+                                )
+                            },
                     ).toJson()
                 }
             val path = storePath(metadata.approvalId)
@@ -332,7 +392,7 @@ class FileSuspendedInvocationStore internal constructor(
         }
 
     private fun validateRecordSchemas(record: DecodedSuspendedInvocationRecord) {
-        if (record.schemaVersion != 1 && record.schemaVersion != 2) {
+        if (record.schemaVersion !in SUPPORTED_SUSPENDED_INVOCATION_SCHEMAS) {
             throw FileStoreUnsupportedFormatException("unsupported-suspended-invocation-schema-version")
         }
         requireSchemaVersion(record.metadata.schemaVersion, "unsupported-suspended-invocation-metadata-schema-version")

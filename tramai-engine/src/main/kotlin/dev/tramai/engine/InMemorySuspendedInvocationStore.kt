@@ -52,14 +52,16 @@ internal class InMemorySuspendedInvocationStore :
 
     override suspend fun governedSuspension(approvalId: String): GovernedSuspendedInvocation? {
         validateIdField(approvalId, "approvalId")
-        val stored = invocations[approvalId] ?: return null
-        val identity = stored.runIdentity ?: return null
-        return GovernedSuspendedInvocation(
-            metadata = stored.metadata,
-            runIdentity = identity,
-            provenance = stored.provenance,
-            checkpointBinding = stored.checkpointBinding,
-        )
+        return invocations[approvalId]?.let { stored ->
+            stored.runIdentity?.let { identity ->
+                GovernedSuspendedInvocation(
+                    metadata = stored.metadata,
+                    runIdentity = identity,
+                    provenance = stored.provenance,
+                    checkpointBinding = stored.checkpointBinding,
+                )
+            }
+        }
     }
 
     override suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity? {

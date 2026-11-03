@@ -1195,6 +1195,15 @@ public final class dev/tramai/orchestration/WorkflowAdmissionRequest {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/orchestration/WorkflowApprovalResumeAdmission : dev/tramai/core/approval/ApprovalResumeAdmission {
+	public fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;)V
+	public fun admitResume (Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowApprovalResumeAdmissionKt {
+	public static final field APPROVAL_RESUME_EFFECT_KIND Ljava/lang/String;
+}
+
 public final class dev/tramai/orchestration/WorkflowBindingRegistry {
 	public static final field Companion Ldev/tramai/orchestration/WorkflowBindingRegistry$Companion;
 }

@@ -11,6 +11,7 @@ package dev.tramai.orchestration
  *
  * @throws WorkflowAdmissionRefusedException when there is no revision to present, or the store refused the write.
  */
+@Suppress("LongParameterList")
 internal suspend fun WorkflowCheckpointStore.admitEffect(
     workflowName: String,
     workflowId: String,

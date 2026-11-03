@@ -14,6 +14,7 @@ import dev.tramai.core.identity.DeploymentId
 import dev.tramai.core.identity.EnvironmentId
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.SuspensionBindingProvenance
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
@@ -456,6 +457,41 @@ data class PersistedSuspendedInvocationRecordV2(
     }
 }
 
+/** Schema version of a V3 governed suspension record: attribution + provenance + optional binding (E9). */
+const val SUSPENDED_INVOCATION_RECORD_V3_SCHEMA: Int = 3
+
+/** Schema version of the persisted checkpoint binding that rides inside a V3 record. */
+const val CHECKPOINT_BINDING_SCHEMA: Int = 1
+
+/**
+ * V3: a governed suspension that also states its provenance, and — when a workflow owns it — the checkpoint binding
+ * that an approval resume must be admitted against (E9).
+ *
+ * A governed record is written as V3 even when it is standalone, because STANDALONE and "written before provenance
+ * existed" are different facts and only one of them may be resumed by a deployment that claims workflow authority.
+ */
+data class PersistedSuspendedInvocationRecordV3(
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
+    @param:JsonProperty("metadata") val metadata: PersistedSuspendedInvocationMetadataV1,
+    @param:JsonProperty("replayEnvelope") val replayEnvelope: PersistedReplayEnvelopeV1,
+    @param:JsonProperty("governedRunIdentity") val governedRunIdentity: PersistedGovernedRunIdentityV1,
+    @param:JsonProperty("provenance") val provenance: String,
+    @param:JsonProperty("checkpointBinding") val checkpointBinding: PersistedWorkflowCheckpointBindingV1? = null,
+) {
+    fun toJson(): String = FILE_STORE_JSON.writeValueAsString(this)
+
+    companion object {
+        fun fromJson(json: String): PersistedSuspendedInvocationRecordV3 = strictReadValue(json)
+    }
+}
+
+/** Persisted checkpoint binding: the pair the workflow checkpoint store keys its rows by. */
+data class PersistedWorkflowCheckpointBindingV1(
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
+    @param:JsonProperty("workflowName") val workflowName: String,
+    @param:JsonProperty("workflowId") val workflowId: String,
+)
+
 /**
  * Persisted canonical run identity: the five components as flat fields, so a missing
  * component fails strict decoding rather than silently defaulting.
@@ -479,6 +515,14 @@ internal data class DecodedSuspendedInvocationRecord(
     val metadata: PersistedSuspendedInvocationMetadataV1,
     val replayEnvelope: PersistedReplayEnvelopeV1,
     val governedRunIdentity: GovernedRunIdentity?,
+    /**
+     * How the suspension's provenance was stated when it was written. V1 and V2 records predate provenance, so they
+     * decode as [SuspensionBindingProvenance.LEGACY_UNKNOWN], which the workflow-authoritative profile refuses.
+     * Silence is never read as standalone.
+     * is never read as standalone.
+     */
+    val provenance: SuspensionBindingProvenance = SuspensionBindingProvenance.LEGACY_UNKNOWN,
+    val checkpointBinding: dev.tramai.core.identity.WorkflowCheckpointBinding? = null,
 )
 
 private const val GOVERNED_SUSPENDED_INVOCATION_CORRUPTED = "suspended-invocation-record-corrupted"
@@ -499,6 +543,10 @@ internal fun decodeSuspendedInvocationRecord(json: String): DecodedSuspendedInvo
 
         2 -> {
             decodeGovernedSuspendedInvocationRecord(json)
+        }
+
+        SUSPENDED_INVOCATION_RECORD_V3_SCHEMA -> {
+            decodeBoundSuspendedInvocationRecord(json)
         }
 
         else -> {
@@ -548,6 +596,55 @@ private fun decodeGovernedSuspendedInvocationRecord(json: String): DecodedSuspen
         throw FileStoreCorruptionException("suspended-invocation-governed-identity-mismatch")
     }
     return DecodedSuspendedInvocationRecord(2, record.metadata, record.replayEnvelope, identity)
+}
+
+private fun decodeBoundSuspendedInvocationRecord(json: String): DecodedSuspendedInvocationRecord {
+    val record =
+        try {
+            PersistedSuspendedInvocationRecordV3.fromJson(json)
+        } catch (e: IllegalArgumentException) {
+            throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED, e)
+        }
+    val identity = record.governedRunIdentity.toDomain()
+    val declaredProvenance = SuspensionBindingProvenance.entries.firstOrNull { it.name == record.provenance }
+    val binding =
+        record.checkpointBinding?.let {
+            require(it.schemaVersion == CHECKPOINT_BINDING_SCHEMA) {
+                "unsupported-checkpoint-binding-schema-version"
+            }
+            dev.tramai.core.identity
+                .WorkflowCheckpointBinding(it.workflowName, it.workflowId)
+        }
+    // One refusal point for every way a V3 record can contradict itself, so the reasons stay in one place.
+    val contradiction =
+        when {
+            declaredProvenance == null -> {
+                "suspended-invocation-provenance-invalid"
+            }
+
+            identity.runId.value != record.metadata.identity.workflowRunId -> {
+                "suspended-invocation-governed-identity-mismatch"
+            }
+
+            (declaredProvenance == SuspensionBindingProvenance.WORKFLOW_BOUND) != (binding != null) -> {
+                "suspended-invocation-provenance-binding-mismatch"
+            }
+
+            else -> {
+                null
+            }
+        }
+    if (contradiction != null) {
+        throw FileStoreCorruptionException(contradiction)
+    }
+    return DecodedSuspendedInvocationRecord(
+        SUSPENDED_INVOCATION_RECORD_V3_SCHEMA,
+        record.metadata,
+        record.replayEnvelope,
+        identity,
+        requireNotNull(declaredProvenance),
+        binding,
+    )
 }
 
 internal fun PersistedGovernedRunIdentityV1.toDomain(): GovernedRunIdentity =

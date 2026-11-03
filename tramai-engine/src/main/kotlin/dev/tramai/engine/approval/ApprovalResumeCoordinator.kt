@@ -2,30 +2,30 @@
 
 package dev.tramai.engine.approval
 
-import dev.tramai.core.approval.ApprovalRecoveryCoordinator
-import dev.tramai.core.approval.ApprovalResumeAdmission
-import dev.tramai.core.approval.ApprovalResumeAdmissionRequest
-import dev.tramai.core.approval.ForceCancelClaimedCommand
-import dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException
-import dev.tramai.core.identity.SuspensionBindingProvenance
 import dev.tramai.core.approval.ApprovalAuthorization
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ApprovalRecoveryCoordinator
+import dev.tramai.core.approval.ApprovalResumeAdmission
+import dev.tramai.core.approval.ApprovalResumeAdmissionRequest
 import dev.tramai.core.approval.ClaimedApprovalContinuation
 import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.ForceCancelClaimedCommand
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ApprovalNotFoundException
+import dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.NestedApprovalNotSupportedException
 import dev.tramai.core.exception.StructuredOutputException
 import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.core.identity.SuspensionBindingProvenance
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
@@ -49,6 +49,7 @@ import kotlinx.coroutines.withContext
 
 /** Reason codes for a refused post-claim resume; all match the privileged-recovery pattern. */
 private const val REASON_NO_AUTHORITY: String = "resume-admission-authority-missing"
+private const val REASON_AUTHORITY_REFUSED: String = "resume-admission-refused"
 private const val REASON_NO_BINDING: String = "resume-admission-binding-missing"
 private const val REASON_LEGACY_PROVENANCE: String = "resume-admission-provenance-unknown"
 
@@ -61,6 +62,7 @@ private const val REASON_LEGACY_PROVENANCE: String = "resume-admission-provenanc
  * dispatch. The executor used for the claimed resume is resolved from the
  * [ResumeOperationRegistry] — the registry knows how to dispatch.
  */
+@Suppress("LongParameterList")
 internal class ApprovalResumeCoordinator(
     private val approvalContinuationStore: ApprovalContinuationStore?,
     private val suspendedInvocationStore: SuspendedInvocationStore,
@@ -243,8 +245,9 @@ internal class ApprovalResumeCoordinator(
      *   required. Without the capability or without the binding, the resume is refused.
      * - [SuspensionBindingProvenance.STANDALONE] — the suspension declared at creation that no workflow owns it. No
      *   workflow cancellation guarantee applies, and this release does not invent one.
-     * - [SuspensionBindingProvenance.LEGACY_UNKNOWN] — the record states nothing. A deployment that claims workflow-level
-     *   admission (that is, one that installed this capability) must not treat silence as standalone, so it refuses.
+     * - [SuspensionBindingProvenance.LEGACY_UNKNOWN] — the record states nothing. A deployment that claims
+     *   workflow-level admission (that is, one that installed this capability) must not treat silence as
+     *   standalone, so it refuses.
      */
     private suspend fun admitResumeBeforeDispatch(
         context: ResumeExecutionContext,
@@ -256,24 +259,39 @@ internal class ApprovalResumeCoordinator(
         val runIdentity = suspension?.runIdentity ?: return
         val authority = approvalResumeAdmission
         when (suspension?.provenance ?: SuspensionBindingProvenance.LEGACY_UNKNOWN) {
-            SuspensionBindingProvenance.STANDALONE -> Unit
+            SuspensionBindingProvenance.STANDALONE -> {
+                Unit
+            }
+
             SuspensionBindingProvenance.WORKFLOW_BOUND -> {
                 val binding = suspension?.checkpointBinding
                 if (authority == null) {
-                    refuseClaimedResume(context, claimed, REASON_NO_AUTHORITY, "no workflow admission authority is wired")
+                    refuseClaimedResume(
+                        context,
+                        claimed,
+                        REASON_NO_AUTHORITY,
+                        "no workflow admission authority is wired",
+                    )
                 }
                 if (binding == null) {
                     refuseClaimedResume(context, claimed, REASON_NO_BINDING, "the suspension names no checkpoint")
                 }
                 val permit =
-                    authority.admitResume(
-                        ApprovalResumeAdmissionRequest(
-                            approvalId = context.command.approvalId,
-                            toolName = context.metadata.toolName,
-                            runIdentity = runIdentity,
-                            checkpointBinding = requireNotNull(binding),
-                        ),
-                    )
+                    try {
+                        authority.admitResume(
+                            ApprovalResumeAdmissionRequest(
+                                approvalId = context.command.approvalId,
+                                toolName = context.metadata.toolName,
+                                runIdentity = runIdentity,
+                                checkpointBinding = requireNotNull(binding),
+                            ),
+                        )
+                    } catch (refused: ApprovalResumeAdmissionRefusedException) {
+                        // The authority said no after the claim. The claim must not be left behind, and the refusal
+                        // must not be reclassified: it goes through the same audited terminal transition as every
+                        // other post-claim refusal.
+                        refuseClaimedResume(context, claimed, REASON_AUTHORITY_REFUSED, refused.message ?: "refused")
+                    }
                 permit.tryConsume()
             }
 
@@ -322,7 +340,10 @@ internal class ApprovalResumeCoordinator(
                     true
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (failure: Exception) {
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") failure: Exception,
+                ) {
+                    // The audit or the store may fail in any way; none of them may leave the claim looking closed.
                     failure.rethrowIfCancellation()
                     false
                 }

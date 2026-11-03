@@ -318,144 +318,33 @@ migrations:
       evidence: the default throws tramai-sovereign-ops-outbox-dispatchable-append-unsupported, which is
       deliberate so a store cannot silently accept evidence it cannot persist.
 
-  - module: ":tramai-core"
-    fromSha256: e3d294b2dcf8f9fe3f455594dd55e3bf9fbae1969ccdfde6c832ffbbdd69a26a
-    toSha256: bbb2b420ea618f3d1a4fcc7fe6c4e682e2d39d6a7404cb2b99975e637fb6132f
+  - module: :tramai-core
+    fromSha256: bbb2b420ea618f3d1a4fcc7fe6c4e682e2d39d6a7404cb2b99975e637fb6132f
+    toSha256: ef6c0c685bf14369fe5cb161420e44b30950fb8c8f4d4a9a0b177d19c55b2fb8
     targetVersion: "0.7.0"
-    rationale: >-
-      Epic 0.7.6f slice 1 landed ActorIdentityDigest and the record's provenance accessors in
-      tramai-core without appending the link this ledger needs, so the chain from the previous
-      entry's toSha256 no longer reached the current base dump. Additive only: no declaration was
-      removed or reshaped. This entry records that transition so the ledger stays reachable; it
-      authorizes nothing new.
-    migration: >-
-      No consumer action: additive public API only. Recompile to use ActorIdentityDigest.
-
-  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
-    fromSha256: 56e4fb7b758a9b476e9a6c9dd7f2cbdf043e3f80f2ef61e2bdd0702c364cdc72
-    toSha256: db78dba72754b6f7f2cbe276191ca959867c8ae9edc55893bcefbdae753d035a
+    rationale: "0.7.7b adds the approval-resume admission capability and the workflow checkpoint binding (ApprovalResumeAdmission, ApprovalResumePermit, ApprovalResumeAdmissionRefusedException, WorkflowCheckpointBinding, WorkflowCheckpointBindingScope, SuspensionBindingProvenance). All additive: the capability must be public because it is implemented outside this module and injected at composition, and the binding must be public because the engine persists it. Neither carries authority of its own."
+    migration: "No caller change is required. Implement ApprovalResumeAdmission where the durable workflow authority lives and pass it to the engine, and install WorkflowCheckpointBindingScope where a workflow execution begins. Code that does neither keeps its previous behaviour."
+  - module: :tramai-engine
+    fromSha256: 97449797943f051f255c0f96d69746f9145059fb577c8927d7443e9958da435f
+    toSha256: b136a39d9fd7fe38b7450637715562819c84d43ecc4cae9cb95657dfb71a9754
     targetVersion: "0.7.0"
-    rationale: >-
-      Epic 0.7.6f slice 2: JdbcSovereignOpsAuditOutboxStore publishes appendDispatchable, matching
-      the SPI default. Additive: the existing append, transition and claim signatures are unchanged.
-    migration: >-
-      No consumer action required beyond recompiling. Implementations that are not this store must
-      override appendDispatchable themselves; the SPI default throws
-      tramai-sovereign-ops-outbox-dispatchable-append-unsupported.
-
-  - module: ":tramai-spring-boot-starter-sovereign-persistence-file"
-    fromSha256: e992d59be9f21e441843cfda66ec9037b8a9c7b324c814afe378e0017c18273c
-    toSha256: 0c3f810df9c70e8cb19302562e531a2b41245d3ae68f6f0147e3e1164776ce97
-    targetVersion: "0.7.0"
-    rationale: >-
-      Epic 0.7.6f slice 2: FileSovereignOpsAuditOutboxStore publishes appendDispatchable, matching
-      the SPI default. Additive: the existing append, transition and claim signatures are unchanged.
-    migration: >-
-      No consumer action required beyond recompiling. Implementations that are not this store must
-      override appendDispatchable themselves; the SPI default throws
-      tramai-sovereign-ops-outbox-dispatchable-append-unsupported.
-
-  - module: ":tramai-persistence-file"
-    fromSha256: f4f21c7cb3a6185994706adf4340ad734c8072520363e03faf75b097900c450e
-    toSha256: 87eaf21b618385b2e938a94b9d22335ae98f992f340592c8398c49fe1c3f26c0
-    targetVersion: "0.7.0"
-    rationale: >-
-      Epic 0.7.6f slice 3: FileStoreSha256 publishes hexOf(bytes) so stored ciphertext can be fingerprinted for quarantine metadata without decoding it. Additive only.
-    migration: >-
-      No consumer action required.
-  - module: ":tramai-spring-boot-starter-sovereign-ops"
-    fromSha256: 3baca210a8b768c0532dffd49c09ad92e5e5945a1d0c5023d57d173d7f9f9d07
-    toSha256: 2a2f9367a136834832a599349efd315a8f06c9c68993c6a7d4a3e3d56fadf142
-    targetVersion: "0.7.0"
-    rationale: >-
-      Epic 0.7.6f slice 3: the metadata-only evidence-recovery surface is published as SovereignOpsAuditOutboxQuarantineStore with QuarantinedEvidenceSummary and QuarantineReport, reachable through SovereignOpsAuditOutboxStore.quarantineStore() whose default is null. Additive: every new operation has a default that throws tramai-sovereign-ops-outbox-quarantine-unsupported, and the dispatcher completes a quarantine recovery pass before claiming.
-    migration: >-
-      Consumers implementing SovereignOpsAuditOutboxStore need no change. Callers must read a null quarantineStore() (or the unsupported error) as "this store has no durable quarantine", never as an empty result.
-  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
-    fromSha256: db78dba72754b6f7f2cbe276191ca959867c8ae9edc55893bcefbdae753d035a
-    toSha256: df415d890b708efcb3f3405cbebd408811cd551ecf7fe0ec0b041eda4e129f65
-    targetVersion: "0.7.0"
-    rationale: >-
-      Epic 0.7.6f slice 3: JdbcSovereignOpsAuditOutboxStore exposes the quarantine surface through quarantineStore(). Additive: existing store operations are unchanged, and the row-exclusion behaviour change lives in SQL predicates, not signatures.
-    migration: >-
-      No consumer action required beyond recompiling.
-  - module: ":tramai-spring-boot-starter-sovereign-persistence-file"
-    fromSha256: 0c3f810df9c70e8cb19302562e531a2b41245d3ae68f6f0147e3e1164776ce97
-    toSha256: 1e5a58969350182d840a03cdf09e289ebb3d4fbb0ff08885c02613e690db682e
-    targetVersion: "0.7.0"
-    rationale: >-
-      Epic 0.7.6f slice 3: FileSovereignOpsAuditOutboxStore exposes the quarantine surface through quarantineStore(). Additive: existing store operations are unchanged; rebuildIndex now tolerates an undecodable record instead of failing initialization.
-    migration: >-
-      No consumer action required beyond recompiling.
-  - module: ":tramai-spring-boot-starter-sovereign-ops"
-    fromSha256: 2a2f9367a136834832a599349efd315a8f06c9c68993c6a7d4a3e3d56fadf142
-    toSha256: b9e2b15cb3d930536ae2c1f5ef7c8a28918057c648934db754910f2e740260e4
-    targetVersion: "0.7.0"
-    rationale: >-
-      Epic 0.7.6f slice 4: dispatch becomes kind-correct. SovereignOpsAuditEmitter gains a kind-aware default
-      evidenceFromOutbox(record), SovereignOpsAuditOutboxRecord gains refusalReason so a refusal's reason wire
-      name is persisted instead of re-derived, and AuditEngineSovereignOpsAuditEmitter maps each kind to its
-      own enforcement point, decision and reason code. Additive for implementors: the new emitter method has a
-      behaviour-preserving default for denials and throws for kinds an emitter cannot represent.
-    migration: >-
-      Consumers implementing SovereignOpsAuditEmitter should override evidenceFromOutbox to represent
-      APPROVAL_APPROVED and AUTHORIZATION_REFUSAL; without it those kinds are parked as FAILED_PERMANENT and
-      recorded as unsupported-evidence-kind. No consumer action required for SovereignOpsAuditOutboxRecord,
-      whose new field defaults to null.
-  - module: ":tramai-spring-boot-starter-sovereign-ops"
-    fromSha256: b9e2b15cb3d930536ae2c1f5ef7c8a28918057c648934db754910f2e740260e4
-    toSha256: ef10091bec9891abda5c2b8b2693b087a0c40539d2879cca98bf42c855f19e6a
-    targetVersion: "0.7.0"
-    rationale: >-
-      Epic 0.7.6f slice 4b: durable authorization-refusal recording. Adds RefusalEvidence (canonical
-      refusal identity), RefusalRecording (Recorded/Duplicate), the SovereignOpsRefusalRecorder sink that
-      SovereignOpsAuditOutboxOperations extends with a fail-closed recordRefusal default, and an optional
-      refusalRecorder on SovereignOpsApprovalDecisionControlPlane so a refusal is recorded before it is
-      returned. Additive: the control-plane parameter defaults to a fail-closed sink and the operations
-      default throws the existing dispatchable-append code.
-    migration: >-
-      Deployments that serve privileged decisions must expose a SovereignOpsRefusalRecorder bean (the
-      default outbox operations bean satisfies it) or refusals fail closed rather than being returned
-      unrecorded. No data migration: refusal evidence uses the existing audit_outbox table.
-  - module: ":tramai-orchestration"
-    fromSha256: beefaf0846ba9d94964e0303b20a1014e415fb96150096502fb61e4ab2e07c34
-    toSha256: fe9e4ee10c471dba81d38bd5b933fd298a8e64dfc34f3fbe70e43b92ea79b2e8
-    targetVersion: "0.7.0"
-    rationale: >-
-      Epic 0.7.7a: durable cancellation authority. Adds WorkflowLifecycleStatus (CANCELLED,
-      CANCELLED_UNCERTAIN), WorkflowLifecycleState, WorkflowCancellationRequest (carrying both the expected
-      revision and the expected generation, so a privileged command cannot adopt a generation it never
-      observed), WorkflowCancellationUnsupportedException, and the lifecycle()/cancel() pair on
-      WorkflowCheckpointStore with fail-closed defaults. In-memory and JDBC stores implement it; JDBC adds four
-      nullable columns plus lifecycleMigrationSql(). Additive only: no existing signature changes, no behaviour
-      change for consumers that never cancel, and stores that cannot answer atomically refuse instead of
-      cancelling locally. One source-compatible signature note: InMemoryWorkflowCheckpointStore's observer
-      parameter now has a default, so the no-argument form is a Kotlin default rather than a separate
-      constructor; compiled callers must recompile. Slice (b) adds WorkflowAdmissionRequest, WorkflowAdmission,
-      WorkflowCheckpointStore.admit() with a fail-closed default, and the admission_seq column with its own
-      migration step; a store must not admit work it cannot fence, so the default refuses.
-    migration: >-
-      Run JdbcWorkflowCheckpointStore.lifecycleMigrationSql() against an existing checkpoint table before
-      enabling cancellation: the columns are nullable or defaulted, existing rows read as never cancelled, and
-      ordinary checkpoint reads are unaffected. Until the migration runs, lifecycle() fails closed rather than
-      reporting "not cancelled", and the guarded UPDATE/DELETE that enforce terminality reject the statement, so
-      writing to an existing checkpoint fails loudly instead of proceeding unguarded. Deployments using the markdown or file checkpoint stores are unaffected
-      and cannot cancel authoritatively: those stores refuse with WorkflowCancellationUnsupportedException
-      instead of falling back to a local-only cancellation.
+    rationale: "E9 makes a governed suspension state its provenance and, when a workflow owns it, its checkpoint binding. GovernedSuspendedInvocation gains provenance and checkpointBinding, GovernedSuspendedInvocationStore gains a defaulted governedSuspension accessor, and the composition constructor accepts the resume admission and recovery coordinator. The accessor is defaulted so existing third-party stores keep compiling and are read as unknown provenance, which the workflow-authoritative profile refuses."
+    migration: "Supply approvalResumeAdmission = WorkflowApprovalResumeAdmission(checkpointStore) to enable workflow-bound approval resume admission. Without it a standalone engine behaves as before, except that a suspension a workflow claims to own is refused. Stores that persist bindings should override governedSuspension."
   - module: :tramai-orchestration
-    fromSha256: fe9e4ee10c471dba81d38bd5b933fd298a8e64dfc34f3fbe70e43b92ea79b2e8
-    toSha256: 51e630318b1244fa1133f212d8b2148838ff87e2e22edc5027d12ec500ee2d40
-    targetVersion: 0.7.0
-    rationale: >-
-      0.7.7b adds WorkflowAdmissionRefusedException: the refusal a governed step gets when the durable authority
-      says no. The admission capability itself stays internal -- its only consumers are this module's execution
-      infrastructure, and publishing it would be an API promise with no external caller behind it. So the public delta
-      is one exception type and nothing else moves.
-    migration: >-
-      Catch WorkflowAdmissionRefusedException where a workflow run is executed. A governed run (one created with a
-      GovernedRunIdentity) now asks the checkpoint store to admit each step before the step is entered, and a
-      cancelled or stale run stops there instead of starting the step. Ordinary runs are unchanged: they carry no
-      governed identity, so no admission is taken and nothing refuses. The exception reports the run, the step and
-      the recorded lifecycle status, and it is terminal for that attempt -- retrying the same attempt is not
-      meaningful, because the authority already answered. Nothing else changes for callers: nested execution is
-      fenced through an internal capability carried by the execution services, so no public signature grew.
+    fromSha256: 51e630318b1244fa1133f212d8b2148838ff87e2e22edc5027d12ec500ee2d40
+    toSha256: 5bf10071155bab44d225cf16f8f1cc5dd2146bf3f25f2bf5d106bf0bab6213fc
+    targetVersion: "0.7.0"
+    rationale: "E9 publishes WorkflowApprovalResumeAdmission, the workflow-side implementation of the approval-resume admission capability, plus its APPROVAL_RESUME effect kind. WorkflowRunner now installs the checkpoint binding scope beside the governed run scope."
+    migration: "Construct WorkflowApprovalResumeAdmission(checkpointStore) and give it to the engine. Workflow code needs no change: the runner produces the binding."
+  - module: :tramai-persistence-file
+    fromSha256: 87eaf21b618385b2e938a94b9d22335ae98f992f340592c8398c49fe1c3f26c0
+    toSha256: 577e7cec3d33e1e2f1d6ffd8d3fafa43341b2bc73ae6e8f6ef51f1c382a3034c
+    targetVersion: "0.7.0"
+    rationale: "E9 adds the V3 suspended-invocation record, which states provenance and can carry a checkpoint binding, plus the persisted checkpoint binding DTO and its schema constants. V1 and V2 records stay readable."
+    migration: "No on-disk migration: existing records decode as unknown provenance, and governed records written from now on are V3. A deployment that claims workflow admission therefore refuses to resume legacy governed suspensions, which must be re-approved rather than silently executed."
+  - module: :tramai-persistence-jdbc
+    fromSha256: 906fa7e10a58cfe8d70e7f985df219a3e053d87ccb8e2e3e4f72818544bb0e82
+    toSha256: 358db1f31c4ab9f51032b04d8583dd453073a424b7fc20ad2d06772fb009f40e
+    targetVersion: "0.7.0"
+    rationale: "E9 raises the encrypted suspended-invocation payload to version 3, carrying provenance and an optional checkpoint binding inside the same payload as the run attribution. Versions 1 and 2 stay readable."
+    migration: "No schema migration: the new fields ride inside the existing encrypted payload column. Payloads written before this release decode as unknown provenance."

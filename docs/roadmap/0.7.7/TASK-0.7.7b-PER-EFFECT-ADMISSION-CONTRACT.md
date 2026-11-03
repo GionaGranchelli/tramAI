@@ -485,6 +485,76 @@ re-introduced ahead of the guard (1, the recording-resolver assertion); the gran
 the un-instantiated-on-refusal proof); the ordinary-run null removed (1); the runner installing no external authority
 (1); and the refusing set handing out permits instead of refusing (1).
 
+## 10h. Stage 6 as implemented (E9, approval-resume permits)
+
+**Why this stage stopped and asked.** Two facts blocked the E9 row as written: `tramai-engine` depends on
+`tramai-core` only, so it cannot reach `WorkflowCheckpointStore` (which lives in `tramai-orchestration`, and the reverse
+edge would be a cycle); and the checkpoint row key is `(workflowName, workflowId)` while `GovernedRunIdentity` carries a
+`runId` and a `deployment.workloadId` — nothing in the repository asserts those are the same thing. Deriving the name
+from `workloadId` would have been the synthetic key the ruling forbids.
+
+**The boundary.** A narrow capability in core (`ApprovalResumeAdmission` + single-use `ApprovalResumePermit`), an
+implementation in the workflow module (`WorkflowApprovalResumeAdmission`) over the same durable row that governs
+cancellation, and injection at the engine's composition boundary (`TramaiEngine(... approvalResumeAdmission = ...)`).
+Core sits below both modules, so no edge is reversed.
+
+**The binding is data, never an inference.** `WorkflowCheckpointBinding(workflowName, workflowId)` is produced by
+`WorkflowRunner` — where both the workflow name and the run id are in scope — installed in the coroutine context next to
+`GovernedRunScope`, read by the approval suspension path, and persisted *inside the same record* as the suspension
+(one write, one transaction, as §3 requires).
+
+**Provenance is a three-way fact, not a boolean.** `SuspensionBindingProvenance` distinguishes `WORKFLOW_BOUND` (the
+record names its row), `STANDALONE` (the suspension declared at creation that no workflow owns it) and `LEGACY_UNKNOWN`
+(written before provenance existed, or by a writer that stated nothing). A missing binding is never read as standalone:
+a deployment that installed the capability claims workflow-level admission, so silence fails closed and the resume is
+refused. A deployment with no capability keeps its previous behaviour for `STANDALONE` and `LEGACY_UNKNOWN`, and refuses
+`WORKFLOW_BOUND` — the guarantee moves with the wiring, in both directions.
+
+**Placement: after the claim, immediately before dispatch.** Authorize → claim → E9 → permit → `resumeExecutor.execute`.
+The interval matters: a claim is a suspendable write against an independent store, and an admission taken before it would
+leave that interval unguarded.
+
+**A refused post-claim resume is closed through the audited transition.** `ApprovalRecoveryCoordinator.forceCancelClaimed`
+is the only sanctioned path to `CANCELLED_UNCERTAIN`: it emits the durable request-before-mutation audit, validates the
+reason code, and maps store failures. Reason codes are distinct per cause (`resume-admission-refused`,
+`resume-admission-authority-missing`, `resume-admission-binding-missing`, `resume-admission-provenance-unknown`). If that
+coordinator is absent or the transition fails, the continuation stays `CLAIMED` — safe, because every later resume is
+rejected with `continuation-not-pending` and the existing stale-claim sweep is the only reconciler — and the refusal says
+so explicitly instead of pretending the claim was closed. Nothing retries, and nothing reclaims.
+
+**A refusal is not an uncertain outcome.** The resume path already converts failures into `resume-failed: …` uncertain
+outcomes; a refusal carries its own type and is rethrown ahead of that conversion, because no effect was dispatched and
+reporting one as uncertain would claim a tool may have run.
+
+**Persistence.** Governed suspensions are written as record/payload **V3** with `provenance` and an optional
+`checkpointBinding`, in the file store (JSON record) and the JDBC store (encrypted payload) alike; V1 and V2 stay
+readable and decode as `LEGACY_UNKNOWN`. Provenance/binding disagreement, an incomplete binding, a binding naming another
+run, and an unknown provenance value are all corruption, refused on decode as well as on create.
+
+**What this does and does not claim.** It is *workflow-bound approval continuation admission*, not universal cancellation
+enforcement over every governed engine invocation: a standalone engine execution has a `GovernedRunIdentity` and no
+checkpoint, and nothing here pretends otherwise. E9's grant also says nothing about dispatch or completion — §7's
+`ADMITTED`/`DISPATCHED` records remain unimplemented. No shipped Spring Boot starter composes the workflow store with the
+engine approval stack, so the workflow-bound path is enabled by supplying the capability; that is stated here rather than
+implied away.
+
+Proven by `ApprovalResumeCoordinatorTest` (10 E9 cases on the existing fixture): one admission per resume, ordered
+`continuation.claim` → `admission.admit` → `executor.execute`; the granted permit is consumed by the resume and cannot be
+reused; a refused admission never reaches the executor and closes the claim with the `resume-admission-refused` reason;
+a refusal is not reported as an uncertain outcome; a missing or failing audited transition still refuses and says the
+claim remains `CLAIMED`; a `STANDALONE` suspension asks no workflow authority and resumes; a `LEGACY_UNKNOWN` suspension is
+refused when the capability is wired and resumes when it is not; a `WORKFLOW_BOUND` suspension without the capability is
+refused. Plus `WorkflowApprovalResumeAdmissionTest` (7 cases): one grant per resume with distinct sequences, a cancelled
+row refuses, a cancellation racing the conditional write refuses, a binding naming no row refuses, a substituted identity
+refuses, an ungoverned row cannot be resumed as governed, and the permit names its approval and binding with single-use
+consumption. Plus two file-store round trips proving `WORKFLOW_BOUND` keeps its binding and `STANDALONE` stays
+distinguishable from silence.
+
+Mutants, all applied to the real sites, 6 of 6 killed: the post-claim admission deleted (7 cases); the admission moved
+before the claim (1, the ordering assertion); the authority's refusal swallowed instead of closing the claim (2); the
+`LEGACY_UNKNOWN` case treated as standalone (2); the adapter admitting without reading the row (3); and the adapter's
+continuity check deleted (1).
+
 ## 11. What approval of this contract authorizes
 
 Approval authorizes implementation of the guards **in this order**, each with its own adversarial tests:
