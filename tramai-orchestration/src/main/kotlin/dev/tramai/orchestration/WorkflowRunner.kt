@@ -429,11 +429,13 @@ internal class WorkflowRunner<S, R>(
         val process = effects?.process ?: refusing?.process
         val http = effects?.http ?: refusing?.http
         val mcp = effects?.mcp ?: refusing?.mcp
-        // One context, three authorities: the process, HTTP and MCP capabilities are separate types, and each dispatch
-        // site asks only its own. All are installed here so no run has to remember to install the next one.
+        val external = effects?.external ?: refusing?.external
+        // One context, four authorities: the process, HTTP, MCP and external-executor capabilities are separate types,
+        // and each dispatch site asks only its own. All are installed here so no run has to remember the next one.
         return WorkflowProcessAdmissionScope(process) +
             WorkflowHttpAdmissionScope(http) +
-            WorkflowMcpAdmissionScope(mcp)
+            WorkflowMcpAdmissionScope(mcp) +
+            WorkflowExternalAdmissionScope(external)
     }
 }
 

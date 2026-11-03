@@ -148,6 +148,20 @@ internal data class PluginWorkflowStep<S>(
         require(type.isNotBlank()) {
             "Workflow '$workflowName' plugin step '$name' type must not be blank"
         }
+        // No resolver callback runs before admission. `ExternalStepExecutorResolver` is a public interface, so
+        // `isRegistered` would be third-party code executing on a *denied* invocation, including after
+        // cancellation, and it would race the built-in registry's mutable map between the check and the
+        // factory. Admission therefore comes first and the resolver is consulted exactly once, afterwards.
+        //
+        // E8: one durable grant for one call into the executor, taken immediately before it and consumed at most once.
+        // It authorizes this invocation and nothing the executor does inside its own code -- `ExternalStepExecutor` is
+        // a third-party extension point, so its internal effects stay outside the enforcement claim. A refused
+        // invocation reaches no resolver code at all, so it cannot instantiate the executor either.
+        //
+        // An unregistered type now fails at that single call, after the grant: an admitted attempt that never
+        // dispatched. D7's ADMITTED/DISPATCHED pair is what will distinguish the two; inventing an extra pre-check to
+        // keep the counters tidy would buy that distinction with a trust hole.
+        currentExternalAdmission()?.admitExternalStep(name, type)?.tryConsume()
         val result = executorResolver.create(type).execute(config)
         return merge(state, result, context)
     }
