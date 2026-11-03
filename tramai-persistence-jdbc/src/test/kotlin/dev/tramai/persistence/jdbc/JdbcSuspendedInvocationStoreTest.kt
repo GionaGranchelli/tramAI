@@ -1085,7 +1085,7 @@ class JdbcSuspendedInvocationStoreTest {
     fun `a governed payload downgraded to the legacy version is corruption`() {
         val id = "si-governed-downgrade"
         createGoverned(id)
-        rewritePayload(id) { json -> json.replaceFirst("\"payloadVersion\":2", "\"payloadVersion\":1") }
+        rewritePayload(id) { json -> json.replaceFirst("\"payloadVersion\":3", "\"payloadVersion\":1") }
 
         val ex = assertFailsWith<RuntimeException> { runBlocking { store().governedRunIdentity(id) } }
         assertTrue(ex.message?.contains("corrupted") == true, "unexpected message: ${ex.message}")
@@ -1105,7 +1105,7 @@ class JdbcSuspendedInvocationStoreTest {
     fun `an unknown payload version fails closed`() {
         val id = "si-governed-unknown"
         createGoverned(id)
-        rewritePayload(id) { json -> json.replaceFirst("\"payloadVersion\":2", "\"payloadVersion\":3") }
+        rewritePayload(id) { json -> json.replaceFirst("\"payloadVersion\":3", "\"payloadVersion\":99") }
 
         val ex = assertFailsWith<RuntimeException> { runBlocking { store().governedRunIdentity(id) } }
         assertTrue(
