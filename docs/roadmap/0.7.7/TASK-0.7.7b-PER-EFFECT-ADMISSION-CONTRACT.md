@@ -436,6 +436,46 @@ the `runMcpCall` refusal rethrow deleted (7); the `executeMcpCall` inner rethrow
 `tryConsume()` made reusable (7); the ordinary-run null removed (1); and the runner installing no authority instead of a
 refusing one (1).
 
+## 10g. Stage 5 as implemented (E8, external executor permits)
+
+**One dispatch site.** `PluginWorkflowStep.execute` is the only production caller of `ExternalStepExecutor`
+(`executorResolver.create(type)` appears once in main sources, and a test asserts that), so the E8 grant is taken there
+immediately before the factory runs and consumed once. Guard first, factory second: a refused invocation must not even
+instantiate third-party code.
+
+**Registration precedes the grant.** An unregistered plugin type can never become an effect, so
+`ExternalStepExecutorNotRegisteredException` is now raised one call earlier — same type, same message — *before* an
+admission is spent. Registration is a map lookup on the resolver, not an effect. Without this ordering a governed run
+burned a durable grant for a call that could not happen, and the admission counter then claimed an authorization that
+never corresponded to a possible dispatch.
+
+**The effect kind carries the plugin type.** `EXTERNAL:<typeId>`, so two plugin types are two different effects in the
+refusal message and on the permit. Note the limit this exposes: `WorkflowAdmissionRequest` has no effect-kind field, so
+the **durable record proves a grant was issued, not which effect kind it was for**. Per-effect attribution in the
+durable record is exactly §7's `ADMITTED`/`DISPATCHED` child records, and remains unimplemented.
+
+**What the grant establishes, in §3a's terms.** Only *this call into the executor was admitted*. Subprocesses, HTTP
+requests, retries and any other outbound work performed inside the executor's own code are not observed, not counted and
+not fenced. An executor that wants per-effect governance must consume a per-effect capability itself; providing that is
+future work. No test in this slice could prove containment, so none claims it — every assertion is about the invocation
+boundary.
+
+**Nested steps inherit the frame**, as with the other families, so a plugin step inside a branch is fenced by the same
+authority; cancellation between the nested step's own fence and its E8 grant prevents the invocation.
+
+Proven by `WorkflowExternalAdmissionTest` (10 cases): one plugin step takes a step grant and an external grant with
+distinct sequences and really runs; an ordinary run asks nothing and keeps its behaviour; cancellation before E8 leaves
+the executor un-instantiated (a `create` counter at 0, not an absent log line); a store that cannot admit refuses; a
+governed run with no session refuses; an unregistered type fails as unregistered while spending no effect grant, in both
+governed and ordinary runs; a nested plugin step is fenced and can be stopped between its fence and its grant; one permit
+consumes once and is not presentable as a process permit; and the dispatch site asks its own capability exactly once.
+Ordering is forced by a store decorator that cancels after the n-th granted admission, never by sleeps.
+
+Mutants, all applied to the real dispatch site, 6 of 6 killed: the E8 guard deleted (7 cases); the registration check
+deleted (1); the grant moved after the executor factory (4, the un-instantiated-on-refusal proof); the ordinary-run null
+removed (1); the runner installing no external authority (1); and the refusing set handing out permits instead of
+refusing (1).
+
 ## 11. What approval of this contract authorizes
 
 Approval authorizes implementation of the guards **in this order**, each with its own adversarial tests:

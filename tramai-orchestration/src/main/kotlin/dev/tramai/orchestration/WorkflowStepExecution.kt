@@ -148,6 +148,17 @@ internal data class PluginWorkflowStep<S>(
         require(type.isNotBlank()) {
             "Workflow '$workflowName' plugin step '$name' type must not be blank"
         }
+        // A type nobody registered cannot dispatch, so it must not spend a durable grant first: the same
+        // exception the resolver would raise for an unknown type, raised one call earlier. Registration is a
+        // map lookup on the resolver, not an effect.
+        if (!executorResolver.isRegistered(type)) {
+            throw ExternalStepExecutorNotRegisteredException(type)
+        }
+        // E8: one durable grant for one call into the executor, taken immediately before it and consumed at most once.
+        // It authorizes this invocation and nothing the executor does inside its own code -- `ExternalStepExecutor` is
+        // a third-party extension point, so its internal effects stay outside the enforcement claim. The grant is taken
+        // before the factory runs: a refused invocation must not even instantiate the executor.
+        currentExternalAdmission()?.admitExternalStep(name, type)?.tryConsume()
         val result = executorResolver.create(type).execute(config)
         return merge(state, result, context)
     }

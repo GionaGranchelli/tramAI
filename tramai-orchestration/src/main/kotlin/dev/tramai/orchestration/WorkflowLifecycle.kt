@@ -224,6 +224,10 @@ internal fun refusingEffectAdmissions(
                 override suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit =
                     throw refuseProcessAdmission(workflowName, workflowId, stepName, MCP_TOOL_EFFECT_KIND)
             },
+        external =
+            WorkflowExternalAdmission { stepName, typeId ->
+                throw refuseProcessAdmission(workflowName, workflowId, stepName, externalEffectKind(typeId))
+            },
     )
 
 /**
@@ -283,6 +287,7 @@ internal class WorkflowEffectAdmissions(
     val process: WorkflowProcessAdmission,
     val http: WorkflowHttpAdmission,
     val mcp: WorkflowMcpAdmission,
+    val external: WorkflowExternalAdmission,
 )
 
 /**

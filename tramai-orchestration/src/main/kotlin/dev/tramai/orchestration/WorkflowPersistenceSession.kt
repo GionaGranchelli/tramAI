@@ -179,6 +179,15 @@ internal class WorkflowPersistenceSession<S>(
                             admissionSequence = grant(stepName, MCP_TOOL_EFFECT_KIND).sequence,
                         )
                 },
+            external =
+                WorkflowExternalAdmission { stepName, typeId ->
+                    val effectKind = externalEffectKind(typeId)
+                    WorkflowExternalPermit(
+                        stepName = stepName,
+                        effectKind = effectKind,
+                        admissionSequence = grant(stepName, effectKind).sequence,
+                    )
+                },
         )
     }
 
