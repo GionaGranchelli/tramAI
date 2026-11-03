@@ -2,9 +2,10 @@
 
 Status: **contract ratified; stages 1 and 2 implemented.** D6-D8 ruled by the owner (review 5730382997), the
 admission-receipt defect that review found is fixed in the store (`admit()` now derives its receipt from a locked
-read inside one transaction), **E11 step admission is wired** (see §10b) and **E5-E7 process permits are wired** (see
-§10d). The remaining external-effect edges E1-E4, E8 and E9 are still unwired: nothing takes a permit for HTTP, MCP,
-an external executor or an approval continuation yet.
+read inside one transaction), **E11 step admission is wired** (see §10b), **E5-E7 process permits** (§10d),
+**E1-E2 HTTP permits** (§10e), **E3-E4 MCP permits** (§10f) and **E8 external-executor permits** (§10g). The remaining
+external-effect edge is **E9**: nothing takes a permit for an approval continuation yet, and D7's per-effect child
+records remain unimplemented for every family.
 Base: `release/0.7.0` @ `d68fab5b` (PR #575 merged: durable cancellation authority + store-level admission).
 Supersedes nothing. Extends `TASK-0.7.7a-CANCELLATION-AUTHORITY-CONTRACT.md` §11 from "the boundary is defined"
 to "each boundary is named, guarded and tested".
@@ -443,16 +444,22 @@ refusing one (1).
 immediately before the factory runs and consumed once. Guard first, factory second: a refused invocation must not even
 instantiate third-party code.
 
-**Registration precedes the grant.** An unregistered plugin type can never become an effect, so
-`ExternalStepExecutorNotRegisteredException` is now raised one call earlier — same type, same message — *before* an
-admission is spent. Registration is a map lookup on the resolver, not an effect. Without this ordering a governed run
-burned a durable grant for a call that could not happen, and the admission counter then claimed an authorization that
-never corresponded to a possible dispatch.
+**No resolver callback runs before admission.** `ExternalStepExecutorResolver` is a public interface, so consulting it
+first — with `isRegistered`, or with anything else — executes third-party code on a *denied* invocation, including after
+cancellation commits, and races the built-in registry's mutable map between the check and the factory. Admission
+therefore comes first, and the resolver is consulted exactly once, afterwards.
 
-**The effect kind carries the plugin type.** `EXTERNAL:<typeId>`, so two plugin types are two different effects in the
-refusal message and on the permit. Note the limit this exposes: `WorkflowAdmissionRequest` has no effect-kind field, so
-the **durable record proves a grant was issued, not which effect kind it was for**. Per-effect attribution in the
-durable record is exactly §7's `ADMITTED`/`DISPATCHED` child records, and remains unimplemented.
+The consequence is accepted deliberately: an unregistered plugin type now spends a grant and then fails at
+`create(...)` with `ExternalStepExecutorNotRegisteredException` — an admitted attempt that never dispatched. Resolving a
+"side-effect-free" factory reference before admission would reintroduce the same trust question one interface method
+later, and requiring every admission to correspond to a dispatch is stronger than this contract claims: a factory may
+legitimately fail after authorization. D7's `ADMITTED`/`DISPATCHED` pair is what distinguishes the two.
+
+**The permit identifies the plugin type; the durable record does not.** The permit and the refusal name
+`EXTERNAL:<typeId>`, so two plugin types are two different effects. The durable admission record stores only the
+authorization sequence — `WorkflowAdmissionRequest` has no effect-kind field — so it proves *a* grant was issued and
+nothing about which effect kind it was for. Durable per-effect attribution is exactly §7's `ADMITTED`/`DISPATCHED`
+child records and remains unimplemented.
 
 **What the grant establishes, in §3a's terms.** Only *this call into the executor was admitted*. Subprocesses, HTTP
 requests, retries and any other outbound work performed inside the executor's own code are not observed, not counted and
@@ -463,18 +470,20 @@ boundary.
 **Nested steps inherit the frame**, as with the other families, so a plugin step inside a branch is fenced by the same
 authority; cancellation between the nested step's own fence and its E8 grant prevents the invocation.
 
-Proven by `WorkflowExternalAdmissionTest` (10 cases): one plugin step takes a step grant and an external grant with
-distinct sequences and really runs; an ordinary run asks nothing and keeps its behaviour; cancellation before E8 leaves
-the executor un-instantiated (a `create` counter at 0, not an absent log line); a store that cannot admit refuses; a
-governed run with no session refuses; an unregistered type fails as unregistered while spending no effect grant, in both
-governed and ordinary runs; a nested plugin step is fenced and can be stopped between its fence and its grant; one permit
-consumes once and is not presentable as a process permit; and the dispatch site asks its own capability exactly once.
-Ordering is forced by a store decorator that cancels after the n-th granted admission, never by sleeps.
+Proven by `WorkflowExternalAdmissionTest` (11 cases): one plugin step takes a step grant and an external grant with
+distinct sequences and really runs; an ordinary run asks nothing and keeps its behaviour; **no resolver method is ever
+consulted before a grant — a recording resolver asserts `isRegistered` is called zero times, and a denied invocation
+records zero resolver calls of any kind**; cancellation before E8 leaves the executor un-instantiated (a `create`
+counter at 0, not an absent log line); a store that cannot admit refuses; a governed run with no session refuses; an
+unregistered type is refused by the factory *after* the grant, in both governed and ordinary runs; a nested plugin step
+is fenced and can be stopped between its fence and its grant; one permit consumes once and is not presentable as a
+process permit; and the dispatch site asks its own capability exactly once. Ordering is forced by a store decorator that
+cancels after the n-th granted admission, never by sleeps.
 
-Mutants, all applied to the real dispatch site, 6 of 6 killed: the E8 guard deleted (7 cases); the registration check
-deleted (1); the grant moved after the executor factory (4, the un-instantiated-on-refusal proof); the ordinary-run null
-removed (1); the runner installing no external authority (1); and the refusing set handing out permits instead of
-refusing (1).
+Mutants, all applied to the real dispatch site, 6 of 6 killed: the E8 guard deleted (7 cases); a resolver callback
+re-introduced ahead of the guard (1, the recording-resolver assertion); the grant moved after the executor factory (4,
+the un-instantiated-on-refusal proof); the ordinary-run null removed (1); the runner installing no external authority
+(1); and the refusing set handing out permits instead of refusing (1).
 
 ## 11. What approval of this contract authorizes
 

@@ -53,6 +53,7 @@ class WorkflowExternalAdmissionTest {
 
         assertEquals("done", result.result, "the executor really ran and its result was merged")
         assertEquals(1, executor.executions.get(), "one invocation")
+        assertEquals(0, executor.isRegisteredCalls.get(), "production never asks the resolver ahead of the grant")
         assertEquals(2, store.admitCount, "the step and the invocation are two decisions, not one")
         assertEquals(2, store.grantedSequences.distinct().size, "each grant carries its own sequence")
         // Attribution is on the permit and in the refusal, not in the durable request: the store records that a grant
@@ -146,25 +147,30 @@ class WorkflowExternalAdmissionTest {
     }
 
     @Test
-    fun `an unregistered plugin type fails before any admission is asked`() {
-        val store = ExtAdmissionStore(InMemoryWorkflowCheckpointStore())
+    fun `an unregistered plugin type is refused by the factory after the grant`() {
+        val governed = CountingExecutor()
+        val governedStore = ExtAdmissionStore(InMemoryWorkflowCheckpointStore())
 
-        // Definition validation rejects an unknown plugin type before the step loop starts, for governed and ordinary
-        // runs alike. No admission is asked and no executor exists to instantiate, so the boundary is never reached --
-        // which is the desired order: a definition error must not consume an admission, and an admission must not be
-        // spent on an effect that cannot happen.
+        // The step runs, E8 is admitted, and the factory is what refuses. The grant therefore corresponds to no
+        // dispatch: an admitted attempt that never happened. That is the honest shape, because the alternative is
+        // asking a public resolver interface before admission, which runs arbitrary third-party code on a denied
+        // invocation.
         assertFailsWith<ExternalStepExecutorNotRegisteredException> {
             runBlocking {
-                externalWorkflow(NoOpExternalStepExecutorResolver)
-                    .run(ExtState(), extGoverned(), NoOpWorkflowObserver, extPersistence(store))
+                externalWorkflow(ExtResolver(governed, registered = false))
+                    .run(ExtState(), extGoverned(), NoOpWorkflowObserver, extPersistence(governedStore))
             }
         }
-        assertEquals(1, store.admitCount, "the step was admitted; the effect that cannot occur was not")
+        assertEquals(2, governedStore.admitCount, "the step and the external attempt were both admitted")
+        assertEquals(1, governed.creates.get(), "the factory was the refusal point")
+        assertEquals(0, governed.isRegisteredCalls.get(), "and it was reached without asking the resolver first")
+        assertEquals(0, governed.executions.get(), "nothing was dispatched")
 
+        val ordinary = CountingExecutor()
         val ordinaryStore = ExtAdmissionStore(InMemoryWorkflowCheckpointStore())
         assertFailsWith<ExternalStepExecutorNotRegisteredException> {
             runBlocking {
-                externalWorkflow(NoOpExternalStepExecutorResolver)
+                externalWorkflow(ExtResolver(ordinary, registered = false))
                     .run(
                         ExtState(),
                         WorkflowContext(workflowId = "run-2"),
@@ -173,7 +179,27 @@ class WorkflowExternalAdmissionTest {
                     )
             }
         }
-        assertEquals(0, ordinaryStore.admitCount, "an ordinary run asks nothing at all")
+        assertEquals(0, ordinaryStore.admitCount, "an ordinary run asks nothing and keeps its existing error")
+        assertEquals(1, ordinary.creates.get())
+        assertEquals(0, ordinary.isRegisteredCalls.get())
+    }
+
+    @Test
+    fun `a denied invocation reaches no resolver code at all`() {
+        val executor = CountingExecutor()
+        // Admission #1 is the step fence; the cancellation commits after it, so E8 is refused before any resolver call.
+        val store = ExtAdmissionStore(InMemoryWorkflowCheckpointStore(), cancelAfterAdmit = 1)
+
+        assertFailsWith<WorkflowAdmissionRefusedException> {
+            runBlocking {
+                externalWorkflow(ExtResolver(executor))
+                    .run(ExtState(), extGoverned(), NoOpWorkflowObserver, extPersistence(store))
+            }
+        }
+
+        assertEquals(0, executor.isRegisteredCalls.get(), "a refusal must reach no resolver code, not even a lookup")
+        assertEquals(0, executor.creates.get(), "nor the factory")
+        assertEquals(0, executor.executions.get(), "nor the executor")
     }
 
     @Test
@@ -337,21 +363,31 @@ class WorkflowExternalAdmissionTest {
 
     private fun extGoverned(): GovernedRun = GovernedRun(WorkflowContext(workflowId = "run-1"), EXT_GOVERNED)
 
-    /** A registered plugin type whose invocation is counted at both the factory and the run. */
+    // A plugin type whose every resolver call is counted. `registered = false` makes create() behave as the real
+    // resolver does for an unknown type, so the "unregistered" path is exercised without pretending production code
+    // may ask the resolver ahead of time.
     private class CountingExecutor {
+        val isRegisteredCalls = AtomicInteger(0)
         val creates = AtomicInteger(0)
         val executions = AtomicInteger(0)
     }
 
     private class ExtResolver(
         private val counter: CountingExecutor,
+        private val registered: Boolean = true,
     ) : ExternalStepExecutorResolver {
-        override fun isRegistered(typeId: String): Boolean = typeId == "slack"
+        override fun isRegistered(typeId: String): Boolean {
+            counter.isRegisteredCalls.incrementAndGet()
+            return registered && typeId == "slack"
+        }
 
-        override fun registeredTypeIds(): Set<String> = setOf("slack")
+        override fun registeredTypeIds(): Set<String> = if (registered) setOf("slack") else emptySet()
 
         override fun create(typeId: String): ExternalStepExecutor {
             counter.creates.incrementAndGet()
+            if (!registered || typeId != "slack") {
+                throw ExternalStepExecutorNotRegisteredException(typeId)
+            }
             return ExternalStepExecutor { spec ->
                 counter.executions.incrementAndGet()
                 spec + ("status" to "ok")

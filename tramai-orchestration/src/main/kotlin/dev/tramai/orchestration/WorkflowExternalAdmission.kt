@@ -5,8 +5,11 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
 /**
- * The effect kind E8 grants are taken for. The durable record carries the plugin step type as well, because "EXTERNAL"
- * alone would not say which executor was authorized.
+ * The effect kind E8 grants are taken for.
+ *
+ * [externalEffectKind] appends the plugin type so a permit and a refusal say *which* executor was authorized. That
+ * attribution is in memory only: [WorkflowAdmissionRequest] carries no effect kind, so the durable record proves
+ * a grant was issued and nothing about which effect it was for. Durable per-effect attribution is D7's.
  */
 internal const val EXTERNAL_EFFECT_KIND: String = "EXTERNAL"
 
@@ -21,8 +24,9 @@ internal fun externalEffectKind(typeId: String): String = "$EXTERNAL_EFFECT_KIND
  * performs inside its own code -- `ExternalStepExecutor` is a third-party extension point, so §3a applies. A step
  * admission does not authorize it, and it authorizes nothing downstream.
  *
- * The type id is part of the grant rather than a constant kind: two plugin steps of different types are different
- * effects, and the durable record has to say which one was authorized.
+ * The type id belongs to the permit's attribution rather than to a constant kind, because two plugin steps of
+ * different types are two different effects and a refusal has to name which one. The durable admission record stores
+ * only the authorization sequence, never the effect kind: per-effect durable attribution remains part of D7.
  */
 internal fun interface WorkflowExternalAdmission {
     suspend fun admitExternalStep(
