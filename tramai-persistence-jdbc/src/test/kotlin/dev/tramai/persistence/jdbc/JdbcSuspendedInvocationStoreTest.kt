@@ -9,6 +9,8 @@ import dev.tramai.core.identity.DeploymentId
 import dev.tramai.core.identity.EnvironmentId
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
@@ -1026,6 +1028,64 @@ class JdbcSuspendedInvocationStoreTest {
     }
 
     @Test
+    fun `a workflow-bound suspension keeps its exact binding through the governed wrapper`() {
+        runBlocking {
+            val wrapped = GovernedJdbcSuspendedInvocationStore(store())
+            val id = "si-governed-bound-1"
+            val binding = WorkflowCheckpointBinding(workflowName = "orders", workflowId = "governed-bound-run-1")
+            wrapped.createGoverned(
+                GovernedSuspendedInvocation(
+                    metadata = governedMetadata(id, "governed-bound-run-1"),
+                    runIdentity = governedIdentity("governed-bound-run-1"),
+                    provenance = SuspensionBindingProvenance.WORKFLOW_BOUND,
+                    checkpointBinding = binding,
+                ),
+                sampleEnvelope(),
+            )
+
+            val read = wrapped.governedSuspension(id)
+            assertNotNull(read, "the governed wrapper must return the whole record")
+            assertEquals(SuspensionBindingProvenance.WORKFLOW_BOUND, read.provenance)
+            assertEquals(binding, read.checkpointBinding, "the binding must survive serialization byte for byte")
+        }
+    }
+
+    @Test
+    fun `a standalone suspension does not read back as unknown provenance`() {
+        runBlocking {
+            val wrapped = GovernedJdbcSuspendedInvocationStore(store())
+            val id = "si-governed-standalone-1"
+            wrapped.createGoverned(
+                GovernedSuspendedInvocation(
+                    metadata = governedMetadata(id, "governed-standalone-run-1"),
+                    runIdentity = governedIdentity("governed-standalone-run-1"),
+                    provenance = SuspensionBindingProvenance.STANDALONE,
+                ),
+                sampleEnvelope(),
+            )
+
+            val read = wrapped.governedSuspension(id)
+            assertNotNull(read)
+            assertEquals(SuspensionBindingProvenance.STANDALONE, read.provenance)
+            assertNull(read.checkpointBinding)
+        }
+    }
+
+    @Test
+    fun `a version 3 payload that omits its provenance is corruption, not legacy`() {
+        val id = "si-governed-v3-no-provenance"
+        createGoverned(id, runId = "governed-run-1")
+        rewritePayload(id) { json -> json.replace("\"provenance\":\"LEGACY_UNKNOWN\",", "") }
+
+        val failure = assertFailsWith<RuntimeException> { runBlocking { store().governedRunIdentity(id) } }
+
+        assertTrue(
+            failure.message!!.contains("states no provenance"),
+            "expected the missing V3 provenance to be named, got: ${failure.message}",
+        )
+    }
+
+    @Test
     fun `governed create round trips the exact identity and keeps it out of plaintext columns`() {
         runBlocking {
             val s = store()
@@ -1085,7 +1145,7 @@ class JdbcSuspendedInvocationStoreTest {
     fun `a governed payload downgraded to the legacy version is corruption`() {
         val id = "si-governed-downgrade"
         createGoverned(id)
-        rewritePayload(id) { json -> json.replaceFirst("\"payloadVersion\":2", "\"payloadVersion\":1") }
+        rewritePayload(id) { json -> json.replaceFirst("\"payloadVersion\":3", "\"payloadVersion\":1") }
 
         val ex = assertFailsWith<RuntimeException> { runBlocking { store().governedRunIdentity(id) } }
         assertTrue(ex.message?.contains("corrupted") == true, "unexpected message: ${ex.message}")
@@ -1105,7 +1165,7 @@ class JdbcSuspendedInvocationStoreTest {
     fun `an unknown payload version fails closed`() {
         val id = "si-governed-unknown"
         createGoverned(id)
-        rewritePayload(id) { json -> json.replaceFirst("\"payloadVersion\":2", "\"payloadVersion\":3") }
+        rewritePayload(id) { json -> json.replaceFirst("\"payloadVersion\":3", "\"payloadVersion\":99") }
 
         val ex = assertFailsWith<RuntimeException> { runBlocking { store().governedRunIdentity(id) } }
         assertTrue(

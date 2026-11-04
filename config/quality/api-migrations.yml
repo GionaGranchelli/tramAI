@@ -459,3 +459,33 @@ migrations:
       the recorded lifecycle status, and it is terminal for that attempt -- retrying the same attempt is not
       meaningful, because the authority already answered. Nothing else changes for callers: nested execution is
       fenced through an internal capability carried by the execution services, so no public signature grew.
+  - module: :tramai-core
+    fromSha256: bbb2b420ea618f3d1a4fcc7fe6c4e682e2d39d6a7404cb2b99975e637fb6132f
+    toSha256: ef6c0c685bf14369fe5cb161420e44b30950fb8c8f4d4a9a0b177d19c55b2fb8
+    targetVersion: "0.7.0"
+    rationale: "0.7.7b adds the approval-resume admission capability and the workflow checkpoint binding (ApprovalResumeAdmission, ApprovalResumePermit, ApprovalResumeAdmissionRefusedException, WorkflowCheckpointBinding, WorkflowCheckpointBindingScope, SuspensionBindingProvenance). All additive: the capability must be public because it is implemented outside this module and injected at composition, and the binding must be public because the engine persists it. Neither carries authority of its own."
+    migration: "No caller change is required. Implement ApprovalResumeAdmission where the durable workflow authority lives and pass it to the engine, and install WorkflowCheckpointBindingScope where a workflow execution begins. Code that does neither keeps its previous behaviour."
+  - module: :tramai-engine
+    fromSha256: 97449797943f051f255c0f96d69746f9145059fb577c8927d7443e9958da435f
+    toSha256: 2c170744301e634b4310c457757c4a769240699a95a53c53ff139c12b4707910
+    targetVersion: "0.7.0"
+    rationale: "E9 makes a governed suspension state its provenance and, when a workflow owns it, its checkpoint binding. GovernedSuspendedInvocation gains provenance and checkpointBinding, GovernedSuspendedInvocationStore gains a defaulted governedSuspension accessor, and the composition constructor accepts the resume admission and recovery coordinator. The accessor is defaulted so existing third-party stores keep compiling and are read as unknown provenance, which the workflow-authoritative profile refuses."
+    migration: "Supply approvalResumeAdmission = WorkflowApprovalResumeAdmission(checkpointStore) to enable workflow-bound approval resume admission. Without it a standalone engine behaves as before, except that a suspension a workflow claims to own is refused. Stores that persist bindings should override governedSuspension."
+  - module: :tramai-orchestration
+    fromSha256: 51e630318b1244fa1133f212d8b2148838ff87e2e22edc5027d12ec500ee2d40
+    toSha256: 5bf10071155bab44d225cf16f8f1cc5dd2146bf3f25f2bf5d106bf0bab6213fc
+    targetVersion: "0.7.0"
+    rationale: "E9 publishes WorkflowApprovalResumeAdmission, the workflow-side implementation of the approval-resume admission capability, plus its APPROVAL_RESUME effect kind. WorkflowRunner now installs the checkpoint binding scope beside the governed run scope."
+    migration: "Construct WorkflowApprovalResumeAdmission(checkpointStore) and give it to the engine. Workflow code needs no change: the runner produces the binding."
+  - module: :tramai-persistence-file
+    fromSha256: 87eaf21b618385b2e938a94b9d22335ae98f992f340592c8398c49fe1c3f26c0
+    toSha256: 577e7cec3d33e1e2f1d6ffd8d3fafa43341b2bc73ae6e8f6ef51f1c382a3034c
+    targetVersion: "0.7.0"
+    rationale: "E9 adds the V3 suspended-invocation record, which states provenance and can carry a checkpoint binding, plus the persisted checkpoint binding DTO and its schema constants. V1 and V2 records stay readable."
+    migration: "No on-disk migration: existing records decode as unknown provenance, and governed records written from now on are V3. A deployment that claims workflow admission therefore refuses to resume legacy governed suspensions, which must be re-approved rather than silently executed."
+  - module: :tramai-persistence-jdbc
+    fromSha256: 906fa7e10a58cfe8d70e7f985df219a3e053d87ccb8e2e3e4f72818544bb0e82
+    toSha256: 358db1f31c4ab9f51032b04d8583dd453073a424b7fc20ad2d06772fb009f40e
+    targetVersion: "0.7.0"
+    rationale: "E9 raises the encrypted suspended-invocation payload to version 3, carrying provenance and an optional checkpoint binding inside the same payload as the run attribution. Versions 1 and 2 stay readable."
+    migration: "No schema migration: the new fields ride inside the existing encrypted payload column. Payloads written before this release decode as unknown provenance."

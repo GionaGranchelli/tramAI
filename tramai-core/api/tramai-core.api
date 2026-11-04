@@ -260,6 +260,27 @@ public final class dev/tramai/core/approval/ApprovalRequest {
 	public fun toString ()Ljava/lang/String;
 }
 
+public abstract interface class dev/tramai/core/approval/ApprovalResumeAdmission {
+	public abstract fun admitResume (Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/approval/ApprovalResumeAdmissionRequest {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/WorkflowCheckpointBinding;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/tramai/core/identity/GovernedRunIdentity;
+	public final fun component4 ()Ldev/tramai/core/identity/WorkflowCheckpointBinding;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/WorkflowCheckpointBinding;)Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/WorkflowCheckpointBinding;ILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getCheckpointBinding ()Ldev/tramai/core/identity/WorkflowCheckpointBinding;
+	public final fun getRunIdentity ()Ldev/tramai/core/identity/GovernedRunIdentity;
+	public final fun getToolName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class dev/tramai/core/approval/ApprovalStatus : java/lang/Enum {
 	public static final field APPROVED Ldev/tramai/core/approval/ApprovalStatus;
 	public static final field DENIED Ldev/tramai/core/approval/ApprovalStatus;
@@ -861,6 +882,10 @@ public final class dev/tramai/core/exception/ApprovalRequiredException : dev/tra
 	public final fun getRequirement ()Ldev/tramai/core/policy/ApprovalRequirement;
 }
 
+public final class dev/tramai/core/exception/ApprovalResumeAdmissionRefusedException : java/lang/IllegalStateException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
 public final class dev/tramai/core/exception/ApprovalStoreConflictException : dev/tramai/core/exception/ApprovalStoreException {
 	public fun <init> (Ljava/lang/String;)V
 	public fun getApprovalId ()Ljava/lang/String;
@@ -1096,6 +1121,28 @@ public final class dev/tramai/core/identity/RunId {
 	public static synthetic fun copy$default (Ldev/tramai/core/identity/RunId;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/RunId;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/identity/SuspensionBindingProvenance : java/lang/Enum {
+	public static final field LEGACY_UNKNOWN Ldev/tramai/core/identity/SuspensionBindingProvenance;
+	public static final field STANDALONE Ldev/tramai/core/identity/SuspensionBindingProvenance;
+	public static final field WORKFLOW_BOUND Ldev/tramai/core/identity/SuspensionBindingProvenance;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/identity/SuspensionBindingProvenance;
+	public static fun values ()[Ldev/tramai/core/identity/SuspensionBindingProvenance;
+}
+
+public final class dev/tramai/core/identity/WorkflowCheckpointBinding {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/identity/WorkflowCheckpointBinding;
+	public static synthetic fun copy$default (Ldev/tramai/core/identity/WorkflowCheckpointBinding;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/WorkflowCheckpointBinding;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getWorkflowId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

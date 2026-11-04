@@ -3,6 +3,8 @@ package dev.tramai.engine.components
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ApprovalRecoveryCoordinator
+import dev.tramai.core.approval.ApprovalResumeAdmission
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
@@ -87,6 +89,10 @@ internal data class ApprovalComponents(
     val suspendedInvocationStore: SuspendedInvocationStore,
     val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter,
     val capability: ApprovalCapability,
+    /** E9: the workflow-bound resume authority, null when this deployment claims no workflow-level admission. */
+    val resumeAdmission: ApprovalResumeAdmission? = null,
+    /** The audited CLAIMED -> CANCELLED_UNCERTAIN transition used to close a refused resume. */
+    val recoveryCoordinator: ApprovalRecoveryCoordinator? = null,
 )
 
 /** Runtime snapshot of persistence. Caller-supplied cache and memory remain caller-owned. */

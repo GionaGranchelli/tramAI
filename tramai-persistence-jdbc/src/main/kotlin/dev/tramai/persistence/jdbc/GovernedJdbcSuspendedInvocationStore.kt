@@ -27,6 +27,9 @@ class GovernedJdbcSuspendedInvocationStore(
         replayEnvelope: SensitiveReplayEnvelope,
     ) = delegate.createGoverned(suspended, replayEnvelope)
 
+    override suspend fun governedSuspension(approvalId: String): dev.tramai.engine.GovernedSuspendedInvocation? =
+        delegate.governedSuspension(approvalId)
+
     override suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity? {
         val identity = delegate.governedRunIdentity(approvalId)
         return identity

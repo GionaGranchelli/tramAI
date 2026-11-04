@@ -8,18 +8,26 @@ import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ApprovalRecoveryCoordinator
+import dev.tramai.core.approval.ApprovalResumeAdmission
+import dev.tramai.core.approval.ApprovalResumeAdmissionRequest
 import dev.tramai.core.approval.ClaimedApprovalContinuation
 import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.ForceCancelClaimedCommand
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ApprovalNotFoundException
+import dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.NestedApprovalNotSupportedException
 import dev.tramai.core.exception.StructuredOutputException
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
@@ -41,6 +49,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 
+/** Reason codes for a refused post-claim resume; all match the privileged-recovery pattern. */
+private const val REASON_NO_AUTHORITY: String = "resume-admission-authority-missing"
+private const val REASON_AUTHORITY_REFUSED: String = "resume-admission-refused"
+private const val REASON_IDENTITY_MISMATCH: String = "resume-admission-identity-mismatch"
+private const val REASON_NO_BINDING: String = "resume-admission-binding-missing"
+private const val REASON_LEGACY_PROVENANCE: String = "resume-admission-provenance-unknown"
+
 /**
  * Orchestrates the resume state machine for a suspended approval.
  *
@@ -50,6 +65,7 @@ import kotlinx.coroutines.withContext
  * dispatch. The executor used for the claimed resume is resolved from the
  * [ResumeOperationRegistry] — the registry knows how to dispatch.
  */
+@Suppress("LongParameterList")
 internal class ApprovalResumeCoordinator(
     private val approvalContinuationStore: ApprovalContinuationStore?,
     private val suspendedInvocationStore: SuspendedInvocationStore,
@@ -60,6 +76,16 @@ internal class ApprovalResumeCoordinator(
     private val engineEventObserver: EngineEventObserver,
     private val claimService: ContinuationClaimService,
     private val authorizationService: ReplayAuthorizationService,
+    /**
+     * E9: the workflow-bound resume authority, or null when this deployment claims no workflow-level admission. Absent
+     * means a standalone engine; a suspension that a workflow claims to own is then refused rather than waved through.
+     */
+    private val approvalResumeAdmission: ApprovalResumeAdmission? = null,
+    /**
+     * The audited CLAIMED → CANCELLED_UNCERTAIN transition. Required to close a continuation whose resume was admitted
+     * and then refused; without it the claim is left for the operator recovery sweep, and said so out loud.
+     */
+    private val approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
 ) {
     suspend fun resume(command: ResumeApprovalCommand): Any? {
         val prepared = prepareResume(command)
@@ -74,6 +100,7 @@ internal class ApprovalResumeCoordinator(
                 prepared.registered,
                 prepared.resolvedTool,
                 uncertainOutcome,
+                prepared.persistedGoverned,
             )
 
         return try {
@@ -93,6 +120,9 @@ internal class ApprovalResumeCoordinator(
                 prepared.metadata,
                 "nested-approval-not-supported",
             )
+            throw e
+        } catch (e: ApprovalResumeAdmissionRefusedException) {
+            // Not an uncertain outcome: nothing was dispatched. Reporting it as one would claim a tool may have run.
             throw e
         } catch (e: StructuredOutputException) {
             emitResumeUncertainOutcomeOnce(
@@ -192,6 +222,7 @@ internal class ApprovalResumeCoordinator(
         val emitter: suspend (String) -> Unit = { reason ->
             emitResumeUncertainOutcomeOnce(context.uncertainOutcome, command, metadata, reason)
         }
+        admitResumeBeforeDispatch(context, claimed)
         val result =
             context.registered.resumeExecutor.execute(
                 ClaimedResumeExecutionRequest(
@@ -207,6 +238,160 @@ internal class ApprovalResumeCoordinator(
             )
         completeClaimedResume(command, metadata, claimed, store)
         return result
+    }
+
+    /**
+     * E9: the owning workflow's durable authority must admit this resumed invocation, after the claim and immediately
+     * before dispatch.
+     *
+     * Three provenances, three outcomes, and no inferred fourth:
+     * - [SuspensionBindingProvenance.WORKFLOW_BOUND] — the record names its checkpoint, so a fresh durable grant is
+     *   required. Without the capability or without the binding, the resume is refused.
+     * - [SuspensionBindingProvenance.STANDALONE] — the suspension declared at creation that no workflow owns it. No
+     *   workflow cancellation guarantee applies, and this release does not invent one.
+     * - [SuspensionBindingProvenance.LEGACY_UNKNOWN] — the record states nothing. A deployment that claims
+     *   workflow-level admission (that is, one that installed this capability) must not treat silence as
+     *   standalone, so it refuses.
+     */
+    private suspend fun admitResumeBeforeDispatch(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+    ) {
+        val suspension =
+            (suspendedInvocationStore as? GovernedSuspendedInvocationStore)
+                ?.governedSuspension(context.command.approvalId)
+        // A store written against the older SPI answers governedRunIdentity() and leaves governedSuspension() at its
+        // null default. The identity recovered before the claim is the same fact, already read once; the record simply
+        // states no provenance, which is unknown, never permission to skip admission.
+        val runIdentity = suspension?.runIdentity ?: context.persistedGovernedRunIdentity ?: return
+        requireAdmissionIdentityContinuity(context, claimed, runIdentity)
+        val authority = approvalResumeAdmission
+        when (suspension?.provenance ?: SuspensionBindingProvenance.LEGACY_UNKNOWN) {
+            SuspensionBindingProvenance.STANDALONE -> {
+                Unit
+            }
+
+            SuspensionBindingProvenance.WORKFLOW_BOUND -> {
+                admitWorkflowBound(context, claimed, authority, suspension?.checkpointBinding, runIdentity)
+            }
+
+            SuspensionBindingProvenance.LEGACY_UNKNOWN -> {
+                if (authority == null) return
+                refuseClaimedResume(
+                    context,
+                    claimed,
+                    REASON_LEGACY_PROVENANCE,
+                    "the suspension records no binding provenance, so workflow authority cannot be established",
+                )
+            }
+        }
+    }
+
+    /**
+     * The identity offered for admission must be the one recovered before the claim and installed in the resumed scope.
+     * A store answering two identities for one run would otherwise have one authorized and another executed.
+     */
+    private suspend fun requireAdmissionIdentityContinuity(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+        offered: GovernedRunIdentity,
+    ) {
+        val persisted = context.persistedGovernedRunIdentity ?: return
+        if (persisted != offered) {
+            refuseClaimedResume(
+                context,
+                claimed,
+                REASON_IDENTITY_MISMATCH,
+                "the governed identity offered for admission is not the one persisted for this continuation",
+            )
+        }
+    }
+
+    private suspend fun admitWorkflowBound(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+        authority: ApprovalResumeAdmission?,
+        checkpointBinding: WorkflowCheckpointBinding?,
+        runIdentity: GovernedRunIdentity,
+    ) {
+        if (authority == null) {
+            refuseClaimedResume(
+                context,
+                claimed,
+                REASON_NO_AUTHORITY,
+                "no workflow admission authority is wired",
+            )
+        }
+        if (checkpointBinding == null) {
+            refuseClaimedResume(context, claimed, REASON_NO_BINDING, "the suspension names no checkpoint")
+        }
+        val permit =
+            try {
+                authority.admitResume(
+                    ApprovalResumeAdmissionRequest(
+                        approvalId = context.command.approvalId,
+                        toolName = context.metadata.toolName,
+                        runIdentity = runIdentity,
+                        checkpointBinding = checkpointBinding,
+                    ),
+                )
+            } catch (refused: ApprovalResumeAdmissionRefusedException) {
+                // The authority said no after the claim. The claim must not be left behind, and the refusal must not be
+                // reclassified: it goes through the same audited terminal transition as every other refusal.
+                refuseClaimedResume(context, claimed, REASON_AUTHORITY_REFUSED, refused.message ?: "refused")
+            }
+        permit.tryConsume()
+    }
+
+    /**
+     * Refuse a resume whose continuation is already claimed, and close the claim through the audited privileged
+     * transition so it cannot sit CLAIMED forever.
+     *
+     * The recovery coordinator, not the raw store, is the only sanctioned path: it emits the durable
+     * request-before-mutation audit, validates the reason code, and maps store failures. If it is unavailable or fails,
+     * the continuation stays CLAIMED — which is safe, because a CLAIMED continuation is rejected by every later resume
+     * (`continuation-not-pending`) and is swept by the existing stale-claim recovery — and the exception says so rather
+     * than pretending the claim was closed.
+     */
+    private suspend fun refuseClaimedResume(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+        reasonCode: String,
+        detail: String,
+    ): Nothing {
+        val command = context.command
+        val recovery = approvalRecoveryCoordinator
+        var closed = false
+        if (recovery != null) {
+            closed =
+                try {
+                    recovery.forceCancelClaimed(
+                        ForceCancelClaimedCommand(
+                            approvalId = command.approvalId,
+                            expectedVersion = claimed.continuation.version,
+                            operatorId = command.resumedBy,
+                            reasonCode = reasonCode,
+                        ),
+                    )
+                    true
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") failure: Exception,
+                ) {
+                    // The audit or the store may fail in any way; none of them may leave the claim looking closed.
+                    failure.rethrowIfCancellation()
+                    false
+                }
+        }
+        throw ApprovalResumeAdmissionRefusedException(
+            "approval '${command.approvalId}' cannot be resumed: $detail" +
+                if (closed) {
+                    "; the claimed continuation was cancelled through the audited recovery transition"
+                } else {
+                    "; the continuation remains CLAIMED and only the stale-claim recovery may reconcile it"
+                },
+        )
     }
 
     private suspend fun revealAndValidateReplayPayload(

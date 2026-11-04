@@ -19,6 +19,9 @@ import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.NestedApprovalNotSupportedException
 import dev.tramai.core.exception.StructuredOutputException
 import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
+import dev.tramai.core.identity.WorkflowCheckpointBindingScope
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.engine.EngineEventObserver
@@ -257,7 +260,10 @@ internal class ApprovalSuspensionCoordinator(
     private suspend fun resolveGovernedSuspension(): GovernedSuspension {
         val identity =
             GovernedRunScope.resolve(currentCoroutineContext())
-                ?: return GovernedSuspension(null, null)
+                ?: return GovernedSuspension(null, null, null)
+        // E9: the workflow, when there is one, states which durable row owns this suspension. Resolved here and
+        // persisted with the record; never reconstructed at resume time from the identity.
+        val binding = WorkflowCheckpointBindingScope.resolve(currentCoroutineContext())
         val store =
             suspendedInvocationStore as? GovernedSuspendedInvocationStore
                 ?: throw ConfigurationException(
@@ -265,7 +271,7 @@ internal class ApprovalSuspensionCoordinator(
                         "GovernedSuspendedInvocationStore; the configured store " +
                         "'${suspendedInvocationStore::class.simpleName}' does not",
                 )
-        return GovernedSuspension(identity, store)
+        return GovernedSuspension(identity, store, binding)
     }
 
     private suspend fun persistSuspendedInvocation(
@@ -276,8 +282,21 @@ internal class ApprovalSuspensionCoordinator(
         val identity = governedSuspension.identity
         val store = governedSuspension.store
         if (identity != null && store != null) {
-            // ONE durable record: metadata + replay envelope + canonical identity.
-            store.createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope)
+            // ONE durable record: metadata + replay envelope + canonical identity + provenance.
+            store.createGoverned(
+                GovernedSuspendedInvocation(
+                    metadata = metadata,
+                    runIdentity = identity,
+                    provenance =
+                        if (governedSuspension.binding == null) {
+                            SuspensionBindingProvenance.STANDALONE
+                        } else {
+                            SuspensionBindingProvenance.WORKFLOW_BOUND
+                        },
+                    checkpointBinding = governedSuspension.binding,
+                ),
+                envelope,
+            )
         } else {
             suspendedInvocationStore.create(metadata, envelope)
         }
@@ -309,5 +328,6 @@ internal class ApprovalSuspensionCoordinator(
     private data class GovernedSuspension(
         val identity: dev.tramai.core.identity.GovernedRunIdentity?,
         val store: GovernedSuspendedInvocationStore?,
+        val binding: WorkflowCheckpointBinding?,
     )
 }

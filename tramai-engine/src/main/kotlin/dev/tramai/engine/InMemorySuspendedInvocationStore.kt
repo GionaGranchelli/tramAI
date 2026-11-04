@@ -1,6 +1,8 @@
 package dev.tramai.engine
 
 import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -25,6 +27,8 @@ internal class InMemorySuspendedInvocationStore :
         val metadata: SuspendedInvocationMetadata,
         val replayEnvelope: SensitiveReplayEnvelope,
         val runIdentity: GovernedRunIdentity? = null,
+        val provenance: SuspensionBindingProvenance = SuspensionBindingProvenance.LEGACY_UNKNOWN,
+        val checkpointBinding: WorkflowCheckpointBinding? = null,
     )
 
     private val invocations = ConcurrentHashMap<String, StoredSuspendedInvocation>()
@@ -38,7 +42,27 @@ internal class InMemorySuspendedInvocationStore :
     override suspend fun createGoverned(
         suspended: GovernedSuspendedInvocation,
         replayEnvelope: SensitiveReplayEnvelope,
-    ) = createInternal(suspended.metadata, replayEnvelope, suspended.runIdentity)
+    ) = createInternal(
+        suspended.metadata,
+        replayEnvelope,
+        suspended.runIdentity,
+        suspended.provenance,
+        suspended.checkpointBinding,
+    )
+
+    override suspend fun governedSuspension(approvalId: String): GovernedSuspendedInvocation? {
+        validateIdField(approvalId, "approvalId")
+        return invocations[approvalId]?.let { stored ->
+            stored.runIdentity?.let { identity ->
+                GovernedSuspendedInvocation(
+                    metadata = stored.metadata,
+                    runIdentity = identity,
+                    provenance = stored.provenance,
+                    checkpointBinding = stored.checkpointBinding,
+                )
+            }
+        }
+    }
 
     override suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity? {
         validateIdField(approvalId, "approvalId")
@@ -49,6 +73,8 @@ internal class InMemorySuspendedInvocationStore :
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
         runIdentity: GovernedRunIdentity?,
+        provenance: SuspensionBindingProvenance = SuspensionBindingProvenance.LEGACY_UNKNOWN,
+        checkpointBinding: WorkflowCheckpointBinding? = null,
     ) {
         validateCreateInput(metadata, replayEnvelope)
         val existing =
@@ -58,6 +84,8 @@ internal class InMemorySuspendedInvocationStore :
                     metadata = metadata,
                     replayEnvelope = replayEnvelope,
                     runIdentity = runIdentity,
+                    provenance = provenance,
+                    checkpointBinding = checkpointBinding,
                 ),
             )
         require(existing == null) {

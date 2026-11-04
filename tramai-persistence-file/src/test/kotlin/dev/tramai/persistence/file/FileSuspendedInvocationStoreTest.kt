@@ -7,6 +7,8 @@ import dev.tramai.core.identity.DeploymentId
 import dev.tramai.core.identity.EnvironmentId
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
@@ -662,6 +664,61 @@ class FileSuspendedInvocationStoreTest {
         }
 
         @Test
+        fun `a workflow-bound suspension round trips its checkpoint binding`() {
+            val store = createStore()
+            val identity = governedIdentity(GovernedIdentityValues(runId = "governed-bound-run"))
+            val (metadata, envelope) =
+                createValidRecord(approvalId = "approval-governed-bound", workflowRunId = "governed-bound-run")
+            val binding = WorkflowCheckpointBinding(workflowName = "checkout", workflowId = "governed-bound-run")
+
+            runSuspending {
+                store.createGoverned(
+                    GovernedSuspendedInvocation(
+                        metadata = metadata,
+                        runIdentity = identity,
+                        provenance = SuspensionBindingProvenance.WORKFLOW_BOUND,
+                        checkpointBinding = binding,
+                    ),
+                    envelope,
+                )
+            }
+
+            val read = runSuspending { store.governedSuspension("approval-governed-bound") }!!
+            assertEquals(SuspensionBindingProvenance.WORKFLOW_BOUND, read.provenance)
+            assertEquals(binding, read.checkpointBinding)
+        }
+
+        @Test
+        fun `a standalone suspension stays distinguishable from a record that states nothing`() {
+            val store = createStore()
+            val identity = governedIdentity(GovernedIdentityValues(runId = "governed-standalone-run"))
+            val (metadata, envelope) =
+                createValidRecord(
+                    approvalId = "approval-governed-standalone",
+                    workflowRunId = "governed-standalone-run",
+                )
+
+            runSuspending {
+                store.createGoverned(
+                    GovernedSuspendedInvocation(
+                        metadata = metadata,
+                        runIdentity = identity,
+                        provenance = SuspensionBindingProvenance.STANDALONE,
+                    ),
+                    envelope,
+                )
+            }
+
+            val read = runSuspending { store.governedSuspension("approval-governed-standalone") }!!
+            assertEquals(
+                SuspensionBindingProvenance.STANDALONE,
+                read.provenance,
+                "a suspension that declared itself standalone must not read back as unknown provenance",
+            )
+            assertEquals(null, read.checkpointBinding)
+        }
+
+        @Test
         fun `governed create round trips the exact whole identity`() {
             val store = createStore()
             val identity = governedIdentity(GovernedIdentityValues(runId = "governed-run-1"))
@@ -740,7 +797,7 @@ class FileSuspendedInvocationStoreTest {
         fun `an unknown record schema version fails closed`() {
             storeGovernedRecord("approval-governed-unknown", runId = "governed-unknown-run")
             rewritePersistedRecord("approval-governed-unknown") { json ->
-                json.replaceFirst("\"schemaVersion\":2", "\"schemaVersion\":3")
+                json.replaceFirst("\"schemaVersion\":3", "\"schemaVersion\":4")
             }
 
             expectFailure<FileStoreUnsupportedFormatException> {
@@ -754,7 +811,7 @@ class FileSuspendedInvocationStoreTest {
                 val approvalId = "approval-governed-mistyped-$index"
                 storeGovernedRecord(approvalId, runId = "governed-mistyped-run-$index")
                 rewritePersistedRecord(approvalId) { json ->
-                    json.replaceFirst("\"schemaVersion\":2", "\"schemaVersion\":$declared")
+                    json.replaceFirst("\"schemaVersion\":3", "\"schemaVersion\":$declared")
                 }
 
                 val failure =
