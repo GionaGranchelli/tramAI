@@ -115,6 +115,15 @@ class JdbcWorkflowCheckpointStore(
             }
         }
 
+    /**
+     * The admission the store already performs, on a caller's connection, so a lease fence can hold the lease row lock
+     * and advance the counter in one transaction instead of two.
+     */
+    internal fun admitInConnection(
+        conn: java.sql.Connection,
+        request: WorkflowAdmissionRequest,
+    ): WorkflowAdmission = admissions.admitInConnection(conn, request)
+
     override suspend fun listCheckpoints(): List<WorkflowCheckpoint> =
         persistenceBoundary(
             PersistenceResourceKind.CHECKPOINT,

@@ -1,7 +1,7 @@
 # TASK-0.7.7c — E10: recovery re-execution fencing
 
-**Status: inspection complete, crash-window matrix agreed, no production change yet.** E9 (E9-INT-001) landed at
-`cd1d8bd8`. D7 physical-dispatch evidence remains a separate track.
+**Status: implemented and qualified.** E9 (E9-INT-001) landed at `cd1d8bd8`; this task adds the recovery admission
+fence. D7 physical-dispatch evidence remains a separate track.
 
 ## 1. The claim E10 has to earn
 
@@ -95,6 +95,71 @@ Each row is one test. "Safe" means the effect cannot dispatch.
 
 W5 fails today. W1–W4 and W6–W8 are expected to pass and exist to keep the claim honest — a matrix that only shows the
 one broken row would not prove the other four properties survived the fix.
+
+## 4a. What was implemented
+
+`WorkflowLeaseCheckpointFence` gained one additive, defaulted operation:
+
+```kotlin
+suspend fun admitIfLeaseOwner(
+    checkpointStore: WorkflowCheckpointStore,
+    request: WorkflowAdmissionRequest,
+    expectedLease: WorkflowLease,
+): WorkflowAdmission?   // null = this lease no longer owns the run
+```
+
+The default body **refuses** (`WorkflowAdmissionRefusedException`): a fence that cannot prove ownership atomically must
+not admit, so a third-party fence written before E10 fails closed instead of silently reverting to the old behaviour.
+
+`LeaseFencedCheckpointStore` (the decorator the supervisor hands to a resumed run) now overrides `admit` to call that
+operation, and turns a `null` answer into an authoritative refusal naming the lost lease. There is no
+`currentLease()`-then-`delegate.admit()` anywhere in the path.
+
+Per family:
+
+| Family | How ownership and the counter are made one atomic step |
+|--------|--------------------------------------------------------|
+| In-memory | `leaseMutex.withLock` + the same monitor the lease map uses: ownership is read, then `admit`, with no suspension point between them |
+| File | inside the same logical lease lock (`withLogicalLeaseLockSuspending`) the fenced checkpoint write already uses |
+| JDBC | one transaction: `lockLeaseRow(conn, expectedLease)`, then the store's own `admitInConnection(conn, request)` |
+
+Revision/generation preconditions and the durable cancellation refusal are unchanged: the fence calls the store's own
+`admit`, it does not reimplement it.
+
+**`cancel` is deliberately not fenced.** Terminal cancellation is the operator's authority over the run, not a worker
+effect; gating it on lease ownership would make an operator's cancellation depend on which worker happens to hold the
+lease, and one arriving during a re-acquire would be lost. Stated limit: a stale worker can still commit a cancellation
+it no longer owns. The decorator carries that reasoning as a comment so the asymmetry is not read as an oversight.
+
+**File is a local-only store: fail-closed compatibility, not admission support.** `FileWorkflowCheckpointStore` records
+neither an admission counter nor a lifecycle status (it delegates both to the interface defaults, which refuse), so over a
+file checkpoint store the fence can only answer *refused*. What file provides is the **refusal**: a superseded lease gets
+`null` without touching anything, and an owner presenting a valid lease gets the store's own capability refusal rather than
+a grant. It does **not** provide working admission, and the qualification evidence says so:
+
+- `FileWorkflowLeaseStoreCheckpointFenceTckTest` runs **20 cases, 1 skipped** — the skipped one is the durable
+  cancellation-refusal case, skipped because there is no cancellation authority on that store to preserve.
+- `durableAdmissionSupported = false` in the file harness, so the owner case asserts a refusal instead of a grant.
+- Only the in-memory and JDBC families are evidence for the granting half of E10.
+
+## 4b. Matrix coverage
+
+| # | Where it is proven |
+|---|--------------------|
+| W1 | `E10CrashWindowTest.an attempt that dies after its admission gets a fresh admission on resume` — a real governed step takes its admission and then throws before dispatching; the resumed attempt takes a **new** permit with sequence 2, and the two permits are distinct objects. Deterministic: the crash is an injected error, and nothing simulates physical dispatch (that is D7) |
+| W2 | `WorkflowRecoveryContractTest.requireRecovery persists NON_REPLAYABLE recovery reason`; `WorkflowReplayDecisionPolicyTest` |
+| W3 | `DurableWorkflowRecoveryFileTest.retry approval survives restart and worker consumes it once`, `approved idempotency key survives restart and mismatch is voided` |
+| W4 | `WorkflowRecoveryContractTest.requireRecovery persists EXTERNAL_IDEMPOTENCY_KEY_MISSING reason` |
+| W5 | `RecoveryAdmissionFenceTest.a worker whose lease was superseded cannot obtain a durable admission` + the TCK case `a superseded lease cannot take an admission and consumes no sequence` (in-memory, file, JDBC) |
+| W6 | `WorkflowStepAdmissionTest.a nested step is refused after cancellation commits`; `WorkflowLeaseCheckpointFenceTck.fenced admission preserves the run's durable cancellation refusal` |
+| W7 | supervisor identity restore (`WorkflowExecutionSupervisor`), plus the governed resume continuity asserted in `E9WorkflowEngineResumeIntegrationTest` |
+| W8 | Structural: permits are per-call values with no persisted form, and no API accepts one; `RecoveryAdmissionFenceTest` asserts a fresh sequence per attempt |
+| interleave | `RecoveryAdmissionFenceTest.a takeover landing between lease verification and admission is still refused` — the takeover happens inside the worker's own lease read, so a `currentLease()`-then-`admit()` design fails it |
+| fail closed | `RecoveryAdmissionFenceTest.a fence that cannot fence admissions fails closed` |
+| cancel | `RecoveryAdmissionFenceTest.operator cancellation is not gated on lease ownership` |
+
+The W5 regression was run against the pre-E10 decorator first: both W5 and the interleaving case fail there, and the
+other three cases still pass — so the tests are sharp rather than noisy.
 
 ## 5. Mutation checks (each must fail the suite)
 

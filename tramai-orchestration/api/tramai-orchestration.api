@@ -192,6 +192,7 @@ public final class dev/tramai/orchestration/FileWorkflowLeaseStore : dev/tramai/
 	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/AtomicFileWriter;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
+	public fun admitIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowAdmissionRequest;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -339,6 +340,7 @@ public final class dev/tramai/orchestration/InMemoryWorkflowLeaseStore : dev/tra
 	public fun <init> (Lkotlin/jvm/functions/Function0;)V
 	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun <init> (Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
+	public fun admitIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowAdmissionRequest;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -494,6 +496,7 @@ public final class dev/tramai/orchestration/JdbcWorkflowLeaseStore : dev/tramai/
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;Lkotlin/jvm/functions/Function0;)V
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
+	public fun admitIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowAdmissionRequest;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun createTableSql ()Ljava/lang/String;
 	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -1419,12 +1422,15 @@ public final class dev/tramai/orchestration/WorkflowLease {
 }
 
 public abstract interface class dev/tramai/orchestration/WorkflowLeaseCheckpointFence {
+	public fun admitIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowAdmissionRequest;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun admitIfLeaseOwner$suspendImpl (Ldev/tramai/orchestration/WorkflowLeaseCheckpointFence;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowAdmissionRequest;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun deleteCheckpointIfLeaseOwner$default (Ldev/tramai/orchestration/WorkflowLeaseCheckpointFence;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun saveCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/orchestration/WorkflowLeaseCheckpointFence$DefaultImpls {
+	public static fun admitIfLeaseOwner (Ldev/tramai/orchestration/WorkflowLeaseCheckpointFence;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowAdmissionRequest;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun deleteCheckpointIfLeaseOwner$default (Ldev/tramai/orchestration/WorkflowLeaseCheckpointFence;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
