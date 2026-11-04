@@ -339,7 +339,7 @@ class E9WorkflowEngineResumeIntegrationTest {
         )
 
     @Test
-    fun `an active workflow persists the binding its runner produced and admits the resume exactly once`() =
+    fun `an active workflow persists the binding its runner produced and admits the resume exactly once`() {
         runBlocking {
             val fixture = fixture()
             val suspended = suspendInsideWorkflow(fixture)
@@ -365,9 +365,10 @@ class E9WorkflowEngineResumeIntegrationTest {
             )
             assertEquals(null, fixture.suspended.get(suspended.approvalId), "the suspension is consumed by the resume")
         }
+    }
 
     @Test
-    fun `a cancelled workflow refuses the resume, runs no tool, and closes the claim as uncertain`() =
+    fun `a cancelled workflow refuses the resume, runs no tool, and closes the claim as uncertain`() {
         runBlocking {
             val fixture = fixture()
             val suspended = suspendInsideWorkflow(fixture)
@@ -415,4 +416,5 @@ class E9WorkflowEngineResumeIntegrationTest {
                 "the claimed continuation is closed through the audited uncertain transition",
             )
         }
+    }
 }
