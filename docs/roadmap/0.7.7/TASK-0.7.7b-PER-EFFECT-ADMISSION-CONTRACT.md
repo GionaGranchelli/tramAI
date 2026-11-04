@@ -634,3 +634,36 @@ Approval authorizes implementation of the guards **in this order**, each with it
 
 Until step 2 lands with its adversarial proof, no runtime enforcement claim may be made — the store-level
 authority remains the only proven part, exactly as §9 of the 0.7.7a contract states.
+
+## 10j. E9-COMP-001 as implemented (resume-admission composition invariant)
+
+§10i recorded the composition gap as an operational risk: an engine that configures workflow-bound resume admission
+without an approval recovery coordinator refuses a resume and leaves the continuation `CLAIMED`, with nothing in-process
+to close it. Documentation was the only protection. It is now an enforced composition invariant.
+
+**The invariant.** `approvalResumeAdmission != null` requires `approvalRecoveryCoordinator != null`. Violating it throws
+`ConfigurationException` at construction, before any approval can be suspended or resumed.
+
+**One authority.** `EngineComponentFactory.create` — the boundary that already validates the approval collaborators via
+`approvalCapability(...)` — calls `requireApprovalResumeComposition(...)`. `TramaiEngine` does not validate again: its
+public constructor funnels through the factory, so there is no second authority to drift.
+
+| Admission | Recovery | Verdict |
+|-----------|----------|---------|
+| configured | configured | accepted — the refusal path is complete |
+| configured | absent | **rejected**, `ConfigurationException` |
+| absent | absent | accepted — ordinary standalone composition, unchanged |
+| absent | configured | accepted — recovery-only is a legitimate standalone surface |
+
+Recovery-only is deliberately not rejected. `ApprovalRecoveryCoordinator` is a standalone operator surface for stale-claim
+reconciliation (`InMemoryApprovalRecoveryCoordinator` is exercised on its own in the security module), and
+`ApprovalResumeCoordinator` consults it only on its refusal paths — it does not require an admission authority to exist.
+
+**Admission without the full approval capability is inert, not unsafe.** `approvalCapability(...)` already enforces the
+all-three-or-none rule for continuation store, arguments digester and gate coordinator. With the capability disabled no
+continuation can be claimed, so no resume path ever consults the admission authority; the pairing needs no second rule.
+Recorded as a non-invariant rather than silently enforced.
+
+**Not claimed.** No change to workflow admission, cancellation or lease-fencing semantics; no new public API or schema; no
+migration of existing `CLAIMED` records; no default or guessed recovery coordinator is ever wired. Each of the two
+existing E9 engine integration scenarios (active, cancelled) keeps passing unchanged.
