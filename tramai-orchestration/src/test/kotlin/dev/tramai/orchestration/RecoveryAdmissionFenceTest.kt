@@ -227,6 +227,29 @@ class RecoveryAdmissionFenceTest {
      * it no longer owns.
      */
     @Test
+    fun `a refusing checkpoint store surfaces as an admission refusal, not a persistence failure`() =
+        runBlocking<Unit> {
+            val f = fixture()
+            val row = f.seed()
+            val workerA = f.claimAs("worker-a")
+            // A store that cannot issue a grant is a capability answer, not a broken store.
+            val refusing =
+                object : WorkflowCheckpointStore by f.checkpoints {
+                    override suspend fun admit(request: WorkflowAdmissionRequest): WorkflowAdmission =
+                        throw WorkflowAdmissionRefusedException("this store cannot issue admissions")
+                }
+
+            val refusal =
+                assertFailsWith<WorkflowAdmissionRefusedException> {
+                    f.admit(refusing, workerA, admissionRequest(row))
+                }
+
+            // The refusal's own type survives the persistence boundary: recovery can tell "not admitted" from
+            // "storage broke" only if the type is preserved.
+            assertTrue(refusal.message!!.contains("admission refused"), refusal.message!!)
+        }
+
+    @Test
     fun `operator cancellation is not gated on lease ownership`() =
         runBlocking<Unit> {
             val f = fixture()

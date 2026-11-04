@@ -5,6 +5,7 @@
 package dev.tramai.testing.persistence.lease
 
 import dev.tramai.orchestration.StaleWorkflowLeaseException
+import dev.tramai.orchestration.WorkflowAdmissionRefusedException
 import dev.tramai.orchestration.WorkflowAdmissionRequest
 import dev.tramai.orchestration.WorkflowCancellationRequest
 import dev.tramai.orchestration.WorkflowCheckpoint
@@ -194,6 +195,27 @@ abstract class WorkflowLeaseCheckpointFenceTck {
             assertThat(admission).isNotNull
             assertThat(admission!!.admitted).isFalse()
             assertThat(admission.cancellation).isNotNull
+        }
+
+    @Test
+    fun `a checkpoint refusal keeps its type across the fence and its persistence boundary`() =
+        runBlocking<Unit> {
+            val h = newHarness()
+            val persisted = h.seedCheckpoint("invoice-review", "run-001")
+            val lease = h.leaseStore.claim("invoice-review", "run-001", "worker-7", checkpointRevision = 1, leaseDurationMillis = 1_000)
+
+            // What the store itself says about this request ...
+            val direct = runCatching { h.checkpointStore.admit(admissionRequest(persisted)) }.exceptionOrNull()
+            // ... must be what the fenced path says, not a persistence failure wrapped around it. Same class, exactly.
+            val viaFence =
+                runCatching {
+                    h.fence.admitIfLeaseOwner(h.checkpointStore, admissionRequest(persisted), lease)
+                }.exceptionOrNull()
+
+            if (direct != null) {
+                assertThat(viaFence).isNotNull
+                assertThat(viaFence!!.javaClass).isEqualTo(direct.javaClass)
+            }
         }
 
     private fun admissionRequest(persisted: WorkflowCheckpoint): WorkflowAdmissionRequest =

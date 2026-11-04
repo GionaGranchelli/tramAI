@@ -231,6 +231,10 @@ class JdbcWorkflowLeaseStore(
                 if (!owned) return@executeJdbcCancellable null
                 try {
                     jdbcCheckpointStore.admitInConnection(conn, request)
+                } catch (refusal: WorkflowAdmissionRefusedException) {
+                    // The authority's verdict, not a DML failure: wrapping it would get it sanitized into one by
+                    // persistenceBoundary and erase why the run was not admitted.
+                    throw refusal
                 } catch (error: Throwable) {
                     error.rethrowIfCancellation()
                     throw CheckpointDmlFailure(error)

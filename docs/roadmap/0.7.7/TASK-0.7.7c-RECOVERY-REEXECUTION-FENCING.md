@@ -142,6 +142,21 @@ a grant. It does **not** provide working admission, and the qualification eviden
 - `durableAdmissionSupported = false` in the file harness, so the owner case asserts a refusal instead of a grant.
 - Only the in-memory and JDBC families are evidence for the granting half of E10.
 
+**R1 — refusal semantics are part of the contract, not diagnostics.** `persistenceBoundary` used to sanitize an
+authoritative `WorkflowAdmissionRefusedException` into a generic persistence-write failure, which made "this run is not
+admitted" indistinguishable from "the store broke". Fixed once, in the boundary rather than at each call site:
+
+- `persistenceBoundary` lets an authoritative refusal cross as its **own type** (`WorkflowAdmissionRefusedException`,
+  `WorkflowCancellationUnsupportedException`), rebuilt as a fresh fixed-text instance with no cause or suppressed — the
+  same discipline already applied to a trusted classification, so no raw text or cause graph crosses either.
+- The JDBC fence no longer wraps a refusal in `CheckpointDmlFailure`; a wrapped refusal would have been sanitized by the
+  boundary's DML branch, erasing why the run was refused.
+
+The four outcomes stay distinguishable, which is what recovery acts on: lease lost (`WorkflowAdmissionRefusedException`
+from the fence naming the lost lease), cancelled (`admission.cancellation`), capability unsupported
+(`WorkflowCancellationUnsupportedException`, the file store's answer), storage failure (the persistence vocabulary).
+Cancellation results are unchanged.
+
 ## 4b. Matrix coverage
 
 | # | Where it is proven |
@@ -156,6 +171,7 @@ a grant. It does **not** provide working admission, and the qualification eviden
 | W8 | Structural: permits are per-call values with no persisted form, and no API accepts one; `RecoveryAdmissionFenceTest` asserts a fresh sequence per attempt |
 | interleave | `RecoveryAdmissionFenceTest.a takeover landing between lease verification and admission is still refused` — the takeover happens inside the worker's own lease read, so a `currentLease()`-then-`admit()` design fails it |
 | fail closed | `RecoveryAdmissionFenceTest.a fence that cannot fence admissions fails closed` |
+| refusal type | `RecoveryAdmissionFenceTest.a refusing checkpoint store surfaces as an admission refusal, not a persistence failure`; TCK `a checkpoint refusal keeps its type across the fence and its persistence boundary` (all three families) |
 | cancel | `RecoveryAdmissionFenceTest.operator cancellation is not gated on lease ownership` |
 
 The W5 regression was run against the pre-E10 decorator first: both W5 and the interleaving case fail there, and the
