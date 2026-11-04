@@ -602,12 +602,25 @@ checkpoint instead of the durable row (6); the adapter's continuity check delete
 provenance and binding (2); the legacy-store fail-open restored (1); the identity continuity check removed (1); an
 unsupported authority no longer classified as a refusal (1).
 
-**Still unproven, and stated as such:** no test in this PR drives a real `TramaiEngine` instance end to end. The engine
-suite exercises the real coordinator with a real recovery coordinator, and the orchestration suite exercises the real
-checkpoint store and the real adapter through cancellation, but the two are not yet joined in one integration test — that
-needs an engine-metadata fixture inside the orchestration module, where both authorities are visible. Until it exists, the
-claim is "workflow-bound approval continuation admission, wired at composition and proven per half", not "an end-to-end
-integration proof".
+**E9-INT-001: the composed boundary.** `E9WorkflowEngineResumeIntegrationTest` composes the real parts through the
+engine's *public* constructor — a real `TramaiEngine`, the real `WorkflowApprovalResumeAdmission` over a real
+`InMemoryWorkflowCheckpointStore`, and a governed workflow whose second step calls an AI service, so the suspension is
+created inside the step and the checkpoint binding is produced by `WorkflowRunner`'s execution scope. The test never
+constructs a binding.
+
+- Active workflow: the persisted record reads `WORKFLOW_BOUND` with exactly `(workflowName, workflowId)` of the run
+  being executed; the resume grants one durable admission (measured as a delta, because the same store also carries the
+  workflow's step admissions), invokes the tool once, and consumes the suspension.
+- Cancelled workflow: the resume is refused **with the recorded cancellation as the reason** (asserted on the message,
+  not merely on "some refusal"), the tool is never invoked, no admission is granted, and the claimed continuation reaches
+  `CANCELLED_UNCERTAIN` through the audited recovery transition.
+- Anti-vacuity: removing `approvalResumeAdmission` from the composition fails both cases.
+
+One thing the integration test taught that the unit tests could not: closing a refused claim is the recovery
+coordinator's job, so a deployment that wires the admission but leaves `approvalRecoveryCoordinator` at its `null` default
+refuses correctly and then leaves the continuation `CLAIMED`. The test wires
+`InMemoryApprovalRecoveryCoordinator` explicitly. This is a stated limit of the current composition, not something a
+silent default hides, and it is the composition a deployment must copy.
 
 ## 11. What approval of this contract authorizes
 
