@@ -24,8 +24,10 @@ import dev.tramai.core.exception.ApprovalTokenRejectedException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.NestedApprovalNotSupportedException
 import dev.tramai.core.exception.StructuredOutputException
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
@@ -50,6 +52,7 @@ import kotlinx.coroutines.withContext
 /** Reason codes for a refused post-claim resume; all match the privileged-recovery pattern. */
 private const val REASON_NO_AUTHORITY: String = "resume-admission-authority-missing"
 private const val REASON_AUTHORITY_REFUSED: String = "resume-admission-refused"
+private const val REASON_IDENTITY_MISMATCH: String = "resume-admission-identity-mismatch"
 private const val REASON_NO_BINDING: String = "resume-admission-binding-missing"
 private const val REASON_LEGACY_PROVENANCE: String = "resume-admission-provenance-unknown"
 
@@ -97,6 +100,7 @@ internal class ApprovalResumeCoordinator(
                 prepared.registered,
                 prepared.resolvedTool,
                 uncertainOutcome,
+                prepared.persistedGoverned,
             )
 
         return try {
@@ -256,7 +260,11 @@ internal class ApprovalResumeCoordinator(
         val suspension =
             (suspendedInvocationStore as? GovernedSuspendedInvocationStore)
                 ?.governedSuspension(context.command.approvalId)
-        val runIdentity = suspension?.runIdentity ?: return
+        // A store written against the older SPI answers governedRunIdentity() and leaves governedSuspension() at its
+        // null default. The identity recovered before the claim is the same fact, already read once; the record simply
+        // states no provenance, which is unknown, never permission to skip admission.
+        val runIdentity = suspension?.runIdentity ?: context.persistedGovernedRunIdentity ?: return
+        requireAdmissionIdentityContinuity(context, claimed, runIdentity)
         val authority = approvalResumeAdmission
         when (suspension?.provenance ?: SuspensionBindingProvenance.LEGACY_UNKNOWN) {
             SuspensionBindingProvenance.STANDALONE -> {
@@ -264,35 +272,7 @@ internal class ApprovalResumeCoordinator(
             }
 
             SuspensionBindingProvenance.WORKFLOW_BOUND -> {
-                val binding = suspension?.checkpointBinding
-                if (authority == null) {
-                    refuseClaimedResume(
-                        context,
-                        claimed,
-                        REASON_NO_AUTHORITY,
-                        "no workflow admission authority is wired",
-                    )
-                }
-                if (binding == null) {
-                    refuseClaimedResume(context, claimed, REASON_NO_BINDING, "the suspension names no checkpoint")
-                }
-                val permit =
-                    try {
-                        authority.admitResume(
-                            ApprovalResumeAdmissionRequest(
-                                approvalId = context.command.approvalId,
-                                toolName = context.metadata.toolName,
-                                runIdentity = runIdentity,
-                                checkpointBinding = requireNotNull(binding),
-                            ),
-                        )
-                    } catch (refused: ApprovalResumeAdmissionRefusedException) {
-                        // The authority said no after the claim. The claim must not be left behind, and the refusal
-                        // must not be reclassified: it goes through the same audited terminal transition as every
-                        // other post-claim refusal.
-                        refuseClaimedResume(context, claimed, REASON_AUTHORITY_REFUSED, refused.message ?: "refused")
-                    }
-                permit.tryConsume()
+                admitWorkflowBound(context, claimed, authority, suspension?.checkpointBinding, runIdentity)
             }
 
             SuspensionBindingProvenance.LEGACY_UNKNOWN -> {
@@ -305,6 +285,62 @@ internal class ApprovalResumeCoordinator(
                 )
             }
         }
+    }
+
+    /**
+     * The identity offered for admission must be the one recovered before the claim and installed in the resumed scope.
+     * A store answering two identities for one run would otherwise have one authorized and another executed.
+     */
+    private suspend fun requireAdmissionIdentityContinuity(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+        offered: GovernedRunIdentity,
+    ) {
+        val persisted = context.persistedGovernedRunIdentity ?: return
+        if (persisted != offered) {
+            refuseClaimedResume(
+                context,
+                claimed,
+                REASON_IDENTITY_MISMATCH,
+                "the governed identity offered for admission is not the one persisted for this continuation",
+            )
+        }
+    }
+
+    private suspend fun admitWorkflowBound(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+        authority: ApprovalResumeAdmission?,
+        checkpointBinding: WorkflowCheckpointBinding?,
+        runIdentity: GovernedRunIdentity,
+    ) {
+        if (authority == null) {
+            refuseClaimedResume(
+                context,
+                claimed,
+                REASON_NO_AUTHORITY,
+                "no workflow admission authority is wired",
+            )
+        }
+        if (checkpointBinding == null) {
+            refuseClaimedResume(context, claimed, REASON_NO_BINDING, "the suspension names no checkpoint")
+        }
+        val permit =
+            try {
+                authority.admitResume(
+                    ApprovalResumeAdmissionRequest(
+                        approvalId = context.command.approvalId,
+                        toolName = context.metadata.toolName,
+                        runIdentity = runIdentity,
+                        checkpointBinding = checkpointBinding,
+                    ),
+                )
+            } catch (refused: ApprovalResumeAdmissionRefusedException) {
+                // The authority said no after the claim. The claim must not be left behind, and the refusal must not be
+                // reclassified: it goes through the same audited terminal transition as every other refusal.
+                refuseClaimedResume(context, claimed, REASON_AUTHORITY_REFUSED, refused.message ?: "refused")
+            }
+        permit.tryConsume()
     }
 
     /**

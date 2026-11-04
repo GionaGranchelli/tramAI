@@ -467,7 +467,7 @@ migrations:
     migration: "No caller change is required. Implement ApprovalResumeAdmission where the durable workflow authority lives and pass it to the engine, and install WorkflowCheckpointBindingScope where a workflow execution begins. Code that does neither keeps its previous behaviour."
   - module: :tramai-engine
     fromSha256: 97449797943f051f255c0f96d69746f9145059fb577c8927d7443e9958da435f
-    toSha256: b136a39d9fd7fe38b7450637715562819c84d43ecc4cae9cb95657dfb71a9754
+    toSha256: 2c170744301e634b4310c457757c4a769240699a95a53c53ff139c12b4707910
     targetVersion: "0.7.0"
     rationale: "E9 makes a governed suspension state its provenance and, when a workflow owns it, its checkpoint binding. GovernedSuspendedInvocation gains provenance and checkpointBinding, GovernedSuspendedInvocationStore gains a defaulted governedSuspension accessor, and the composition constructor accepts the resume admission and recovery coordinator. The accessor is defaulted so existing third-party stores keep compiling and are read as unknown provenance, which the workflow-authoritative profile refuses."
     migration: "Supply approvalResumeAdmission = WorkflowApprovalResumeAdmission(checkpointStore) to enable workflow-bound approval resume admission. Without it a standalone engine behaves as before, except that a suspension a workflow claims to own is refused. Stores that persist bindings should override governedSuspension."

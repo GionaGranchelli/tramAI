@@ -127,7 +127,13 @@ class JdbcSuspendedInvocationStore(
         }) {
             validateCreateInput(suspended.metadata)
             val payloadJson =
-                buildCreatePayload(suspended.metadata, replayEnvelope, suspended.runIdentity)
+                buildCreatePayload(
+                    suspended.metadata,
+                    replayEnvelope,
+                    suspended.runIdentity,
+                    suspended.provenance,
+                    suspended.checkpointBinding,
+                )
             val encrypted = replayEnvelopeCodec.encode(payloadJson)
             val now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
 
@@ -625,7 +631,12 @@ class JdbcSuspendedInvocationStore(
         payload: Payload,
         identity: PayloadGovernedRunIdentity,
     ) {
-        val provenance = payload.provenance.toProvenance()
+        // V1/V2 predate provenance and legitimately decode as unknown; a V3 payload that omits it is corrupt.
+        val declared = payload.provenance
+        if (declared == null) {
+            error("suspended-invocation-corrupted: governed payload version 3 states no provenance")
+        }
+        val provenance = declared.toProvenance()
         val binding = payload.checkpointBinding
         if ((provenance == SuspensionBindingProvenance.WORKFLOW_BOUND) != (binding != null)) {
             error("suspended-invocation-corrupted: provenance and checkpoint binding disagree")

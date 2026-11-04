@@ -1,3 +1,5 @@
+@file:OptIn(dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.orchestration
 
 import dev.tramai.core.approval.ApprovalResumeAdmission
@@ -61,6 +63,13 @@ class WorkflowApprovalResumeAdmission(
                 throw ApprovalResumeAdmissionRefusedException(
                     "approval '${request.approvalId}' cannot be resumed: ${refused.message}",
                 ).apply { initCause(refused) }
+            } catch (unsupported: WorkflowCancellationUnsupportedException) {
+                // A store that cannot admit is a refused admission, not a failed resume: the executor never ran, so the
+                // engine must not report an uncertain outcome. Unrelated failures stay unclassified and propagate.
+                throw ApprovalResumeAdmissionRefusedException(
+                    "approval '${request.approvalId}' cannot be admitted: this checkpoint store does not support " +
+                        "admission (${unsupported.message})",
+                ).apply { initCause(unsupported) }
             }
         return ApprovalResumePermit(
             approvalId = request.approvalId,

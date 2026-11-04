@@ -114,6 +114,7 @@ public final class dev/tramai/engine/ExecutionSecurityContext$Companion {
 }
 
 public final class dev/tramai/engine/GovernedSuspendedInvocation {
+	public synthetic fun <init> (Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/core/identity/GovernedRunIdentity;)V
 	public fun <init> (Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/SuspensionBindingProvenance;Ldev/tramai/core/identity/WorkflowCheckpointBinding;)V
 	public synthetic fun <init> (Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/SuspensionBindingProvenance;Ldev/tramai/core/identity/WorkflowCheckpointBinding;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ldev/tramai/engine/SuspendedInvocationMetadata;

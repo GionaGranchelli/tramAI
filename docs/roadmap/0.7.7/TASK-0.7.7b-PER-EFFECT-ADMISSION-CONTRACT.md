@@ -555,6 +555,60 @@ before the claim (1, the ordering assertion); the authority's refusal swallowed 
 `LEGACY_UNKNOWN` case treated as standalone (2); the adapter admitting without reading the row (3); and the adapter's
 continuity check deleted (1).
 
+## 10i. E9 corrections after review
+
+Review raised five findings against the first E9 commit. All are code-level fixes, none a documentation waiver.
+
+**Fail-closed for stores that cannot state provenance.** A store compiled against the pre-E9 SPI answers
+`governedRunIdentity()` and leaves the new `governedSuspension()` at its `null` default. Treating that `null` as "no
+record, nothing to admit" was a fail-open path: the record *was* governed, and E9 was skipped. The coordinator now falls
+back to the identity recovered **before the claim** (the same fact, already read once — no second durable read) and reads
+the missing record as `LEGACY_UNKNOWN`, which the workflow-authoritative profile refuses. Proven by a legacy-SPI store
+that provides `governedRunIdentity()` only.
+
+**One identity, verified.** `governedRunIdentity()` is read before the claim and installed in the resumed
+`GovernedRunScope`; E9 later authorizes an identity carried by the governed suspension. Those two are now compared, and a
+store that offers a different deployment for the same run is refused with `resume-admission-identity-mismatch` rather
+than having one identity authorized and another executed.
+
+**JDBC governed creation persists the binding.** `createGoverned` was still calling `buildCreatePayload` without the new
+arguments, so the JDBC path wrote `LEGACY_UNKNOWN` and no binding while the engine believed it had persisted both. Fixed,
+with round trips through the public `GovernedJdbcSuspendedInvocationStore` wrapper proving a `WORKFLOW_BOUND` record keeps
+its exact workflow name and run id and a `STANDALONE` record stays distinguishable from silence.
+
+**A V3 payload that omits provenance is corruption.** V1/V2 predate provenance and legitimately decode as unknown; V3 is
+required to state it. The JDBC decoder now refuses a version-3 payload with no `provenance` field instead of normalising it
+to legacy.
+
+**An authority that cannot admit is a refusal, not a failed resume.** `WorkflowCancellationUnsupportedException` from a
+store without admission support reached the generic resume handler, which reports an uncertain outcome for an executor
+that never ran. `WorkflowApprovalResumeAdmission` now classifies it as a refusal, preserving the cause; coroutine
+cancellation and unrelated failures are untouched.
+
+**Public JVM signatures.** The added parameters removed the two-argument `GovernedSuspendedInvocation` constructor and the
+previous long-form `TramaiEngine` composition constructor. The first is restored as a `@Deprecated(HIDDEN)` constructor —
+present on the JVM, rejected in source, so new code must state provenance while compiled clients still link. The second is
+an acknowledged exception: it is the composition entry point whose signature changes with every capability this contract
+adds, Kotlin source callers are unaffected (named/default arguments), and no in-repo consumer pins it; the migration entry
+says so explicitly instead of describing the whole migration as append-only. Data-class `copy`/`copy$default` signatures
+change for the same reason and are part of the same acknowledged exception.
+
+**Compiler warnings.** The capability's use of `ExperimentalTramaiInternalApi` members is opted in per file, following the
+existing `HttpStep.kt`/`TramaiWorker.kt` convention; the compiler-warnings baseline is unchanged at zero additions.
+
+Mutants after the corrections, **10 of 10 killed**: post-claim admission deleted (10 cases); permit not consumed (1); the
+authority's refusal swallowed (4); unknown provenance treated as standalone (3); the adapter admitting against a synthetic
+checkpoint instead of the durable row (6); the adapter's continuity check deleted (2); governed JDBC creation dropping
+provenance and binding (2); the legacy-store fail-open restored (1); the identity continuity check removed (1); an
+unsupported authority no longer classified as a refusal (1).
+
+**Still unproven, and stated as such:** no test in this PR drives a real `TramaiEngine` instance end to end. The engine
+suite exercises the real coordinator with a real recovery coordinator, and the orchestration suite exercises the real
+checkpoint store and the real adapter through cancellation, but the two are not yet joined in one integration test — that
+needs an engine-metadata fixture inside the orchestration module, where both authorities are visible. Until it exists, the
+claim is "workflow-bound approval continuation admission, wired at composition and proven per half", not "an end-to-end
+integration proof".
+
 ## 11. What approval of this contract authorizes
 
 Approval authorizes implementation of the guards **in this order**, each with its own adversarial tests:

@@ -1,3 +1,5 @@
+@file:OptIn(dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi::class)
+
 @file:Suppress("ktlint:standard:max-line-length")
 
 // Line length is suppressed for this file, matching the repository formatting policy in .editorconfig ("no enforced
@@ -36,6 +38,8 @@ import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.GovernedSuspendedInvocation
+import dev.tramai.engine.GovernedSuspendedInvocationStore
 import dev.tramai.engine.PolicyEnforcementHelper
 import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.ReplayEnvelopeFactory
@@ -905,17 +909,25 @@ class ApprovalResumeCoordinatorTest {
         val continuationStore: RecordingContinuationStore,
     )
 
+    @Suppress("LongParameterList")
     private fun governedHarness(
-        provenance: dev.tramai.core.identity.SuspensionBindingProvenance,
+        provenance: SuspensionBindingProvenance,
         admission: Boolean = true,
         refuse: Boolean = false,
         recovery: Boolean = true,
         recoveryFails: Boolean = false,
+        suspendedOverride: ((MutableList<String>) -> SuspendedInvocationStore)? = null,
     ): GovernedHarness {
         val events = mutableListOf<String>()
         val store = RecordingContinuationStore(events, continuation())
         val suspended =
-            RecordingGovernedSuspendedStore(events, metadata(), prepared.envelope, governedSuspension(provenance))
+            suspendedOverride?.invoke(events)
+                ?: RecordingGovernedSuspendedStore(
+                    events,
+                    metadata(),
+                    prepared.envelope,
+                    governedSuspension(provenance),
+                )
         val executor = RecordingExecutor(events)
         val registry = ResumeOperationRegistry().also { it.register(service, operation, executor) }
         val gate = RecordingGate(events)
@@ -1079,6 +1091,100 @@ class ApprovalResumeCoordinatorTest {
             assertThat(h.coordinator.resume(command)).isEqualTo("executed")
 
             assertThat(h.executor.calls).isEqualTo(1)
+        }
+
+    @Test
+    fun `a store that predates the governed-suspension accessor is refused, never silently admitted`() =
+        runTest {
+            // The old SPI answered governedRunIdentity() only. governedSuspension() keeps its null default, which must
+            // read as unknown provenance, never as permission to skip the admission.
+            val legacyStore: (MutableList<String>) -> SuspendedInvocationStore = { events ->
+                object : dev.tramai.engine.GovernedSuspendedInvocationStore {
+                    override suspend fun create(
+                        metadata: SuspendedInvocationMetadata,
+                        replayEnvelope: SensitiveReplayEnvelope,
+                    ) = Unit
+
+                    override suspend fun get(approvalId: String) = metadata()
+
+                    override suspend fun revealReplayEnvelope(approvalId: String) = prepared.envelope
+
+                    override suspend fun remove(approvalId: String) = metadata()
+
+                    override suspend fun createGoverned(
+                        suspended: GovernedSuspendedInvocation,
+                        replayEnvelope: SensitiveReplayEnvelope,
+                    ) = Unit
+
+                    override suspend fun governedRunIdentity(approvalId: String) = governedIdentity()
+                }.also { events += "legacy.spi" }
+            }
+            val h = governedHarness(SuspensionBindingProvenance.WORKFLOW_BOUND, suspendedOverride = legacyStore)
+
+            assertThatThrownBy { kotlinx.coroutines.runBlocking { h.coordinator.resume(command) } }
+                .isInstanceOf(dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException::class.java)
+
+            assertThat(h.admission!!.requests).isEqualTo(0)
+            assertThat(h.executor.calls).isEqualTo(0)
+            assertThat(
+                h.recovery!!
+                    .commands
+                    .single()
+                    .reasonCode,
+            ).isEqualTo("resume-admission-provenance-unknown")
+        }
+
+    @Test
+    fun `an admission offered under a different governed identity is refused`() =
+        runTest {
+            // governedRunIdentity() is read before the claim and installed in the resumed scope; if the store later
+            // offers another deployment for the same run, authorizing that one would authorize a different execution.
+            val substituted: (MutableList<String>) -> SuspendedInvocationStore = { events ->
+                val base = governedSuspension(SuspensionBindingProvenance.WORKFLOW_BOUND)
+                val otherDeployment =
+                    governedIdentity().copy(
+                        deployment =
+                            governedIdentity().deployment.copy(
+                                deploymentId =
+                                    dev.tramai.core.identity
+                                        .DeploymentId("other-deployment"),
+                            ),
+                    )
+                object : dev.tramai.engine.GovernedSuspendedInvocationStore {
+                    override suspend fun create(
+                        metadata: SuspendedInvocationMetadata,
+                        replayEnvelope: SensitiveReplayEnvelope,
+                    ) = Unit
+
+                    override suspend fun get(approvalId: String) = metadata()
+
+                    override suspend fun revealReplayEnvelope(approvalId: String) = prepared.envelope
+
+                    override suspend fun remove(approvalId: String) = metadata()
+
+                    override suspend fun createGoverned(
+                        suspended: GovernedSuspendedInvocation,
+                        replayEnvelope: SensitiveReplayEnvelope,
+                    ) = Unit
+
+                    override suspend fun governedRunIdentity(approvalId: String) = governedIdentity()
+
+                    override suspend fun governedSuspension(approvalId: String) = base.copy(runIdentity = otherDeployment)
+                }.also { events += "substituted.identity" }
+            }
+            val h = governedHarness(SuspensionBindingProvenance.WORKFLOW_BOUND, suspendedOverride = substituted)
+
+            assertThatThrownBy { kotlinx.coroutines.runBlocking { h.coordinator.resume(command) } }
+                .isInstanceOf(dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException::class.java)
+
+            assertThat(h.admission!!.requests).isEqualTo(0)
+            assertThat(h.executor.calls).isEqualTo(0)
+            assertThat(
+                h.recovery!!
+                    .commands
+                    .single()
+                    .reasonCode,
+            ).isEqualTo("resume-admission-identity-mismatch")
         }
 
     @Test

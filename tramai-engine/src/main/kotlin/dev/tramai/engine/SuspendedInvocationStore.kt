@@ -51,6 +51,16 @@ data class GovernedSuspendedInvocation(
                 "'${runIdentity.runId.value}'"
         }
     }
+
+    /**
+     * Binary compatibility: the two-argument constructor published before E9. Hidden from Kotlin source, so new code
+     * must state its provenance, but kept on the JVM so already-compiled clients still link.
+     */
+    @Deprecated("State the suspension's provenance explicitly", level = DeprecationLevel.HIDDEN)
+    constructor(
+        metadata: SuspendedInvocationMetadata,
+        runIdentity: GovernedRunIdentity,
+    ) : this(metadata, runIdentity, SuspensionBindingProvenance.LEGACY_UNKNOWN, null)
 }
 
 /**

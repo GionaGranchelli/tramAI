@@ -1,3 +1,5 @@
+@file:OptIn(dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.core.approval
 
 import dev.tramai.core.identity.GovernedRunIdentity

@@ -1,3 +1,5 @@
+@file:OptIn(dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.orchestration
 
 import dev.tramai.core.approval.ApprovalResumeAdmissionRequest
@@ -140,6 +142,36 @@ class WorkflowApprovalResumeAdmissionTest {
         assertEquals(binding, permit.checkpointBinding)
         assertTrue(permit.tryConsume(), "the first consumption authorizes one dispatch")
         assertFailsWith<IllegalStateException> { permit.tryConsume() }
+    }
+
+    @Test
+    fun `a store without admission support refuses instead of reporting a failed resume`() {
+        save(store)
+        // The default admit() on the store SPI throws when a store cannot fence; that is a refused admission, and the
+        // engine must not turn it into an execution-uncertain outcome for an executor that never ran.
+        val unsupported =
+            object : WorkflowCheckpointStore by store {
+                override suspend fun admit(request: WorkflowAdmissionRequest): WorkflowAdmission =
+                    throw WorkflowCancellationUnsupportedException("this store cannot admit")
+            }
+
+        val refusal =
+            assertFailsWith<ApprovalResumeAdmissionRefusedException> {
+                runBlocking { WorkflowApprovalResumeAdmission(unsupported).admitResume(request()) }
+            }
+
+        assertTrue(refusal.message!!.contains("does not support admission"), refusal.message!!)
+        assertTrue(refusal.cause is WorkflowCancellationUnsupportedException, "the cause must be preserved")
+    }
+
+    @Test
+    fun `a refused admission never hands out a permit`() {
+        save(store)
+        cancelSavedRow()
+
+        assertFailsWith<ApprovalResumeAdmissionRefusedException> {
+            runBlocking { WorkflowApprovalResumeAdmission(store).admitResume(request()) }
+        }
     }
 
     // ── fixtures ─────────────────────────────────────────────────────────
