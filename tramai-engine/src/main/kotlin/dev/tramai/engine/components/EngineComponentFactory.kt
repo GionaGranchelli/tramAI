@@ -8,6 +8,7 @@ import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ApprovalRecoveryCoordinator
 import dev.tramai.core.approval.ApprovalResumeAdmission
 import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
 import dev.tramai.core.model.ModelRegistry
@@ -83,6 +84,7 @@ internal object EngineComponentFactory {
             NoOpStructuredOutputFailureDiagnosticObserver,
     ): EngineComponents {
         val capability = approvalCapability(approvalContinuationStore, toolArgumentsDigester, approvalGateCoordinator)
+        requireApprovalResumeComposition(approvalResumeAdmission, approvalRecoveryCoordinator)
         val resolvedPolicy = policyEngine ?: LegacyPermissivePolicyEngine
         return EngineComponents(
             ProviderComponents(providerRegistry.routingPlan),
@@ -125,6 +127,30 @@ internal object EngineComponentFactory {
                 identitySource = identitySource,
             ),
         )
+    }
+
+    /**
+     * E9-COMP-001: a workflow-bound resume authority is only usable together with the audited transition that closes a
+     * refused claim.
+     *
+     * A refusal path is part of the admission contract, not an optional extra: `ApprovalResumeCoordinator` refuses a
+     * resume, closes the already-claimed continuation through [ApprovalRecoveryCoordinator], and reports which of the
+     * two happened. Configured without it, the engine accepts a composition whose own refusal leaves the continuation
+     * CLAIMED with nothing in-process to reconcile it — the state E9 called out as an operational gap.
+     *
+     * Recovery without admission stays supported and is not rejected: the recovery coordinator is a standalone
+     * operator surface for stale-claim reconciliation and does not depend on workflow-bound admission.
+     */
+    fun requireApprovalResumeComposition(
+        approvalResumeAdmission: ApprovalResumeAdmission?,
+        approvalRecoveryCoordinator: ApprovalRecoveryCoordinator?,
+    ) {
+        if (approvalResumeAdmission != null && approvalRecoveryCoordinator == null) {
+            throw ConfigurationException(
+                "Workflow-bound approval resume admission requires an approval recovery coordinator: a refused claim " +
+                    "could not be closed through the audited recovery transition",
+            )
+        }
     }
 
     fun approvalCapability(
