@@ -32,11 +32,7 @@ class ApprovalResumeCompositionTest {
                 EngineComponentFactory.requireApprovalResumeComposition(admission, null)
             }
 
-        assertEquals(
-            "Workflow-bound approval resume admission requires an approval recovery coordinator: a refused claim " +
-                "could not be closed through the audited recovery transition",
-            failure.message,
-        )
+        assertEquals(REQUIRED_MESSAGE, failure.message)
     }
 
     @Test
@@ -66,7 +62,8 @@ class ApprovalResumeCompositionTest {
                 )
             }
 
-        assertNotNull(failure.message)
+        // Same reason, not merely some ConfigurationException: the public path must fail for the missing coordinator.
+        assertEquals(REQUIRED_MESSAGE, failure.message)
     }
 
     @Test
@@ -88,3 +85,7 @@ class ApprovalResumeCompositionTest {
             throw UnsupportedOperationException("collaborator call is not expected")
         } as T
 }
+
+private const val REQUIRED_MESSAGE: String =
+    "Workflow-bound approval resume admission requires an approval recovery coordinator: a refused claim " +
+        "could not be closed through the audited recovery transition"
