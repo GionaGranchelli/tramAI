@@ -519,7 +519,6 @@ internal data class DecodedSuspendedInvocationRecord(
      * How the suspension's provenance was stated when it was written. V1 and V2 records predate provenance, so they
      * decode as [SuspensionBindingProvenance.LEGACY_UNKNOWN], which the workflow-authoritative profile refuses.
      * Silence is never read as standalone.
-     * is never read as standalone.
      */
     val provenance: SuspensionBindingProvenance = SuspensionBindingProvenance.LEGACY_UNKNOWN,
     val checkpointBinding: dev.tramai.core.identity.WorkflowCheckpointBinding? = null,
