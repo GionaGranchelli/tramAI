@@ -1,3 +1,8 @@
+@file:Suppress("MaxLineLength", "ktlint:standard:max-line-length")
+
+// ktfmt (spotless) rejoins what detekt rejects at 120, and .editorconfig states no line length is enforced, so
+// the two formatters disagree on these lines; suppress for the file instead of reshaping on every apply.
+
 package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
@@ -655,6 +660,20 @@ private class LeaseFencedCheckpointStore(
         )
     }
 
+    // E10: an admission authorizes an external effect, so it is fenced like the checkpoint write rather than forwarded.
+    override suspend fun admit(request: WorkflowAdmissionRequest): WorkflowAdmission =
+        admitUnderLeaseFence(
+            fence = leaseFence,
+            delegate = delegate,
+            expectedLease = expectedLease(request.workflowName, request.workflowId),
+            request = request,
+        )
+
+    // `cancel` is deliberately NOT fenced. Terminal cancellation is the operator's authority over the run, not a
+    // worker effect: fencing it on lease ownership would make an operator's cancellation depend on which worker
+    // happens to hold the lease, and one arriving while a lease is being re-acquired would be lost. Recorded as a
+    // stated limit: a stale worker can still commit a cancellation it no longer owns.
+
     override suspend fun requireRecovery(
         workflowName: String,
         workflowId: String,
@@ -690,6 +709,25 @@ private class LeaseFencedCheckpointStore(
                 "Workflow '$workflowName' and workflowId='$workflowId' has no active lease for checkpoint mutation",
             )
 }
+
+/**
+ * E10: take a durable admission only while the presenting lease still owns the workflow.
+ *
+ * The ownership check and the counter advance are one fence operation; a `null` answer means the lease was superseded,
+ * and it becomes an authoritative refusal — never a grant a stale worker could dispatch with.
+ */
+internal suspend fun admitUnderLeaseFence(
+    fence: WorkflowLeaseCheckpointFence,
+    delegate: WorkflowCheckpointStore,
+    expectedLease: WorkflowLease,
+    request: WorkflowAdmissionRequest,
+): WorkflowAdmission =
+    fence.admitIfLeaseOwner(delegate, request, expectedLease)
+        ?: throw WorkflowAdmissionRefusedException(
+            "workflow '${request.workflowName}' run '${request.workflowId}' is not admitted: worker " +
+                "'${expectedLease.ownerId}' no longer owns its lease (ownership was superseded before the " +
+                "admission was taken)",
+        )
 
 private fun sha256Hex(value: String): String =
     MessageDigest

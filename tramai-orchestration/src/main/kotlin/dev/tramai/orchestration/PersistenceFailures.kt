@@ -1,3 +1,8 @@
+@file:Suppress("MaxLineLength", "ReturnCount", "ktlint:standard:max-line-length")
+
+// ktfmt rejoins what detekt rejects at 120 and .editorconfig enforces no line length; the boundary's diagnostic
+// branches also predate the ReturnCount budget.
+
 package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
@@ -64,7 +69,8 @@ object NoOpPersistenceFailureDiagnosticObserver : PersistenceFailureDiagnosticOb
 internal class CorruptCheckpointException(
     message: String,
     val rawPayload: String?,
-) : RuntimeException(message), PersistenceCorruptionDetail {
+) : RuntimeException(message),
+    PersistenceCorruptionDetail {
     override val corruptPayload: String? get() = rawPayload
 }
 
@@ -102,7 +108,8 @@ internal class CorruptStepAttemptException(
     message: String,
     val rawPayload: String?,
     cause: Throwable? = null,
-) : RuntimeException(message, cause), PersistenceCorruptionDetail {
+) : RuntimeException(message, cause),
+    PersistenceCorruptionDetail {
     override val corruptPayload: String? get() = rawPayload
 }
 
@@ -120,44 +127,81 @@ internal fun fixedPersistenceFailureMessage(
     resourceKind: PersistenceResourceKind,
     operation: PersistenceOperation,
     code: PersistenceFailureCode,
-): String = when (code) {
-    PersistenceFailureCode.CONFLICT -> when {
-        resourceKind == PersistenceResourceKind.CHECKPOINT &&
-            operation in setOf(PersistenceOperation.COMPARE_AND_SET, PersistenceOperation.SAVE) ->
-            "Workflow checkpoint conflict"
-        resourceKind == PersistenceResourceKind.LEASE -> "Workflow lease conflict"
-        else -> "${persistenceResourceLabel(resourceKind).replaceFirstChar { it.uppercase() }} conflict"
-    }
-    PersistenceFailureCode.CORRUPTED_DATA -> "Persisted ${persistenceResourceLabel(resourceKind)} is invalid"
-    PersistenceFailureCode.READ_FAILED -> "Workflow persistence read failed"
-    PersistenceFailureCode.WRITE_FAILED -> "Workflow persistence write failed"
-    PersistenceFailureCode.DELETE_FAILED -> "Workflow persistence delete failed"
-    PersistenceFailureCode.LIST_FAILED -> "Workflow persistence list failed"
-}
+): String =
+    when (code) {
+        PersistenceFailureCode.CONFLICT -> {
+            when {
+                resourceKind == PersistenceResourceKind.CHECKPOINT &&
+                    operation in setOf(PersistenceOperation.COMPARE_AND_SET, PersistenceOperation.SAVE) -> {
+                    "Workflow checkpoint conflict"
+                }
 
-private fun persistenceResourceLabel(resourceKind: PersistenceResourceKind): String = when (resourceKind) {
-    PersistenceResourceKind.CHECKPOINT -> "workflow checkpoint"
-    PersistenceResourceKind.LEASE -> "workflow lease"
-    PersistenceResourceKind.STEP_ATTEMPT -> "step-attempt record"
-    PersistenceResourceKind.WORKER_REGISTRY -> "worker-registry record"
-}
+                resourceKind == PersistenceResourceKind.LEASE -> {
+                    "Workflow lease conflict"
+                }
+
+                else -> {
+                    "${persistenceResourceLabel(resourceKind).replaceFirstChar { it.uppercase() }} conflict"
+                }
+            }
+        }
+
+        PersistenceFailureCode.CORRUPTED_DATA -> {
+            "Persisted ${persistenceResourceLabel(resourceKind)} is invalid"
+        }
+
+        PersistenceFailureCode.READ_FAILED -> {
+            "Workflow persistence read failed"
+        }
+
+        PersistenceFailureCode.WRITE_FAILED -> {
+            "Workflow persistence write failed"
+        }
+
+        PersistenceFailureCode.DELETE_FAILED -> {
+            "Workflow persistence delete failed"
+        }
+
+        PersistenceFailureCode.LIST_FAILED -> {
+            "Workflow persistence list failed"
+        }
+    }
+
+private fun persistenceResourceLabel(resourceKind: PersistenceResourceKind): String =
+    when (resourceKind) {
+        PersistenceResourceKind.CHECKPOINT -> "workflow checkpoint"
+        PersistenceResourceKind.LEASE -> "workflow lease"
+        PersistenceResourceKind.STEP_ATTEMPT -> "step-attempt record"
+        PersistenceResourceKind.WORKER_REGISTRY -> "worker-registry record"
+    }
 
 internal fun safePersistenceFailure(
     resourceKind: PersistenceResourceKind,
     operation: PersistenceOperation,
     code: PersistenceFailureCode,
 ): RuntimeException {
-    val failure = when {
-        resourceKind == PersistenceResourceKind.CHECKPOINT && code == PersistenceFailureCode.CONFLICT ->
-            WorkflowCheckpointConflictException(fixedPersistenceFailureMessage(resourceKind, operation, code))
-        resourceKind == PersistenceResourceKind.LEASE && code == PersistenceFailureCode.CONFLICT ->
-            WorkflowLeaseConflictException(fixedPersistenceFailureMessage(resourceKind, operation, code))
-        resourceKind == PersistenceResourceKind.CHECKPOINT && code == PersistenceFailureCode.CORRUPTED_DATA ->
-            WorkflowCheckpointCorruptionException(fixedPersistenceFailureMessage(resourceKind, operation, code))
-        resourceKind == PersistenceResourceKind.STEP_ATTEMPT && code == PersistenceFailureCode.CORRUPTED_DATA ->
-            StepAttemptRecordCorruptionException(fixedPersistenceFailureMessage(resourceKind, operation, code))
-        else -> WorkflowPersistenceFailureException(fixedPersistenceFailureMessage(resourceKind, operation, code))
-    }
+    val failure =
+        when {
+            resourceKind == PersistenceResourceKind.CHECKPOINT && code == PersistenceFailureCode.CONFLICT -> {
+                WorkflowCheckpointConflictException(fixedPersistenceFailureMessage(resourceKind, operation, code))
+            }
+
+            resourceKind == PersistenceResourceKind.LEASE && code == PersistenceFailureCode.CONFLICT -> {
+                WorkflowLeaseConflictException(fixedPersistenceFailureMessage(resourceKind, operation, code))
+            }
+
+            resourceKind == PersistenceResourceKind.CHECKPOINT && code == PersistenceFailureCode.CORRUPTED_DATA -> {
+                WorkflowCheckpointCorruptionException(fixedPersistenceFailureMessage(resourceKind, operation, code))
+            }
+
+            resourceKind == PersistenceResourceKind.STEP_ATTEMPT && code == PersistenceFailureCode.CORRUPTED_DATA -> {
+                StepAttemptRecordCorruptionException(fixedPersistenceFailureMessage(resourceKind, operation, code))
+            }
+
+            else -> {
+                WorkflowPersistenceFailureException(fixedPersistenceFailureMessage(resourceKind, operation, code))
+            }
+        }
     failure.setPersistenceFailureMetadata(code)
     return failure
 }
@@ -183,18 +227,44 @@ internal fun safeWorkerObservableFailure(
  * step-attempt failure is a persistence failure (sanitize) or a user
  * step-execution error (keep the real message).
  */
-internal fun Throwable.isPersistenceFamilyFailure(): Boolean =
-    persistenceFailureTrusted() || persistenceFailureCode() != null
+internal fun Throwable.isPersistenceFamilyFailure(): Boolean = persistenceFailureTrusted() || persistenceFailureCode() != null
 
 private fun RuntimeException.setPersistenceFailureMetadata(code: PersistenceFailureCode) {
     when (this) {
-        is WorkflowResumeException -> { failureCode = code; safeFactoryTrusted = true }
-        is WorkflowCheckpointConflictException -> { failureCode = code; safeFactoryTrusted = true }
-        is WorkflowCheckpointCorruptionException -> { failureCode = code; safeFactoryTrusted = true }
-        is WorkflowLeaseConflictException -> { failureCode = code; safeFactoryTrusted = true }
-        is StaleWorkflowLeaseException -> { failureCode = code; safeFactoryTrusted = true }
-        is StepAttemptRecordCorruptionException -> { failureCode = code; safeFactoryTrusted = true }
-        is WorkflowPersistenceFailureException -> { failureCode = code; safeFactoryTrusted = true }
+        is WorkflowResumeException -> {
+            failureCode = code
+            safeFactoryTrusted = true
+        }
+
+        is WorkflowCheckpointConflictException -> {
+            failureCode = code
+            safeFactoryTrusted = true
+        }
+
+        is WorkflowCheckpointCorruptionException -> {
+            failureCode = code
+            safeFactoryTrusted = true
+        }
+
+        is WorkflowLeaseConflictException -> {
+            failureCode = code
+            safeFactoryTrusted = true
+        }
+
+        is StaleWorkflowLeaseException -> {
+            failureCode = code
+            safeFactoryTrusted = true
+        }
+
+        is StepAttemptRecordCorruptionException -> {
+            failureCode = code
+            safeFactoryTrusted = true
+        }
+
+        is WorkflowPersistenceFailureException -> {
+            failureCode = code
+            safeFactoryTrusted = true
+        }
     }
 }
 
@@ -217,117 +287,129 @@ internal suspend fun <T> persistenceBoundary(
     classify: (Throwable) -> PersistenceFailureCode? = { null },
     checkpointDiagnosticObserver: PersistenceFailureDiagnosticObserver? = null,
     block: suspend () -> T,
-): T = try {
-    block()
-} catch (error: CancellationException) {
-    // JDBC cancellation/cleanup can attach raw SQLExceptions to the CE graph
-    // (Statement.cancel, rollback, auto-commit restore, close). Cancellation
-    // stays cancellation, but a caller-visible CE must not carry raw
-    // persistence internals. Genuine framework cancellation (a parent
-    // JobCancellationException, possibly with framework-only children) passes
-    // through untouched. Only a CE carrying a real non-cancellation child
-    // (SQLException/IOException from JDBC cleanup) is sanitized: construct a
-    // fresh fixed-text CE with a cleanup marker and throw it immediately.
-    // NOTE: no diagnostic delivery on this path — deliverPersistenceFailure ends
-    // with ensureActive(), which throws under genuine parent cancellation before
-    // the sanitized CE could be returned. The docs contract is that genuine
-    // cancellation is rethrown and not emitted as an ordinary persistence
-    // diagnostic.
-    if (error.hasUnsafeCancellationDetail()) {
-        throw sanitizePersistenceCancellation(error)
-    }
-    throw error
-} catch (error: Throwable) {
-    error.rethrowIfCancellation()
-    // Fenced checkpoint DML failures are marked by the lease store so they are
-    // attributed to the checkpoint store's observer with resourceKind=CHECKPOINT
-    // (the raw DML failure never reaches the lease channel).
-    if (error is CheckpointDmlFailure) {
-        error.rethrowIfCancellation()
-        val checkpointObserver = checkpointDiagnosticObserver
-            ?: throw IllegalArgumentException("CheckpointDmlFailure without checkpoint observer", error)
-        // Corrupt carriers are internal (no persistenceFailureCode); classify
-        // them explicitly so a corrupt read inside fenced DML stays
-        // CORRUPTED_DATA -> WorkflowCheckpointCorruptionException, not a generic
-        // WRITE/DELETE failure (the P2-2 finding).
-        val code = when (error.raw) {
-            is CorruptCheckpointException -> PersistenceFailureCode.CORRUPTED_DATA
-            else -> error.raw.persistenceFailureCode() ?: defaultPersistenceFailureCode(operation)
+): T =
+    try {
+        block()
+    } catch (error: CancellationException) {
+        // JDBC cancellation/cleanup can attach raw SQLExceptions to the CE graph
+        // (Statement.cancel, rollback, auto-commit restore, close). Cancellation
+        // stays cancellation, but a caller-visible CE must not carry raw
+        // persistence internals. Genuine framework cancellation (a parent
+        // JobCancellationException, possibly with framework-only children) passes
+        // through untouched. Only a CE carrying a real non-cancellation child
+        // (SQLException/IOException from JDBC cleanup) is sanitized: construct a
+        // fresh fixed-text CE with a cleanup marker and throw it immediately.
+        // NOTE: no diagnostic delivery on this path — deliverPersistenceFailure ends
+        // with ensureActive(), which throws under genuine parent cancellation before
+        // the sanitized CE could be returned. The docs contract is that genuine
+        // cancellation is rethrown and not emitted as an ordinary persistence
+        // diagnostic.
+        if (error.hasUnsafeCancellationDetail()) {
+            throw sanitizePersistenceCancellation(error)
         }
-        deliverPersistenceFailure(
-            checkpointObserver,
-            // Deliver the marker graph (raw cause + any cleanup suppressed
-            // attached by executeJdbcCancellable) so no diagnostic is lost.
-            PersistenceFailureDiagnosticEvent(PersistenceResourceKind.CHECKPOINT, operation, code, error),
-        )
-        throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, operation, code)
-    }
-    // A lease read phase inside a compound op (CLAIM/RENEW/RELEASE) failed.
-    // The phase picks the code (READ_FAILED); the outer op keeps its context.
-    if (error is LeaseReadPhaseFailure) {
+        throw error
+    } catch (error: Throwable) {
         error.rethrowIfCancellation()
-        val code = PersistenceFailureCode.READ_FAILED
-        deliverPersistenceFailure(
-            diagnosticObserver,
-            PersistenceFailureDiagnosticEvent(resourceKind, operation, code, error),
-        )
-        throw safePersistenceFailure(resourceKind, operation, code)
-    }
-    // A lease DELETE phase (expired-lease cleanup) failed inside an operation
-    // whose default would be READ/WRITE_FAILED. The phase picks DELETE_FAILED.
-    if (error is LeaseDeletePhaseFailure) {
-        error.rethrowIfCancellation()
-        val code = PersistenceFailureCode.DELETE_FAILED
-        deliverPersistenceFailure(
-            diagnosticObserver,
-            PersistenceFailureDiagnosticEvent(resourceKind, operation, code, error),
-        )
-        throw safePersistenceFailure(resourceKind, operation, code)
-    }
-    if (error.persistenceFailureTrusted()) {
-        // Never pass the same throwable instance across the boundary: JDBC
-        // cleanup mutates the primary after construction (addSuppressed).
-        // Trust only immutable classification, then reconstruct a fresh
-        // fixed-text instance of the same semantic class.
-        currentCoroutineContext().ensureActive()
-        if (error.cause != null || error.suppressed.isNotEmpty()) {
+        // An authoritative answer about the run, not a storage failure. "Not admitted" and "this store cannot honour
+        // cancellation" are control flow: recovery has to tell them apart from a broken store, so they cross the boundary
+        // as their own semantic type. Same discipline as a trusted classification — a fresh fixed-shape instance, never the
+        // caller's throwable or its cause.
+        if (error.isAuthoritativeRefusal()) {
+            currentCoroutineContext().ensureActive()
+            throw error.sanitizedRefusal()
+        }
+        // Fenced checkpoint DML failures are marked by the lease store so they are
+        // attributed to the checkpoint store's observer with resourceKind=CHECKPOINT
+        // (the raw DML failure never reaches the lease channel).
+        if (error is CheckpointDmlFailure) {
+            error.rethrowIfCancellation()
+            val checkpointObserver =
+                checkpointDiagnosticObserver
+                    ?: throw IllegalArgumentException("CheckpointDmlFailure without checkpoint observer", error)
+            // Corrupt carriers are internal (no persistenceFailureCode); classify
+            // them explicitly so a corrupt read inside fenced DML stays
+            // CORRUPTED_DATA -> WorkflowCheckpointCorruptionException, not a generic
+            // WRITE/DELETE failure (the P2-2 finding).
+            val code =
+                when (error.raw) {
+                    is CorruptCheckpointException -> PersistenceFailureCode.CORRUPTED_DATA
+                    else -> error.raw.persistenceFailureCode() ?: defaultPersistenceFailureCode(operation)
+                }
+            deliverPersistenceFailure(
+                checkpointObserver,
+                // Deliver the marker graph (raw cause + any cleanup suppressed
+                // attached by executeJdbcCancellable) so no diagnostic is lost.
+                PersistenceFailureDiagnosticEvent(PersistenceResourceKind.CHECKPOINT, operation, code, error),
+            )
+            throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, operation, code)
+        }
+        // A lease read phase inside a compound op (CLAIM/RENEW/RELEASE) failed.
+        // The phase picks the code (READ_FAILED); the outer op keeps its context.
+        if (error is LeaseReadPhaseFailure) {
+            error.rethrowIfCancellation()
+            val code = PersistenceFailureCode.READ_FAILED
             deliverPersistenceFailure(
                 diagnosticObserver,
-                PersistenceFailureDiagnosticEvent(
-                    resourceKind,
-                    operation,
-                    error.persistenceFailureCode() ?: defaultPersistenceFailureCode(operation),
-                    error,
-                ),
+                PersistenceFailureDiagnosticEvent(resourceKind, operation, code, error),
             )
+            throw safePersistenceFailure(resourceKind, operation, code)
         }
-        throw reconstructSafePersistenceFailure(error)
-    }
+        // A lease DELETE phase (expired-lease cleanup) failed inside an operation
+        // whose default would be READ/WRITE_FAILED. The phase picks DELETE_FAILED.
+        if (error is LeaseDeletePhaseFailure) {
+            error.rethrowIfCancellation()
+            val code = PersistenceFailureCode.DELETE_FAILED
+            deliverPersistenceFailure(
+                diagnosticObserver,
+                PersistenceFailureDiagnosticEvent(resourceKind, operation, code, error),
+            )
+            throw safePersistenceFailure(resourceKind, operation, code)
+        }
+        if (error.persistenceFailureTrusted()) {
+            // Never pass the same throwable instance across the boundary: JDBC
+            // cleanup mutates the primary after construction (addSuppressed).
+            // Trust only immutable classification, then reconstruct a fresh
+            // fixed-text instance of the same semantic class.
+            currentCoroutineContext().ensureActive()
+            if (error.cause != null || error.suppressed.isNotEmpty()) {
+                deliverPersistenceFailure(
+                    diagnosticObserver,
+                    PersistenceFailureDiagnosticEvent(
+                        resourceKind,
+                        operation,
+                        error.persistenceFailureCode() ?: defaultPersistenceFailureCode(operation),
+                        error,
+                    ),
+                )
+            }
+            throw reconstructSafePersistenceFailure(error)
+        }
 
-    val code = classify(error) ?: error.persistenceFailureCode()
-        // Internal corrupt carriers carry no persistenceFailureCode; the store's
-        // classify lambda usually maps them, but the boundary must not depend on
-        // every call site passing one (the P2-4 finding).
-        ?: when (error) {
-            is CorruptCheckpointException, is CorruptStepAttemptException -> PersistenceFailureCode.CORRUPTED_DATA
-            else -> null
-        }
-        ?: defaultPersistenceFailureCode(operation)
-    deliverPersistenceFailure(
-        diagnosticObserver,
-        PersistenceFailureDiagnosticEvent(resourceKind, operation, code, error),
-    )
-    // Untrusted caller-constructed StaleWorkflowLeaseException values keep their
-    // semantic class (the worker relies on it) but lose any raw text.
-    if (error is StaleWorkflowLeaseException) throw safeStaleWorkflowLeaseFailure()
-    throw safePersistenceFailure(resourceKind, operation, code)
-}.also {
-    // Cancellation can arrive while the block runs and still complete normally
-    // (e.g. a deferred released concurrently with the parent cancel). Parent
-    // cancellation must win over a normal return — the #223/#224 post-callback
-    // rule applied to the boundary itself.
-    currentCoroutineContext().ensureActive()
-}
+        val code =
+            classify(error) ?: error.persistenceFailureCode()
+                // Internal corrupt carriers carry no persistenceFailureCode; the store's
+                // classify lambda usually maps them, but the boundary must not depend on
+                // every call site passing one (the P2-4 finding).
+                ?: when (error) {
+                    is CorruptCheckpointException, is CorruptStepAttemptException -> PersistenceFailureCode.CORRUPTED_DATA
+                    else -> null
+                }
+                ?: defaultPersistenceFailureCode(operation)
+        deliverPersistenceFailure(
+            diagnosticObserver,
+            PersistenceFailureDiagnosticEvent(resourceKind, operation, code, error),
+        )
+        // Untrusted caller-constructed StaleWorkflowLeaseException values keep their
+        // semantic class (the worker relies on it) but lose any raw text.
+        if (error is StaleWorkflowLeaseException) throw safeStaleWorkflowLeaseFailure()
+        throw safePersistenceFailure(resourceKind, operation, code)
+    }.also {
+        // Cancellation can arrive while the block runs and still complete normally
+        // (e.g. a deferred released concurrently with the parent cancel). Parent
+        // cancellation must win over a normal return — the #223/#224 post-callback
+        // rule applied to the boundary itself.
+        currentCoroutineContext().ensureActive()
+    }
 
 /**
  * Fresh, cause-free, suppressed-free instance of the same semantic class as
@@ -336,25 +418,27 @@ internal suspend fun <T> persistenceBoundary(
  */
 private fun reconstructSafePersistenceFailure(error: Throwable): RuntimeException {
     val code = error.persistenceFailureCode() ?: PersistenceFailureCode.READ_FAILED
-    val message: String = when (error) {
-        is WorkflowResumeException -> "Workflow resume failed"
-        is WorkflowCheckpointConflictException -> "Workflow checkpoint conflict"
-        is WorkflowLeaseConflictException -> "Workflow lease conflict"
-        is StaleWorkflowLeaseException -> "Workflow lease is no longer active"
-        is WorkflowCheckpointCorruptionException -> "Persisted workflow checkpoint is invalid"
-        is StepAttemptRecordCorruptionException -> "Persisted step-attempt record is invalid"
-        is WorkflowPersistenceFailureException -> workflowPersistenceFailureMessage(code)
-        else -> "Workflow persistence failed"
-    }
-    val failure: RuntimeException = when (error) {
-        is WorkflowResumeException -> WorkflowResumeException(message)
-        is WorkflowCheckpointConflictException -> WorkflowCheckpointConflictException(message)
-        is WorkflowLeaseConflictException -> WorkflowLeaseConflictException(message)
-        is StaleWorkflowLeaseException -> StaleWorkflowLeaseException(message)
-        is WorkflowCheckpointCorruptionException -> WorkflowCheckpointCorruptionException(message)
-        is StepAttemptRecordCorruptionException -> StepAttemptRecordCorruptionException(message)
-        else -> WorkflowPersistenceFailureException(message)
-    }
+    val message: String =
+        when (error) {
+            is WorkflowResumeException -> "Workflow resume failed"
+            is WorkflowCheckpointConflictException -> "Workflow checkpoint conflict"
+            is WorkflowLeaseConflictException -> "Workflow lease conflict"
+            is StaleWorkflowLeaseException -> "Workflow lease is no longer active"
+            is WorkflowCheckpointCorruptionException -> "Persisted workflow checkpoint is invalid"
+            is StepAttemptRecordCorruptionException -> "Persisted step-attempt record is invalid"
+            is WorkflowPersistenceFailureException -> workflowPersistenceFailureMessage(code)
+            else -> "Workflow persistence failed"
+        }
+    val failure: RuntimeException =
+        when (error) {
+            is WorkflowResumeException -> WorkflowResumeException(message)
+            is WorkflowCheckpointConflictException -> WorkflowCheckpointConflictException(message)
+            is WorkflowLeaseConflictException -> WorkflowLeaseConflictException(message)
+            is StaleWorkflowLeaseException -> StaleWorkflowLeaseException(message)
+            is WorkflowCheckpointCorruptionException -> WorkflowCheckpointCorruptionException(message)
+            is StepAttemptRecordCorruptionException -> StepAttemptRecordCorruptionException(message)
+            else -> WorkflowPersistenceFailureException(message)
+        }
     failure.setPersistenceFailureMetadata(code)
     return failure
 }
@@ -375,12 +459,9 @@ private fun sanitizePersistenceCancellation(error: CancellationException): Cance
  * (direct or indirect child) is JDBC cleanup contamination and must be
  * sanitized. Mirrors the recursive leak-inspection semantics of the tests.
  */
-private fun Throwable.hasUnsafeCancellationDetail(
-): Boolean = hasUnsafeCancellationDetail(ArrayList())
+private fun Throwable.hasUnsafeCancellationDetail(): Boolean = hasUnsafeCancellationDetail(ArrayList())
 
-private fun Throwable.hasUnsafeCancellationDetail(
-    seen: MutableList<Throwable>,
-): Boolean {
+private fun Throwable.hasUnsafeCancellationDetail(seen: MutableList<Throwable>): Boolean {
     if (seen.any { it === this }) return false
     seen += this
     if (this !is CancellationException) return true
@@ -393,46 +474,87 @@ private fun Throwable.hasUnsafeCancellationDetail(
  * CancellationException. Deliberately distinct from the process-cleanup marker
  * so a cancelled JDBC persistence operation never mentions "Process cleanup".
  */
-internal class PersistenceCleanupDiagnosticException : RuntimeException(
-    "Persistence cleanup had diagnostics",
-)
+internal class PersistenceCleanupDiagnosticException :
+    RuntimeException(
+        "Persistence cleanup had diagnostics",
+    )
 
-private fun workflowPersistenceFailureMessage(code: PersistenceFailureCode): String = when (code) {
-    PersistenceFailureCode.READ_FAILED -> "Workflow persistence read failed"
-    PersistenceFailureCode.WRITE_FAILED -> "Workflow persistence write failed"
-    PersistenceFailureCode.DELETE_FAILED -> "Workflow persistence delete failed"
-    PersistenceFailureCode.LIST_FAILED -> "Workflow persistence list failed"
-    PersistenceFailureCode.CONFLICT -> "Workflow persistence conflict"
-    PersistenceFailureCode.CORRUPTED_DATA -> "Workflow persistence data is invalid"
-}
+private fun workflowPersistenceFailureMessage(code: PersistenceFailureCode): String =
+    when (code) {
+        PersistenceFailureCode.READ_FAILED -> "Workflow persistence read failed"
+        PersistenceFailureCode.WRITE_FAILED -> "Workflow persistence write failed"
+        PersistenceFailureCode.DELETE_FAILED -> "Workflow persistence delete failed"
+        PersistenceFailureCode.LIST_FAILED -> "Workflow persistence list failed"
+        PersistenceFailureCode.CONFLICT -> "Workflow persistence conflict"
+        PersistenceFailureCode.CORRUPTED_DATA -> "Workflow persistence data is invalid"
+    }
 
-internal fun checkpointDiagnosticObserver(store: WorkflowCheckpointStore): PersistenceFailureDiagnosticObserver = when (store) {
-    is FileWorkflowCheckpointStore -> store.persistenceFailureDiagnosticObserver
-    is MarkdownWorkflowCheckpointStore -> store.persistenceFailureDiagnosticObserver
-    is JdbcWorkflowCheckpointStore -> store.persistenceFailureDiagnosticObserver
-    is InMemoryWorkflowCheckpointStore -> store.persistenceFailureDiagnosticObserver
-    else -> NoOpPersistenceFailureDiagnosticObserver
-}
+internal fun checkpointDiagnosticObserver(store: WorkflowCheckpointStore): PersistenceFailureDiagnosticObserver =
+    when (store) {
+        is FileWorkflowCheckpointStore -> store.persistenceFailureDiagnosticObserver
+        is MarkdownWorkflowCheckpointStore -> store.persistenceFailureDiagnosticObserver
+        is JdbcWorkflowCheckpointStore -> store.persistenceFailureDiagnosticObserver
+        is InMemoryWorkflowCheckpointStore -> store.persistenceFailureDiagnosticObserver
+        else -> NoOpPersistenceFailureDiagnosticObserver
+    }
 
-private fun Throwable.persistenceFailureTrusted(): Boolean = when (this) {
-    is WorkflowResumeException -> safeFactoryTrusted
-    is WorkflowCheckpointConflictException -> safeFactoryTrusted
-    is WorkflowCheckpointCorruptionException -> safeFactoryTrusted
-    is WorkflowLeaseConflictException -> safeFactoryTrusted
-    is StaleWorkflowLeaseException -> safeFactoryTrusted
-    is StepAttemptRecordCorruptionException -> safeFactoryTrusted
-    is WorkflowPersistenceFailureException -> safeFactoryTrusted
-    else -> false
-}
+/**
+ * Refusals that are the authority's verdict on the run rather than a persistence malfunction: a superseded lease, a
+ * durable cancellation, an admission a store cannot issue. They keep their type across [persistenceBoundary].
+ */
+private fun Throwable.isAuthoritativeRefusal(): Boolean =
+    this is WorkflowAdmissionRefusedException || this is WorkflowCancellationUnsupportedException
 
-private fun Throwable.persistenceFailureCode(): PersistenceFailureCode? = when (this) {
-    is WorkflowCheckpointConflictException, is WorkflowLeaseConflictException, is StaleWorkflowLeaseException ->
-        PersistenceFailureCode.CONFLICT
-    is WorkflowCheckpointCorruptionException, is StepAttemptRecordCorruptionException -> PersistenceFailureCode.CORRUPTED_DATA
-    is WorkflowResumeException -> failureCode
-    is WorkflowPersistenceFailureException -> failureCode
-    else -> null
-}
+/** Fresh instance of the same refusal type: fixed framework text, no cause, no suppressed. */
+private fun Throwable.sanitizedRefusal(): RuntimeException =
+    when (this) {
+        is WorkflowAdmissionRefusedException -> {
+            WorkflowAdmissionRefusedException("workflow admission refused")
+        }
+
+        is WorkflowCancellationUnsupportedException -> {
+            WorkflowCancellationUnsupportedException("workflow cancellation is not supported by this store")
+        }
+
+        else -> {
+            IllegalArgumentException("not an authoritative refusal", this)
+        }
+    }
+
+private fun Throwable.persistenceFailureTrusted(): Boolean =
+    when (this) {
+        is WorkflowResumeException -> safeFactoryTrusted
+        is WorkflowCheckpointConflictException -> safeFactoryTrusted
+        is WorkflowCheckpointCorruptionException -> safeFactoryTrusted
+        is WorkflowLeaseConflictException -> safeFactoryTrusted
+        is StaleWorkflowLeaseException -> safeFactoryTrusted
+        is StepAttemptRecordCorruptionException -> safeFactoryTrusted
+        is WorkflowPersistenceFailureException -> safeFactoryTrusted
+        else -> false
+    }
+
+private fun Throwable.persistenceFailureCode(): PersistenceFailureCode? =
+    when (this) {
+        is WorkflowCheckpointConflictException, is WorkflowLeaseConflictException, is StaleWorkflowLeaseException -> {
+            PersistenceFailureCode.CONFLICT
+        }
+
+        is WorkflowCheckpointCorruptionException, is StepAttemptRecordCorruptionException -> {
+            PersistenceFailureCode.CORRUPTED_DATA
+        }
+
+        is WorkflowResumeException -> {
+            failureCode
+        }
+
+        is WorkflowPersistenceFailureException -> {
+            failureCode
+        }
+
+        else -> {
+            null
+        }
+    }
 
 /**
  * Phase-aware default classification: the high-level operation stays
@@ -441,14 +563,18 @@ private fun Throwable.persistenceFailureCode(): PersistenceFailureCode? = when (
  * to their dominant mutating phase; stores override with the [classify] lambda
  * when the actual failing phase differs.
  */
-private fun defaultPersistenceFailureCode(operation: PersistenceOperation): PersistenceFailureCode = when (operation) {
-    PersistenceOperation.LOAD -> PersistenceFailureCode.READ_FAILED
-    PersistenceOperation.LIST -> PersistenceFailureCode.LIST_FAILED
-    PersistenceOperation.DELETE, PersistenceOperation.RELEASE -> PersistenceFailureCode.DELETE_FAILED
-    PersistenceOperation.SAVE, PersistenceOperation.COMPARE_AND_SET,
-    PersistenceOperation.CLAIM, PersistenceOperation.RENEW,
-    -> PersistenceFailureCode.WRITE_FAILED
-}
+private fun defaultPersistenceFailureCode(operation: PersistenceOperation): PersistenceFailureCode =
+    when (operation) {
+        PersistenceOperation.LOAD -> PersistenceFailureCode.READ_FAILED
+
+        PersistenceOperation.LIST -> PersistenceFailureCode.LIST_FAILED
+
+        PersistenceOperation.DELETE, PersistenceOperation.RELEASE -> PersistenceFailureCode.DELETE_FAILED
+
+        PersistenceOperation.SAVE, PersistenceOperation.COMPARE_AND_SET,
+        PersistenceOperation.CLAIM, PersistenceOperation.RENEW,
+        -> PersistenceFailureCode.WRITE_FAILED
+    }
 
 private suspend fun deliverPersistenceFailure(
     observer: PersistenceFailureDiagnosticObserver,

@@ -489,3 +489,9 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "E9 raises the encrypted suspended-invocation payload to version 3, carrying provenance and an optional checkpoint binding inside the same payload as the run attribution. Versions 1 and 2 stay readable."
     migration: "No schema migration: the new fields ride inside the existing encrypted payload column. Payloads written before this release decode as unknown provenance."
+  - module: :tramai-orchestration
+    fromSha256: 5bf10071155bab44d225cf16f8f1cc5dd2146bf3f25f2bf5d106bf0bab6213fc
+    toSha256: 7c2c0a00fd8422ae11f0c0ee091aa09e9391998e249de9cb5b510aee53650eeb
+    targetVersion: "0.7.0"
+    rationale: "E10 adds WorkflowLeaseCheckpointFence.admitIfLeaseOwner, a defaulted operation so a lease fence can take a durable admission inside the same atomic step that verifies lease ownership. The default body refuses, so third-party fences written before E10 fail closed instead of admitting unfenced. No existing operation changes shape."
+    migration: "No consumer action: the operation is additive with a refusing default. A fence implementation that cannot prove ownership atomically keeps working for checkpoint writes and refuses admissions, which is the intended fail-closed direction."
