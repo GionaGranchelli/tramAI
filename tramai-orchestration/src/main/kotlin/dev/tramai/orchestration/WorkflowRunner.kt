@@ -13,6 +13,7 @@ import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import java.net.http.HttpClient
 import java.time.Clock
@@ -296,7 +297,15 @@ internal class WorkflowRunner<S, R>(
         frame: WorkflowExecutionFrame<S>,
     ): S {
         var currentState = state
-        val services = executionServices().copy(stepAdmission = frame.persistenceSession?.stepAdmission())
+        val authority =
+            ((frame.observer as? FailureIsolatingWorkflowObserver)?.delegate as? StepAttemptAuthority)
+                ?: (frame.observer as? StepAttemptAuthority)
+                ?: currentCoroutineContext()[StepAttemptAuthorityScope]?.authority
+        val services =
+            executionServices().copy(
+                stepAdmission = frame.persistenceSession?.stepAdmission(),
+                stepAttemptAuthority = authority,
+            )
         for (index in startIndex until steps.size) {
             val step = steps[index]
             val request =

@@ -317,15 +317,17 @@ internal data class ActiveExecution(
 private class WorkerExecutionObserver(
     private val workflowName: String,
     private val tracker: ExecutionTracker,
-) : WorkflowObserver by NoOpWorkflowObserver {
-    override fun onStepStarted(
+) : WorkflowObserver by NoOpWorkflowObserver,
+    StepAttemptAuthority {
+    override suspend fun beginAttempt(
         workflowName: String,
+        workflowId: String,
         stepName: String,
-        context: WorkflowContext,
-    ) {
+    ): PersistedStepAttempt? {
         if (this.workflowName == workflowName) {
-            tracker.enqueueStartAttempt(stepName)
+            return tracker.startAttempt(stepName)
         }
+        return null
     }
 
     override fun onStepFailed(
@@ -409,15 +411,15 @@ internal class ExecutionTracker(
         return null
     }
 
-    suspend fun startAttempt(stepName: String) {
+    suspend fun startAttempt(stepName: String): PersistedStepAttempt? {
         if (!trackedStepNames.contains(stepName)) {
-            return
+            return null
         }
         val descriptor: WorkflowStepReplayDescriptor
         val fingerprint: String?
         synchronized(monitor) {
             if (preparedStepName != stepName) {
-                return
+                return null
             }
             descriptor = preparedReplayDescriptor
                 ?: WorkflowStepReplayDescriptor(
@@ -449,6 +451,12 @@ internal class ExecutionTracker(
             activeAttempt = attempt
         }
         observability.onStepAttemptStarted(context.workflowId, stepName, attempt.attemptId, workerId)
+        return PersistedStepAttempt(
+            workflowName = workflow.name,
+            workflowId = context.workflowId,
+            stepName = stepName,
+            attemptId = attempt.attemptId,
+        )
     }
 
     suspend fun consumeRetryApproval(attempt: StepAttemptRecord) {
@@ -469,12 +477,6 @@ internal class ExecutionTracker(
             throw WorkflowRecoveryStateException(
                 "Workflow '${workflow.name}' and workflowId='${context.workflowId}': attempt '${attempt.attemptId}' changed during retry-approval consumption",
             )
-        }
-    }
-
-    fun enqueueStartAttempt(stepName: String) {
-        enqueueObserverTransition {
-            startAttempt(stepName)
         }
     }
 
