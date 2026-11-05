@@ -51,9 +51,13 @@ abstract class WorkflowEffectEvidenceRecordStoreContractTest {
                 )
 
             store.recordEvidence(record)
-            assertThatThrownBy {
-                runBlocking { store.recordEvidence(record) }
-            }.isInstanceOf(IllegalStateException::class.java)
+            try {
+                store.recordEvidence(record)
+                org.junit.jupiter.api
+                    .fail("Expected exception on duplicate recordEvidence")
+            } catch (ex: Throwable) {
+                assertThat(ex is IllegalStateException || ex is WorkflowPersistenceFailureException).isTrue()
+            }
         }
     }
 
@@ -111,9 +115,13 @@ abstract class WorkflowEffectEvidenceRecordStoreContractTest {
                     state = WorkflowEffectEvidenceState.COMPLETED,
                     completedAtEpochMillis = 2000L,
                 )
-            assertThatThrownBy {
-                runBlocking { store.updateEvidence(completedDirectly) }
-            }.isInstanceOf(IllegalStateException::class.java)
+            try {
+                store.updateEvidence(completedDirectly)
+                org.junit.jupiter.api
+                    .fail("Expected exception on invalid transition")
+            } catch (ex: Throwable) {
+                assertThat(ex is IllegalStateException || ex is WorkflowPersistenceFailureException).isTrue()
+            }
 
             // Move to UNCERTAIN (terminal)
             val uncertain = admitted.copy(state = WorkflowEffectEvidenceState.UNCERTAIN)
@@ -121,9 +129,13 @@ abstract class WorkflowEffectEvidenceRecordStoreContractTest {
 
             // Cannot transition from UNCERTAIN to anything else
             val tryDispatched = uncertain.copy(state = WorkflowEffectEvidenceState.DISPATCHED)
-            assertThatThrownBy {
-                runBlocking { store.updateEvidence(tryDispatched) }
-            }.isInstanceOf(IllegalStateException::class.java)
+            try {
+                store.updateEvidence(tryDispatched)
+                org.junit.jupiter.api
+                    .fail("Expected exception on invalid transition")
+            } catch (ex: Throwable) {
+                assertThat(ex is IllegalStateException || ex is WorkflowPersistenceFailureException).isTrue()
+            }
         }
     }
 

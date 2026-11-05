@@ -275,6 +275,7 @@ internal class WorkflowHttpPermit(
     stepName: String,
     effectKind: String,
     admissionSequence: Long,
+    val checkpointGeneration: String = "",
 ) : EffectPermit(stepName, effectKind, admissionSequence) {
     override val effectLabel: String get() = "http"
 }

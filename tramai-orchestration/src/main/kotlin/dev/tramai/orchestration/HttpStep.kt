@@ -329,18 +329,78 @@ internal data class HttpWorkflowStep<S>(
         // that rewrites a thrown error into a step failure code. This is the only production caller of
         // HttpTransport.send, and HttpTransport is internal, so the grant taken here also covers the JDK send behind it:
         // E1 never admits a second time for the same attempt.
-        currentHttpAdmission()?.admitHttp(name, HTTP_EFFECT_KIND)?.tryConsume()
+        val permit = currentHttpAdmission()?.admitHttp(name, HTTP_EFFECT_KIND)
+        val evidenceStore = currentEffectEvidenceStore()
+        val stepAttempt = currentStepAttempt()
+        var evidenceKey: WorkflowEffectEvidenceKey? = null
+
+        if (permit != null && evidenceStore != null && stepAttempt != null) {
+            val key =
+                WorkflowEffectEvidenceKey(
+                    workflowName = workflowName,
+                    workflowId = context.workflowId,
+                    checkpointGeneration = permit.checkpointGeneration,
+                    admissionSeq = permit.admissionSequence,
+                )
+            evidenceKey = key
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = key,
+                    stepName = name,
+                    stepAttemptId = stepAttempt.attemptId,
+                    effectKind = HTTP_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.ADMITTED,
+                    createdAtEpochMillis = System.currentTimeMillis(),
+                ),
+            )
+        }
+
+        permit?.tryConsume()
+        if (evidenceKey != null && evidenceStore != null) {
+            val record = evidenceStore.getEvidence(evidenceKey)
+            if (record != null) {
+                evidenceStore.updateEvidence(record.copy(state = WorkflowEffectEvidenceState.DISPATCHED))
+            }
+        }
+
         var connectedValidated = false
         val sendResult =
-            execution.transport.send(httpRequest, blockingDispatcher) { address ->
-                connectedValidated = true
-                try {
-                    execution.policy.validateTarget(execution.target.copy(addresses = listOf(address)))
-                } catch (error: Throwable) {
-                    error.rethrowIfCancellation()
-                    throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected connected address", error)
+            try {
+                execution.transport.send(httpRequest, blockingDispatcher) { address ->
+                    connectedValidated = true
+                    try {
+                        execution.policy.validateTarget(execution.target.copy(addresses = listOf(address)))
+                    } catch (error: Throwable) {
+                        error.rethrowIfCancellation()
+                        throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected connected address", error)
+                    }
                 }
+            } catch (error: Throwable) {
+                if (evidenceKey != null && evidenceStore != null) {
+                    val record = evidenceStore.getEvidence(evidenceKey)
+                    if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
+                        evidenceStore.updateEvidence(
+                            record.copy(
+                                state = WorkflowEffectEvidenceState.UNCERTAIN,
+                                diagnosticSummary = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text,
+                            ),
+                        )
+                    }
+                }
+                throw error
             }
+
+        if (evidenceKey != null && evidenceStore != null) {
+            val record = evidenceStore.getEvidence(evidenceKey)
+            if (record != null) {
+                evidenceStore.updateEvidence(
+                    record.copy(
+                        state = WorkflowEffectEvidenceState.COMPLETED,
+                        completedAtEpochMillis = System.currentTimeMillis(),
+                    ),
+                )
+            }
+        }
         if (execution.transport.capability == HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION && !connectedValidated) {
             val rejection = HttpPolicyViolation("connected-address validation was not performed")
             try {
