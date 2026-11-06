@@ -1,9 +1,10 @@
 package dev.tramai.core.observation
 
-import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.observation.attempt.AttemptIdentifyingObserver
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEventFailurePolicy
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
 import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
 import kotlinx.coroutines.CancellationException
@@ -24,9 +25,23 @@ import kotlinx.coroutines.CancellationException
 @ExperimentalTramaiInternalApi
 class FailureIsolatingOperationObserver(
     private val delegate: OperationObserver,
-) : OperationObserver {
-    override fun onCallStarted(context: OperationCallContext): OperationObservation {
-        return try {
+) : OperationObserver,
+    AttemptIdentifyingObserver {
+    /**
+     * The engine passes the observation this boundary already produced, so the recording object
+     * forwards into the isolation wrapper rather than around it.
+     */
+    override fun recording(
+        context: OperationCallContext,
+        observation: OperationObservation,
+        identity: AttemptIdentity,
+    ): OperationObservation {
+        val identifying = delegate as? AttemptIdentifyingObserver ?: return observation
+        return identifying.recording(context, observation, identity)
+    }
+
+    override fun onCallStarted(context: OperationCallContext): OperationObservation =
+        try {
             FailureIsolatingOperationObservation(delegate.onCallStarted(context))
         } catch (error: Exception) {
             if (error is CancellationException) throw error
@@ -39,7 +54,6 @@ class FailureIsolatingOperationObserver(
             )
             NoOpOperationObservation
         }
-    }
 }
 
 /**
@@ -64,13 +78,16 @@ interface SecondaryFailureRecording {
  */
 internal class FailureIsolatingOperationObservation(
     private val delegate: OperationObservation,
-) : OperationObservation, SecondaryFailureRecording {
-
+) : OperationObservation,
+    SecondaryFailureRecording {
     @Volatile
     override var lastCompletionFailure: Throwable? = null
         private set
 
-    private inline fun <T> isolate(callback: String, block: () -> T) {
+    private inline fun <T> isolate(
+        callback: String,
+        block: () -> T,
+    ) {
         try {
             block()
         } catch (error: Exception) {
@@ -93,11 +110,17 @@ internal class FailureIsolatingOperationObservation(
         isolate("onProviderFailure") { delegate.onProviderFailure(error) }
     }
 
-    override fun onStructuredParseFailure(rawResponse: String, errorSummary: String) {
+    override fun onStructuredParseFailure(
+        rawResponse: String,
+        errorSummary: String,
+    ) {
         isolate("onStructuredParseFailure") { delegate.onStructuredParseFailure(rawResponse, errorSummary) }
     }
 
-    override fun onEngineEvent(name: String, attributes: Map<String, Any?>) {
+    override fun onEngineEvent(
+        name: String,
+        attributes: Map<String, Any?>,
+    ) {
         isolate("onEngineEvent") { delegate.onEngineEvent(name, attributes) }
     }
 

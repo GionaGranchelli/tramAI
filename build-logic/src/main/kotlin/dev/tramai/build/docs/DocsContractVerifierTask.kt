@@ -51,7 +51,6 @@ enum class DocGuardKind {
  */
 @DisableCachingByDefault(because = "Verification task has no output artifact")
 abstract class DocsContractVerifierTask : DefaultTask() {
-
     @get:Input
     abstract val contractId: Property<String>
 
@@ -116,30 +115,62 @@ abstract class DocsContractVerifierTask : DefaultTask() {
     fun verify() {
         val id = contractId.get()
         when (verifierKind.orNull) {
-            DocGuardKind.PRODUCT_POSITIONING -> RootDocGuardVerifiers.productPositioning(rootDir.get())
-            DocGuardKind.README_POSITIONING -> RootDocGuardVerifiers.readmePositioning(rootDir.get())
-            DocGuardKind.GOVERNED_WORKFLOW_ARTICLE -> RootDocGuardVerifiers.governedWorkflowArticle(rootDir.get())
-            DocGuardKind.EXAMPLE_SELECTION_GUIDE -> RootDocGuardVerifiers.exampleSelectionGuide(rootDir.get())
-            DocGuardKind.JVM_AI_FRAMEWORK_COMPARISON -> RootDocGuardVerifiers.jvmAiFrameworkComparison(rootDir.get())
-            DocGuardKind.WORKFLOW_API_STABILITY_BOUNDARY -> RootDocGuardVerifiers.workflowApiStabilityBoundary(rootDir.get())
-            DocGuardKind.VERSION_ALIGNMENT -> {
-                val releaseDate = expectedReleaseDate.orNull
-                    ?: throw GradleException("tramaiReleaseDate must be set in gradle.properties")
-                RootDocGuardVerifiers.versionAlignment(rootDir.get(), expectedVersion.get(), releaseDate)
+            DocGuardKind.PRODUCT_POSITIONING -> {
+                RootDocGuardVerifiers.productPositioning(rootDir.get())
             }
-            DocGuardKind.TOOL_GOVERNANCE_EXAMPLE -> RootDocGuardVerifiers.toolGovernanceExample(rootDir.get())
+
+            DocGuardKind.README_POSITIONING -> {
+                RootDocGuardVerifiers.readmePositioning(rootDir.get())
+            }
+
+            DocGuardKind.GOVERNED_WORKFLOW_ARTICLE -> {
+                RootDocGuardVerifiers.governedWorkflowArticle(rootDir.get())
+            }
+
+            DocGuardKind.EXAMPLE_SELECTION_GUIDE -> {
+                RootDocGuardVerifiers.exampleSelectionGuide(rootDir.get())
+            }
+
+            DocGuardKind.JVM_AI_FRAMEWORK_COMPARISON -> {
+                RootDocGuardVerifiers.jvmAiFrameworkComparison(rootDir.get())
+            }
+
+            DocGuardKind.WORKFLOW_API_STABILITY_BOUNDARY -> {
+                RootDocGuardVerifiers.workflowApiStabilityBoundary(rootDir.get())
+            }
+
+            DocGuardKind.VERSION_ALIGNMENT -> {
+                val releaseDate =
+                    expectedReleaseDate.orNull
+                        ?: throw GradleException("tramaiReleaseDate must be set in gradle.properties")
+                // Snapshot-aware version alignment (VersionAlignmentVerifier): on a development
+                // line the release-scoped surfaces describe the last promoted release, so the gate
+                // must not demand a dated section for the unreleased snapshot version.
+                verifyVersionAlignmentSurfaces(rootDir.get(), expectedVersion.get(), releaseDate)
+            }
+
+            DocGuardKind.TOOL_GOVERNANCE_EXAMPLE -> {
+                RootDocGuardVerifiers.toolGovernanceExample(rootDir.get())
+            }
+
             DocGuardKind.MODULE_DOC_CONTRACT -> {
                 val diagnostics = RootDocGuardVerifiers.moduleDocContract(rootDir.get())
                 if (diagnostics.isNotEmpty()) {
                     throw GradleException(
-                        diagnostics.joinToString("\n") { "[${it.code}] ${it.message}" }
+                        diagnostics.joinToString("\n") { "[${it.code}] ${it.message}" },
                     )
                 }
             }
-            DocGuardKind.GENERIC_CLAIMS -> verifyGenericClaims(id)
+
+            DocGuardKind.GENERIC_CLAIMS -> {
+                verifyGenericClaims(id)
+            }
+
             // Fail loud instead of degrading to a vacuous pass: a registration
             // that forgets verifierKind.set() must never silently succeed.
-            null -> throw GradleException("$id: verifierKind is not configured; register with an explicit DocGuardKind")
+            null -> {
+                throw GradleException("$id: verifierKind is not configured; register with an explicit DocGuardKind")
+            }
         }
         logger.lifecycle("$id: documentation contract verification complete.")
     }

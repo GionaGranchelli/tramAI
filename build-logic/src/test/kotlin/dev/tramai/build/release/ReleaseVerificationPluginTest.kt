@@ -216,6 +216,7 @@ class ReleaseVerificationPluginTest {
         val result = runner(dir, "tasks", "--all").build()
         for (name in listOf(
             "verifyPublicationMetadata",
+            "verifyNoPublishedTestFixtures",
             "verifyPublishedLocalArtifacts",
             "verifyReleasePublishInputs",
             "verifySovereignRuntimeSignedBundle",
@@ -301,6 +302,7 @@ class ReleaseVerificationPluginTest {
         val output = result.output
         for (name in listOf(
             "verifyPublicationMetadata",
+            "verifyNoPublishedTestFixtures",
             "verifyPublishedLocalArtifacts",
             "verifyReleasePublishInputs",
             "verifySignedPublicationBundle",

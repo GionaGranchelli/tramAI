@@ -115,6 +115,16 @@ Hidden model chain-of-thought is not a required learning source.
 
 ---
 
+## 5A. GAP-000 continuous assurance integration (strategic alignment)
+
+Governance assurance stays a cross-release priority. Candidates for 0.10 include linking configured evaluations, model/policy changes, monitoring results, incident signals and governed-learning eligibility to versioned control evidence. Any proposed optimization may operate **only within an already-authorized viable set**; no scoring, monitoring model or compliance recommendation creates additional execution authority.
+
+Continuously refreshed evidence is not an automatic legal conformity decision. Regulatory applicability, required assessments and accountable human approval remain explicit, while signal freshness and missing proof must be represented as unknown or attention-required rather than success.
+
+See [GAP-000](strategy/governance-assurance/GAP-000.md) and [rebaseline](strategy/governance-assurance/ROADMAP-REBASELINE.md).
+
+---
+
 ## 6. Dependencies on earlier releases
 
 0.10 relies on earlier releases preserving:

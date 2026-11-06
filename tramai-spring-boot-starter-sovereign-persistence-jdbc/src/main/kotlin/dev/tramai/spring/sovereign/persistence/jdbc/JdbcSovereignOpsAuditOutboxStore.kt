@@ -1,11 +1,16 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.spring.sovereign.persistence.jdbc
 
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.SerializationFeature
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
-import com.fasterxml.jackson.module.kotlin.readValue
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import com.fasterxml.jackson.annotation.JsonInclude
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
+import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.QuarantineReport
+import dev.tramai.spring.sovereign.ops.outbox.QuarantinedEvidenceSummary
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxGovernance
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxQuarantineStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
@@ -39,7 +44,7 @@ import javax.sql.DataSource
  *
  * ## Security model
  * - Full record payloads are encrypted at rest via the injected codec.
- * - Queryable columns contain hashes and identifiers — no prompts,
+ * - Queryable columns contain hashes and identifiers -- no prompts,
  *   model outputs, or PII.
  * - All encryption metadata columns are populated when a payload is stored.
  * - Decryption failure fails closed.
@@ -58,18 +63,10 @@ class JdbcSovereignOpsAuditOutboxStore(
     private val claimLeaseDuration: Duration = SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY,
     private val maxClaimLimit: Int = 500,
 ) : SovereignOpsAuditOutboxStore {
-
     init {
         require(!claimLeaseDuration.isNegative) { "claimLeaseDuration must not be negative" }
         require(maxClaimLimit > 0) { "maxClaimLimit must be positive" }
     }
-
-    private val mapper: ObjectMapper = ObjectMapper()
-        .registerKotlinModule()
-        .registerModule(JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
-        .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, true)
 
     private companion object {
         /**
@@ -81,6 +78,50 @@ class JdbcSovereignOpsAuditOutboxStore(
          * guard against pathological churn, not a correctness mechanism.
          */
         const val CLAIM_BLOCKING_FALLBACK_LIMIT: Int = 5
+
+        /** JDBC parameter indices start at 1; named so the insert reads positionally without literals. */
+        private const val FIRST_PARAMETER: Int = 1
+
+        /**
+         * 0.7.6f: quarantined rows are excluded by anti-join rather than by attempting to decode them.
+         * A decoded listing cannot include a record that cannot be decoded, so one damaged row would
+         * otherwise make every page throw.
+         */
+        private const val NOT_QUARANTINED: String =
+            "NOT EXISTS (SELECT 1 FROM audit_outbox_quarantine q WHERE q.outbox_id = audit_outbox.outbox_id)"
+
+        private const val QUARANTINE_INSERT_SQL: String =
+            "INSERT INTO audit_outbox_quarantine (outbox_id, label, quarantined_at, failure_detail, payload_digest) " +
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT (outbox_id) DO NOTHING"
+
+        private const val QUARANTINE_LIST_SQL: String =
+            "SELECT q.outbox_id, q.label, q.quarantined_at, q.failure_detail, q.payload_digest, o.event_key " +
+                "FROM audit_outbox_quarantine q JOIN audit_outbox o ON o.outbox_id = q.outbox_id " +
+                "ORDER BY q.quarantined_at DESC, q.outbox_id ASC LIMIT ?"
+
+        private const val QUARANTINE_CIPHERTEXT_SQL: String =
+            "SELECT o.encrypted_payload FROM audit_outbox o " +
+                "JOIN audit_outbox_quarantine q ON q.outbox_id = o.outbox_id WHERE o.outbox_id = ?"
+
+        /**
+         * Candidates a quarantine scan may consider: dispatchable, never PREPARED, never already held.
+         *
+         * Scan eligibility mirrors claiming exactly: an EMITTING row whose lease expired is claimable, so
+         * its evidence must be recoverable too -- otherwise an unreadable expired claim would keep failing
+         * `claimPending` and healthy records would stall behind it.
+         */
+        private const val QUARANTINE_SCAN_WHERE: String =
+            "$NOT_QUARANTINED AND (audit_outbox.status IN ('PENDING', 'FAILED_RETRYABLE') " +
+                "OR (audit_outbox.status = 'EMITTING' AND audit_outbox.next_attempt_at IS NOT NULL " +
+                "AND audit_outbox.next_attempt_at < ?))"
+
+        /** Row lock used to revalidate the classified snapshot before the transition is written. */
+        private const val QUARANTINE_LOCK_SQL: String =
+            "SELECT status, version FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
+
+        private const val QUARANTINE_MARK_GUARDED_SQL: String =
+            "UPDATE audit_outbox SET status = 'FAILED_PERMANENT', last_failure_type = ?, " +
+                "version = version + 1 WHERE outbox_id = ? AND status = ? AND version = ?"
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -89,20 +130,69 @@ class JdbcSovereignOpsAuditOutboxStore(
 
     override fun isDurable(): Boolean = true
 
-    override suspend fun append(
+    override suspend fun append(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord =
+        appendRecord(record, runIdentity = null, requiredStatus = SovereignOpsAuditOutboxStatus.PREPARED)
+
+    /**
+     * 0.7.6f: commits a refusal record directly as PENDING -- one encrypted row, one transaction, no
+     * separate transition to wait for. Only refusal evidence may take this path.
+     */
+    override suspend fun appendDispatchable(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord {
+        require(record.evidenceKind == SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL) {
+            "tramai-sovereign-ops-outbox-invalid-evidence-kind"
+        }
+        return appendRecord(record, runIdentity = null, requiredStatus = SovereignOpsAuditOutboxStatus.PENDING)
+    }
+
+    /**
+     * 0.7.1d: appends a governed record -- the ordinary outbox fields and the complete canonical
+     * identity in one encrypted row of one transaction. No side table, no identity columns.
+     */
+    internal suspend fun appendGoverned(entry: GovernedSovereignOpsAuditOutboxRecord) {
+        appendRecord(
+            entry.record,
+            entry.runIdentity,
+            requiredStatus = SovereignOpsAuditOutboxStatus.PREPARED,
+        )
+    }
+
+    /**
+     * 0.7.1d: resolves durable provenance from record existence first, so an absent record is never
+     * mistaken for a legacy one and a governed row is never reported without its identity.
+     */
+    internal suspend fun governanceById(outboxId: String): SovereignOpsAuditOutboxGovernance =
+        dataSource.connection.use { conn ->
+            val row =
+                selectById(conn, outboxId)
+                    ?: return@use SovereignOpsAuditOutboxGovernance.NoRecord
+            val decoded = row.toDecoded()
+            validateQueryableColumns(decoded.record, row)
+            when (val identity = decoded.runIdentity) {
+                null -> {
+                    SovereignOpsAuditOutboxGovernance.Legacy(decoded.record)
+                }
+
+                else -> {
+                    SovereignOpsAuditOutboxGovernance.Governed(
+                        GovernedSovereignOpsAuditOutboxRecord(decoded.record, identity),
+                    )
+                }
+            }
+        }
+
+    private suspend fun appendRecord(
         record: SovereignOpsAuditOutboxRecord,
+        runIdentity: GovernedRunIdentity?,
+        requiredStatus: SovereignOpsAuditOutboxStatus,
     ): SovereignOpsAuditOutboxRecord {
         require(record.outboxId.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-id" }
         require(record.eventKey.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-event-key" }
-        require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
-            "tramai-sovereign-ops-outbox-invalid-status"
-        }
+        require(record.status == requiredStatus) { "tramai-sovereign-ops-outbox-invalid-status" }
 
         return dataSource.connection.use { conn ->
             try {
                 inOutboxTransaction(conn) { c ->
-                    val payloadJson = mapper.writeValueAsBytes(record.toPersistedOutbox())
-                    val encrypted = payloadCodec.encode(payloadJson)
+                    val encrypted = payloadCodec.encode(encodeOutboxRecord(record, runIdentity))
 
                     insertAppend(c, record, encrypted)
                     record
@@ -116,29 +206,31 @@ class JdbcSovereignOpsAuditOutboxStore(
     override suspend fun markReadyForDispatch(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
-    ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
-        inOutboxTransaction(conn) { c ->
-            val row = selectForUpdate(c, outboxId)
-                ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
+    ): SovereignOpsAuditOutboxRecord =
+        dataSource.connection.use { conn ->
+            inOutboxTransaction(conn) { c ->
+                val row =
+                    selectForUpdate(c, outboxId)
+                        ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
 
-            val domain = row.toDomain()
-            validateQueryableColumns(domain, row)
+                val decoded = row.toDecoded()
+                val domain = decoded.record
+                validateQueryableColumns(domain, row)
 
-            require(expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED) {
-                "tramai-sovereign-ops-outbox-status-mismatch"
+                require(expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED) {
+                    "tramai-sovereign-ops-outbox-status-mismatch"
+                }
+                require(domain.status == expectedStatus) {
+                    "tramai-sovereign-ops-outbox-status-mismatch"
+                }
+
+                val updated = domain.copy(status = SovereignOpsAuditOutboxStatus.PENDING)
+                val encrypted = payloadCodec.encode(encodeOutboxRecord(updated, decoded.runIdentity))
+
+                updateStatusAndPayload(c, outboxId, row.version, updated.status.name, encrypted)
+                updated
             }
-            require(domain.status == expectedStatus) {
-                "tramai-sovereign-ops-outbox-status-mismatch"
-            }
-
-            val updated = domain.copy(status = SovereignOpsAuditOutboxStatus.PENDING)
-            val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
-            val encrypted = payloadCodec.encode(payloadJson)
-
-            updateStatusAndPayload(c, outboxId, row.version, updated.status.name, encrypted)
-            updated
         }
-    }
 
     override suspend fun claimPending(
         claimedBy: String,
@@ -164,26 +256,28 @@ class JdbcSovereignOpsAuditOutboxStore(
                     selected = selectClaimableSerialized(c, actualLimit, now)
                 }
 
-                val claimed = selected.map { row ->
-                    val record = row.toDomain()
-                    validateQueryableColumns(record, row)
-                    require(record.isDispatchable(now)) {
-                        "tramai-sovereign-ops-outbox-not-dispatchable"
-                    }
-                    val updated = record.copy(
-                        status = SovereignOpsAuditOutboxStatus.EMITTING,
-                        attemptCount = record.attemptCount + 1,
-                        claimedBy = claimedBy,
-                        claimedAt = now,
-                        claimExpiresAt = claimExpiresAt,
-                        lastErrorCode = null,
-                    )
-                    val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
-                    val encrypted = payloadCodec.encode(payloadJson)
+                val claimed =
+                    selected.map { row ->
+                        val decoded = row.toDecoded()
+                        val record = decoded.record
+                        validateQueryableColumns(record, row)
+                        require(record.isDispatchable(now)) {
+                            "tramai-sovereign-ops-outbox-not-dispatchable"
+                        }
+                        val updated =
+                            record.copy(
+                                status = SovereignOpsAuditOutboxStatus.EMITTING,
+                                attemptCount = record.attemptCount + 1,
+                                claimedBy = claimedBy,
+                                claimedAt = now,
+                                claimExpiresAt = claimExpiresAt,
+                                lastErrorCode = null,
+                            )
+                        val encrypted = payloadCodec.encode(encodeOutboxRecord(updated, decoded.runIdentity))
 
-                    updateClaimed(c, updated.outboxId, encrypted, now, claimExpiresAt)
-                    updated
-                }
+                        updateClaimed(c, updated.outboxId, encrypted, now, claimExpiresAt)
+                        updated
+                    }
                 claimed
             }
         }
@@ -194,59 +288,63 @@ class JdbcSovereignOpsAuditOutboxStore(
         expectedStatus: SovereignOpsAuditOutboxStatus,
         expectedAttemptCount: Int,
         emittedAt: Instant,
-    ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
-        inOutboxTransaction(conn) { conn ->
-            val row = selectForUpdate(conn, outboxId)
-                ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
+    ): SovereignOpsAuditOutboxRecord =
+        dataSource.connection.use { conn ->
+            inOutboxTransaction(conn) { conn ->
+                val row =
+                    selectForUpdate(conn, outboxId)
+                        ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
 
-            val domain = row.toDomain()
-            validateQueryableColumns(domain, row)
+                val decoded = row.toDecoded()
+                val domain = decoded.record
+                validateQueryableColumns(domain, row)
 
-            require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
-                "tramai-sovereign-ops-outbox-status-mismatch"
+                require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+                    "tramai-sovereign-ops-outbox-status-mismatch"
+                }
+                require(domain.status == expectedStatus) {
+                    "tramai-sovereign-ops-outbox-status-mismatch"
+                }
+                check(domain.attemptCount == expectedAttemptCount) {
+                    "tramai-sovereign-ops-outbox-concurrent-update"
+                }
+
+                val updated =
+                    domain.copy(
+                        status = SovereignOpsAuditOutboxStatus.EMITTED,
+                        emittedAt = emittedAt,
+                    )
+                val encrypted = payloadCodec.encode(encodeOutboxRecord(updated, decoded.runIdentity))
+
+                val sql =
+                    """
+                    UPDATE audit_outbox
+                    SET status = 'EMITTED',
+                        dispatched_at = ?,
+                        encrypted_payload = ?,
+                        encryption_key_id = ?,
+                        encryption_algorithm = ?,
+                        encryption_nonce = ?,
+                        payload_digest = ?,
+                        version = version + 1
+                    WHERE outbox_id = ? AND version = ?
+                    """.trimIndent()
+
+                conn.prepareStatement(sql).use { stmt ->
+                    stmt.setTimestamp(1, Timestamp.from(emittedAt))
+                    stmt.setBytes(2, encrypted.ciphertext)
+                    stmt.setString(3, encrypted.keyId)
+                    stmt.setString(4, encrypted.algorithm)
+                    stmt.setBytes(5, encrypted.nonce)
+                    stmt.setString(6, encrypted.payloadDigest)
+                    stmt.setString(7, outboxId)
+                    stmt.setLong(8, row.version)
+                    val updatedCount = stmt.executeUpdate()
+                    require(updatedCount == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
+                }
+                updated
             }
-            require(domain.status == expectedStatus) {
-                "tramai-sovereign-ops-outbox-status-mismatch"
-            }
-            check(domain.attemptCount == expectedAttemptCount) {
-                "tramai-sovereign-ops-outbox-concurrent-update"
-            }
-
-            val updated = domain.copy(
-                status = SovereignOpsAuditOutboxStatus.EMITTED,
-                emittedAt = emittedAt,
-            )
-            val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
-            val encrypted = payloadCodec.encode(payloadJson)
-
-            val sql = """
-                UPDATE audit_outbox
-                SET status = 'EMITTED',
-                    dispatched_at = ?,
-                    encrypted_payload = ?,
-                    encryption_key_id = ?,
-                    encryption_algorithm = ?,
-                    encryption_nonce = ?,
-                    payload_digest = ?,
-                    version = version + 1
-                WHERE outbox_id = ? AND version = ?
-            """.trimIndent()
-
-            conn.prepareStatement(sql).use { stmt ->
-                stmt.setTimestamp(1, Timestamp.from(emittedAt))
-                stmt.setBytes(2, encrypted.ciphertext)
-                stmt.setString(3, encrypted.keyId)
-                stmt.setString(4, encrypted.algorithm)
-                stmt.setBytes(5, encrypted.nonce)
-                stmt.setString(6, encrypted.payloadDigest)
-                stmt.setString(7, outboxId)
-                stmt.setLong(8, row.version)
-                val updatedCount = stmt.executeUpdate()
-                require(updatedCount == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
-            }
-            updated
         }
-    }
 
     override suspend fun markFailed(
         outboxId: String,
@@ -254,75 +352,80 @@ class JdbcSovereignOpsAuditOutboxStore(
         expectedAttemptCount: Int,
         errorCode: String,
         retryable: Boolean,
-    ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
-        inOutboxTransaction(conn) { conn ->
-            val row = selectForUpdate(conn, outboxId)
-                ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
+    ): SovereignOpsAuditOutboxRecord =
+        dataSource.connection.use { conn ->
+            inOutboxTransaction(conn) { conn ->
+                val row =
+                    selectForUpdate(conn, outboxId)
+                        ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
 
-            val domain = row.toDomain()
-            validateQueryableColumns(domain, row)
+                val decoded = row.toDecoded()
+                val domain = decoded.record
+                validateQueryableColumns(domain, row)
 
-            if (retryable) {
-                require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+                if (retryable) {
+                    require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+                        "tramai-sovereign-ops-outbox-status-mismatch"
+                    }
+                } else {
+                    require(
+                        expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING ||
+                            expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED,
+                    ) {
+                        "tramai-sovereign-ops-outbox-status-mismatch"
+                    }
+                }
+                require(domain.status == expectedStatus) {
                     "tramai-sovereign-ops-outbox-status-mismatch"
                 }
-            } else {
-                require(
-                    expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING ||
-                        expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED
-                ) {
-                    "tramai-sovereign-ops-outbox-status-mismatch"
+                check(domain.attemptCount == expectedAttemptCount) {
+                    "tramai-sovereign-ops-outbox-concurrent-update"
                 }
-            }
-            require(domain.status == expectedStatus) {
-                "tramai-sovereign-ops-outbox-status-mismatch"
-            }
-            check(domain.attemptCount == expectedAttemptCount) {
-                "tramai-sovereign-ops-outbox-concurrent-update"
-            }
 
-            val targetStatus = if (retryable) {
-                SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
-            } else {
-                SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
+                val targetStatus =
+                    if (retryable) {
+                        SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
+                    } else {
+                        SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
+                    }
+
+                val updated =
+                    domain.copy(
+                        status = targetStatus,
+                        lastErrorCode = errorCode,
+                    )
+                val encrypted = payloadCodec.encode(encodeOutboxRecord(updated, decoded.runIdentity))
+
+                val sql =
+                    """
+                    UPDATE audit_outbox
+                    SET status = ?,
+                        last_failure_type = ?,
+                        encrypted_payload = ?,
+                        encryption_key_id = ?,
+                        encryption_algorithm = ?,
+                        encryption_nonce = ?,
+                        payload_digest = ?,
+                        version = version + 1
+                    WHERE outbox_id = ? AND version = ?
+                    """.trimIndent()
+
+                conn.prepareStatement(sql).use { stmt ->
+                    stmt.setString(1, targetStatus.name)
+                    stmt.setString(2, errorCode)
+                    stmt.setBytes(3, encrypted.ciphertext)
+                    stmt.setString(4, encrypted.keyId)
+                    stmt.setString(5, encrypted.algorithm)
+                    stmt.setBytes(6, encrypted.nonce)
+                    stmt.setString(7, encrypted.payloadDigest)
+                    stmt.setString(8, outboxId)
+                    stmt.setLong(9, row.version)
+                    val updatedCount = stmt.executeUpdate()
+                    require(updatedCount == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
+                }
+                updated
             }
-
-            val updated = domain.copy(
-                status = targetStatus,
-                lastErrorCode = errorCode,
-            )
-            val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
-            val encrypted = payloadCodec.encode(payloadJson)
-
-            val sql = """
-                UPDATE audit_outbox
-                SET status = ?,
-                    last_failure_type = ?,
-                    encrypted_payload = ?,
-                    encryption_key_id = ?,
-                    encryption_algorithm = ?,
-                    encryption_nonce = ?,
-                    payload_digest = ?,
-                    version = version + 1
-                WHERE outbox_id = ? AND version = ?
-            """.trimIndent()
-
-            conn.prepareStatement(sql).use { stmt ->
-                stmt.setString(1, targetStatus.name)
-                stmt.setString(2, errorCode)
-                stmt.setBytes(3, encrypted.ciphertext)
-                stmt.setString(4, encrypted.keyId)
-                stmt.setString(5, encrypted.algorithm)
-                stmt.setBytes(6, encrypted.nonce)
-                stmt.setString(7, encrypted.payloadDigest)
-                stmt.setString(8, outboxId)
-                stmt.setLong(9, row.version)
-                val updatedCount = stmt.executeUpdate()
-                require(updatedCount == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
-            }
-            updated
         }
-    }
 
     override suspend fun get(outboxId: String): SovereignOpsAuditOutboxRecord? =
         dataSource.connection.use { conn ->
@@ -348,8 +451,7 @@ class JdbcSovereignOpsAuditOutboxStore(
     override suspend fun listByStatus(
         status: SovereignOpsAuditOutboxStatus,
         limit: Int,
-    ): List<SovereignOpsAuditOutboxRecord> =
-        if (limit <= 0) emptyList() else listByExactStatus(status, limit)
+    ): List<SovereignOpsAuditOutboxRecord> = if (limit <= 0) emptyList() else listByExactStatus(status, limit)
 
     override suspend fun listExpiredEmitting(
         now: Instant,
@@ -364,6 +466,261 @@ class JdbcSovereignOpsAuditOutboxStore(
             }
         }
     }
+
+    /**
+     * 0.7.6f: the recovery surface, implemented as an inner class so this store's own shape (and its
+     * quality baseline) is unchanged: quarantine is a separate contract, not another store operation.
+     */
+    private inner class JdbcQuarantine : SovereignOpsAuditOutboxQuarantineStore {
+        /**
+         * Classifies the scan batch before mutating anything: a batch in which nothing decodes is treated
+         * as a deployment-key problem and aborts, so a wrong key can never quarantine healthy evidence.
+         */
+        override suspend fun quarantineUndecodableEvidence(
+            limit: Int,
+            now: Instant,
+        ): QuarantineReport {
+            if (limit <= 0) return QuarantineReport(0, 0, emptyList(), 0)
+            val (candidates, skipped) =
+                dataSource.connection.use { conn ->
+                    selectQuarantineCandidates(conn, limit, now) to countQuarantined(conn)
+                }
+            val classified = candidates.map { row -> row to classify(row) }
+            val failures =
+                classified.mapNotNull { (_, verdict) -> (verdict as? QuarantineVerdict.Failure)?.failure }
+            val decodable = classified.count { (_, verdict) -> verdict is QuarantineVerdict.Readable }
+            requireUsableKey(classified.size, decodable, failures)
+            val quarantined =
+                classified.mapNotNull { (row, verdict) ->
+                    (verdict as? QuarantineVerdict.Failure)?.let { quarantineOne(row, it.failure, now) }
+                }
+            return QuarantineReport(
+                scanned = classified.size,
+                decodable = decodable,
+                quarantined = quarantined,
+                skipped = skipped,
+            )
+        }
+
+        override suspend fun listQuarantined(limit: Int): List<QuarantinedEvidenceSummary> {
+            if (limit <= 0) return emptyList()
+            return dataSource.connection.use { conn ->
+                conn.prepareStatement(QUARANTINE_LIST_SQL).use { stmt ->
+                    stmt.setInt(1, limit)
+                    stmt.executeQuery().use { rs ->
+                        val summaries =
+                            generateSequence<QuarantinedEvidenceSummary> {
+                                if (rs.next()) quarantinedSummaryOf(rs) else null
+                            }
+                        summaries.toList()
+                    }
+                }
+            }
+        }
+
+        override suspend fun readQuarantinedCiphertext(locator: String): ByteArray? =
+            dataSource.connection.use { conn -> selectQuarantinedCiphertext(conn, locator) }
+
+        /**
+         * One row's verdict, or null when it decodes and its columns agree.
+         *
+         * The two labels stay distinct: a payload that cannot be decrypted or decoded is
+         * [SovereignOpsAuditOutboxQuarantineStore.LABEL_UNDECODABLE], while a payload that decodes but
+         * contradicts its queryable columns is [SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT].
+         */
+        private fun classify(row: OutboxRow): QuarantineVerdict =
+            try {
+                columnsVerdict(row.toDecoded(), row)
+            } catch (e: IllegalStateException) {
+                // Typed on purpose: runCatching would also swallow CancellationException.
+                decodeVerdict(e)
+            }
+
+        /**
+         * The control requirement and the identical-signature safeguard, both fail-closed.
+         *
+         * No control record means the batch behaves like a wrong deployment key, so nothing is quarantined.
+         * The signature rule is stated separately: when every scanned row failed the same way the batch is
+         * systemic too. A single successful decode is the control that proves the key works, and per-record
+         * failures after that are quarantined even if their details happen to coincide.
+         */
+        private fun requireUsableKey(
+            scanned: Int,
+            decodable: Int,
+            failures: List<QuarantineFailure>,
+        ) {
+            if (failures.isEmpty()) return
+            val everyRowFailedIdentically = failures.size == scanned && failures.map { it.detail }.distinct().size == 1
+            if (decodable == 0 || everyRowFailedIdentically) {
+                throw IllegalStateException(SovereignOpsAuditOutboxQuarantineStore.ERROR_DECRYPTION_UNAVAILABLE)
+            }
+        }
+
+        /**
+         * Quarantines one row, or returns null when another worker got there first.
+         *
+         * Classification happens outside the writing transaction, so the row is locked and its snapshot
+         * revalidated (status + version) before anything is written: two concurrent recovery workers must
+         * not both report the same record as newly quarantined, and neither may transition a row whose
+         * state changed since classification.
+         */
+        private fun quarantineOne(
+            row: OutboxRow,
+            failure: QuarantineFailure,
+            now: Instant,
+        ): QuarantinedEvidenceSummary? =
+            dataSource.connection.use { conn ->
+                inOutboxTransaction(conn) { c ->
+                    val current = lockStatusAndVersion(c, row.outboxId)
+                    if (current == null || current.first != row.status || current.second != row.version) {
+                        return@inOutboxTransaction null
+                    }
+                    persistQuarantine(c, row, failure, now)
+                    quarantinedSummary(row, failure, now)
+                }
+            }
+
+        private fun quarantinedSummary(
+            row: OutboxRow,
+            failure: QuarantineFailure,
+            now: Instant,
+        ): QuarantinedEvidenceSummary =
+            QuarantinedEvidenceSummary(
+                locator = row.outboxId,
+                outboxId = row.outboxId,
+                eventKey = row.eventKey,
+                payloadDigest = row.payloadDigest,
+                label = failure.label,
+                quarantinedAt = now,
+                failureDetail = failure.detail,
+            )
+
+        /**
+         * Records the metadata and marks the row FAILED_PERMANENT in one transaction.
+         *
+         * Nothing else changes: `encrypted_payload`, its encryption columns, `outbox_id` and `event_key`
+         * are never rewritten, which is why the stored ciphertext stays byte-identical.
+         */
+        private fun persistQuarantine(
+            conn: Connection,
+            row: OutboxRow,
+            failure: QuarantineFailure,
+            now: Instant,
+        ) {
+            conn.prepareStatement(QUARANTINE_INSERT_SQL).use { stmt ->
+                var index = FIRST_PARAMETER
+                stmt.setString(index++, row.outboxId)
+                stmt.setString(index++, failure.label)
+                stmt.setTimestamp(index++, Timestamp.from(now))
+                stmt.setString(index++, failure.detail)
+                stmt.setString(index, row.payloadDigest)
+                stmt.executeUpdate()
+            }
+            val transitioned =
+                conn.prepareStatement(QUARANTINE_MARK_GUARDED_SQL).use { stmt ->
+                    var index = FIRST_PARAMETER
+                    stmt.setString(index++, failure.label)
+                    stmt.setString(index++, row.outboxId)
+                    stmt.setString(index++, row.status)
+                    stmt.setLong(index, row.version)
+                    stmt.executeUpdate()
+                }
+            check(transitioned == 1) { "tramai-outbox-quarantine-transition-lost" }
+        }
+
+        private fun selectQuarantineCandidates(
+            conn: Connection,
+            limit: Int,
+            now: Instant,
+        ): List<OutboxRow> {
+            val sql =
+                "$selectColumns FROM audit_outbox WHERE $QUARANTINE_SCAN_WHERE " +
+                    "ORDER BY created_at ASC, outbox_id ASC LIMIT ?"
+            return conn.prepareStatement(sql).use { stmt ->
+                stmt.setTimestamp(1, Timestamp.from(now))
+                stmt.setInt(2, limit)
+                stmt.executeQuery().use { rs ->
+                    val results = mutableListOf<OutboxRow>()
+                    while (rs.next()) results.add(mapRow(rs))
+                    results
+                }
+            }
+        }
+
+        private fun countQuarantined(conn: Connection): Int =
+            conn.createStatement().use { stmt ->
+                stmt.executeQuery("SELECT count(*) FROM audit_outbox_quarantine").use { rs ->
+                    if (rs.next()) rs.getInt(1) else 0
+                }
+            }
+    }
+
+    override fun quarantineStore(): SovereignOpsAuditOutboxQuarantineStore = JdbcQuarantine()
+
+    /** Locks one row and reports the state it was in, so a stale classification cannot transition it. */
+    private fun lockStatusAndVersion(
+        conn: Connection,
+        outboxId: String,
+    ): Pair<String, Long>? =
+        conn.prepareStatement(QUARANTINE_LOCK_SQL).use { stmt ->
+            stmt.setString(FIRST_PARAMETER, outboxId)
+            stmt.executeQuery().use { rs -> if (rs.next()) rs.getString(1) to rs.getLong(2) else null }
+        }
+
+    /** Bounded, operator-readable detail: never an unbounded stack of internal state. */
+    private fun boundedDetail(e: Exception): String =
+        (e.message ?: e::class.simpleName ?: "undecodable-evidence")
+            .take(SovereignOpsAuditOutboxQuarantineStore.MAX_FAILURE_DETAIL)
+
+    /** A payload this build cannot read is undecodable evidence -- unless a newer build wrote it. */
+    private fun decodeVerdict(e: Throwable): QuarantineVerdict {
+        val newerBuild =
+            e is IllegalStateException && e.message?.startsWith(ERROR_UNSUPPORTED_SCHEMA_VERSION) == true
+        return if (newerBuild) {
+            QuarantineVerdict.Unsupported
+        } else {
+            QuarantineVerdict.Failure(
+                QuarantineFailure(
+                    SovereignOpsAuditOutboxQuarantineStore.LABEL_UNDECODABLE,
+                    boundedDetail(e as? Exception ?: IllegalStateException(e)),
+                ),
+            )
+        }
+    }
+
+    /** A payload that decodes but contradicts its queryable columns is corrupt evidence, not undecodable. */
+    private fun columnsVerdict(
+        decoded: DecodedOutboxRecord,
+        row: OutboxRow,
+    ): QuarantineVerdict =
+        try {
+            validateQueryableColumns(decoded.record, row)
+            QuarantineVerdict.Readable
+        } catch (e: IllegalArgumentException) {
+            QuarantineVerdict.Failure(
+                QuarantineFailure(SovereignOpsAuditOutboxQuarantineStore.LABEL_CORRUPT, boundedDetail(e)),
+            )
+        }
+
+    private fun quarantinedSummaryOf(rs: ResultSet): QuarantinedEvidenceSummary =
+        QuarantinedEvidenceSummary(
+            locator = rs.getString("outbox_id"),
+            outboxId = rs.getString("outbox_id"),
+            eventKey = rs.getString("event_key"),
+            payloadDigest = rs.getString("payload_digest") ?: "",
+            label = rs.getString("label"),
+            quarantinedAt = rs.getTimestamp("quarantined_at").toInstant(),
+            failureDetail = rs.getString("failure_detail"),
+        )
+
+    private fun selectQuarantinedCiphertext(
+        conn: Connection,
+        locator: String,
+    ): ByteArray? =
+        conn.prepareStatement(QUARANTINE_CIPHERTEXT_SQL).use { stmt ->
+            stmt.setString(1, locator)
+            stmt.executeQuery().use { rs -> if (rs.next()) rs.getBytes(1) else null }
+        }
 
     // ══════════════════════════════════════════════════════════════════
     // Internal helpers
@@ -381,25 +738,32 @@ class JdbcSovereignOpsAuditOutboxStore(
             }
         }
 
-    private fun OutboxRow.toDomain(): SovereignOpsAuditOutboxRecord {
-        val encrypted = JdbcEncryptedAuditOutboxPayload(
-            ciphertext = encryptedPayload,
-            keyId = encryptionKeyId,
-            algorithm = encryptionAlgorithm,
-            nonce = encryptionNonce,
-            payloadDigest = payloadDigest,
-        )
-        val plaintext = try {
-            payloadCodec.decode(encrypted)
-        } catch (e: Exception) {
-            throw IllegalStateException("audit-outbox-payload-decryption-failed", e)
-        }
-        return try {
-            mapper.readValue<PersistedSovereignOpsAuditOutboxRecordV1>(plaintext).toDomain()
-        } catch (e: Exception) {
-            throw IllegalStateException("audit-outbox-payload-deserialisation-failed", e)
-        }
+    /**
+     * 0.7.1d: decrypts and decodes one row's payload, keeping the canonical identity alongside the
+     * ordinary record so a transition re-encodes exactly the shape it read.
+     *
+     * Only the envelope step is wrapped here, so the codec's own failure contract (corruption vs
+     * unsupported schema version) reaches callers unchanged instead of being flattened.
+     */
+    private fun OutboxRow.toDecoded(): DecodedOutboxRecord {
+        val encrypted =
+            JdbcEncryptedAuditOutboxPayload(
+                ciphertext = encryptedPayload,
+                keyId = encryptionKeyId,
+                algorithm = encryptionAlgorithm,
+                nonce = encryptionNonce,
+                payloadDigest = payloadDigest,
+            )
+        val plaintext =
+            try {
+                payloadCodec.decode(encrypted)
+            } catch (e: Exception) {
+                throw IllegalStateException("audit-outbox-payload-decryption-failed", e)
+            }
+        return decodeOutboxRecord(plaintext)
     }
+
+    private fun OutboxRow.toDomain(): SovereignOpsAuditOutboxRecord = toDecoded().record
 
     private fun validateQueryableColumns(
         domain: SovereignOpsAuditOutboxRecord,
@@ -472,19 +836,25 @@ class JdbcSovereignOpsAuditOutboxStore(
         when (status) {
             SovereignOpsAuditOutboxStatus.PENDING,
             SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE,
-            -> true
+            -> {
+                true
+            }
+
             SovereignOpsAuditOutboxStatus.EMITTING -> {
                 val expiresAt = claimExpiresAt
                 expiresAt != null && expiresAt.isBefore(now)
             }
+
             SovereignOpsAuditOutboxStatus.PREPARED,
             SovereignOpsAuditOutboxStatus.EMITTED,
             SovereignOpsAuditOutboxStatus.FAILED_PERMANENT,
-            -> false
+            -> {
+                false
+            }
         }
 
     // ══════════════════════════════════════════════════════════════════
-    // SQL — INSERT
+    // SQL -- INSERT
     // ══════════════════════════════════════════════════════════════════
 
     private fun insertAppend(
@@ -492,14 +862,15 @@ class JdbcSovereignOpsAuditOutboxStore(
         record: SovereignOpsAuditOutboxRecord,
         encrypted: JdbcEncryptedAuditOutboxPayload,
     ) {
-        val sql = """
+        val sql =
+            """
             INSERT INTO audit_outbox (
                 outbox_id, event_key, status, correlation_key_hash,
                 created_at, attempt_count,
                 encrypted_payload, encryption_key_id, encryption_algorithm,
                 encryption_nonce, payload_digest, version
             ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 1)
-        """.trimIndent()
+            """.trimIndent()
 
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, record.outboxId)
@@ -517,19 +888,23 @@ class JdbcSovereignOpsAuditOutboxStore(
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // SQL — SELECT helpers
+    // SQL -- SELECT helpers
     // ══════════════════════════════════════════════════════════════════
 
-    private val SELECT_COLUMNS = """
+    private val selectColumns =
+        """
         SELECT outbox_id, event_key, status, correlation_key_hash,
                created_at, claimed_at, dispatched_at,
                attempt_count, last_failure_type, next_attempt_at,
                encrypted_payload, encryption_key_id, encryption_algorithm,
                encryption_nonce, payload_digest, version
-    """.trimIndent()
+        """.trimIndent()
 
-    private fun selectForUpdate(conn: Connection, outboxId: String): OutboxRow? {
-        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
+    private fun selectForUpdate(
+        conn: Connection,
+        outboxId: String,
+    ): OutboxRow? {
+        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ? AND $NOT_QUARANTINED FOR UPDATE"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, outboxId)
             stmt.executeQuery().let { rs ->
@@ -538,8 +913,11 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
     }
 
-    private fun selectById(conn: Connection, outboxId: String): OutboxRow? {
-        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE outbox_id = ?"
+    private fun selectById(
+        conn: Connection,
+        outboxId: String,
+    ): OutboxRow? {
+        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ? AND $NOT_QUARANTINED"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, outboxId)
             stmt.executeQuery().let { rs ->
@@ -548,8 +926,11 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
     }
 
-    private fun selectByEventKey(conn: Connection, eventKey: String): OutboxRow? {
-        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE event_key = ?"
+    private fun selectByEventKey(
+        conn: Connection,
+        eventKey: String,
+    ): OutboxRow? {
+        val sql = "$selectColumns FROM audit_outbox WHERE event_key = ? AND $NOT_QUARANTINED"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, eventKey)
             stmt.executeQuery().let { rs ->
@@ -558,8 +939,14 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
     }
 
-    private fun selectByStatus(conn: Connection, status: String, limit: Int): List<OutboxRow> {
-        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE status = ? ORDER BY created_at ASC LIMIT ?"
+    private fun selectByStatus(
+        conn: Connection,
+        status: String,
+        limit: Int,
+    ): List<OutboxRow> {
+        val sql =
+            "$selectColumns FROM audit_outbox WHERE status = ? AND $NOT_QUARANTINED " +
+                "ORDER BY created_at ASC, outbox_id ASC LIMIT ?"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, status)
             stmt.setInt(2, limit)
@@ -576,19 +963,23 @@ class JdbcSovereignOpsAuditOutboxStore(
         limit: Int,
         now: Instant,
     ): List<OutboxRow> {
-        val sql = """
-            $SELECT_COLUMNS FROM audit_outbox
+        val sql =
+            """
+            $selectColumns FROM audit_outbox
             WHERE
+                $NOT_QUARANTINED
+                AND (
                 status IN ('PENDING', 'FAILED_RETRYABLE')
                 OR (
                     status = 'EMITTING'
                     AND next_attempt_at IS NOT NULL
                     AND next_attempt_at < ?
+                )
             )
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, outbox_id ASC
             LIMIT ?
             FOR UPDATE SKIP LOCKED
-        """.trimIndent()
+            """.trimIndent()
 
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, Timestamp.from(now))
@@ -610,7 +1001,7 @@ class JdbcSovereignOpsAuditOutboxStore(
      * answer here because the row is claimable on both sides of the terminal
      * transition. Instead:
      *
-     * 1. probe for a claimable candidate with a non-locking read — if no
+     * 1. probe for a claimable candidate with a non-locking read -- if no
      *    candidate exists, the empty result is proven, not guessed;
      * 2. if a candidate exists, block on THAT candidate by primary key with a
      *    plain `FOR UPDATE` (no SKIP LOCKED). The caller holds no outbox row
@@ -618,7 +1009,7 @@ class JdbcSovereignOpsAuditOutboxStore(
      *    cannot participate in a claim-vs-claim lock cycle;
      * 3. re-read the row under the acquired lock; if it is still claimable,
      *    claim it; otherwise a concurrent transaction took it while we
-     *    waited — skip and re-evaluate the next candidate.
+     *    waited -- skip and re-evaluate the next candidate.
      *
      * The bound [CLAIM_BLOCKING_FALLBACK_LIMIT] is a liveness guard only.
      */
@@ -646,24 +1037,35 @@ class JdbcSovereignOpsAuditOutboxStore(
      * predicate as [selectClaimableForUpdateSkipLocked] but without the
      * `FOR UPDATE SKIP LOCKED` clause, so a hidden locked row is still
      * visible. Returns ids in claim order.
+     *
+     * The order is `(created_at, outbox_id)` because `created_at` alone is not a total order. The column is
+     * written from the caller's `record.createdAt`, so rows written from one decision -- one clock reading,
+     * one reconstructed timestamp, one batch -- share it. Claim candidates are locked one at a time, and the
+     * fallback keeps a candidate's lock while it moves to the next, so two claimers that receive tied rows in
+     * different orders acquire overlapping locks in different orders. A tiebreaker makes the acquisition
+     * order deterministic for every claimer without changing which rows are eligible.
      */
     private fun selectClaimableCandidateIds(
         conn: Connection,
         now: Instant,
         limit: Int,
     ): List<String> {
-        val sql = """
+        val sql =
+            """
             SELECT outbox_id FROM audit_outbox
             WHERE
-                status IN ('PENDING', 'FAILED_RETRYABLE')
-                OR (
-                    status = 'EMITTING'
-                    AND next_attempt_at IS NOT NULL
-                    AND next_attempt_at < ?
-            )
-            ORDER BY created_at ASC
+                $NOT_QUARANTINED
+                AND (
+                    status IN ('PENDING', 'FAILED_RETRYABLE')
+                    OR (
+                        status = 'EMITTING'
+                        AND next_attempt_at IS NOT NULL
+                        AND next_attempt_at < ?
+                    )
+                )
+            ORDER BY created_at ASC, outbox_id ASC
             LIMIT ?
-        """.trimIndent()
+            """.trimIndent()
 
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, Timestamp.from(now))
@@ -676,8 +1078,11 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
     }
 
-    private fun selectByIdForUpdate(conn: Connection, outboxId: String): OutboxRow? {
-        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
+    private fun selectByIdForUpdate(
+        conn: Connection,
+        outboxId: String,
+    ): OutboxRow? {
+        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ? AND $NOT_QUARANTINED FOR UPDATE"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, outboxId)
             stmt.executeQuery().let { rs ->
@@ -691,14 +1096,16 @@ class JdbcSovereignOpsAuditOutboxStore(
         now: Instant,
         limit: Int,
     ): List<OutboxRow> {
-        val sql = """
-            $SELECT_COLUMNS FROM audit_outbox
+        val sql =
+            """
+            $selectColumns FROM audit_outbox
             WHERE status = 'EMITTING'
+              AND $NOT_QUARANTINED
               AND next_attempt_at IS NOT NULL
               AND next_attempt_at < ?
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, outbox_id ASC
             LIMIT ?
-        """.trimIndent()
+            """.trimIndent()
 
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, Timestamp.from(now))
@@ -712,7 +1119,7 @@ class JdbcSovereignOpsAuditOutboxStore(
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // SQL — UPDATE helpers
+    // SQL -- UPDATE helpers
     // ══════════════════════════════════════════════════════════════════
 
     private fun updateStatusAndPayload(
@@ -722,7 +1129,8 @@ class JdbcSovereignOpsAuditOutboxStore(
         newStatus: String,
         encrypted: JdbcEncryptedAuditOutboxPayload,
     ) {
-        val sql = """
+        val sql =
+            """
             UPDATE audit_outbox
             SET status = ?,
                 encrypted_payload = ?,
@@ -732,7 +1140,7 @@ class JdbcSovereignOpsAuditOutboxStore(
                 payload_digest = ?,
                 version = version + 1
             WHERE outbox_id = ? AND version = ?
-        """.trimIndent()
+            """.trimIndent()
 
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, newStatus)
@@ -755,7 +1163,8 @@ class JdbcSovereignOpsAuditOutboxStore(
         claimedAt: Instant,
         claimExpiresAt: Instant,
     ) {
-        val sql = """
+        val sql =
+            """
             UPDATE audit_outbox
             SET status = 'EMITTING',
                 claimed_at = ?,
@@ -769,7 +1178,7 @@ class JdbcSovereignOpsAuditOutboxStore(
                 payload_digest = ?,
                 version = version + 1
             WHERE outbox_id = ?
-        """.trimIndent()
+            """.trimIndent()
 
         conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, Timestamp.from(claimedAt))
@@ -788,6 +1197,29 @@ class JdbcSovereignOpsAuditOutboxStore(
     // ══════════════════════════════════════════════════════════════════
     // Row mapping
     // ══════════════════════════════════════════════════════════════════
+
+    /**
+     * One row's recovery verdict.
+     *
+     * [Failure] is evidence this build cannot read and that is therefore quarantined; [Readable] is the
+     * control that proves the deployment key works; [Unsupported] is a payload written by a newer build,
+     * which is preserved untouched rather than permanently condemned by a rollback.
+     */
+    private sealed interface QuarantineVerdict {
+        class Failure(
+            val failure: QuarantineFailure,
+        ) : QuarantineVerdict
+
+        object Readable : QuarantineVerdict
+
+        object Unsupported : QuarantineVerdict
+    }
+
+    /** One row's quarantine verdict: a label and a bounded detail. */
+    private data class QuarantineFailure(
+        val label: String,
+        val detail: String,
+    )
 
     private data class OutboxRow(
         val outboxId: String,
@@ -809,35 +1241,53 @@ class JdbcSovereignOpsAuditOutboxStore(
     )
 
     private fun mapRow(rs: ResultSet): OutboxRow {
-        val createdAt = rs.getTimestamp("created_at")?.toInstant()
-            ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) }
-            ?: throw IllegalStateException("audit-outbox-missing-created-at")
+        val createdAt =
+            rs
+                .getTimestamp("created_at")
+                ?.toInstant()
+                ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) }
+                ?: throw IllegalStateException("audit-outbox-missing-created-at")
 
         return OutboxRow(
-            outboxId = rs.getString("outbox_id")
-                ?: throw IllegalStateException("audit-outbox-missing-outbox-id"),
-            eventKey = rs.getString("event_key")
-                ?: throw IllegalStateException("audit-outbox-missing-event-key"),
-            status = rs.getString("status")
-                ?: throw IllegalStateException("audit-outbox-missing-status"),
+            outboxId =
+                rs.getString("outbox_id")
+                    ?: throw IllegalStateException("audit-outbox-missing-outbox-id"),
+            eventKey =
+                rs.getString("event_key")
+                    ?: throw IllegalStateException("audit-outbox-missing-event-key"),
+            status =
+                rs.getString("status")
+                    ?: throw IllegalStateException("audit-outbox-missing-status"),
             correlationKeyHash = rs.getString("correlation_key_hash"),
             createdAt = createdAt,
-            claimedAt = rs.getTimestamp("claimed_at")?.toInstant()
-                ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
-            dispatchedAt = rs.getTimestamp("dispatched_at")?.toInstant()
-                ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
+            claimedAt =
+                rs
+                    .getTimestamp("claimed_at")
+                    ?.toInstant()
+                    ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
+            dispatchedAt =
+                rs
+                    .getTimestamp("dispatched_at")
+                    ?.toInstant()
+                    ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
             attemptCount = rs.getInt("attempt_count"),
             lastFailureType = rs.getString("last_failure_type"),
-            nextAttemptAt = rs.getTimestamp("next_attempt_at")?.toInstant()
-                ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
+            nextAttemptAt =
+                rs
+                    .getTimestamp("next_attempt_at")
+                    ?.toInstant()
+                    ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
             encryptedPayload = rs.getBytes("encrypted_payload") ?: ByteArray(0),
-            encryptionKeyId = rs.getString("encryption_key_id")
-                ?: throw IllegalStateException("audit-outbox-missing-key-id"),
-            encryptionAlgorithm = rs.getString("encryption_algorithm")
-                ?: throw IllegalStateException("audit-outbox-missing-algorithm"),
+            encryptionKeyId =
+                rs.getString("encryption_key_id")
+                    ?: throw IllegalStateException("audit-outbox-missing-key-id"),
+            encryptionAlgorithm =
+                rs.getString("encryption_algorithm")
+                    ?: throw IllegalStateException("audit-outbox-missing-algorithm"),
             encryptionNonce = rs.getBytes("encryption_nonce") ?: ByteArray(0),
-            payloadDigest = rs.getString("payload_digest")
-                ?: throw IllegalStateException("audit-outbox-missing-payload-digest"),
+            payloadDigest =
+                rs.getString("payload_digest")
+                    ?: throw IllegalStateException("audit-outbox-missing-payload-digest"),
             version = rs.getLong("version"),
         )
     }
@@ -846,16 +1296,20 @@ class JdbcSovereignOpsAuditOutboxStore(
     // Exception mapping
     // ══════════════════════════════════════════════════════════════════
 
-    private fun mapAppendException(
-        e: SQLException,
-    ): RuntimeException {
+    private fun mapAppendException(e: SQLException): RuntimeException {
         val message = e.message ?: ""
         return when {
-            message.contains("uq_audit_outbox_event_key") || message.contains("audit_outbox_event_key_key") ->
+            message.contains("uq_audit_outbox_event_key") || message.contains("audit_outbox_event_key_key") -> {
                 IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-event-key")
-            message.contains("audit_outbox_pkey") ->
+            }
+
+            message.contains("audit_outbox_pkey") -> {
                 IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-id")
-            else -> IllegalStateException("tramai-sovereign-ops-outbox-database-failure", e)
+            }
+
+            else -> {
+                IllegalStateException("tramai-sovereign-ops-outbox-database-failure", e)
+            }
         }
     }
 
@@ -863,10 +1317,13 @@ class JdbcSovereignOpsAuditOutboxStore(
      * Deliberately non-suspend helper (the #267/#271 cleanup model): runs
      * [block] in one explicit transaction. Failure precedence is primary
      * operation / cancellation, then rollback failure, then
-     * autoCommit-restore failure — later cleanup failures are attached as
+     * autoCommit-restore failure -- later cleanup failures are attached as
      * suppressed to the primary, never replacing it.
      */
-    private fun <T> inOutboxTransaction(conn: Connection, block: (Connection) -> T): T {
+    private fun <T> inOutboxTransaction(
+        conn: Connection,
+        block: (Connection) -> T,
+    ): T {
         val previousAutoCommit = conn.autoCommit
         conn.autoCommit = false
         var primaryFailure: Exception? = null
@@ -914,7 +1371,7 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     val actor: String,
     val workflowRunId: String?,
     val correlationId: String?,
-    val approvalStatus: String,
+    val approvalStatus: String?,
     val approvalVersion: Long?,
     val reasonDigest: String,
     val reasonLength: Int,
@@ -926,6 +1383,14 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     val claimExpiresAt: String?,
     val createdAt: String,
     val emittedAt: String?,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val actorIssuer: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val actorIdentityDigest: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val previousApprovalStatus: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val previousApprovalVersion: Long? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val evidenceKind: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val refusalReason: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val refusalPolicyVersion: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val refusalExpectedVersion: Long? = null,
 )
 
 internal fun SovereignOpsAuditOutboxRecord.toPersistedOutbox(): PersistedSovereignOpsAuditOutboxRecordV1 =
@@ -951,6 +1416,14 @@ internal fun SovereignOpsAuditOutboxRecord.toPersistedOutbox(): PersistedSoverei
         claimExpiresAt = claimExpiresAt?.toString(),
         createdAt = createdAt.toString(),
         emittedAt = emittedAt?.toString(),
+        actorIssuer = actorIssuer,
+        actorIdentityDigest = actorIdentityDigest,
+        previousApprovalStatus = previousApprovalStatus,
+        previousApprovalVersion = previousApprovalVersion,
+        evidenceKind = evidenceKind?.name,
+        refusalReason = refusalReason,
+        refusalPolicyVersion = refusalPolicyVersion,
+        refusalExpectedVersion = refusalExpectedVersion,
     )
 
 internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAuditOutboxRecord {
@@ -968,17 +1441,47 @@ internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAu
         approvalVersion = approvalVersion,
         reasonDigest = reasonDigest,
         reasonLength = reasonLength,
-        createdAt = try {
-            Instant.parse(createdAt)
-        } catch (_: Exception) {
-            OffsetDateTime.parse(createdAt).toInstant()
-        },
+        createdAt =
+            try {
+                Instant.parse(createdAt)
+            } catch (_: Exception) {
+                OffsetDateTime.parse(createdAt).toInstant()
+            },
         status = SovereignOpsAuditOutboxStatus.valueOf(status),
         attemptCount = attemptCount,
         lastErrorCode = lastErrorCode,
         claimedBy = claimedBy,
-        claimedAt = claimedAt?.let { try { Instant.parse(it) } catch (_: Exception) { null } },
-        claimExpiresAt = claimExpiresAt?.let { try { Instant.parse(it) } catch (_: Exception) { null } },
-        emittedAt = emittedAt?.let { try { Instant.parse(it) } catch (_: Exception) { null } },
+        claimedAt =
+            claimedAt?.let {
+                try {
+                    Instant.parse(it)
+                } catch (_: Exception) {
+                    null
+                }
+            },
+        claimExpiresAt =
+            claimExpiresAt?.let {
+                try {
+                    Instant.parse(it)
+                } catch (_: Exception) {
+                    null
+                }
+            },
+        emittedAt =
+            emittedAt?.let {
+                try {
+                    Instant.parse(it)
+                } catch (_: Exception) {
+                    null
+                }
+            },
+        actorIssuer = actorIssuer,
+        actorIdentityDigest = actorIdentityDigest,
+        previousApprovalStatus = previousApprovalStatus,
+        previousApprovalVersion = previousApprovalVersion,
+        evidenceKind = evidenceKind?.let { SovereignOpsAuditEvidenceKind.valueOf(it) },
+        refusalReason = refusalReason,
+        refusalPolicyVersion = refusalPolicyVersion,
+        refusalExpectedVersion = refusalExpectedVersion,
     )
 }

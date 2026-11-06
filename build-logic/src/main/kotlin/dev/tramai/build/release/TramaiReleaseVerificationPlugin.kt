@@ -1,5 +1,6 @@
 package dev.tramai.build.release
 
+import dev.tramai.build.ci.VerifyCiGateEnrollmentTask
 import dev.tramai.build.publishing.TramaiPublishingRepositories
 import dev.tramai.build.quality.ModuleCatalog
 import dev.tramai.build.quality.ModuleManifest
@@ -55,6 +56,8 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
 
     override fun apply(project: Project) {
         registerVerifyPublicationMetadata(project)
+        registerVerifyNoPublishedTestFixtures(project)
+        project.registerVerifyCiGateEnrollmentTask()
         registerVerifyPublishedLocalArtifacts(project)
         registerVerifyReleasePublishInputs(project)
         registerVerifySignedPublicationBundle(project)
@@ -66,6 +69,7 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
         registerVerifyAuditClosure(project)
         registerVerify060ZeroEgress(project)
         registerVerify060MaintainabilityRelease(project)
+        project.registerVerifyMergeGate()
     }
 
     private fun registerRootApiCheckAggregator(project: Project) {
@@ -162,6 +166,37 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
                 },
             )
             dependsOn(publishableModuleNames.map { ":$it:generatePomFileForMavenPublication" })
+        }
+    }
+
+    private fun registerVerifyNoPublishedTestFixtures(project: Project) {
+        project.tasks.register<VerifyNoPublishedTestFixturesTask>("verifyNoPublishedTestFixtures") {
+            group = "verification"
+            description = "Verifies that no publishable module publishes a test-fixtures variant or artifact."
+
+            // The publishable set comes from the catalog, resolved lazily so a corrupt catalog fails
+            // closed instead of auditing an empty set.
+            val publishableModuleNames = publishableModuleNames(project)
+            this.publishableModules.set(publishableModuleNames)
+
+            // module.json is the generated publication metadata: it lists the variants and artifact
+            // files a consumer actually resolves.
+            moduleMetadataFiles.from(
+                publishableModuleNames.map { moduleName ->
+                    project.layout.projectDirectory.file("$moduleName/build/publications/maven/module.json")
+                },
+            )
+            dependsOn(publishableModuleNames.map { ":$it:generateMetadataFileForMavenPublication" })
+            dependsOn(publishableModuleNames.map { ":$it:generatePomFileForMavenPublication" })
+
+            pomFiles.from(
+                publishableModuleNames.map { moduleName ->
+                    project.layout.projectDirectory.file("$moduleName/build/publications/maven/pom-default.xml")
+                },
+            )
+            auditedModulesManifest.set(
+                project.layout.buildDirectory.file("publication-boundary/publishable-modules.txt"),
+            )
         }
     }
 
@@ -675,5 +710,33 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
                 "Final release certification requires 12.4b.",
         )
         logger.lifecycle("================================================================================")
+    }
+}
+
+/**
+ * Registered, and deliberately aggregated into nothing: 0.7.4h2b is the workflow-only change that invokes this
+ * task after enrolling the gates. Wiring it into `check`/`verifyPr` here would make this preparatory change red
+ * on its own unchanged base, which is exactly the failure mode the rollout exists to avoid.
+ *
+ * A top-level function rather than another method, so the plugin class keeps its measured function count.
+ */
+internal fun Project.registerVerifyCiGateEnrollmentTask() {
+    tasks.register<VerifyCiGateEnrollmentTask>("verifyCiGateEnrollment") {
+        group = "verification"
+        description = "Proves every required governance gate is effectively executed by the CI workflows."
+        requiredGates.set(
+            listOf(
+                "verifyModuleMatrixDrift",
+                "verifyModuleDocContract",
+                "verifyNoPublishedTestFixtures",
+            ),
+        )
+        requiredBranch.set(providers.gradleProperty("tramaiIntegrationBranch").getOrElse("release/0.7.0"))
+        workflowFiles.from(
+            fileTree(".github/workflows") {
+                include("*.yml")
+                include("*.yaml")
+            },
+        )
     }
 }

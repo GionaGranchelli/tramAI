@@ -1,0 +1,107 @@
+=== Finding 1 correction: is the fix load-bearing?
+Isolated worktree /home/gionag/tramai-g1b-disc at the corrected tree, test files untouched.
+Mutation: revert ONLY the reserved-identity guard in AuditEnginePolicyDecisionAuditEmitter,
+restoring the previous '.forEach { (key, value) -> map[key] = bounded(value) }' (recorded with its sha256 below).
+
+========= FINDING-1 DISCRIMINATOR 2026-10-13T10:13:11+02:00 =========
+refreshed the isolated worktree with the corrected tree
+---------- PHASE control ----------
+  gradle exit=0
+  tests="13" skipped="0" failures="0" errors="0"
+    ran "a governed tool decision reaches exported evidence with its complete identity()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "the canonical digest binds the attributed identity()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "an overlength reserved identity value is refused rather than silently truncated()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "only the reserved keys are read as identity, and the family allowlist is not widened()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "a partial identity tuple in the audit event is refused rather than downgraded()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "legacy evidence keeps the digest it had before run-id binding existed()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "the canonical payload digest binds the canonical run id()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "legacy evidence without identity still exports unchanged()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "the digest distinguishes two runs that differ only by identity()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "complete real tool-permission evidence is bundled across ALLOW, REQUIRE_APPROVAL and DENY and survives intact(Path)"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "a 256-character identity value is preserved intact and exported unchanged byte-for-byte()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "a complete identity without the canonical run id is refused()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "tampered attributed tool-permission evidence is detected by production contract verification(Path)"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+  --- failures:
+Finding-1 fix reverted: identity values pass through the lossy bounded() helper again
+--- mutation verification: is the fix gone from the mutated emitter?
+    require() occurrences: 0
+    116:            .forEach { (key, value) -> map[key] = bounded(value) }
+---------- PHASE fix-reverted ----------
+  gradle exit=1
+  tests="13" skipped="0" failures="1" errors="0"
+    ran "a governed tool decision reaches exported evidence with its complete identity()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "the canonical digest binds the attributed identity()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "an overlength reserved identity value is refused rather than silently truncated()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "only the reserved keys are read as identity, and the family allowlist is not widened()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "a partial identity tuple in the audit event is refused rather than downgraded()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "legacy evidence keeps the digest it had before run-id binding existed()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "the canonical payload digest binds the canonical run id()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "legacy evidence without identity still exports unchanged()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "the digest distinguishes two runs that differ only by identity()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "complete real tool-permission evidence is bundled across ALLOW, REQUIRE_APPROVAL and DENY and survives intact(Path)"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "a 256-character identity value is preserved intact and exported unchanged byte-for-byte()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "a complete identity without the canonical run id is refused()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "tampered attributed tool-permission evidence is detected by production contract verification(Path)"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+  --- failures:
+    !! <failure message="org.opentest4j.AssertionFailedError: Expected an exception of class java.lang.IllegalArgumentException to be thrown, but was completed successfully with the result: &lt;A
+--- restored byte-identically? YES
+---------- PHASE restored ----------
+  gradle exit=0
+  tests="13" skipped="0" failures="0" errors="0"
+    ran "a governed tool decision reaches exported evidence with its complete identity()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "the canonical digest binds the attributed identity()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "an overlength reserved identity value is refused rather than silently truncated()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "only the reserved keys are read as identity, and the family allowlist is not widened()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "a partial identity tuple in the audit event is refused rather than downgraded()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "legacy evidence keeps the digest it had before run-id binding existed()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "the canonical payload digest binds the canonical run id()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "legacy evidence without identity still exports unchanged()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "the digest distinguishes two runs that differ only by identity()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "complete real tool-permission evidence is bundled across ALLOW, REQUIRE_APPROVAL and DENY and survives intact(Path)"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "a 256-character identity value is preserved intact and exported unchanged byte-for-byte()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "a complete identity without the canonical run id is refused()"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+    ran "tampered attributed tool-permission evidence is detected by production contract verification(Path)"
+    ran "dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest"
+  --- failures:
+========= DONE 2026-10-13T10:13:26+02:00 =========
+
+=== mutation identity (sha256 of the mutated emitter as applied) ===
+  2b074c6f7817dc7bc07a21dadacbe531a20b37c7f8944701c5464a00ccd6cbde  /home/gionag/tmp/ci/g1b_f1_discriminator.txt

@@ -1,6 +1,8 @@
 package dev.tramai.examples.spring
 
 import com.zaxxer.hikari.HikariDataSource
+import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
+import dev.tramai.spring.sovereign.ops.rest.ApprovalControlPlaneController
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Tag
@@ -46,7 +48,6 @@ import javax.sql.DataSource
 )
 @ContextConfiguration(initializers = [LabProfileInitializer::class])
 class SovereignLabProfileSmokeTest {
-
     companion object {
         /** Path to the temp encryption key file, set by [LabProfileInitializer]. */
         @JvmField
@@ -88,6 +89,21 @@ class SovereignLabProfileSmokeTest {
         assertThat(env.getProperty("tramai.sovereign.persistence.type"))
             .describedAs("Persistence type must be jdbc for the lab profile")
             .isEqualTo("jdbc")
+    }
+
+    @Test
+    fun `the lab profile boots the REST control plane behind operator security`() {
+        // 0.7.6e: the control plane refuses to publish without verified identity, so this asserts the whole
+        // secured scenario - boundary configured, role policy resolvable, controller actually created.
+        assertThat(env.getProperty("tramai.sovereign.ops.security.enabled"))
+            .describedAs("the lab profile must configure operator security, not just enable the REST plane")
+            .isEqualTo("true")
+        assertThat(context.getBean(OperatorApprovalPolicy::class.java))
+            .describedAs("an approval policy must exist, otherwise the decision plane is not created")
+            .isNotNull
+        assertThat(context.getBean(ApprovalControlPlaneController::class.java))
+            .describedAs("the REST control plane must be reachable only with security configured")
+            .isNotNull
     }
 
     @Test
@@ -145,19 +161,23 @@ class LabProfileInitializer : ApplicationContextInitializer<ConfigurableApplicat
 
         // Register DataSource bean directly to avoid ordering issues with
         // SovereignJdbcPersistenceAutoConfiguration vs DataSourceAutoConfiguration.
-        val ds = HikariDataSource().apply {
-            jdbcUrl = PgEmbeddedTestSupport.jdbcUrl
-            username = PgEmbeddedTestSupport.username
-            password = PgEmbeddedTestSupport.password
-            maximumPoolSize = 3
-        }
+        val ds =
+            HikariDataSource().apply {
+                jdbcUrl = PgEmbeddedTestSupport.jdbcUrl
+                username = PgEmbeddedTestSupport.username
+                password = PgEmbeddedTestSupport.password
+                maximumPoolSize = 3
+            }
         ctx.beanFactory.registerSingleton("dataSource", ds)
         // Register for proper cleanup — Spring may not close singletons
         // registered directly via registerSingleton the same way it closes
         // bean-defined DataSources.
         (ctx.beanFactory as? org.springframework.beans.factory.support.DefaultSingletonBeanRegistry)
-            ?.registerDisposableBean("dataSource",
-                org.springframework.beans.factory.DisposableBean { ds.close() })
+            ?.registerDisposableBean(
+                "dataSource",
+                org.springframework.beans.factory
+                    .DisposableBean { ds.close() },
+            )
 
         // Set the key-file property so SovereignJdbcPersistenceAutoConfiguration
         // can load the encryption key.
@@ -167,7 +187,8 @@ class LabProfileInitializer : ApplicationContextInitializer<ConfigurableApplicat
             keyFile.toAbsolutePath().toString(),
         )
         ctx.environment.propertySources.addFirst(
-            org.springframework.core.env.PropertiesPropertySource("labProfileProps", props),
+            org.springframework.core.env
+                .PropertiesPropertySource("labProfileProps", props),
         )
     }
 }

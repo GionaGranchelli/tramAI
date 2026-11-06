@@ -8,23 +8,25 @@ import dev.tramai.security.audit.AuditEvent
  * Events with any of these enforcement points belong to the `tool.permission`
  * evidence family, not `policy.decision`.
  */
-internal val TOOL_ENFORCEMENT_POINTS = setOf(
-    "BEFORE_TOOL_EXPOSURE",
-    "BEFORE_TOOL_EXECUTION",
-    "BEFORE_TOOL_RESULT_REINJECTION",
-)
+internal val TOOL_ENFORCEMENT_POINTS =
+    setOf(
+        "BEFORE_TOOL_EXPOSURE",
+        "BEFORE_TOOL_EXECUTION",
+        "BEFORE_TOOL_RESULT_REINJECTION",
+    )
 
 /**
  * Allowlisted metadata keys that may appear in a runtime-evidence.v1
  * tool.permission record.
  */
-internal val TOOL_PERMISSION_ALLOWED_METADATA_KEYS = setOf(
-    "toolName",
-    "enforcementPoint",
-    "riskLevel",
-    "classification",
-    "classificationSource",
-)
+internal val TOOL_PERMISSION_ALLOWED_METADATA_KEYS =
+    setOf(
+        "toolName",
+        "enforcementPoint",
+        "riskLevel",
+        "classification",
+        "classificationSource",
+    )
 
 /**
  * Converts tool enforcement [AuditEvent]s into [RuntimeEvidenceRecord]s
@@ -37,7 +39,6 @@ internal val TOOL_PERMISSION_ALLOWED_METADATA_KEYS = setOf(
  * closed rather than silently falling back to policy.decision.
  */
 class ToolPermissionRuntimeEvidenceExporter {
-
     fun export(events: List<AuditEvent>): List<RuntimeEvidenceRecord> =
         events
             .filter { it.enforcementPoint in TOOL_ENFORCEMENT_POINTS }
@@ -55,13 +56,38 @@ internal fun AuditEvent.toToolPermissionRuntimeEvidenceRecord(): RuntimeEvidence
         "Tool enforcement event $eventId is missing required metadata.toolName"
     }
 
-    val safeMetadata = mutableMapOf<String, String>().apply {
-        // Preserve enforcementPoint from the audit-event top-level field
-        put("enforcementPoint", enforcementPoint)
-        // Filter remaining metadata to the allowlist
-        putAll(metadata.filterKeys { it in TOOL_PERMISSION_ALLOWED_METADATA_KEYS && it != "enforcementPoint" })
-    }
-    val payloadDigest = computeToolPermissionPayloadDigest(safeMetadata)
+    val safeMetadata =
+        mutableMapOf<String, String>().apply {
+            // Preserve enforcementPoint from the audit-event top-level field
+            put("enforcementPoint", enforcementPoint)
+            // Filter remaining metadata to the allowlist
+            putAll(metadata.filterKeys { it in TOOL_PERMISSION_ALLOWED_METADATA_KEYS && it != "enforcementPoint" })
+        }
+
+    // G1b: the framework-bound governed identity is overlaid AFTER the family allowlist, so the
+    // exfiltration allowlist keeps its purpose while the reserved identity keys still reach the
+    // record. The overlay precedes the digest because the digest must advertise the identity the
+    // record carries; an overlay computed afterwards would leave a record whose digest does not
+    // bind the identity it shows.
+    //
+    // Fail closed, never downgrade: a partial tuple, or a complete tuple without the canonical
+    // run id, refuses here instead of being read as legacy evidence.
+    val attribution = metadata.filterKeys { it in RuntimeEvidenceAttribution.metadataKeys }
+    RuntimeEvidenceAttribution.validate(workflowRunId, attribution)
+
+    // G2: which declared boundary enforced this decision, and how strongly. The identifier is what the
+    // producing boundary declares; the strength is resolved from the framework-owned registration, so
+    // the record advertises a registration fact rather than a caller's claim. A caller-supplied
+    // strength, or an unregistered identifier, refuses here rather than degrading to legacy evidence.
+    //
+    // Overlaid before the digest for the same reason identity is: a digest computed afterwards would
+    // advertise a record whose provenance it does not bind.
+    val provenance = RuntimeBoundaryProvenance.provenanceFor(metadata, enforcementPoint)
+
+    val attributedMetadata =
+        RuntimeEvidenceAttribution.merge(safeMetadata, attribution) + provenance
+
+    val payloadDigest = computeToolPermissionPayloadDigest(attributedMetadata)
 
     return RuntimeEvidenceRecord(
         eventId = eventId,
@@ -70,19 +96,22 @@ internal fun AuditEvent.toToolPermissionRuntimeEvidenceRecord(): RuntimeEvidence
         correlationId = correlationId,
         actor = actor,
         createdAt = timestamp,
-        source = RuntimeEvidenceSource(
-            component = "policy-engine",
-            module = policyVersion,
-        ),
-        decision = RuntimeEvidenceDecision(
-            kind = decision,
-            reasonCode = reasonCode,
-        ),
-        digests = RuntimeEvidenceDigests(
-            subjectDigest = EvidenceDigest.sha256(auditStreamId),
-            payloadDigest = payloadDigest,
-        ),
-        metadata = safeMetadata,
+        source =
+            RuntimeEvidenceSource(
+                component = "policy-engine",
+                module = policyVersion,
+            ),
+        decision =
+            RuntimeEvidenceDecision(
+                kind = decision,
+                reasonCode = reasonCode,
+            ),
+        digests =
+            RuntimeEvidenceDigests(
+                subjectDigest = EvidenceDigest.sha256(auditStreamId),
+                payloadDigest = payloadDigest,
+            ),
+        metadata = attributedMetadata,
     )
 }
 
@@ -95,20 +124,37 @@ internal fun AuditEvent.toToolPermissionRuntimeEvidenceRecord(): RuntimeEvidence
  * - reasonCode (if present)
  * - source.component (always "policy-engine")
  * - source.module (if present)
- * - metadata (filtered, sorted)
+ * - workflowRunId — **only when the record is attributed** (see below)
+ * - metadata (filtered, sorted) — including the reserved governed-identity keys when the event is
+ *   attributed and the registered enforcement-boundary provenance when the record declares a boundary
+ *   id, so the digest binds both the identity and the boundary the record advertises
+ *
+ * The canonical run id is part of the complete governed identity, so an attributed record binds it
+ * here rather than relying on `subjectDigest` alone: `subjectDigest` is `sha256(auditStreamId)`, and
+ * `auditStreamId` only equals the run id because [DefaultAuditStreamIdResolver] happens to return it.
+ * A deployment that installs its own [AuditStreamIdResolver] would keep the audit stream and the run
+ * distinct, and the run id would then be bound by nothing.
+ *
+ * A **legacy** record (zero reserved keys) gains no run-id term, so its digest stays byte-identical
+ * to the one it carried before governed attribution existed. Attribution is atomic — zero keys is
+ * legacy, a partial tuple is refused — so this condition is a binary state, not a heuristic.
  *
  * Raw tool arguments are never included in the canonical payload.
  */
-internal fun AuditEvent.computeToolPermissionPayloadDigest(
-    safeMetadata: Map<String, String>,
-): String {
-    val canonical = CanonicalDigestBuilder().apply {
-        appendField("eventType", "tool.permission")
-        appendField("decision", decision)
-        appendNullableField("reasonCode", reasonCode)
-        appendField("sourceComponent", "policy-engine")
-        appendNullableField("sourceModule", policyVersion)
-        appendMetadataField("metadata", safeMetadata)
-    }.build()
+internal fun AuditEvent.computeToolPermissionPayloadDigest(safeMetadata: Map<String, String>): String {
+    val attributed = safeMetadata.keys.any { it in RuntimeEvidenceAttribution.metadataKeys }
+    val canonical =
+        CanonicalDigestBuilder()
+            .apply {
+                appendField("eventType", "tool.permission")
+                appendField("decision", decision)
+                appendNullableField("reasonCode", reasonCode)
+                appendField("sourceComponent", "policy-engine")
+                appendNullableField("sourceModule", policyVersion)
+                if (attributed) {
+                    appendNullableField("workflowRunId", workflowRunId)
+                }
+                appendMetadataField("metadata", safeMetadata)
+            }.build()
     return EvidenceDigest.sha256(canonical)
 }

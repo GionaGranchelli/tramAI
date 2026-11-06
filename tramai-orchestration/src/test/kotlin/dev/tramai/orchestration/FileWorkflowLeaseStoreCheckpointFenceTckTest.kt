@@ -2,11 +2,11 @@ package dev.tramai.orchestration
 
 import dev.tramai.testing.persistence.lease.MutableMillisClock
 import dev.tramai.testing.persistence.lease.WorkflowLeaseCheckpointFenceTck
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.TestInstance
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicLong
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.TestInstance
 import kotlin.io.path.exists
 
 /**
@@ -17,6 +17,11 @@ import kotlin.io.path.exists
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class FileWorkflowLeaseStoreCheckpointFenceTckTest : WorkflowLeaseCheckpointFenceTck() {
+    // FileWorkflowCheckpointStore is local-only: it records neither a durable admission counter nor an authoritative
+    // lifecycle status. The fence still refuses a superseded worker; what it cannot do is grant, because there is no
+    // authority behind it to grant with.
+    override val durableAdmissionSupported: Boolean get() = false
+    override val durableCancellationSupported: Boolean get() = false
 
     private val rootDir: Path = Files.createTempDirectory("tramai-fence-tck-file-").toAbsolutePath()
     private val caseCounter = AtomicLong(0)

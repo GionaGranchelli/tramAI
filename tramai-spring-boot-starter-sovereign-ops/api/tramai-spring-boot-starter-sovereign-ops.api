@@ -1,42 +1,29 @@
-public final class dev/tramai/spring/sovereign/ops/AllowAllApprovalDecisionAuthorizer : dev/tramai/spring/sovereign/ops/ApprovalDecisionAuthorizer {
-	public static final field INSTANCE Ldev/tramai/spring/sovereign/ops/AllowAllApprovalDecisionAuthorizer;
-	public fun canDecide-zxm_F4Y (Ldev/tramai/core/approval/ApprovalRequest;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/ApprovalDecisionType;)Z
-}
-
-public abstract interface class dev/tramai/spring/sovereign/ops/ApprovalDecisionAuthorizer {
-	public abstract fun canDecide-zxm_F4Y (Ldev/tramai/core/approval/ApprovalRequest;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/ApprovalDecisionType;)Z
-}
-
 public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionCommand {
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1-3qC8wes ()Ljava/lang/String;
-	public final fun component2 ()Ljava/lang/String;
-	public final fun component3-lKvXBlk ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/String;
-	public final fun component5 ()Ljava/lang/Long;
-	public final fun component6 ()Ljava/lang/String;
-	public final fun copy-UbcWY0Q (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
-	public static synthetic fun copy-UbcWY0Q$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
+	public final fun copy-_sU59ic (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
+	public static synthetic fun copy-_sU59ic$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getActorId ()Ljava/lang/String;
-	public final fun getActorRole-lKvXBlk ()Ljava/lang/String;
 	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
 	public final fun getComment ()Ljava/lang/String;
 	public final fun getCorrelationId ()Ljava/lang/String;
-	public final fun getExpectedVersion ()Ljava/lang/Long;
+	public final fun getExpectedVersion ()J
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public abstract interface class dev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlane {
-	public abstract fun approve (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun deny (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun approve (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun deny (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlaneAutoConfiguration {
 	public fun <init> ()V
-	public final fun sovereignOpsApprovalDecisionControlPlane (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlane;
+	public final fun sovereignOpsApprovalDecisionControlPlane (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Ldev/tramai/spring/sovereign/ops/OperatorApprovalPolicy;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlane;
 }
 
 public abstract interface class dev/tramai/spring/sovereign/ops/ApprovalDecisionResult {
@@ -139,6 +126,34 @@ public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionResult$NotFou
 	public static synthetic fun copy-F3nxyi0$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$NotFound;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$NotFound;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Stale : dev/tramai/spring/sovereign/ops/ApprovalDecisionResult {
+	public synthetic fun <init> (Ljava/lang/String;JJLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-3qC8wes ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun copy-0RvLICw (Ljava/lang/String;JJ)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Stale;
+	public static synthetic fun copy-0RvLICw$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Stale;Ljava/lang/String;JJILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Stale;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public final fun getCurrentVersion ()J
+	public final fun getExpectedVersion ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Unauthorized : dev/tramai/spring/sovereign/ops/ApprovalDecisionResult {
+	public synthetic fun <init> (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-3qC8wes ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;
+	public final fun copy-jFQnKDU (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Unauthorized;
+	public static synthetic fun copy-jFQnKDU$default (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Unauthorized;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/ApprovalDecisionResult$Unauthorized;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public final fun getReason ()Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -267,6 +282,16 @@ public final class dev/tramai/spring/sovereign/ops/ApprovalResumeResult$Resumed 
 	public final fun getResumedBy ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason : java/lang/Enum {
+	public static final field APPROVAL_POLICY_UNAVAILABLE Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;
+	public static final field MISSING_CAPABILITY Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;
+	public static final field ROLE_NOT_PERMITTED Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;
+	public static fun values ()[Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;
 }
 
 public abstract interface class dev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueue {
@@ -450,6 +475,7 @@ public final class dev/tramai/spring/sovereign/ops/AuditEngineSovereignOpsAuditE
 	public fun <init> (Ldev/tramai/security/audit/AuditEngine;)V
 	public fun approvalDenied (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun approvalDeniedFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun evidenceFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun isActive ()Z
 }
 
@@ -500,7 +526,25 @@ public final class dev/tramai/spring/sovereign/ops/NoopSovereignOpsAuditEmitter 
 	public static final field INSTANCE Ldev/tramai/spring/sovereign/ops/NoopSovereignOpsAuditEmitter;
 	public fun approvalDenied (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun approvalDeniedFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun evidenceFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun isActive ()Z
+}
+
+public final class dev/tramai/spring/sovereign/ops/OperatorApprovalPolicy {
+	public fun <init> (Ljava/util/Map;)V
+	public final fun configuredPolicyVersions ()Ljava/util/Set;
+	public final fun evaluate (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;)Ldev/tramai/spring/sovereign/ops/ApprovalUnauthorizedReason;
+}
+
+public final class dev/tramai/spring/sovereign/ops/OperatorAuthority {
+	public fun <init> (Ldev/tramai/core/operator/OperatorPrincipal;)V
+	public final fun authorize (Ldev/tramai/core/operator/OperatorCapability;)Ldev/tramai/core/operator/OperatorAuthorizationResult;
+	public final fun getApproverRoles ()Ljava/util/Set;
+	public final fun getIssuer ()Ljava/lang/String;
+	public final fun getPrincipal ()Ldev/tramai/core/operator/OperatorPrincipal;
+	public final fun getSubject ()Ljava/lang/String;
+	public final fun holds (Ldev/tramai/core/operator/OperatorCapability;)Z
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class dev/tramai/spring/sovereign/ops/RecordingApprovedContinuationResumeWorkerObserver : dev/tramai/spring/sovereign/ops/ApprovedContinuationResumeWorkerObserver {
@@ -585,10 +629,10 @@ public final class dev/tramai/spring/sovereign/ops/SovereignAuditOperations$Defa
 }
 
 public final class dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane : dev/tramai/spring/sovereign/ops/ApprovalDecisionControlPlane {
-	public fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Ldev/tramai/spring/sovereign/ops/ApprovalDecisionAuthorizer;Ljava/time/Clock;)V
-	public synthetic fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Ldev/tramai/spring/sovereign/ops/ApprovalDecisionAuthorizer;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun approve (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun deny (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Ldev/tramai/spring/sovereign/ops/OperatorApprovalPolicy;Ljava/time/Clock;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsRefusalRecorder;)V
+	public synthetic fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;Ldev/tramai/spring/sovereign/ops/OperatorApprovalPolicy;Ljava/time/Clock;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsRefusalRecorder;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun approve (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deny (Ldev/tramai/spring/sovereign/ops/ApprovalDecisionCommand;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/SovereignOpsApprovalResumeControlPlane : dev/tramai/spring/sovereign/ops/ApprovalResumeControlPlane {
@@ -637,11 +681,14 @@ public abstract interface class dev/tramai/spring/sovereign/ops/SovereignOpsAudi
 	public abstract fun approvalDenied (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun approvalDeniedFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun approvalDeniedFromOutbox$suspendImpl (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun evidenceFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun evidenceFromOutbox$suspendImpl (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun isActive ()Z
 }
 
 public final class dev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter$DefaultImpls {
 	public static fun approvalDeniedFromOutbox (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun evidenceFromOutbox (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static fun isActive (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;)Z
 }
 
@@ -1066,6 +1113,31 @@ public abstract interface class dev/tramai/spring/sovereign/ops/lease/SovereignO
 	public abstract fun tryAcquire (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Duration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public final class dev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution$Governed : dev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution {
+	public fun <init> (Ldev/tramai/core/identity/GovernedRunIdentity;)V
+	public final fun component1 ()Ldev/tramai/core/identity/GovernedRunIdentity;
+	public final fun copy (Ldev/tramai/core/identity/GovernedRunIdentity;)Ldev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution$Governed;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution$Governed;Ldev/tramai/core/identity/GovernedRunIdentity;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution$Governed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getIdentity ()Ldev/tramai/core/identity/GovernedRunIdentity;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution$LegacySuspension : dev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution {
+	public static final field INSTANCE Ldev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution$LegacySuspension;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution$NoSuspension : dev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution {
+	public static final field INSTANCE Ldev/tramai/spring/sovereign/ops/outbox/ApprovalRunAttribution$NoSuspension;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class dev/tramai/spring/sovereign/ops/outbox/CompositeSovereignOpsAuditOutboxWorkerObserver : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerObserver {
 	public fun <init> (Ljava/util/List;)V
 	public fun onCycleCompleted (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerRunSummary;)V
@@ -1079,11 +1151,22 @@ public final class dev/tramai/spring/sovereign/ops/outbox/DefaultSovereignOpsAud
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/DefaultSovereignOpsAuditOutboxOperations : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperations {
-	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxDispatcher;Ldev/tramai/spring/sovereign/ops/SovereignOpsProperties;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalRecoveryResolver;)V
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxDispatcher;Ldev/tramai/spring/sovereign/ops/SovereignOpsProperties;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalRecoveryResolver;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxDispatcher;Ldev/tramai/spring/sovereign/ops/SovereignOpsProperties;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalRecoveryResolver;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun listOutboxRecords (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/lang/Integer;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markPreparedFailed (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordRefusal (Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun recoverPrepared (Ljava/lang/Integer;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun retryPending (Ljava/lang/Integer;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsApprovalRequestMutationStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalRequestMutationStore {
+	public abstract fun createGovernedApprovalRequest (Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Ldev/tramai/spring/sovereign/ops/inbox/ApprovalInboxMetadata;Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun createGovernedApprovalRequest$default (Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsApprovalRequestMutationStore;Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Ldev/tramai/spring/sovereign/ops/inbox/ApprovalInboxMetadata;Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsApprovalRequestMutationStore$DefaultImpls {
+	public static synthetic fun createGovernedApprovalRequest$default (Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsApprovalRequestMutationStore;Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Ldev/tramai/spring/sovereign/ops/inbox/ApprovalInboxMetadata;Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsApprovalMutationStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore {
@@ -1101,6 +1184,7 @@ public final class dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsAp
 public final class dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsAuditOutboxStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore {
 	public fun <init> ()V
 	public fun append (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun appendDispatchable (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun claimPending (Ljava/lang/String;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun findByEventKey (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -1111,6 +1195,7 @@ public final class dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsAu
 	public fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markReadyForDispatch (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun quarantineStore ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsAuditOutboxWorkerStatusStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerStatusStore {
@@ -1137,11 +1222,123 @@ public final class dev/tramai/spring/sovereign/ops/outbox/LeasedSovereignOpsAudi
 	public fun stop ()V
 }
 
+public final class dev/tramai/spring/sovereign/ops/outbox/QuarantineReport {
+	public fun <init> (IILjava/util/List;I)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()I
+	public final fun copy (IILjava/util/List;I)Ldev/tramai/spring/sovereign/ops/outbox/QuarantineReport;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/QuarantineReport;IILjava/util/List;IILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/QuarantineReport;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDecodable ()I
+	public final fun getQuarantined ()Ljava/util/List;
+	public final fun getScanned ()I
+	public final fun getSkipped ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/QuarantinedEvidenceSummary {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/time/Instant;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/outbox/QuarantinedEvidenceSummary;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/QuarantinedEvidenceSummary;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/QuarantinedEvidenceSummary;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEventKey ()Ljava/lang/String;
+	public final fun getFailureDetail ()Ljava/lang/String;
+	public final fun getLabel ()Ljava/lang/String;
+	public final fun getLocator ()Ljava/lang/String;
+	public final fun getOutboxId ()Ljava/lang/String;
+	public final fun getPayloadDigest ()Ljava/lang/String;
+	public final fun getQuarantinedAt ()Ljava/time/Instant;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class dev/tramai/spring/sovereign/ops/outbox/RecordingSovereignOpsAuditOutboxWorkerObserver : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerObserver {
 	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerStatusStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerObserver;)V
 	public synthetic fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerStatusStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerObserver;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun onCycleCompleted (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerRunSummary;)V
 	public fun onCycleFailed (Ljava/lang/String;Ljava/lang/String;)V
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/RefusalEvidence {
+	public static final field Companion Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence$Companion;
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()J
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence;Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActorIdentityDigest ()Ljava/lang/String;
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getApprovalIdDigest ()Ljava/lang/String;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getEventKey ()Ljava/lang/String;
+	public final fun getExpectedVersion ()J
+	public final fun getIssuer ()Ljava/lang/String;
+	public final fun getOperation ()Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getRefusalReason ()Ljava/lang/String;
+	public final fun getSubject ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun matches (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;)Z
+	public final fun toOutboxRecord (Ljava/time/Instant;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public static synthetic fun toOutboxRecord$default (Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence;Ljava/time/Instant;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/RefusalEvidence$Companion {
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/RefusalOperation : java/lang/Enum {
+	public static final field APPROVE Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;
+	public static final field DENY Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;
+	public static fun values ()[Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;
+}
+
+public abstract interface class dev/tramai/spring/sovereign/ops/outbox/RefusalRecording {
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/RefusalRecording$Duplicate : dev/tramai/spring/sovereign/ops/outbox/RefusalRecording {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;)V
+	public final fun component1 ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public final fun copy (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;)Ldev/tramai/spring/sovereign/ops/outbox/RefusalRecording$Duplicate;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/RefusalRecording$Duplicate;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/RefusalRecording$Duplicate;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRecord ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/RefusalRecording$Recorded : dev/tramai/spring/sovereign/ops/outbox/RefusalRecording {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;)V
+	public final fun component1 ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public final fun copy (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;)Ldev/tramai/spring/sovereign/ops/outbox/RefusalRecording$Recorded;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/RefusalRecording$Recorded;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/RefusalRecording$Recorded;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRecord ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationResult {
@@ -1209,6 +1406,15 @@ public abstract interface class dev/tramai/spring/sovereign/ops/outbox/Sovereign
 	public abstract fun reasonDigest (Ljava/lang/String;)Ljava/lang/String;
 }
 
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind : java/lang/Enum {
+	public static final field APPROVAL_APPROVED Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
+	public static final field APPROVAL_DENIED Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
+	public static final field AUTHORIZATION_REFUSAL Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
+	public static fun values ()[Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
+}
+
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxBackgroundWorker {
 	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperations;Ldev/tramai/spring/sovereign/ops/SovereignOpsOutboxWorkerProperties;Ljava/time/Clock;)V
 	public synthetic fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperations;Ldev/tramai/spring/sovereign/ops/SovereignOpsOutboxWorkerProperties;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -1238,17 +1444,81 @@ public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutbo
 	public final fun dispatchPending (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
-public abstract interface class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperations {
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Governed : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsAuditOutboxRecord;)V
+	public final fun component1 ()Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsAuditOutboxRecord;
+	public final fun copy (Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsAuditOutboxRecord;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Governed;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Governed;Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsAuditOutboxRecord;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Governed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRecord ()Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsAuditOutboxRecord;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Legacy : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;)V
+	public final fun component1 ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public final fun copy (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Legacy;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Legacy;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Legacy;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRecord ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$NoRecord : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance {
+	public static final field INSTANCE Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$NoRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperations : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsRefusalRecorder {
 	public abstract fun listOutboxRecords (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/lang/Integer;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun markPreparedFailed (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordRefusal (Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun recordRefusal$suspendImpl (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperations;Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun recoverPrepared (Ljava/lang/Integer;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun retryPending (Ljava/lang/Integer;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperations$DefaultImpls {
+	public static fun recordRefusal (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperations;Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore {
+	public static final field Companion Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore$Companion;
+	public static final field ERROR_DECRYPTION_UNAVAILABLE Ljava/lang/String;
+	public static final field ERROR_UNSUPPORTED Ljava/lang/String;
+	public static final field LABEL_CORRUPT Ljava/lang/String;
+	public static final field LABEL_UNDECODABLE Ljava/lang/String;
+	public static final field MAX_FAILURE_DETAIL I
+	public fun listQuarantined (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun listQuarantined$suspendImpl (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun quarantineUndecodableEvidence (ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun quarantineUndecodableEvidence$suspendImpl (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun readQuarantinedCiphertext (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun readQuarantinedCiphertext$suspendImpl (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore$Companion {
+	public static final field ERROR_DECRYPTION_UNAVAILABLE Ljava/lang/String;
+	public static final field ERROR_UNSUPPORTED Ljava/lang/String;
+	public static final field LABEL_CORRUPT Ljava/lang/String;
+	public static final field LABEL_UNDECODABLE Ljava/lang/String;
+	public static final field MAX_FAILURE_DETAIL I
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore$DefaultImpls {
+	public static fun listQuarantined (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun quarantineUndecodableEvidence (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun readQuarantinedCiphertext (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord {
 	public static final field Companion Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord$Companion;
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/time/Instant;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/time/Instant;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/time/Instant;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/time/Instant;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component10 ()Ljava/lang/Long;
 	public final fun component11 ()Ljava/lang/String;
@@ -1262,6 +1532,14 @@ public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutbo
 	public final fun component19 ()Ljava/time/Instant;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component20 ()Ljava/time/Instant;
+	public final fun component21 ()Ljava/lang/String;
+	public final fun component22 ()Ljava/lang/String;
+	public final fun component23 ()Ljava/lang/String;
+	public final fun component24 ()Ljava/lang/Long;
+	public final fun component25 ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
+	public final fun component26 ()Ljava/lang/String;
+	public final fun component27 ()Ljava/lang/String;
+	public final fun component28 ()Ljava/lang/Long;
 	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/String;
 	public final fun component5 ()Ljava/lang/String;
@@ -1269,10 +1547,12 @@ public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutbo
 	public final fun component7 ()Ljava/lang/String;
 	public final fun component8 ()Ljava/lang/String;
 	public final fun component9 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/time/Instant;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
-	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/time/Instant;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/time/Instant;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;ILjava/time/Instant;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getActor ()Ljava/lang/String;
+	public final fun getActorIdentityDigest ()Ljava/lang/String;
+	public final fun getActorIssuer ()Ljava/lang/String;
 	public final fun getAggregateIdDigest ()Ljava/lang/String;
 	public final fun getAggregateType ()Ljava/lang/String;
 	public final fun getApprovalStatus ()Ljava/lang/String;
@@ -1285,11 +1565,17 @@ public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutbo
 	public final fun getCreatedAt ()Ljava/time/Instant;
 	public final fun getEmittedAt ()Ljava/time/Instant;
 	public final fun getEventKey ()Ljava/lang/String;
+	public final fun getEvidenceKind ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
 	public final fun getLastErrorCode ()Ljava/lang/String;
 	public final fun getOperation ()Ljava/lang/String;
 	public final fun getOutboxId ()Ljava/lang/String;
+	public final fun getPreviousApprovalStatus ()Ljava/lang/String;
+	public final fun getPreviousApprovalVersion ()Ljava/lang/Long;
 	public final fun getReasonDigest ()Ljava/lang/String;
 	public final fun getReasonLength ()I
+	public final fun getRefusalExpectedVersion ()Ljava/lang/Long;
+	public final fun getRefusalPolicyVersion ()Ljava/lang/String;
+	public final fun getRefusalReason ()Ljava/lang/String;
 	public final fun getStatus ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;
 	public final fun getWorkflowRunId ()Ljava/lang/String;
 	public fun hashCode ()I
@@ -1334,6 +1620,8 @@ public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutbo
 
 public abstract interface class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore {
 	public abstract fun append (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun appendDispatchable (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun appendDispatchable$suspendImpl (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun claimPending (Ljava/lang/String;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun findByEventKey (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -1344,10 +1632,13 @@ public abstract interface class dev/tramai/spring/sovereign/ops/outbox/Sovereign
 	public abstract fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun markReadyForDispatch (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun quarantineStore ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore$DefaultImpls {
+	public static fun appendDispatchable (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static fun isDurable (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;)Z
+	public static fun quarantineStore (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxSummary {
@@ -1535,8 +1826,17 @@ public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsPreparedRe
 	public static fun values ()[Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsPreparedRecoveryDecision;
 }
 
+public abstract interface class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsRefusalRecorder {
+	public abstract fun recordRefusal (Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkerLeaseLostException : java/lang/RuntimeException {
 	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/UnconfiguredRefusalRecorder : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsRefusalRecorder {
+	public static final field INSTANCE Ldev/tramai/spring/sovereign/ops/outbox/UnconfiguredRefusalRecorder;
+	public fun recordRefusal (Ldev/tramai/spring/sovereign/ops/outbox/RefusalEvidence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/UnknownSovereignOpsApprovalRecoveryResolver : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalRecoveryResolver {

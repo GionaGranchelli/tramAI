@@ -20,7 +20,8 @@ import java.time.Instant
  * @property actor The identity who performed the operation.
  * @property workflowRunId The workflow run ID, if available.
  * @property correlationId The correlation ID, if available.
- * @property approvalStatus The resulting approval status (e.g. "DENIED").
+ * @property approvalStatus The resulting approval status (e.g. "DENIED"), or `null` when the record is
+ * not a decision record (0.7.6f made this nullable rather than using a sentinel).
  * @property approvalVersion The version of the approval after the transition.
  * @property reasonLength Length of the reason string (not the content).
  * @property status Current outbox processing status.
@@ -41,7 +42,7 @@ data class SovereignOpsAuditOutboxSummary(
     val actor: String,
     val workflowRunId: String?,
     val correlationId: String?,
-    val approvalStatus: String,
+    val approvalStatus: String?,
     val approvalVersion: Long?,
     val reasonLength: Int,
     val status: SovereignOpsAuditOutboxStatus,

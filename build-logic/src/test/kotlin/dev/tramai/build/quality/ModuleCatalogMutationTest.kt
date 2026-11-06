@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -455,16 +456,56 @@ class ModuleCatalogMutationTest {
         val catalog = ModuleCatalog.fromRootDir(tempDir).parse()
         assertEquals(emptySet(), codes(catalog), "catalog must parse clean, got ${codes(catalog)}")
 
+        assertLegacyDescriptionParity(catalog)
+    }
+
+    /**
+     * The parity oracle is frozen: it records the descriptions the removed
+     * `projectDescription()` compatibility function produced for the modules that
+     * existed at migration time. Parity is therefore defined for those modules —
+     * a module introduced later has no pre-B8 POM description to stay
+     * byte-identical to, but every pre-B8 module must still be published with an
+     * unchanged description.
+     */
+    private fun assertLegacyDescriptionParity(catalog: ModuleCatalog.CatalogResult) {
         val legacy = LegacyPublicationDescriptions.byModule()
-        catalog.modules.values
-            .filter { it.publishability == ModulePublishability.PUBLISHED }
-            .forEach { entry ->
-                val moduleName = entry.path.removePrefix(":")
-                assertEquals(
-                    legacy[moduleName],
-                    entry.description,
-                    "catalog description for $moduleName must exactly match the pre-B8 policy",
-                )
-            }
+        val published =
+            catalog.modules.values
+                .filter { it.publishability == ModulePublishability.PUBLISHED }
+                .associateBy { it.path.removePrefix(":") }
+
+        assertEquals(
+            emptySet(),
+            legacy.keys - published.keys,
+            "every pre-B8 published module must still be present and published in the catalog",
+        )
+        for ((moduleName, legacyDescription) in legacy) {
+            assertEquals(
+                legacyDescription,
+                published.getValue(moduleName).description,
+                "catalog description for $moduleName must exactly match the pre-B8 policy",
+            )
+        }
+    }
+
+    @Test
+    fun `D6 edited description of a pre-B8 module is rejected by the parity oracle`() {
+        fixtureDir()
+        val edited =
+            realCatalogText().replace(
+                "Core annotations, request models, provider registry, and exception types for Tramai.",
+                "Core annotations, request models, provider registry, and utility types for Tramai.",
+            )
+        assertNotEquals(realCatalogText(), edited, "mutation must change content")
+        writeCatalog(edited)
+
+        val catalog = ModuleCatalog.fromRootDir(tempDir).parse()
+        assertEquals(emptySet(), codes(catalog), "catalog must still parse clean")
+
+        val failure = assertFailsWith<AssertionError> { assertLegacyDescriptionParity(catalog) }
+        assertTrue(
+            failure.message?.contains("tramai-core") == true,
+            "parity failure must name the edited module, got ${failure.message}",
+        )
     }
 }

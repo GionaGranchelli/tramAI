@@ -12,26 +12,28 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
 @SpringBootTest(classes = [ApprovalReviewerUiController::class])
-@AutoConfigureMockMvc
+@AutoConfigureMockMvc(addFilters = false)
 class ApprovalReviewerUiControllerTest {
-
     @Autowired
     private lateinit var mockMvc: MockMvc
 
     @Test
     fun `GET reviewer returns 200 with content type text html`() {
-        mockMvc.perform(get("/tramai/sovereign/reviewer"))
+        mockMvc
+            .perform(get("/tramai/sovereign/reviewer"))
             .andExpect(status().isOk)
             .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
     }
 
     @Test
     fun `HTML contains title and preview warning`() {
-        val body = mockMvc.perform(get("/tramai/sovereign/reviewer"))
-            .andExpect(status().isOk)
-            .andReturn()
-            .response
-            .contentAsString
+        val body =
+            mockMvc
+                .perform(get("/tramai/sovereign/reviewer"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString
         assertThat(body)
             .contains("TramAI Sovereign Approval Reviewer")
             .contains("Preview UI")
@@ -40,11 +42,13 @@ class ApprovalReviewerUiControllerTest {
 
     @Test
     fun `HTML does not contain sensitive field names`() {
-        val body = mockMvc.perform(get("/tramai/sovereign/reviewer"))
-            .andExpect(status().isOk)
-            .andReturn()
-            .response
-            .contentAsString
+        val body =
+            mockMvc
+                .perform(get("/tramai/sovereign/reviewer"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString
         assertThat(body)
             .doesNotContain("resumeToken")
             .doesNotContain("approvalTokenDigest")
@@ -55,11 +59,13 @@ class ApprovalReviewerUiControllerTest {
 
     @Test
     fun `HTML does not contain resume button or action`() {
-        val body = mockMvc.perform(get("/tramai/sovereign/reviewer"))
-            .andExpect(status().isOk)
-            .andReturn()
-            .response
-            .contentAsString
+        val body =
+            mockMvc
+                .perform(get("/tramai/sovereign/reviewer"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString
         assertThat(body)
             .doesNotContain("actionResume")
             .doesNotContain("btn-resume")
@@ -68,11 +74,13 @@ class ApprovalReviewerUiControllerTest {
 
     @Test
     fun `JS payload uses correct approve slash deny field names`() {
-        val body = mockMvc.perform(get("/tramai/sovereign/reviewer"))
-            .andExpect(status().isOk)
-            .andReturn()
-            .response
-            .contentAsString
+        val body =
+            mockMvc
+                .perform(get("/tramai/sovereign/reviewer"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString
         assertThat(body)
             .contains("actorId")
             .contains("actorRole")

@@ -1,0 +1,116 @@
+=== G1b adversarial discriminator
+Isolated worktree /home/gionag/tramai-g1b-disc, detached at 067e6f61, with the seven changed/new
+Kotlin files copied in and ALL test fixtures left exactly as they ship. The tree under test was
+never mutated: after the experiment the two mutated files were byte-compared against it (below).
+
+Suites (test filters):
+  security = dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest        (7 tests)
+  boundary = dev.tramai.examples.springaiboundary.ToolPermissionEvidenceAttributionTest (3 tests)
+
+--- MUTATION D1 (applied by patch, diff is the mutation record)
+  file: tramai-security/.../audit/AuditEnginePolicyDecisionAuditEmitter.kt
+  -        context.attributes
+  -            .asSequence()
+  -            .filter { (key, _) -> key in RuntimeEvidenceAttribution.metadataKeys }
+  -            .sortedBy { (key, _) -> key }
+  -            .forEach { (key, value) -> map[key] = bounded(value) }
+  +        // DISCRIMINATOR D1: the production attribution transfer is removed for this isolated
+  +        // experiment. Fixtures, tests and every other file are untouched.
+
+--- MUTATION D2 (applied by patch, diff is the mutation record)
+  file: examples/spring-ai-authority-boundary/.../BoundaryEvidenceRecorder.kt
+  -                            ) + context.identityAttribution,
+  +                            ), // DISCRIMINATOR D2: the identity carry is removed for this isolated experiment.
+
+--- EXPECTED, stated before the run
+  control  : both suites green
+  D1       : security RED for the intended reason, boundary still green (independent transport)
+  D2       : boundary RED for the intended reason, security green (and the emitter's restore proof)
+  restored : both suites green
+
+==================== TRANSCRIPT ====================
+=========== DISCRIMINATOR RUN 2026-10-13T00:27:44+02:00 ===========
+copied 7 Kotlin files into /home/gionag/tramai-g1b-disc at 067e6f61
+---------- PHASE control: gradle test ----------
+  gradle exit=0
+  RESULT security: tests="7" skipped="0" failures="0" errors="0"
+    ran "a governed tool decision reaches exported evidence with its complete identity()"
+    ran "the canonical digest binds the attributed identity()"
+    ran "only the reserved keys are read as identity, and the family allowlist is not widened()"
+    ran "a partial identity tuple in the audit event is refused rather than downgraded()"
+    ran "legacy evidence without identity still exports unchanged()"
+    ran "the digest distinguishes two runs that differ only by identity()"
+    ran "a complete identity without the canonical run id is refused()"
+  RESULT boundary: tests="3" skipped="0" failures="0" errors="0"
+    ran "the audit event this boundary records carries the complete governed identity()"
+    ran "evidence for two deployments of the same run does not share a payload digest()"
+    ran "exported tool permission evidence carries the complete identity and the run it belongs to()"
+=========== CONTROL DONE 2026-10-13T00:27:47+02:00 ===========
+---------- PHASE D1 (framework emitter transfer removed) ----------
+  gradle exit=1
+  RESULT security: tests="7" skipped="0" failures="6" errors="0"
+    ran "a governed tool decision reaches exported evidence with its complete identity()"
+    ran "the canonical digest binds the attributed identity()"
+    ran "only the reserved keys are read as identity, and the family allowlist is not widened()"
+    ran "a partial identity tuple in the audit event is refused rather than downgraded()"
+    ran "legacy evidence without identity still exports unchanged()"
+    ran "the digest distinguishes two runs that differ only by identity()"
+    ran "a complete identity without the canonical run id is refused()"
+    !! <failure message="org.opentest4j.AssertionFailedError: the complete deployment tuple reaches the record, key for key and value for value ==&gt; expected: &lt;
+    !! <failure message="org.opentest4j.AssertionFailedError: removing the identity changes the digest, so the identity is bound and not incidental ==&gt; expected: 
+    !! <failure message="org.opentest4j.AssertionFailedError: a near-miss identity key and an unknown key are both filtered, not promoted ==&gt; expected: &lt;[toolN
+    !! <failure message="org.opentest4j.AssertionFailedError: the fixture really does carry a partial tuple, so the refusal below is not vacuous ==&gt; expected: &lt
+    !! <failure message="org.opentest4j.AssertionFailedError: evidence for two deployments must not share a payload digest ==&gt; expected: not equal but was: &lt;sh
+    !! <failure message="org.opentest4j.AssertionFailedError: the tuple is complete; only the canonical run id is absent ==&gt; expected: &lt;5&gt; but was: &lt;0&gt
+  RESULT boundary: tests="3" skipped="0" failures="0" errors="0"
+    ran "the audit event this boundary records carries the complete governed identity()"
+    ran "evidence for two deployments of the same run does not share a payload digest()"
+    ran "exported tool permission evidence carries the complete identity and the run it belongs to()"
+
+---------- PHASE D2 (boundary recorder transfer removed; emitter restored) ----------
+  gradle exit=1
+  RESULT security: tests="7" skipped="0" failures="0" errors="0"
+    ran "a governed tool decision reaches exported evidence with its complete identity()"
+    ran "the canonical digest binds the attributed identity()"
+    ran "only the reserved keys are read as identity, and the family allowlist is not widened()"
+    ran "a partial identity tuple in the audit event is refused rather than downgraded()"
+    ran "legacy evidence without identity still exports unchanged()"
+    ran "the digest distinguishes two runs that differ only by identity()"
+    ran "a complete identity without the canonical run id is refused()"
+  RESULT boundary: tests="3" skipped="0" failures="3" errors="0"
+    ran "the audit event this boundary records carries the complete governed identity()"
+    ran "evidence for two deployments of the same run does not share a payload digest()"
+    ran "exported tool permission evidence carries the complete identity and the run it belongs to()"
+    !! <failure message="org.opentest4j.AssertionFailedError: the complete deployment tuple reaches the audit event, key for key ==&gt; expected: &lt;{identity.workl
+    !! <failure message="org.opentest4j.AssertionFailedError: the two deployments must genuinely differ for this to mean anything ==&gt; expected: not equal but was:
+    !! <failure message="org.opentest4j.AssertionFailedError: the deployment tuple survives into the exported record ==&gt; expected: &lt;{identity.workloadId=worklo
+
+---------- PHASE RESTORED (both transfers back) ----------
+  gradle exit=0
+  RESULT security: tests="7" skipped="0" failures="0" errors="0"
+    ran "a governed tool decision reaches exported evidence with its complete identity()"
+    ran "the canonical digest binds the attributed identity()"
+    ran "only the reserved keys are read as identity, and the family allowlist is not widened()"
+    ran "a partial identity tuple in the audit event is refused rather than downgraded()"
+    ran "legacy evidence without identity still exports unchanged()"
+    ran "the digest distinguishes two runs that differ only by identity()"
+    ran "a complete identity without the canonical run id is refused()"
+  RESULT boundary: tests="3" skipped="0" failures="0" errors="0"
+    ran "the audit event this boundary records carries the complete governed identity()"
+    ran "evidence for two deployments of the same run does not share a payload digest()"
+    ran "exported tool permission evidence carries the complete identity and the run it belongs to()"
+
+==================== POST-RUN CHECKS ====================
+--- disc files byte-identical to the tree under test (mutations reverted)
+  identical: AuditEnginePolicyDecisionAuditEmitter.kt
+  identical: BoundaryEvidenceRecorder.kt
+--- the tree under test (only the intended modifications; nothing from the experiment)
+ M examples/spring-ai-authority-boundary/src/main/kotlin/dev/tramai/examples/springaiboundary/BoundaryEvidenceRecorder.kt
+ M examples/spring-ai-authority-boundary/src/main/kotlin/dev/tramai/examples/springaiboundary/BoundaryOutcome.kt
+ M examples/spring-ai-authority-boundary/src/main/kotlin/dev/tramai/examples/springaiboundary/GovernedToolCallback.kt
+ M tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditEnginePolicyDecisionAuditEmitter.kt
+ M tramai-security/src/main/kotlin/dev/tramai/security/evidence/ToolPermissionRuntimeEvidenceExporter.kt
+?? docs/roadmap/0.7.4/0.7.4b2-G1B-TOOL-PERMISSION-ATTRIBUTION.md
+?? docs/roadmap/0.7.4/evidence/0.7.4b2-g1b-tool-permission-attribution/
+?? examples/spring-ai-authority-boundary/src/test/kotlin/dev/tramai/examples/springaiboundary/ToolPermissionEvidenceAttributionTest.kt
+?? tramai-security/src/test/kotlin/dev/tramai/security/evidence/ToolPermissionEvidenceAttributionTest.kt

@@ -17,6 +17,7 @@ ktor = "3.3.3"
 mcp-sdk = "0.11.1"
 tramai = "0.3.0"
 spring-security-crypto = "6.4.5"
+spring-security = "6.4.5"
 spring-context = "6.2.6"
 hikaricp = "6.3.0"
 testcontainers = "2.0.5"
@@ -43,10 +44,13 @@ micrometer-core = { module = "io.micrometer:micrometer-core", version.ref = "mic
 micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus", version.ref = "micrometer" }
 spring-boot-configuration-processor = { module = "org.springframework.boot:spring-boot-configuration-processor", version.ref = "spring-boot" }
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web", version.ref = "spring-boot" }
+spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security", version.ref = "spring-boot" }
+spring-boot-starter-oauth2-resource-server = { module = "org.springframework.boot:spring-boot-starter-oauth2-resource-server", version.ref = "spring-boot" }
 spring-boot-starter-validation = { module = "org.springframework.boot:spring-boot-starter-validation", version.ref = "spring-boot" }
 spring-boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc", version.ref = "spring-boot" }
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test", version.ref = "spring-boot" }
 spring-security-crypto = { module = "org.springframework.security:spring-security-crypto", version.ref = "spring-security-crypto" }
+spring-security-test = { module = "org.springframework.security:spring-security-test", version.ref = "spring-security" }
 spring-context = { module = "org.springframework:spring-context", version.ref = "spring-context" }
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 aws-sdk-auth = { module = "software.amazon.awssdk:auth", version.ref = "aws-sdk" }

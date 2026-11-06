@@ -1,0 +1,30 @@
+# Promotion declarations: carry an already-certified evidence population across a release promotion
+# boundary.
+#
+# Authority: TASK-0.7.1i. Minting and promotion are different operations. M35 and M45 bind a NEWLY
+# INTRODUCED admission/certificate to the exact authority base it was minted against, so a promotion
+# - where the entire promoted line is new relative to its base - can satisfy them by no legitimate
+# means: re-minting admissions, rewriting fromBaseSha, manufacturing replacement certificates and a
+# per-entry migration chain are all forbidden.
+#
+# A declaration here states the narrow fact the promotion actually needs: this exact evidence
+# population already exists, is already certified, and is CARRIED ACROSS unchanged. Because it was not
+# minted by this transition, the mint-binding rules do not apply to it.
+#
+# This grants nothing. It is exact: the base SHA must be the transition's own, and both counts and
+# every row's digest must match the ledgers as they appear against that base. Anything else is "no
+# promotion", and every appearing row fails M35/M45 exactly as before.
+#
+# SHA-exact and candidate-side, deliberately: the declaration names the base SHA it promotes onto, so
+# it can never authorize a different transition, and it must ride in the promotion's own candidate
+# because a file committed to the base branch cannot name the commit that contains it.
+schemaVersion: "1"
+
+promotions:
+  - # 0.7.1 -> release/0.7.0 promotion. The 67 admissions and the single raw-v1 -> authority-v2
+    # digest-migration certificate were minted and certified on the 0.7.1 line; the promotion carries
+    # them across unchanged, so M35/M45 do not bind them to the promotion base.
+    promotionBase: "9ccbd0d3c6d2b0c0f30277724ef9a33ef240a22a"
+    populationDigest: "9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0"
+    admissions: 67
+    certificates: 1

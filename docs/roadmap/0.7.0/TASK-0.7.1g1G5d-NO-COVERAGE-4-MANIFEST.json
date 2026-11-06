@@ -1,0 +1,303 @@
+{
+  "schemaVersion": 1,
+  "task": "TASK-0.7.1g1G5d",
+  "parent": "TASK-0.7.1g1G5",
+  "base": "cd46f176b20ef7e0e0b2b0e251569214dfc90619",
+  "baseProvenance": "squash merge of #463; branch directly from it; working tree clean",
+  "cohort": {
+    "size": 4,
+    "note": "exactly the four frozen NO_COVERAGE identities; no widening, no substitution",
+    "mutatorNamingCorrection": "The task brief labels the two 'NRV' identities NonReturningVoidMethodCall. The frozen manifest records them as org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator, description 'replaced return value with null'. The frozen identities are authoritative and unchanged; this is a label discrepancy, not an identity discrepancy."
+  },
+  "startGate": {
+    "baseMatches": "cd46f176b20ef7e0e0b2b0e251569214dfc90619",
+    "cleanTree": true,
+    "fourPresent": true,
+    "allFourNoCoverage": true,
+    "noBaselineOnlyTarget": true,
+    "noSubstitutedTarget": true,
+    "noSourceCoordinateApproximation": true,
+    "authoritativeView": "the G5c candidate campaign (7acbd868) whose production+test content is identical to the merged cd46f176 (the merge squashed that test plus docs), in which all four are present and NO_COVERAGE with numberOfTestsRun=0"
+  },
+  "phaseA": {
+    "method": "each identity mapped by bracketing: pitBlock is monotone in pc within the method (verified True for both methods), and each method has in-method calibration points from the committed G5b/G5c manifests (pc, pitBlock, pitIndex). The target's pitBlock therefore brackets a byte window containing exactly one candidate instruction of the mutated kind.",
+    "calibrationPoints": {
+      "suspendToolExecution": [
+        [
+          158,
+          11,
+          74
+        ],
+        [
+          287,
+          31,
+          168
+        ],
+        [
+          362,
+          35,
+          206
+        ],
+        [
+          1072,
+          109,
+          668
+        ],
+        [
+          1420,
+          132,
+          853
+        ],
+        [
+          1785,
+          157,
+          1067
+        ]
+      ],
+      "requestApproval-Atj0Sqo": [
+        [
+          159,
+          9,
+          68
+        ],
+        [
+          304,
+          23,
+          160
+        ],
+        [
+          457,
+          35,
+          243
+        ],
+        [
+          618,
+          46,
+          328
+        ],
+        [
+          799,
+          60,
+          426
+        ]
+      ]
+    },
+    "windows": {
+      "suspendToolExecution": [
+        {
+          "pitBlock": 13,
+          "between": "pc158 (block 11) and pc287 (block 31)",
+          "candidates": [
+            194
+          ],
+          "unique": true
+        },
+        {
+          "pitBlock": 12,
+          "between": "pc158 (block 11) and pc287 (block 31)",
+          "candidates": [
+            163
+          ],
+          "unique": true
+        }
+      ],
+      "requestApproval-Atj0Sqo": [
+        {
+          "pitBlock": 11,
+          "between": "pc159 (block 9) and pc304 (block 23)",
+          "candidates": [
+            204
+          ],
+          "unique": true
+        },
+        {
+          "pitBlock": 10,
+          "between": "pc159 (block 9) and pc304 (block 23)",
+          "candidates": [
+            164
+          ],
+          "unique": true
+        }
+      ]
+    },
+    "pitCounterNote": "PIT never reports bytecode offsets, and its block/index counter counts ASM nodes that javap does not expose (a label/line-count reconstruction matched only 4/36 calibration identities). Bracketing is therefore used, and it is validated by in-method monotonicity plus the uniqueness of each candidate window."
+  },
+  "phaseC": {
+    "classification": "UNREACHABLE (all four)",
+    "proof": [
+      "Each mutated instruction lies on the suspension protocol of one specific call: resolveGovernedSuspension() at source line 145 in suspendToolExecution, and resolveGovernedIdentity(workflowRunId) at source line 82 in requestApproval.",
+      "Both callees are declared suspend, but neither body contains a suspension point: resolveGovernedSuspension has 50 instructions with 0 getCOROUTINE_SUSPENDED loads and 0 if_acmpne; resolveGovernedIdentity-jFE5hGw has 32 instructions with 0 getCOROUTINE_SUSPENDED and 0 if_acmpne, invoking only Continuation.getContext, GovernedRunScope$Key accessors, GovernedRunIdentity/RunId getters, Intrinsics.areEqual, makeConcatWithConstants and an exception constructor.",
+      "GovernedRunScope.resolve(context) is an ordinary non-suspend function; currentCoroutineContext()/Continuation.getContext do not suspend.",
+      "A suspend function can return COROUTINE_SUSPENDED only through the sentinel comparison emitted after a call. With no such comparison and no suspending callee, both resolvers always return their value directly.",
+      "Therefore in each caller the sentinel test is always false, so the COROUTINE_SUSPENDED exit (pc163, pc164) cannot execute; and the resumed continuation for that call can only be constructed by a real suspension at that call, so the resumed-path throwOnFailure (pc194, pc204) cannot execute.",
+      "Nothing else branches to those instructions: no branch or switch entry in either method targets pc194 or pc204."
+    ],
+    "whyNotToolingLimitation": "No independent evidence shows the instruction executing while PIT fails to attribute coverage. The instructions cannot execute at all.",
+    "whyNotEquivalent": "Equivalence answers a different question. These mutants never cross the reachability boundary, so equivalence is neither claimed nor needed.",
+    "whyNoTestAdded": "Tests are required only for identities proven REACHABLE. A test cannot make an unreachable instruction execute without either changing production semantics or fabricating a coroutine state, both forbidden. Adding one would be 'making PIT green' rather than explaining behaviour."
+  },
+  "phaseE": {
+    "suspendToolExecution": {
+      "members": [
+        "564517b2fdab",
+        "66c311cf4f0a"
+      ],
+      "sameConstruct": "YES \u2014 one compiler-generated suspension: block 12 is the COROUTINE_SUSPENDED exit, block 13 is the resumed-path throwOnFailure, one block apart",
+      "sameInstruction": "NO",
+      "dominates": "NO",
+      "wouldOneTestCoverBoth": "irrelevant \u2014 neither is reachable",
+      "statusesDiffer": "they do not"
+    },
+    "requestApproval-Atj0Sqo": {
+      "members": [
+        "5a7edac3a982",
+        "e52f1c1f6570"
+      ],
+      "sameConstruct": "YES \u2014 block 10 = exit, block 11 = resumed unwrap",
+      "sameInstruction": "NO",
+      "dominates": "NO",
+      "wouldOneTestCoverBoth": "irrelevant \u2014 neither is reachable",
+      "statusesDiffer": "they do not"
+    },
+    "crossMethodNote": "Both pairs attach to a suspend-typed resolver that has no suspension point, so both pairs share one root cause. Block/index proximity was not used as evidence of equivalence."
+  },
+  "finalTotals": {
+    "KILLED": 0,
+    "EQUIVALENT": 0,
+    "UNREACHABLE": 4,
+    "TOOLING_LIMITATION": 0,
+    "UNDETERMINED": 0
+  },
+  "parentAccounting": {
+    "parent": 52,
+    "settledByG5b": 36,
+    "settledByG5c": 12,
+    "settledByG5d": 4,
+    "remaining": 0
+  },
+  "identities": [
+    {
+      "identity": "564517b2fdab899eceefac4eb9dbb40f3a60139a5c6f917f5fe7c1b172fc9d67",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+      "method": "suspendToolExecution(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+      "description": "removed call to kotlin/ResultKt::throwOnFailure",
+      "pitBlock": 13,
+      "pitIndex": 96,
+      "bytecodePc": 194,
+      "instruction": "invokestatic kotlin/ResultKt.throwOnFailure",
+      "suspensionRole": "resumed-path unwrap of the call to resolveGovernedSuspension() (line 145)",
+      "originalState": "NO_COVERAGE",
+      "finalState": "UNREACHABLE",
+      "finalClassification": "UNREACHABLE",
+      "reachabilityEvidence": [
+        "Each mutated instruction lies on the suspension protocol of one specific call: resolveGovernedSuspension() at source line 145 in suspendToolExecution, and resolveGovernedIdentity(workflowRunId) at source line 82 in requestApproval.",
+        "Both callees are declared suspend, but neither body contains a suspension point: resolveGovernedSuspension has 50 instructions with 0 getCOROUTINE_SUSPENDED loads and 0 if_acmpne; resolveGovernedIdentity-jFE5hGw has 32 instructions with 0 getCOROUTINE_SUSPENDED and 0 if_acmpne, invoking only Continuation.getContext, GovernedRunScope$Key accessors, GovernedRunIdentity/RunId getters, Intrinsics.areEqual, makeConcatWithConstants and an exception constructor.",
+        "Therefore in each caller the sentinel test is always false, so the COROUTINE_SUSPENDED exit (pc163, pc164) cannot execute; and the resumed continuation for that call can only be constructed by a real suspension at that call, so the resumed-path throwOnFailure (pc194, pc204) cannot execute."
+      ],
+      "testAdded": null,
+      "killingTest": null,
+      "evidenceProvenance": "javap at the G5d base (classes identical to the measured campaign); PIT row (line/block/index) from the candidate campaign 7acbd868; pitBlock bracketing against in-method calibration points from the committed G5b and G5c manifests"
+    },
+    {
+      "identity": "66c311cf4f0ae36396880146f9059264308168b0286cdee72b852076560df61e",
+      "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+      "method": "suspendToolExecution(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator",
+      "description": "replaced return value with null for ApprovalSuspensionCoordinator::suspendToolExecution",
+      "pitBlock": 12,
+      "pitIndex": 78,
+      "bytecodePc": 163,
+      "instruction": "areturn (aload 20 \u2014 the COROUTINE_SUSPENDED exit)",
+      "suspensionRole": "suspend exit of the call to resolveGovernedSuspension() (line 145)",
+      "originalState": "NO_COVERAGE",
+      "finalState": "UNREACHABLE",
+      "finalClassification": "UNREACHABLE",
+      "reachabilityEvidence": [
+        "Each mutated instruction lies on the suspension protocol of one specific call: resolveGovernedSuspension() at source line 145 in suspendToolExecution, and resolveGovernedIdentity(workflowRunId) at source line 82 in requestApproval.",
+        "Both callees are declared suspend, but neither body contains a suspension point: resolveGovernedSuspension has 50 instructions with 0 getCOROUTINE_SUSPENDED loads and 0 if_acmpne; resolveGovernedIdentity-jFE5hGw has 32 instructions with 0 getCOROUTINE_SUSPENDED and 0 if_acmpne, invoking only Continuation.getContext, GovernedRunScope$Key accessors, GovernedRunIdentity/RunId getters, Intrinsics.areEqual, makeConcatWithConstants and an exception constructor.",
+        "Therefore in each caller the sentinel test is always false, so the COROUTINE_SUSPENDED exit (pc163, pc164) cannot execute; and the resumed continuation for that call can only be constructed by a real suspension at that call, so the resumed-path throwOnFailure (pc194, pc204) cannot execute."
+      ],
+      "testAdded": null,
+      "killingTest": null,
+      "evidenceProvenance": "javap at the G5d base (classes identical to the measured campaign); PIT row (line/block/index) from the candidate campaign 7acbd868; pitBlock bracketing against in-method calibration points from the committed G5b and G5c manifests"
+    },
+    {
+      "identity": "5a7edac3a982221ce692e032184362a1db8efc49292d9ea0b5716824303ecef1",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "requestApproval-Atj0Sqo(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+      "description": "removed call to kotlin/ResultKt::throwOnFailure",
+      "pitBlock": 11,
+      "pitIndex": 92,
+      "bytecodePc": 204,
+      "instruction": "invokestatic kotlin/ResultKt.throwOnFailure",
+      "suspensionRole": "resumed-path unwrap of the call to resolveGovernedIdentity(workflowRunId) (line 82)",
+      "originalState": "NO_COVERAGE",
+      "finalState": "UNREACHABLE",
+      "finalClassification": "UNREACHABLE",
+      "reachabilityEvidence": [
+        "Each mutated instruction lies on the suspension protocol of one specific call: resolveGovernedSuspension() at source line 145 in suspendToolExecution, and resolveGovernedIdentity(workflowRunId) at source line 82 in requestApproval.",
+        "Both callees are declared suspend, but neither body contains a suspension point: resolveGovernedSuspension has 50 instructions with 0 getCOROUTINE_SUSPENDED loads and 0 if_acmpne; resolveGovernedIdentity-jFE5hGw has 32 instructions with 0 getCOROUTINE_SUSPENDED and 0 if_acmpne, invoking only Continuation.getContext, GovernedRunScope$Key accessors, GovernedRunIdentity/RunId getters, Intrinsics.areEqual, makeConcatWithConstants and an exception constructor.",
+        "Therefore in each caller the sentinel test is always false, so the COROUTINE_SUSPENDED exit (pc163, pc164) cannot execute; and the resumed continuation for that call can only be constructed by a real suspension at that call, so the resumed-path throwOnFailure (pc194, pc204) cannot execute."
+      ],
+      "testAdded": null,
+      "killingTest": null,
+      "evidenceProvenance": "javap at the G5d base (classes identical to the measured campaign); PIT row (line/block/index) from the candidate campaign 7acbd868; pitBlock bracketing against in-method calibration points from the committed G5b and G5c manifests"
+    },
+    {
+      "identity": "e52f1c1f657020d5f63b247fbc7fd432c886258cf5059a5e2a9a5fdc4981bc32",
+      "className": "dev.tramai.engine.approval.DefaultApprovalGateway",
+      "method": "requestApproval-Atj0Sqo(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator",
+      "description": "replaced return value with null for DefaultApprovalGateway::requestApproval-Atj0Sqo",
+      "pitBlock": 10,
+      "pitIndex": 72,
+      "bytecodePc": 164,
+      "instruction": "areturn (aload 12 \u2014 the COROUTINE_SUSPENDED exit)",
+      "suspensionRole": "suspend exit of the call to resolveGovernedIdentity(workflowRunId) (line 82)",
+      "originalState": "NO_COVERAGE",
+      "finalState": "UNREACHABLE",
+      "finalClassification": "UNREACHABLE",
+      "reachabilityEvidence": [
+        "Each mutated instruction lies on the suspension protocol of one specific call: resolveGovernedSuspension() at source line 145 in suspendToolExecution, and resolveGovernedIdentity(workflowRunId) at source line 82 in requestApproval.",
+        "Both callees are declared suspend, but neither body contains a suspension point: resolveGovernedSuspension has 50 instructions with 0 getCOROUTINE_SUSPENDED loads and 0 if_acmpne; resolveGovernedIdentity-jFE5hGw has 32 instructions with 0 getCOROUTINE_SUSPENDED and 0 if_acmpne, invoking only Continuation.getContext, GovernedRunScope$Key accessors, GovernedRunIdentity/RunId getters, Intrinsics.areEqual, makeConcatWithConstants and an exception constructor.",
+        "Therefore in each caller the sentinel test is always false, so the COROUTINE_SUSPENDED exit (pc163, pc164) cannot execute; and the resumed continuation for that call can only be constructed by a real suspension at that call, so the resumed-path throwOnFailure (pc194, pc204) cannot execute."
+      ],
+      "testAdded": null,
+      "killingTest": null,
+      "evidenceProvenance": "javap at the G5d base (classes identical to the measured campaign); PIT row (line/block/index) from the candidate campaign 7acbd868; pitBlock bracketing against in-method calibration points from the committed G5b and G5c manifests"
+    }
+  ],
+  "regressionCampaign": {
+    "campaign": {
+      "throwaway": "56364ae3970dec4b6edd7e1507b98a9f0d2fc5f1",
+      "base": "cd46f176b20ef7e0e0b2b0e251569214dfc90619",
+      "buildResult": "BUILD SUCCESSFUL",
+      "durationSeconds": 1033,
+      "population": 918,
+      "statuses": {
+        "KILLED": 662,
+        "NO_COVERAGE": 62,
+        "SURVIVED": 132,
+        "TIMED_OUT": 62
+      },
+      "configDiff": "family-list narrowing only: 53 deletions, approval block byte-identical"
+    },
+    "reference": {
+      "campaign": "G5c candidate 7acbd868",
+      "note": "identical production+test content to the G5d base"
+    },
+    "sharedIdentities": 918,
+    "g5dOnly": 0,
+    "referenceOnly": 0,
+    "statusMovements": 0,
+    "previouslyKilledRegressions": 0,
+    "newTimeouts": 0,
+    "cohort": {
+      "allFourPresent": true,
+      "allFourNoCoverage": true,
+      "widening": false
+    }
+  }
+}

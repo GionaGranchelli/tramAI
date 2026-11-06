@@ -1,0 +1,26 @@
+public final class dev/tramai/examples/timeline/TimelineReconstructionExample {
+	public static final field INSTANCE Ldev/tramai/examples/timeline/TimelineReconstructionExample;
+	public static final field RUN_ID Ljava/lang/String;
+	public final fun evidence (Ljava/lang/String;)Ldev/tramai/core/observation/attempt/AttemptObservationStore;
+	public static synthetic fun evidence$default (Ldev/tramai/examples/timeline/TimelineReconstructionExample;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/observation/attempt/AttemptObservationStore;
+	public final fun historicalConfiguration ()Ldev/tramai/security/reconstruction/HistoricalConfigurationSource;
+	public final fun narrative (Ldev/tramai/security/reconstruction/ReconstructionResult;)Ljava/util/List;
+	public final fun reconstruct (Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/security/reconstruction/HistoricalConfigurationSource;)Ldev/tramai/security/reconstruction/ReconstructionResult;
+	public static synthetic fun reconstruct$default (Ldev/tramai/examples/timeline/TimelineReconstructionExample;Ldev/tramai/core/observation/attempt/AttemptObservationStore;Ldev/tramai/security/reconstruction/HistoricalConfigurationSource;ILjava/lang/Object;)Ldev/tramai/security/reconstruction/ReconstructionResult;
+	public final fun recordedAttempts (Ljava/lang/String;)Ljava/util/List;
+	public static synthetic fun recordedAttempts$default (Ldev/tramai/examples/timeline/TimelineReconstructionExample;Ljava/lang/String;ILjava/lang/Object;)Ljava/util/List;
+}
+
+public final class dev/tramai/examples/timeline/TimelineReconstructionExampleKt {
+	public static final fun main ()V
+	public static synthetic fun main ([Ljava/lang/String;)V
+}
+
+public final class dev/tramai/examples/timeline/TimelineReconstructionJavaExample {
+	public static fun evidence ()Ldev/tramai/core/observation/attempt/AttemptObservationStore;
+	public static fun historicalConfiguration ()Ldev/tramai/security/reconstruction/HistoricalConfigurationSource;
+	public static fun main ([Ljava/lang/String;)V
+	public static fun narrative (Ldev/tramai/security/reconstruction/ReconstructionResult;)Ljava/util/List;
+	public static fun reconstruct (Ldev/tramai/core/observation/attempt/AttemptObservationStore;)Ldev/tramai/security/reconstruction/ReconstructionResult;
+}
+

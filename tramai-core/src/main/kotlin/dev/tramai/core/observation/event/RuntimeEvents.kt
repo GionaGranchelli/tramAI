@@ -40,6 +40,7 @@ object RuntimeEvents {
     val WORKFLOW_SECURITY_OUTPUT_REJECTED = RuntimeEventCatalogue.event("tramai.workflow.security.output_rejected")
     val WORKFLOW_SECURITY_SANITIZER_TRIGGERED = RuntimeEventCatalogue.event("tramai.workflow.security.sanitizer_triggered")
     val WORKFLOW_SECURITY_COMMAND_DENIED = RuntimeEventCatalogue.event("tramai.workflow.security.command_denied")
+    val GOVERNANCE_EVIDENCE_EXPORTED = RuntimeEventCatalogue.event("tramai.governance.evidence.exported")
     val WORKFLOW_DELAY_STARTED = RuntimeEventCatalogue.event("tramai.workflow.delay.started")
     val WORKFLOW_DELAY_WAITING = RuntimeEventCatalogue.event("tramai.workflow.delay.waiting")
     val WORKFLOW_DELAY_RESUMED = RuntimeEventCatalogue.event("tramai.workflow.delay.resumed")

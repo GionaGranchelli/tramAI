@@ -1,0 +1,53 @@
+Second review corrections — verification transcript
+Captured: 2026-10-12T08:22:55Z
+Task: 0.7.4b-merge-gate-safeguard, PR #519
+
+Addressed: findings A (required-check coverage too broad: one name per family, globally-accepted
+SKIPPED/NEUTRAL, an empty -PrequiredChecks= disabling identity coverage) and B (workflow success and
+expected SHA satisfied independently, by two different runs).
+
+=== format (guarded)
+     M build-logic/src/main/kotlin/dev/tramai/build/quality/MergeGateVerifier.kt
+     M build-logic/src/main/kotlin/dev/tramai/build/release/MergeGateTask.kt
+     M build-logic/src/test/kotlin/dev/tramai/build/quality/MergeGateVerifierTest.kt
+     M scripts/verify-merge-gate.sh
+
+=== CI static form
+  EXIT=0
+  static-analysis: Detekt baseline OK: base 4792 -> current 4792; 0 removed, 0 added.
+  BUILD SUCCESSFUL in 42s
+  findings:
+   total: 0
+
+=== the suite
+  EXIT=0
+  BUILD SUCCESSFUL in 1s
+  tests="32" skipped="0" failures="0" errors="0"
+
+=== self-check (five refusals + positive control)
+    ok [unknown pull request]: refused with [checks-unavailable]
+    ok [wrong head]: refused with [head-mismatch]
+    ok [missing required check]: refused with [required-check-missing]
+    ok [empty override]: refused
+    ok [no properties]: refused
+    ok: merge gate PASSED at 0f2805aa8c6bb2b3de381dcfa9004bdb40525e7a: checks complete and green, required workflows successful
+    ok [predates a required check]: refused with [required-check-missing]
+  SELF-CHECK PASSED: six named refusals hold, and the positive control still passes.
+
+=== live scenarios
+--- the gate's own PR at a head with the complete check set (must PASS)
+  merge gate PASSED at 0f2805aa8c6bb2b3de381dcfa9004bdb40525e7a: checks complete and green, required workflows successful
+  VERIFIED: 0f2805aa8c6bb2b3de381dcfa9004bdb40525e7a is safe to merge. To merge it with that exact commit pinned:
+--- wrong head (must REFUSE)
+  > merge gate REFUSED at deadbeefdeadbeefdeadbeefdeadbeefdeadbeef: 5 violation(s)
+      - [head-mismatch] head moved from deadbeefdeadbeefdeadbeefdeadbeefdeadbeef to 0f2805aa8c6bb2b3de381dcfa9004bdb40525e7a; every check below belongs to a commit nobody reviewed
+      - [workflow-runs-unavailable] no workflow runs were read for deadbeefdeadbeefdeadbeefdeadbeefdeadbeef; a required workflow cannot be shown to have passed
+      - [required-workflow-missing] 'CI' has no workflow run at deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+--- a head that predates a required check (#518): refused, correctly
+  > merge gate REFUSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: 1 violation(s)
+      - [required-check-missing] 1 required check(s) absent from the rollup: Mutation authority transport
+--- unreadable PR (must REFUSE)
+  > merge gate REFUSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: 3 violation(s)
+      - [head-unavailable] the API reported no head; merge evidence is unavailable, which is not a pass
+      - [checks-unavailable] no status checks were read; an empty result means the query failed, not that all checks passed
+      - [check-names-unavailable] required check identities were configured but no check names were read; completeness cannot be established from states alone

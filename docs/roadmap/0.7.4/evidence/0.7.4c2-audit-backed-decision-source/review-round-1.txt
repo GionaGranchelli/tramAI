@@ -1,0 +1,88 @@
+
+REVIEW ROUND 1 (owner findings P1 x2) — fixes and re-qualification
+================================================================================
+Reviewed head: 4d15a8c9ad387c4169959af00ba8f820c8f1e1f3 (HOLD, do not merge)
+Fix heads:     9e29bc38d115ab918ba71777972be35e270078ef (both P1s + discriminators)
+               e88df420005abd7d8b9badaa1e80c22a32c92afd (corrected crossed-stream fixture)
+
+FINDING P1-A — cross-run events were filtered, not refused
+--------------------------------------------------------------------------------
+Was: `decisionKindOf` returned null for `event.workflowRunId != requestedRun`, so another run's
+event was dropped before the c1 reader's own cross-run refusal could see it, and the read could
+still publish an attested stream range.
+Now: attribution is enforced over the whole verified read and fails closed —
+`events.firstOrNull { it.workflowRunId != workflowRunId }` raises
+`AuditDecisionAttributionException` naming the stream, the requested run and the offending
+position. Multi-run streams are unsupported by this source; a shared-stream mode would be a
+separate mode with its own attribution and completeness semantics, not a silent filter.
+`decisionKindOf` no longer carries the run check, because the read cannot reach it with a foreign
+event.
+Discriminator: `a foreign-run event in a run-named stream refuses the read instead of being
+dropped` — three events in the requested stream, one of them run-2's, and the read fails rather
+than returning the two facts it owns.
+
+FINDING P1-B — the attested range was not anchored to the observed stream head
+--------------------------------------------------------------------------------
+Was: attestation compared positions only (first == 1, count == head position, head unchanged),
+while `AuditChainVerifier` proves only that the returned list is internally consistent. A source
+answering with a different but coherent chain of the same length was therefore attestable.
+Now: `attestedRange` additionally requires every read event to carry the requested stream id, the
+last event's hash to equal the observed head's hash, and the head's identity (position AND hash)
+to be unchanged across the read. The empty case stays unattested (`lastOrNull` is null).
+Discriminators:
+  `an internally valid chain from another stream is not attested as this stream's range`
+  `a head that is not the event last read does not attest the range`
+
+MUTATION BATTERY ON THE FIXED TREE — 6 mutations, 6 kills, controls and restores verified
+--------------------------------------------------------------------------------
+Method unchanged: mutate, clear build/test-results/test, run with --rerun-tasks, then git checkout
+and compare sha256 against the pristine value cc75cd020901d01dd6e65ca476aa7c62808992c93789344f4621f92e70a13c79.
+
+  CONTROL (19 tests)                    failures=0
+  M1  head-stability check dropped      APPLIED -> KILLED  an append that lands after the pages
+                                                            were read is not miscounted as complete
+  M3  policy family degenerate          APPLIED -> KILLED  an unrecognised enforcement point is not
+                                                            reclassified as a policy decision
+  M4  chain-integrity throw removed     APPLIED -> KILLED  a broken hash chain refuses the read
+                                                            instead of projecting unverified records
+  D1  attribution guard removed         APPLIED -> KILLED  a foreign-run event in a run-named
+                                                            stream refuses the read...
+  D2  stream-identity anchor dropped    APPLIED -> KILLED  an internally valid chain from another
+                                                            stream is not attested...
+  D3  head-hash anchor dropped          APPLIED -> KILLED  a head that is not the event last read
+                                                            does not attest the range
+  CONTROL after restoration (19 tests)  failures=0
+
+TWO INVALID ATTEMPTS AND ONE SURVIVOR, RECORDED RATHER THAN DROPPED
+--------------------------------------------------------------------------------
+1. M3's first mutation (`event.enforcementPoint in POLICY_ENFORCEMENT_POINTS -> {` replaced by
+   `true -> {`) no longer compiles, because the following branches become unreachable. Reported as
+   "NO RESULT FILE -> mutation did not compile (invalid, not a survivor)". Redone as a semantically
+   exact, compile-valid mutation: `POLICY_ENFORCEMENT_POINTS` gains "UNKNOWN_BOUNDARY", which is
+   precisely the exporters' exclusion behaviour. That version is killed.
+2. D2's first run was a genuine SURVIVOR, and the reason matters: the first crossed-stream fixture
+   answered only the page reads from the other stream while the head still came from the requested
+   one, so the last event's hash disagreed with the head's and the *hash* anchor rejected the range.
+   The test therefore passed for the wrong reason and did not discriminate stream identity.
+   Fixture corrected (the store now answers pages and head from the other stream, as a mis-wired
+   source would), re-run, and D2 is killed by that test. Evidence that a green discriminator is not
+   automatically a discriminating one.
+3. The first battery process was killed by the environment mid-run (twice) while the source was
+   mutated; the file was restored and its sha256 re-verified against the pristine value before
+   continuing. Mutations after that ran in the foreground so the result returned with the run.
+
+GATE RE-RUN AT THE FIXED HEADS
+--------------------------------------------------------------------------------
+spotlessCheck                                                     exit 0
+verifyStaticAnalysis                                              exit 0, 0 new findings
+                                                                  (baseline 4792 -> 4792)
+verifyChangePolicy -PchangeClass=runtime-behaviour
+    -PchangePolicyBase=80d59e2b...                                PASSED
+verify060Architecture                                             api-architecture FAIL (only)
+    dependency-boundaries PASS, global-state PASS, all others PASS
+    api-architecture diagnostic identity vs pristine base: base 10, head 10,
+    head-only 0, base-only 0  (unchanged from the pre-review measurement)
+:tramai-security:test                                             tests=1136 failures=0 errors=0
+:tramai-control-plane:test                                        tests=61   failures=0 errors=0
+:tramai-server:test                                               tests=89   failures=0 errors=0
+governance subset                                                 tests=195 failures=0 errors=0

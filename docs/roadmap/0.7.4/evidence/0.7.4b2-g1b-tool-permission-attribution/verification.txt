@@ -1,0 +1,105 @@
+=== G1b: verification on the final bytes
+base 067e6f61224f67c6b19c4da5c2f6826560450dc3
+worktree /home/gionag/tramai-g1b, branch task/0.7.4b2-g1b-tool-permission-attribution
+All commands below used JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 (the JDK ci.yml uses for production code).
+
+--- intentional file set (nothing else changed)
+  M tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditEnginePolicyDecisionAuditEmitter.kt
+  M tramai-security/src/main/kotlin/dev/tramai/security/evidence/ToolPermissionRuntimeEvidenceExporter.kt
+  M examples/spring-ai-authority-boundary/src/main/kotlin/dev/tramai/examples/springaiboundary/BoundaryOutcome.kt
+  M examples/spring-ai-authority-boundary/src/main/kotlin/dev/tramai/examples/springaiboundary/BoundaryEvidenceRecorder.kt
+  M examples/spring-ai-authority-boundary/src/main/kotlin/dev/tramai/examples/springaiboundary/GovernedToolCallback.kt
+  A tramai-security/src/test/kotlin/dev/tramai/security/evidence/ToolPermissionEvidenceAttributionTest.kt
+  A examples/spring-ai-authority-boundary/src/test/kotlin/dev/tramai/examples/springaiboundary/ToolPermissionEvidenceAttributionTest.kt
+  A docs/roadmap/0.7.4/0.7.4b2-G1B-TOOL-PERMISSION-ATTRIBUTION.md
+  A docs/roadmap/0.7.4/evidence/0.7.4b2-g1b-tool-permission-attribution/*
+
+  diffstat: 5 files changed, 173 insertions(+), 98 deletions(-)
+  No baseline, no detekt config, no analyzer, no api dump, no dependency policy, no workflow touched.
+
+--- FORMATTING (this is the one that was red before and is now green)
+  ./gradlew spotlessApply -PtramaiFormattingBaseRef=067e6f61            -> exit=0 BUILD SUCCESSFUL
+      guarded: any .kt file this slice did not author was reverted with `git checkout --`
+  ./gradlew spotlessKotlinCheck --rerun -PtramaiFormattingBaseRef=067e6f61
+      -> exit=0 BUILD SUCCESSFUL, no file flagged
+  Note on the earlier red: `spotless { ratchetFrom(formattingBaseRef) }` (build.gradle.kts:38, default
+  origin/master) means Spotless inspects only files that differ from the ref. The file it flagged
+  carried two pre-existing problems — formatting drift in TOOL_ENFORCEMENT_POINTS /
+  TOOL_PERMISSION_ALLOWED_METADATA_KEYS, and ktlint(standard:no-wildcard-imports) on
+  `import dev.tramai.core.policy.*` — which became visible only because this slice edited that file.
+  Suppression is not permitted here, so the wildcard was replaced by explicit imports
+  (EnforcementPoint, PolicyContext, PolicyDecision, PolicyDecisionAuditEmitter). The base was NOT red:
+  a forced `--rerun` at 067e6f61 passes, and the branch now passes too.
+
+--- GATES (all with the pinned base)
+  ./gradlew spotlessKotlinCheck --rerun -PtramaiFormattingBaseRef=067e6f61   -> exit=0
+  ./gradlew verifyStaticAnalysis -PtramaiStaticAnalysisBaseRef=067e6f61      -> exit=0
+      detekt findings from the canonical report build/reports/static-analysis/detekt.xml: 0
+  ./gradlew verifyChangePolicy -PchangePolicyBase=067e6f61                   -> exit=0
+  ./gradlew :tramai-security:apiCheck                                       -> exit=0 (binary compatible)
+
+  ./gradlew verifyMaintainabilityBaseline                                   -> exit=1, PRE-EXISTING
+      base violations: 32, head violations: 32, IDENTICAL: `diff` of the sorted
+      DEPENDENCY_CONVERGENCE_FAILURE sets at 067e6f61 and at head is EMPTY.
+      Identical diagnostic identities, so the 32 convergence violations are pre-existing and not
+      attributable to this change. No dependency policy was modified.
+
+--- SUITES on the final bytes (canonical JUnit XML, not stdout)
+  dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest              tests=9  skipped=0 failures=0 errors=0
+  dev.tramai.examples.springaiboundary.ToolPermissionEvidenceAttributionTest      tests=3  skipped=0 failures=0 errors=0
+
+  tramai-security                       tests=1060 skipped=0 failures=0 errors=0
+  tramai-sovereign                      tests=145  skipped=0 failures=0 errors=0
+  examples/spring-ai-authority-boundary tests=28   skipped=0 failures=0 errors=0
+  examples/tool-governance              tests=10   skipped=0 failures=0 errors=0
+
+--- THE DIGEST DETERMINATION (added test first, red, then fixed, then green)
+  Question: is the canonical workflowRunId cryptographically bound to the evidence?
+  Test added before any production change:
+      `the canonical payload digest binds the canonical run id`
+      — two governed records, identical five deployment fields, identical decision and reason code,
+        differing ONLY in the canonical run id.
+  RED (before the change):  tests=9 skipped=0 failures=1 errors=0
+      !! the canonical payload digest must bind the run of the evidence it describes
+         ==> expected: not equal but was: <sha256:...
+      Determination: the canonical payload digest did NOT bind the run id.
+      Control in the same run: `legacy evidence keeps the digest it had before run-id binding existed`
+      PASSED, so legacy digests were not the thing that changed.
+
+  Change: computeToolPermissionPayloadDigest appends `workflowRunId` to the canonical payload ONLY when
+  the record is attributed (attribution is atomic — zero reserved keys is legacy, a partial tuple is
+  refused — so this is a binary state, not a heuristic). No new identifier, no schema version.
+
+  GREEN (after the change): tests=9 skipped=0 failures=0 errors=0   BUILD SUCCESSFUL
+
+  Why this was still worth doing although one digest already varied: `subjectDigest` is
+  sha256(auditStreamId) and auditStreamId equals the run id only because DefaultAuditStreamIdResolver
+  returns context.workflowRunId (AuditStreamIdResolver.kt:18-34). A deployment installing its own
+  resolver keeps the stream and the run distinct, and the run id would then have been bound by nothing.
+  The payload digest now binds it directly, independent of resolver configuration.
+
+  Out of scope, reported not fixed: the governance.decision family
+  (GovernanceDecisionEvidence.payloadDigest) has the same characteristic — its canonical payload does
+  not include identity.runId. Changing it would re-digest that family's existing evidence.
+
+--- DISCRIMINATORS against the FINAL tree (isolated worktree /home/gionag/tramai-g1b-disc at 067e6f61,
+    test fixtures untouched, mutations applied by patch with the diff as the mutation record)
+  control   : security tests=9 failures=0 errors=0 ; boundary tests=3 failures=0 errors=0
+  D1        : the emitter's identity-carry filter selects nothing
+              security tests=9 failures=7 errors=0 ; boundary tests=3 failures=0 errors=0
+              all seven failures are the attribution assertions, e.g. the intended one:
+              !! the complete deployment tuple reaches the record, key for key and value for value
+              The two survivors are the legacy tests — the discriminating pair, not an accident.
+  D2        : the boundary recorder no longer carries the identity (emitter restored first)
+              boundary tests=3 failures=3 errors=0 ; security tests=9 failures=0 errors=0
+              the security suite green here is also the emitter's restoration proof
+  restored  : security tests=9 failures=0 errors=0 ; boundary tests=3 failures=0 errors=0
+  After the experiment both mutated files are byte-identical (`cmp`) to the shipped tree, and the
+  shipped tree contains only the intentional changes. A test that stayed green with the transfer
+  removed would have been rejected; none did.
+
+--- NOT RUN
+  ./gradlew verifyPr as a single command — its components were run individually with the pinned base
+  properties (the canonical invocation for each), which is what CI does; the aggregate adds build-logic
+  tests, whose known-red local state is issue #509 and unrelated to this slice.
+  Maintainability is red at base and at head with identical violations; it is not made green here.

@@ -1,0 +1,105 @@
+0.7.4c2 — implementation verification (Option C placement)
+================================================================================
+Base: release/0.7.0 = 80d59e2bf4b78b1eb4b6838e6b84946b84552f7f (#532 merged)
+Worktree: /home/gionag/tramai-c2c (branch task/0.7.4c2c-audit-backed-source)
+Heads: 61eea2ac (feature) -> 12a34706 (late-append discriminator) -> 7d... through
+       157ae4a2, 3bf5adc3, cdc0a5bf (gate fixes)
+
+WHAT MOVED (Option C, owner-decided)
+--------------------------------------------------------------------------------
+git mv, package dev.tramai.controlplane -> dev.tramai.security.governance, contents
+unchanged apart from package/imports:
+  GovernanceProjection.kt, GovernanceFactClassification.kt, GovernanceDecisionFold.kt,
+  GovernanceProjectionReader.kt  (+ GovernanceProjectionTest.kt)
+:tramai-security/build.gradle.kts gains implementation(project(":tramai-control-plane"))
+and testImplementation(testFixtures(project(":tramai-control-plane"))).
+No type changed visibility: the seam stays `internal`. The registration authority stays
+in :tramai-control-plane and is consumed through its public read port.
+Evidence of behavioural equivalence: GovernanceProjectionTest 31/31 green in the new
+module, unchanged assertions.
+
+NEW PRODUCTION SOURCE
+--------------------------------------------------------------------------------
+tramai-security/src/main/kotlin/dev/tramai/security/governance/
+  AuditBackedGovernanceDecisionFactSource.kt (read seam over the real AuditStore SPI)
+  + its discriminators (17) and AuditBackedGovernanceProjectionIntegrationTest (6).
+
+GATE RESULTS AT THE HEAD
+--------------------------------------------------------------------------------
+./gradlew spotlessCheck                                  exit 0
+./gradlew verifyStaticAnalysis                           exit 0   (0 new findings,
+    baseline 4792 -> 4792, no baseline entry, no suppression)
+./gradlew verifyChangePolicy -PchangeClass=runtime-behaviour
+    -PchangePolicyBase=80d59e2b...                       exit 0
+./gradlew verify060Architecture                          exit 1   api-architecture only
+    dependency-boundaries PASS   <- the new security -> control-plane edge is legal
+    global-state          PASS   <- 0 findings in the new file (inventory-verified)
+    all other checks PASS
+./gradlew :tramai-security:test --tests 'dev.tramai.security.governance.*'
+    193 tests, 0 failures, 0 errors
+module suites (earlier full run): control-plane 61/0, security 1134/0, server 89/0
+
+api-architecture IS PRE-EXISTING, PROVED BY AN EQUIVALENT BASE RUN
+--------------------------------------------------------------------------------
+Same task, same properties, pristine base `80d59e2b` in a detached worktree:
+  BASE: api-architecture FAIL, everything else PASS (incl. global-state PASS,
+        dependency-boundaries PASS)
+  HEAD: api-architecture FAIL, everything else PASS
+Diagnostic identity comparison (code + first 60 chars of message) on the
+api-architecture check:  base 10 diagnostics, head 10, head-only 0, base-only 0.
+Identical population => environmental/configuration for this environment, not a
+consequence of this change. Nothing in config/quality, the baseline or a workflow was
+touched.
+
+MUTATION BATTERY (C2.6) — all four killed, application proven, results cleared per run
+--------------------------------------------------------------------------------
+Method: mutate the source in place, run the discriminator suite with --rerun-tasks after
+deleting build/test-results/test (so a mutation that fails to compile yields NO result
+file instead of a stale one), then git checkout the file and compare sha256 with the
+pristine value recorded before the battery.
+
+M1  head-stability check removed (`headAfter == headBefore &&`)
+    APPLIED (sha changed) -> KILLED by
+    "an append that lands after the pages were read is not miscounted as complete"
+    (the size check alone catches the other race fixture, which is why this discriminator
+     had to be added: without it M1 was a survivor)
+
+M2  run-attribution guard never matches (`event.workflowRunId != requestedRun` -> `false`)
+    APPLIED -> KILLED by "a record attributed to another run is not projected"
+    First attempt used a comment-out anchor that broke compilation; with results cleared
+    the run produced NO result file, which is why it was reported as NOT APPLIED rather
+    than as a survivor. The valid mutation above is the recorded verdict.
+
+M3  family partitioning degraded to the exporters' exclusion semantics
+    (`POLICY_ENFORCEMENT_POINTS ->` replaced by `true ->`)
+    APPLIED -> KILLED by
+    "an unrecognised enforcement point is not reclassified as a policy decision"
+    Two earlier anchors failed to match the spotless-reformatted source and were reported
+    as NOT APPLIED (invalid), never as survivors.
+
+M4  chain-integrity failure ignored (the throw removed)
+    APPLIED -> KILLED by
+    "a broken hash chain refuses the read instead of projecting unverified records"
+
+Control after restoration: 17 tests, 0 failures. Restored sha256 == pristine sha256 for
+every mutation (verified in the log).
+
+ROOT-CAUSE RECORD: the global-state finding
+--------------------------------------------------------------------------------
+Two hypotheses were wrong (the nested `object` declaration, then the `private companion
+object`). Rather than patch a third time, the scanner's own read-only inventory was run
+(`./gradlew generateGlobalStateInventory`) and it named the finding exactly:
+  file AuditBackedGovernanceDecisionFactSource.kt, declaration "events",
+  kind mutable-collection, type MutableList
+i.e. readFromStart's `mutableListOf` accumulator — the scanner's pattern matches any
+mutable collection, including a function-local one. Fixed by rebinding an immutable list
+per page; the loop is bounded by maxEventsPerRead so the copies are bounded. The inventory
+now reports 0 findings in that file and the global-state check passes.
+
+DETEKT FINDINGS, RESOLVED IN CODE (never by baseline or suppression)
+--------------------------------------------------------------------------------
+12 -> 4 -> 2 -> 0 new findings. ReturnCount (recordFor/decisionsFor restructured, family
+recognition extracted to decisionKindOf), LongParameterList (the test helper's unused
+metadata parameter dropped), MaxLineLength (lines wrapped; the `projection` helper uses a
+block body with the reader bound to a local val because ktlint rewrites a
+single-expression body back onto one line, which then exceeds detekt's cap).

@@ -1,3 +1,8 @@
+@file:Suppress("MaxLineLength", "ktlint:standard:max-line-length")
+
+// ktfmt (spotless) rejoins what detekt rejects at 120, and .editorconfig states no line length is enforced, so
+// the two formatters disagree on these lines; suppress for the file instead of reshaping on every apply.
+
 package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
@@ -7,6 +12,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
 import java.util.Properties
+
 /**
  * Collision-free lease path strategy with minimal layout disruption.
  *
@@ -26,32 +32,35 @@ class CollisionFreeWorkflowLeasePathStrategy(
         rootDirectory: Path,
         workflowName: String,
         workflowId: String,
-    ): Path = rootDirectory
-        .resolve(encodeSegment(workflowName))
-        .resolve(encodeSegment(workflowId))
-        .resolve(fileName)
+    ): Path =
+        rootDirectory
+            .resolve(encodeSegment(workflowName))
+            .resolve(encodeSegment(workflowId))
+            .resolve(fileName)
 
     /** The pre-collision-free (lossy sanitized) path this key would have used. */
     fun legacyLeasePath(
         rootDirectory: Path,
         workflowName: String,
         workflowId: String,
-    ): Path = rootDirectory
-        .resolve(sanitizePathSegment(workflowName))
-        .resolve(sanitizePathSegment(workflowId))
-        .resolve(fileName)
+    ): Path =
+        rootDirectory
+            .resolve(sanitizePathSegment(workflowName))
+            .resolve(sanitizePathSegment(workflowId))
+            .resolve(fileName)
 
     private fun encodeSegment(input: String): String =
         if (input.all { it.isAsciiSafe() }) {
             input
         } else {
-            "~" + Base64.getUrlEncoder()
-                .withoutPadding()
-                .encodeToString(input.toByteArray(StandardCharsets.UTF_8))
+            "~" +
+                Base64
+                    .getUrlEncoder()
+                    .withoutPadding()
+                    .encodeToString(input.toByteArray(StandardCharsets.UTF_8))
         }
 
-    private fun Char.isAsciiSafe(): Boolean =
-        this in 'A'..'Z' || this in 'a'..'z' || this in '0'..'9' || this == '-' || this == '_'
+    private fun Char.isAsciiSafe(): Boolean = this in 'A'..'Z' || this in 'a'..'z' || this in '0'..'9' || this == '-' || this == '_'
 }
 
 /**
@@ -63,7 +72,8 @@ class FileWorkflowLeaseStore private constructor(
         CollisionFreeWorkflowLeasePathStrategy("lease.properties"),
     private val clockMillis: () -> Long = System::currentTimeMillis,
     private val atomicWriter: AtomicFileWriter = realAtomicFileWriter,
-) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence {
+) : WorkflowLeaseStore,
+    WorkflowLeaseCheckpointFence {
     private var leaseIdentitySource: LeaseIdentitySource = DefaultLeaseIdentitySource
 
     constructor(
@@ -81,6 +91,7 @@ class FileWorkflowLeaseStore private constructor(
     ) : this(rootDirectory, pathStrategy, clockMillis, realAtomicFileWriter) {
         this.leaseIdentitySource = leaseIdentitySource
     }
+
     var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
         NoOpPersistenceFailureDiagnosticObserver
         internal set
@@ -134,25 +145,38 @@ class FileWorkflowLeaseStore private constructor(
     override suspend fun currentLease(
         workflowName: String,
         workflowId: String,
-    ): WorkflowLease? = persistenceBoundary(
-        PersistenceResourceKind.LEASE, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
-    ) {
-        withLogicalLeaseLock(workflowName, workflowId) { leasePath ->
-            val existing = readLeaseIfPresent(leasePath)
-            when {
-                existing == null -> null
-                // A legacy sanitized path may hold another key's lease after
-                // the collision-free strategy was introduced; only accept it
-                // when it identifies the requested key.
-                !identityMatches(existing, workflowName, workflowId) -> null
-                isExpired(existing) -> {
-                    deleteLeaseIfPresent(leasePath)
-                    null
+    ): WorkflowLease? =
+        persistenceBoundary(
+            PersistenceResourceKind.LEASE,
+            PersistenceOperation.LOAD,
+            persistenceFailureDiagnosticObserver,
+        ) {
+            withLogicalLeaseLock(workflowName, workflowId) { leasePath ->
+                val existing = readLeaseIfPresent(leasePath)
+                when {
+                    existing == null -> {
+                        null
+                    }
+
+                    // A legacy sanitized path may hold another key's lease after
+                    // the collision-free strategy was introduced; only accept it
+                    // when it identifies the requested key.
+                    !identityMatches(existing, workflowName, workflowId) -> {
+                        null
+                    }
+
+                    isExpired(existing) -> {
+                        deleteLeaseIfPresent(leasePath)
+                        null
+                    }
+
+                    else -> {
+                        existing
+                    }
                 }
-                else -> existing
             }
         }
-    }
+
     override suspend fun claim(
         workflowName: String,
         workflowId: String,
@@ -162,13 +186,16 @@ class FileWorkflowLeaseStore private constructor(
     ): WorkflowLease {
         validateLeaseIdentityInput(workflowName, workflowId, ownerId, leaseDurationMillis)
         return persistenceBoundary(
-            PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, persistenceFailureDiagnosticObserver,
+            PersistenceResourceKind.LEASE,
+            PersistenceOperation.CLAIM,
+            persistenceFailureDiagnosticObserver,
         ) {
             val canonical = leasePath(workflowName, workflowId)
             withLogicalLeaseLock(workflowName, workflowId) { target ->
-                val existing = readLeaseIfPresent(target)?.takeIf {
-                    identityMatches(it, workflowName, workflowId)
-                }
+                val existing =
+                    readLeaseIfPresent(target)?.takeIf {
+                        identityMatches(it, workflowName, workflowId)
+                    }
                 if (existing != null && !isExpired(existing)) {
                     throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, PersistenceFailureCode.CONFLICT)
                 }
@@ -179,20 +206,22 @@ class FileWorkflowLeaseStore private constructor(
                     deleteLeaseIfPresent(target)
                 }
                 val now = clockMillis()
-                val lease = WorkflowLease(
-                    workflowName = workflowName,
-                    workflowId = workflowId,
-                    leaseId = leaseIdentitySource.newLeaseId(),
-                    ownerId = ownerId,
-                    checkpointRevision = checkpointRevision,
-                    acquiredAtEpochMillis = now,
-                    expiresAtEpochMillis = now + leaseDurationMillis,
-                )
+                val lease =
+                    WorkflowLease(
+                        workflowName = workflowName,
+                        workflowId = workflowId,
+                        leaseId = leaseIdentitySource.newLeaseId(),
+                        ownerId = ownerId,
+                        checkpointRevision = checkpointRevision,
+                        acquiredAtEpochMillis = now,
+                        expiresAtEpochMillis = now + leaseDurationMillis,
+                    )
                 atomicWriter.write(canonical, encodeLease(lease))
                 lease
             }
         }
     }
+
     override suspend fun renew(
         lease: WorkflowLease,
         checkpointRevision: Long?,
@@ -201,13 +230,20 @@ class FileWorkflowLeaseStore private constructor(
         validateLeaseToken(lease)
         require(leaseDurationMillis > 0) { "leaseDurationMillis must be greater than zero" }
         return persistenceBoundary(
-            PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, persistenceFailureDiagnosticObserver,
+            PersistenceResourceKind.LEASE,
+            PersistenceOperation.RENEW,
+            persistenceFailureDiagnosticObserver,
         ) {
             withLogicalLeaseLock(lease.workflowName, lease.workflowId) { leasePath ->
-                val existing = readLeaseIfPresent(leasePath)?.takeIf {
-                    identityMatches(it, lease.workflowName, lease.workflowId)
-                }
-                    ?: throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
+                val existing =
+                    readLeaseIfPresent(leasePath)?.takeIf {
+                        identityMatches(it, lease.workflowName, lease.workflowId)
+                    }
+                        ?: throw safePersistenceFailure(
+                            PersistenceResourceKind.LEASE,
+                            PersistenceOperation.RENEW,
+                            PersistenceFailureCode.CONFLICT,
+                        )
                 if (isExpired(existing)) {
                     deleteLeaseIfPresent(leasePath)
                     throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
@@ -216,28 +252,35 @@ class FileWorkflowLeaseStore private constructor(
                     throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
                 }
                 val now = clockMillis()
-                val renewed = existing.copy(
-                    checkpointRevision = checkpointRevision,
-                    expiresAtEpochMillis = now + leaseDurationMillis,
-                )
+                val renewed =
+                    existing.copy(
+                        checkpointRevision = checkpointRevision,
+                        expiresAtEpochMillis = now + leaseDurationMillis,
+                    )
                 atomicWriter.write(leasePath, encodeLease(renewed))
                 renewed
             }
         }
     }
+
     override suspend fun release(lease: WorkflowLease) {
         validateLeaseToken(lease)
         persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, persistenceFailureDiagnosticObserver) {
             withLogicalLeaseLock(lease.workflowName, lease.workflowId) { leasePath ->
-                val existing = readLeaseIfPresent(leasePath)?.takeIf {
-                    identityMatches(it, lease.workflowName, lease.workflowId)
-                } ?: return@withLogicalLeaseLock
+                val existing =
+                    readLeaseIfPresent(leasePath)?.takeIf {
+                        identityMatches(it, lease.workflowName, lease.workflowId)
+                    } ?: return@withLogicalLeaseLock
                 if (isExpired(existing)) {
                     deleteLeaseIfPresent(leasePath)
                     return@withLogicalLeaseLock
                 }
                 if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
-                    throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, PersistenceFailureCode.CONFLICT)
+                    throw safePersistenceFailure(
+                        PersistenceResourceKind.LEASE,
+                        PersistenceOperation.RELEASE,
+                        PersistenceFailureCode.CONFLICT,
+                    )
                 }
                 deleteLeaseIfPresent(leasePath)
             }
@@ -252,14 +295,39 @@ class FileWorkflowLeaseStore private constructor(
     ): WorkflowCheckpoint {
         validateFenceIdentity(expectedLease, checkpoint.workflowName, checkpoint.workflowId)
         return persistenceBoundary(
-            PersistenceResourceKind.LEASE, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+            PersistenceResourceKind.LEASE,
+            PersistenceOperation.SAVE,
+            persistenceFailureDiagnosticObserver,
         ) {
             withLogicalLeaseLockSuspending(expectedLease.workflowName, expectedLease.workflowId) { leasePath ->
-                val current = readLeaseIfPresent(leasePath)
-                    ?.takeIf { identityMatches(it, expectedLease.workflowName, expectedLease.workflowId) }
-                    ?.takeUnless(::isExpired)
+                val current =
+                    readLeaseIfPresent(leasePath)
+                        ?.takeIf { identityMatches(it, expectedLease.workflowName, expectedLease.workflowId) }
+                        ?.takeUnless(::isExpired)
                 validateExpectedLease(expectedLease, current)
                 checkpointStore.save(checkpoint, expectedRevision)
+            }
+        }
+    }
+
+    override suspend fun admitIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        request: WorkflowAdmissionRequest,
+        expectedLease: WorkflowLease,
+    ): WorkflowAdmission? {
+        validateFenceIdentity(expectedLease, request.workflowName, request.workflowId)
+        return persistenceBoundary(
+            PersistenceResourceKind.LEASE,
+            PersistenceOperation.SAVE,
+            persistenceFailureDiagnosticObserver,
+        ) {
+            withLogicalLeaseLockSuspending(expectedLease.workflowName, expectedLease.workflowId) { leasePath ->
+                val current =
+                    readLeaseIfPresent(leasePath)
+                        ?.takeIf { identityMatches(it, expectedLease.workflowName, expectedLease.workflowId) }
+                        ?.takeUnless(::isExpired)
+                if (!ownsLease(expectedLease, current)) return@withLogicalLeaseLockSuspending null
+                checkpointStore.admit(request)
             }
         }
     }
@@ -275,9 +343,10 @@ class FileWorkflowLeaseStore private constructor(
         validateFenceIdentity(expectedLease, workflowName, workflowId)
         persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) {
             withLogicalLeaseLockSuspending(expectedLease.workflowName, expectedLease.workflowId) { leasePath ->
-                val current = readLeaseIfPresent(leasePath)
-                    ?.takeIf { identityMatches(it, expectedLease.workflowName, expectedLease.workflowId) }
-                    ?.takeUnless(::isExpired)
+                val current =
+                    readLeaseIfPresent(leasePath)
+                        ?.takeIf { identityMatches(it, expectedLease.workflowName, expectedLease.workflowId) }
+                        ?.takeUnless(::isExpired)
                 validateExpectedLease(expectedLease, current)
                 checkpointStore.delete(workflowName, workflowId, expectedRevision, expectedGeneration)
             }
@@ -308,11 +377,16 @@ class FileWorkflowLeaseStore private constructor(
     private fun leaseLockPath(
         workflowName: String,
         workflowId: String,
-    ): Path = when (val strategy = pathStrategy) {
-        is CollisionFreeWorkflowLeasePathStrategy ->
-            strategy.legacyLeasePath(rootDirectory, workflowName, workflowId)
-        else -> leasePath(workflowName, workflowId)
-    }
+    ): Path =
+        when (val strategy = pathStrategy) {
+            is CollisionFreeWorkflowLeasePathStrategy -> {
+                strategy.legacyLeasePath(rootDirectory, workflowName, workflowId)
+            }
+
+            else -> {
+                leasePath(workflowName, workflowId)
+            }
+        }
 
     /**
      * Acquires the stable logical lease lock, then resolves the current
@@ -357,9 +431,10 @@ class FileWorkflowLeaseStore private constructor(
     ): Path {
         val canonical = leasePath(workflowName, workflowId)
         if (Files.exists(canonical)) return canonical
-        val legacy = (pathStrategy as? CollisionFreeWorkflowLeasePathStrategy)
-            ?.legacyLeasePath(rootDirectory, workflowName, workflowId)
-            ?: return canonical
+        val legacy =
+            (pathStrategy as? CollisionFreeWorkflowLeasePathStrategy)
+                ?.legacyLeasePath(rootDirectory, workflowName, workflowId)
+                ?: return canonical
         return if (Files.exists(legacy)) legacy else canonical
     }
 
@@ -369,23 +444,26 @@ class FileWorkflowLeaseStore private constructor(
         workflowId: String,
     ): Boolean = lease.workflowName == workflowName && lease.workflowId == workflowId
 
-    private fun readLeaseIfPresent(path: Path): WorkflowLease? = try {
-        if (Files.exists(path)) {
-            decodeLease(Files.readString(path))
-        } else {
-            null
+    private fun readLeaseIfPresent(path: Path): WorkflowLease? =
+        try {
+            if (Files.exists(path)) {
+                decodeLease(Files.readString(path))
+            } else {
+                null
+            }
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            throw LeaseReadPhaseFailure(error)
         }
-    } catch (error: Throwable) {
-        error.rethrowIfCancellation()
-        throw LeaseReadPhaseFailure(error)
-    }
 
-    private fun deleteLeaseIfPresent(path: Path): Boolean = try {
-        Files.deleteIfExists(path)
-    } catch (error: Throwable) {
-        error.rethrowIfCancellation()
-        throw LeaseDeletePhaseFailure(error)
-    }
+    private fun deleteLeaseIfPresent(path: Path): Boolean =
+        try {
+            Files.deleteIfExists(path)
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            throw LeaseDeletePhaseFailure(error)
+        }
+
     private fun isExpired(lease: WorkflowLease): Boolean = clockMillis() >= lease.expiresAtEpochMillis
 
     private fun validateExpectedLease(
@@ -400,6 +478,7 @@ class FileWorkflowLeaseStore private constructor(
         }
     }
 }
+
 internal fun encodeLease(lease: WorkflowLease): String {
     val properties = Properties()
     properties["workflowName"] = lease.workflowName
@@ -409,20 +488,28 @@ internal fun encodeLease(lease: WorkflowLease): String {
     properties["checkpointRevision"] = lease.checkpointRevision?.toString().orEmpty()
     properties["acquiredAtEpochMillis"] = lease.acquiredAtEpochMillis.toString()
     properties["expiresAtEpochMillis"] = lease.expiresAtEpochMillis.toString()
-    return StringWriter().also { writer ->
-        properties.store(writer, "Tramai workflow lease")
-    }.toString()
+    return StringWriter()
+        .also { writer ->
+            properties.store(writer, "Tramai workflow lease")
+        }.toString()
 }
+
 internal fun decodeLease(content: String): WorkflowLease {
-    val properties = Properties().apply {
-        load(content.reader())
-    }
+    val properties =
+        Properties().apply {
+            load(content.reader())
+        }
     return WorkflowLease(
         workflowName = properties.requireProperty("workflowName"),
         workflowId = properties.requireProperty("workflowId"),
         leaseId = properties.requireProperty("leaseId"),
         ownerId = properties.requireProperty("ownerId"),
-        checkpointRevision = properties.getProperty("checkpointRevision").orEmpty().ifBlank { null }?.toLong(),
+        checkpointRevision =
+            properties
+                .getProperty("checkpointRevision")
+                .orEmpty()
+                .ifBlank { null }
+                ?.toLong(),
         acquiredAtEpochMillis = properties.requireProperty("acquiredAtEpochMillis").toLong(),
         expiresAtEpochMillis = properties.requireProperty("expiresAtEpochMillis").toLong(),
     )

@@ -51,3 +51,46 @@ public final class dev/tramai/observability/OpenTelemetryWorkflowObserver : dev/
 	public fun onWorkflowStarted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
 }
 
+public abstract interface class dev/tramai/observability/governance/GovernanceDecisionExposure {
+	public static final field Companion Ldev/tramai/observability/governance/GovernanceDecisionExposure$Companion;
+	public abstract fun getAuthority ()Ldev/tramai/security/governance/query/FactAuthority;
+	public abstract fun getFreshness ()Ldev/tramai/security/governance/query/FactFreshness;
+	public abstract fun getHasVerifiedStreamRange ()Z
+	public abstract fun getKind ()Ldev/tramai/security/governance/query/DecisionKind;
+	public abstract fun getReasonCodeExposure ()Ldev/tramai/security/governance/query/ReasonCodeExposure;
+	public abstract fun getRecordCompleteness ()Ldev/tramai/security/governance/query/Completeness;
+	public abstract fun getRecordedDecision ()Ljava/lang/String;
+}
+
+public final class dev/tramai/observability/governance/GovernanceDecisionExposure$Companion {
+}
+
+public abstract interface class dev/tramai/observability/governance/GovernanceExposure {
+	public static final field Companion Ldev/tramai/observability/governance/GovernanceExposure$Companion;
+	public abstract fun getAuditCurrency ()Ldev/tramai/security/governance/query/SourceCurrency;
+	public abstract fun getDecisions ()Ljava/util/List;
+	public abstract fun getRegistrationCurrency ()Ldev/tramai/security/governance/query/SourceCurrency;
+	public abstract fun getState ()Ldev/tramai/observability/governance/GovernanceExposureState;
+}
+
+public final class dev/tramai/observability/governance/GovernanceExposure$Companion {
+	public final fun from (Ldev/tramai/security/governance/query/GovernanceQueryResult;)Ldev/tramai/observability/governance/GovernanceExposure;
+}
+
+public final class dev/tramai/observability/governance/GovernanceExposureState : java/lang/Enum {
+	public static final field EVIDENCE_AVAILABLE Ldev/tramai/observability/governance/GovernanceExposureState;
+	public static final field INVALID_STORED_PROJECTION Ldev/tramai/observability/governance/GovernanceExposureState;
+	public static final field NOT_MATERIALIZED Ldev/tramai/observability/governance/GovernanceExposureState;
+	public static final field UNSUPPORTED_FORMAT Ldev/tramai/observability/governance/GovernanceExposureState;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/observability/governance/GovernanceExposureState;
+	public static fun values ()[Ldev/tramai/observability/governance/GovernanceExposureState;
+}
+
+public final class dev/tramai/observability/governance/GovernanceTelemetryExporter {
+	public static final field VERIFIED_RANGE_ABSENT Ljava/lang/String;
+	public static final field VERIFIED_RANGE_PRESENT Ljava/lang/String;
+	public fun <init> (Lio/opentelemetry/api/trace/Tracer;)V
+	public final fun export (Ldev/tramai/observability/governance/GovernanceExposure;)V
+}
+

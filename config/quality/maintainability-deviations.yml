@@ -263,6 +263,16 @@ deviations:
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
+  - id: MQ-0026
+    metric: globalMutableState
+    scope: ":tramai-control-plane"
+    baseline: 0
+    allowed: 1
+    reason: "The module's single global-state finding is InMemoryWorkloadRegistrationStore (mutable-collection: HashMap in tramai-control-plane/src/main/kotlin/dev/tramai/controlplane/InMemoryWorkloadRegistrationStore.kt). It is deliberately lock-guarded: every operation runs inside synchronized(lock) on a store-wide monitor, so registrations and configurationBindings are mutated only under that lock and the create/compareAndSet compound invariants stay atomic across both maps. GlobalStateInventory classifies a declaration from its source text alone — threadSafety and lifecycle are emitted as the constants 'unknown' and 'process' for every match, and the same regex flags ConcurrentHashMap and mutableMapOf identically — so switching collection type cannot clear this finding, and a concurrent map would in fact break the cross-map atomicity the authority contract requires. tramai-control-plane did not exist at the 0.6.0 freeze, so there is no committed identity to inherit: allowed 1 covers exactly this one finding and blocks any growth in this module. Resolution path: teach GlobalStateInventory to distinguish lock-guarded declarations (a build-logic scanner change), or retire the reference store once the JDBC store is the only supported implementation."
+    acceptedAt: "2026-09-15"
+    targetPhase: "0.7.2"
+    owner: "GionaGranchelli"
+
 # Verification policy:
 # - New findings that match an existing deviation (same metric + scope) are allowed.
 # - New findings with no matching deviation cause verify tasks to fail.

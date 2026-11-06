@@ -1,0 +1,116 @@
+0.7.4c3 — owner review round 1 on PR #534: findings, corrections, requalification
+================================================================================
+Head under review: ee7073bfc650220484ff9a5b90c9b59b54d2c469 (round-0 head)
+Correction committed: f6e2136aabce47b3986061e0bf9481ca950ad0d1
+Adapter sha256 under review: 289857ebde990f7f3f5b229f632f0976cc6bbc5715f1e2722a91be3a22e58207
+Adapter sha256 after correction: 010df419f70f4b1470f9291ccf5e4ac010c165e0fa9c8ce04fbe98d15682abb1
+
+--------------------------------------------------------------------------------
+P1 — `accountedPositions` did not independently prove coverage   FIXED
+--------------------------------------------------------------------------------
+The finding was correct and was the strongest one in the round: the account was
+`events.size.toLong()`, and the attested range already requires `events.size == head`. So
+`accountedPositions == span` was true by construction whenever a range was attested, and the
+completeness contract was comparing a number against itself. The owner's counterexample — a
+`DecisionFactRead` whose coverage names a range it never classified — was reachable through the
+internal contract for exactly that reason.
+
+Correction: the classification is now an exhaustive per-event pass. `EventOutcome` names the four
+outcomes (decision record, recognised non-decision, missing record, unclassified), `ClassifiedEvent`
+carries the outcome and the record, and `records`, both position sets and `accountedPositions` are
+all derived from those outcomes. An event the pass never reaches shrinks the account, which withholds
+`COMPLETE` instead of hiding the omission. No mutable accumulator is introduced: one `map` followed by
+linear projections.
+
+Discriminator and decisive experiment (battery runs at the corrected head):
+
+  K8  the classification pass silently drops every recognised non-decision event
+      APPLIED -> KILLED by `a mixed stream keeps its verified range and accounts for every event`
+      and `a mixed stream reports a complete record set over its verified range`
+      (records still [1, 3], account 2 of 3, so COMPLETE is withheld)
+
+  M8  the SAME omission, with the account restored to the input size - the rejected derivation
+      APPLIED -> SURVIVED, 207 tests, 0 failures
+
+  M8 is the point of the experiment rather than an escape: the identical classification defect is
+  invisible under the derivation the owner rejected and detected under the current one. That is the
+  evidence that the guard is load-bearing rather than decorative.
+
+--------------------------------------------------------------------------------
+P2 — an unknown enforcement point was reported as a proven gap   FIXED
+--------------------------------------------------------------------------------
+Also correct: `isDecisionOutcome` accepted any event carrying a decision token, so
+`enforcementPoint = UNKNOWN_BOUNDARY, decision = ALLOW` was placed in
+`unrecordedDecisionPositions` and could produce `GAPS_PRESENT`. The source cannot establish that an
+unrecognised boundary was supposed to produce a record.
+
+Correction: `isMissingRecord` requires the boundary to be one a decision family owns
+(`POLICY_ENFORCEMENT_POINTS` or `TOOL_ENFORCEMENT_POINTS`) as well as the token. `GAPS_PRESENT` now
+means "a record that should exist does not" and not "something decision-shaped went past".
+
+- `an unrecognised enforcement point is not reclassified as a policy decision` now asserts the event
+  is unclassified (`unclassifiedPositions = {1}`, `unrecordedDecisionPositions` empty) with the range
+  still attested.
+- `a tool enforcement event without a tool name becomes no record at all` carries the positive case
+  `GAPS_PRESENT` is reserved for: a recognised tool boundary, a decision token, no record buildable
+  from it. It now asserts `unrecordedDecisionPositions = {1}`.
+- Battery K5 (`isMissingRecord` -> false) APPLIED -> KILLED by that test.
+
+--------------------------------------------------------------------------------
+P2 — quadratic classification cost   FIXED
+--------------------------------------------------------------------------------
+Correct, and worse than a style point: `records = records + record` and both `+ position` set
+rebuilds ran per event, which is O(n^2) against a bounded read of up to `maxEventsPerRead`
+events. Replaced by one linear map plus linear projections; a review thread on the same lines is
+resolved with this change.
+
+--------------------------------------------------------------------------------
+P3 — qualification hygiene
+--------------------------------------------------------------------------------
+- Five negative constructor tests for `StreamCoverage` added (position outside the range, position
+  without a range, account without a range, account beyond the span, negative account). They assert
+  the guard rejects, which the sibling `DecisionProjection` invariant already did; the review thread
+  on `GovernanceProjection.kt:197` is resolved by them.
+- Test count: the roadmap record said 201 and is corrected to 207, which is the count at this head
+  (202 after the short-read fixture, plus five negative constructor tests). The review thread on that
+  line is resolved with the corrected number.
+- A source comment claiming "tests drive the real emitters through this classification" was not true
+  and is corrected: the tests drive the producers' recorded values through the real store path, so a
+  vocabulary change must update both the emitter and the table. The effect of drift is a withheld
+  claim, never a false one, and it is now stated as a limitation in the task record instead of being
+  implied as a stronger binding than exists.
+
+--------------------------------------------------------------------------------
+Mutation campaign, correction round
+--------------------------------------------------------------------------------
+Adapter restored byte-identically (010df419...) after every run; tree clean; control 207/0 before and
+after; results cleared per run.
+
+  K1  head-stability removed                          APPLIED -> KILLED
+  K2  no event recognised as another family's          APPLIED -> KILLED (two tests)
+  K3  cross-run attribution refusal removed            APPLIED -> KILLED
+  K4  wrong-stream refusal removed                     APPLIED -> KILLED
+  K5  missing-record guard removed                     APPLIED -> KILLED
+  K6  contiguity count against the head removed        APPLIED -> SURVIVED (documented redundancy)
+  K7  account off by one against the span              APPLIED -> KILLED (four tests)
+  K8  classification pass omits a verified position    APPLIED -> KILLED  (P1)
+  M8  the same omission under the input-size account   APPLIED -> SURVIVED (P1 control)
+
+8 kills, 2 survivors. K6's mechanism is unchanged from round 0: the endpoint anchor refuses a short
+read on its own, and the purpose-built fixture for that case still passes with the mutation applied.
+
+Invalid attempt, recorded rather than dropped: K5's first run in this round reported 0 matches because
+spotless had reflowed the expression the anchor was written against. A mutation that does not apply is
+not a survivor; the anchor was corrected from the file itself and the mutation re-run to a kill.
+
+--------------------------------------------------------------------------------
+Own error in this round
+--------------------------------------------------------------------------------
+The first battery run of this round reverted the correction fixes: they were still uncommitted and the
+battery's `git checkout -- <file>` restored the committed adapter, so every subsequent run measured the
+pre-correction source while the tests carried the new expectations. Detected from the control run
+failing (an unrecognised enforcement point expected unclassified, old code produced a gap). Recovered by
+re-applying the fixes from their scripts, verifying the resulting sha256 against the state the 207/0 run
+was measured on, and committing before any further mutation run. Same failure mode as the 0.7.4c2
+round-1 battery, recorded because the rule it violates is the one already written down: commit before
+mutating.

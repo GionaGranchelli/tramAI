@@ -1,0 +1,517 @@
+0.7.4c1 authority-aware projection — discriminator experiments (control / mutation / failure / restoration)
+Test: ./gradlew :tramai-control-plane:test --tests 'dev.tramai.controlplane.GovernanceProjectionTest'
+JDK 25; Gradle 9.0.0.
+
+=== PASS 1 (intermediate code state): mutation A killed, mutation B SURVIVED ===
+pristine sha256 CLS=22ee3b3bc3d0411decb3037ded288d8c94ede0a8b1a74dd5e0bd97fc679e4a37 PROJ=c02090e8cbd96803d2a3463b872a0da5f4826e166eb4774b4292b2585d29179a
+########## MUTATION A: recorded decisions upgraded to authoritative runtime state ##########
+gradle_exit=1
+  tests=15 failures=8 errors=0
+  FAILED: freshness is not invented when the source reports no watermark()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: reading the projection changes no authoritative state and invokes no effect()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an older record cannot overwrite the newer position()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a historical decision is never restated at the current registration version()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a duplicated source event does not duplicate the projected fact()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a fold with a missing intermediate event does not claim completeness()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a registered boundary named by a record grants no verified-origin claim()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an ALLOW record is authorization evidence and the read surface cannot carry completion()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+restored CLS sha256=22ee3b3bc3d0411decb3037ded288d8c94ede0a8b1a74dd5e0bd97fc679e4a37 (pristine=22ee3b3bc3d0411decb3037ded288d8c94ede0a8b1a74dd5e0bd97fc679e4a37)
+########## MUTATION B: the current-at-version guard removed ##########
+gradle_exit=0
+  tests=15 failures=0 errors=0
+restored PROJ sha256=c02090e8cbd96803d2a3463b872a0da5f4826e166eb4774b4292b2585d29179a (pristine=c02090e8cbd96803d2a3463b872a0da5f4826e166eb4774b4292b2585d29179a)
+########## CONTROL (restored) ##########
+gradle_exit=0
+  tests=15 failures=0 errors=0
+C1 DISCRIMINATION DONE
+
+=== PASS 2 (after adding the isolating discriminator): mutation B killed ===
+########## MUTATION B (repeat, with the added discriminator) ##########
+gradle_exit=1
+  tests=15 failures=1 errors=0
+  FAILED: a non-authoritative fact cannot be constructed as authoritative()
+    org.opentest4j.AssertionFailedError: Expected an exception of class java.lang.IllegalArgumentException to be thrown, but was completed succe
+restored PROJ sha256=c02090e8cbd96803d2a3463b872a0da5f4826e166eb4774b4292b2585d29179a (pristine=c02090e8cbd96803d2a3463b872a0da5f4826e166eb4774b4292b2585d29179a)
+########## CONTROL (restored) ##########
+gradle_exit=0
+  tests=15 failures=0 errors=0
+C1 DISCRIMINATION-2 DONE
+
+=== PASS 3 (after clearing detekt/format findings): both killed, restorations byte-identical ===
+final-state sha256 CLS=1a95e81f69a35dbaeb58cb70921fbae0dee5ca1e2d2696113a3406993740dd8d PROJ=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc
+########## CONTROL at final state ##########
+  gradle_exit=0
+  tests=20 failures=0 errors=0
+########## MUTATION A at final state: recorded decisions -> AUTHORITATIVE_PERSISTED ##########
+  gradle_exit=1
+  tests=20 failures=8 errors=0
+  FAILED: freshness is not invented when the source reports no watermark()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: reading the projection changes no authoritative state and invokes no effect()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an older record cannot overwrite the newer position()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a historical decision is never restated at the current registration version()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a duplicated source event does not duplicate the projected fact()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a fold with a missing intermediate event does not claim completeness()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a registered boundary named by a record grants no verified-origin claim()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an ALLOW record is authorization evidence and the read surface cannot carry completion()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  restored CLS=1a95e81f69a35dbaeb58cb70921fbae0dee5ca1e2d2696113a3406993740dd8d pristine=1a95e81f69a35dbaeb58cb70921fbae0dee5ca1e2d2696113a3406993740dd8d
+########## MUTATION B at final state: CURRENT_AT_VERSION authority guard removed ##########
+  gradle_exit=1
+  tests=20 failures=1 errors=0
+  FAILED: a declared identity cannot be labelled current at the version it does not own()
+    org.opentest4j.AssertionFailedError: Expected an exception of class java.lang.IllegalArgumentException to be thrown, but was compl
+  restored PROJ=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc pristine=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc
+########## CONTROL after restoration ##########
+  gradle_exit=0
+  tests=20 failures=0 errors=0
+C1 FINAL DISCRIMINATION DONE
+
+=== PASS 4 (head under review 6dc1a003: 23 discriminators, after the three review corrections) ===
+### discrimination re-run at this head
+A applied
+B applied
+final-state sha256 CLS=8aa1b5ccb43940294562dfdd3a3c34ecbe6ca82ece956a8465d10cb45050cdcc PROJ=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc
+########## CONTROL at final state ##########
+  gradle_exit=0
+  tests=23 failures=0 errors=0
+########## MUTATION A at final state: recorded decisions -> AUTHORITATIVE_PERSISTED ##########
+  gradle_exit=1
+  tests=23 failures=9 errors=0
+  FAILED: freshness is not invented when the source reports no watermark()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: reading the projection changes no authoritative state and invokes no effect()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an older record cannot overwrite the newer position()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a historical decision is never restated at the current registration version()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a duplicated source event does not duplicate the projected fact()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a fold with a missing intermediate event does not claim completeness()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a registered boundary named by a record grants no verified-origin claim()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: an ALLOW record is authorization evidence and the read surface cannot carry completion()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  FAILED: a wide gap between source positions is a gap, not a hang()
+    java.lang.IllegalArgumentException: a recorded policy or tool decision is an authorization record, not authoritative runtime state
+  restored CLS=8aa1b5ccb43940294562dfdd3a3c34ecbe6ca82ece956a8465d10cb45050cdcc pristine=8aa1b5ccb43940294562dfdd3a3c34ecbe6ca82ece956a8465d10cb45050cdcc
+########## MUTATION B at final state: CURRENT_AT_VERSION authority guard removed ##########
+  gradle_exit=1
+  tests=23 failures=1 errors=0
+  FAILED: a declared identity cannot be labelled current at the version it does not own()
+    org.opentest4j.AssertionFailedError: Expected an exception of class java.lang.IllegalArgumentException to be thrown, but was compl
+  restored PROJ=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc pristine=d60fd973cb9fef015e1d88c8347d43e0b5d96a67e39d3d87b4562a4b11708ccc
+########## CONTROL after restoration ##########
+  gradle_exit=0
+  tests=23 failures=0 errors=0
+C1 FINAL DISCRIMINATION DONE
+C1 POST-REVIEW DONE
+
+Note: mutation verdicts in pass 4 were recorded at content hash CLS=8aa1b5cc / PROJ=d60fd973; the subsequent
+spotlessApply pass reflowed the added tests only (formatting, no semantic change) and the control run after it is
+recorded in /tmp/c1-sp4.log: spotlessCheck clean, module 84 tests, 0 failures.
+
+=== PASS 5 (after the owner's review findings: contract changed, forced recompiles) ===
+Mutation C (COMPLETE => coverage guard removed) and mutation D (Finding A's defect reintroduced:
+an unattested contiguous window certifies itself) were each run against a fully recompiled build,
+with a control before and after each. Both verdicts are KILLED with verified application, a matched
+control, and the mechanism recorded.
+
+Tooling corrections recorded with the experiment: mutation D's first attempt was INVALID (its
+fallback was inserted after an earlier guard, so the mutated branch never executed) and one control
+reported a stale result because Gradle reused an incremental-compilation artifact for the restored
+source. Both are recorded rather than counted as contract evidence; --rerun-tasks was used for every
+verdict in this pass.
+
+pristine CLS=84fbc1efa3c321eb45edbd66edd94ee631f0bd72c781742413b8aff39766f014 PROJ=5db2b988622c172477226e6448d6f82ac7e4a2eaaf1a192464ca463ffef2a9f5
+########## CONTROL (forced recompile) ##########
+  gradle_exit=0
+  tests=27 failures=0 errors=0
+########## MUTATION C: completeness claimable without the attested range ##########
+  gradle_exit=1
+  tests=27 failures=1 errors=0
+  FAILED: completeness cannot be claimed without the attested range it rests on()
+      org.opentest4j.AssertionFailedError: Expected an exception of class java.lang.IllegalArgumentException to be thrown, but was completed succe
+  restored PROJ=5db2b988622c172477226e6448d6f82ac7e4a2eaaf1a192464ca463ffef2a9f5 pristine=5db2b988622c172477226e6448d6f82ac7e4a2eaaf1a192464ca463ffef2a9f5
+########## CONTROL after C ##########
+  gradle_exit=0
+  tests=27 failures=0 errors=0
+########## MUTATION D: an unattested contiguous window certifies itself ##########
+  gradle_exit=1
+  tests=27 failures=5 errors=0
+  FAILED: a single observed position is not completeness without an attested source range()
+      java.lang.IllegalArgumentException: completeness cannot be claimed without the source-attested range it rests on
+  FAILED: reading the projection changes no authoritative state and invokes no effect()
+      java.lang.IllegalArgumentException: completeness cannot be claimed without the source-attested range it rests on
+  FAILED: a historical decision is never restated at the current registration version()
+      java.lang.IllegalArgumentException: completeness cannot be claimed without the source-attested range it rests on
+  FAILED: a registered boundary named by a record grants no verified-origin claim()
+      java.lang.IllegalArgumentException: completeness cannot be claimed without the source-attested range it rests on
+  FAILED: an ALLOW record is authorization evidence and the read surface cannot carry completion()
+      java.lang.IllegalArgumentException: completeness cannot be claimed without the source-attested range it rests on
+  restored CLS=84fbc1efa3c321eb45edbd66edd94ee631f0bd72c781742413b8aff39766f014 pristine=84fbc1efa3c321eb45edbd66edd94ee631f0bd72c781742413b8aff39766f014
+########## CONTROL after D ##########
+  gradle_exit=0
+  tests=27 failures=0 errors=0
+C1 FINDINGS BATTERY DONE
+
+=== PASS 6 (owner review, findings C and D: freshness inversion and cross-run attribution) ===
+Mutation E (freshness table inverted) and mutation F (run-attribution guard removed) were each run
+against a fully recompiled build with a control before and after, backups taken before mutation, and
+sha256-verified restorations. E: KILLED (11 failures, including the real-authority discriminator).
+F: KILLED by exactly one test. Control after restoration: 31 tests, 0 failures.
+
+Finding C note: the reader's registration fact also hardcoded AUTHORITATIVE_PERSISTED for every read
+regardless of consistency, which is why the inverted freshness satisfied its own invariant instead of
+failing loudly. The mapping now lives in one auditable function with the watermark it rests on.
+
+Finding D note: mismatch is refused, not filtered, because silently dropping records would leave a
+completeness claim resting on data the projection chose not to report.
+
+pristine CLS=c0a6ee4a0448f28de0cc5ad9ce72187a64a0d1357acda58bd0f824e792d893d2 RDR=d858a207027889236d1ba706ce9981415135a01a525640cec7b48ac9c839cc2d
+########## CONTROL ##########
+  gradle_exit=0
+  tests=31 failures=0 errors=0
+########## MUTATION E: freshness table inverted ##########
+  gradle_exit=1
+  tests=31 failures=20 errors=0
+  FAILED: a projected registration read is never labelled current()
+      java.lang.AssertionError:  Expecting actual:   CURRENT_AT_VERSION not to be equal to:   CURRENT_AT_VERSION 
+  FAILED: a single observed position is not completeness without an attested source range()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: freshness is not invented when the source reports no watermark()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: reading the projection changes no authoritative state and invokes no effect()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: an older record cannot overwrite the newer position()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: a historical decision is never restated at the current registration version()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: a duplicated source event does not duplicate the projected fact()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: telemetry reporting a selected route cannot become routing evidence()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: a read with no run id claims no decision fact and no freshness()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: a missing provider route fact is unsupported, never an assertion that no routing happened()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: an empty read is not evidence that nothing was produced()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: a complete declared identity stays declared, never authoritative()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: a fold with a missing intermediate event does not claim completeness()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: a registered boundary named by a record grants no verified-origin claim()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: a read with no declared identity reports the absence rather than an ungoverned run()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: an ALLOW record is authorization evidence and the read surface cannot carry completion()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: completeness is a stream property, so another family position is not a gap()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: a projection that cannot name its watermark is not claimed current()
+      org.opentest4j.AssertionFailedError:  expected: CURRENT_AT_VERSION  but was: EVENTUAL_KNOWN_LAG
+  FAILED: a wide gap between source positions is a gap, not a hang()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  FAILED: a live authoritative registration read is current at its own version()
+      java.lang.IllegalArgumentException: a lag claim requires a watermark; unknown lag is not zero lag
+  restored CLS=c0a6ee4a0448f28de0cc5ad9ce72187a64a0d1357acda58bd0f824e792d893d2 pristine=c0a6ee4a0448f28de0cc5ad9ce72187a64a0d1357acda58bd0f824e792d893d2
+########## MUTATION F: the run-attribution guard removed ##########
+  gradle_exit=1
+  tests=31 failures=1 errors=0
+  FAILED: a decision record for another run is refused, not projected()
+      org.opentest4j.AssertionFailedError: Expected an exception of class java.lang.IllegalArgumentException to be thrown, but was compl
+  restored RDR=d858a207027889236d1ba706ce9981415135a01a525640cec7b48ac9c839cc2d pristine=d858a207027889236d1ba706ce9981415135a01a525640cec7b48ac9c839cc2d
+########## CONTROL ##########
+  gradle_exit=0
+  tests=31 failures=0 errors=0
+########## GATES ##########
+### spotlessCheck
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/home/gionag/.gradle/wrapper/dists/gradle-9.0.0-bin/d6wjpkvcgsg3oed0qlfss3wgl/gradle-9.0.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin UP-TO-DATE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors UP-TO-DATE
+> Task :build-logic:processResources UP-TO-DATE
+> Task :build-logic:classes UP-TO-DATE
+> Task :build-logic:jar UP-TO-DATE
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+> Task :spotlessKotlin UP-TO-DATE
+> Task :spotlessKotlinCheck UP-TO-DATE
+> Task :spotlessCheck UP-TO-DATE
+
+BUILD SUCCESSFUL in 1s
+6 actionable tasks: 6 up-to-date
+EXIT=0
+### verifyStaticAnalysis
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/home/gionag/.gradle/wrapper/dists/gradle-9.0.0-bin/d6wjpkvcgsg3oed0qlfss3wgl/gradle-9.0.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin UP-TO-DATE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors UP-TO-DATE
+> Task :build-logic:processResources UP-TO-DATE
+> Task :build-logic:classes UP-TO-DATE
+> Task :build-logic:jar UP-TO-DATE
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+
+> Task :verifyStaticAnalysis
+static-analysis: Detekt baseline OK: base 4792 -> current 4792; 0 removed, 0 added.
+static-analysis: no new findings; reports at /home/gionag/tramai-c1/build/reports/static-analysis
+
+BUILD SUCCESSFUL in 39s
+5 actionable tasks: 1 executed, 4 up-to-date
+EXIT=0
+### verifyChangePolicy -PchangeClass=runtime-behaviour -PchangePolicyBase=24caf4bb8ff796c527a01001d0fa8c4d0a6b0b40
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/home/gionag/.gradle/wrapper/dists/gradle-9.0.0-bin/d6wjpkvcgsg3oed0qlfss3wgl/gradle-9.0.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin UP-TO-DATE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors UP-TO-DATE
+> Task :build-logic:processResources UP-TO-DATE
+> Task :build-logic:classes UP-TO-DATE
+> Task :build-logic:jar UP-TO-DATE
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+
+> Task :verifyChangePolicy
+verifyChangePolicy: WARNING — working tree has uncommitted changes.
+  Policy evaluation includes staged, unstaged, and untracked files.
+  However, CI evaluates only committed branch changes.
+  Commit before pushing to avoid CI vs local mismatch.
+verifyChangePolicy PASSED — 7 changed file(s), change class: runtime-behaviour, no policy violations.
+
+BUILD SUCCESSFUL in 1s
+5 actionable tasks: 1 executed, 4 up-to-date
+EXIT=0
+### module + server + security tests
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/home/gionag/.gradle/wrapper/dists/gradle-9.0.0-bin/d6wjpkvcgsg3oed0qlfss3wgl/gradle-9.0.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin UP-TO-DATE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors UP-TO-DATE
+> Task :build-logic:processResources UP-TO-DATE
+> Task :build-logic:classes UP-TO-DATE
+> Task :build-logic:jar UP-TO-DATE
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+> Task :tramai-orchestration:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-server:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-control-plane:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-scheduler:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-scheduler:processResources NO-SOURCE
+> Task :tramai-orchestration:processResources NO-SOURCE
+> Task :tramai-control-plane:processResources NO-SOURCE
+> Task :tramai-control-plane:processTestFixturesResources NO-SOURCE
+> Task :tramai-server:processResources UP-TO-DATE
+> Task :tramai-control-plane:processTestResources NO-SOURCE
+> Task :tramai-server:processTestResources NO-SOURCE
+> Task :tramai-core:compileKotlin UP-TO-DATE
+> Task :tramai-core:compileJava NO-SOURCE
+> Task :tramai-core:processResources NO-SOURCE
+> Task :tramai-core:classes UP-TO-DATE
+> Task :tramai-core:jar UP-TO-DATE
+> Task :tramai-control-plane:compileKotlin UP-TO-DATE
+> Task :tramai-control-plane:compileJava NO-SOURCE
+> Task :tramai-control-plane:classes UP-TO-DATE
+> Task :tramai-control-plane:jar UP-TO-DATE
+> Task :tramai-orchestration:compileKotlin UP-TO-DATE
+> Task :tramai-orchestration:compileJava NO-SOURCE
+> Task :tramai-orchestration:classes UP-TO-DATE
+> Task :tramai-control-plane:compileTestFixturesKotlin UP-TO-DATE
+> Task :tramai-control-plane:compileTestFixturesJava NO-SOURCE
+> Task :tramai-orchestration:jar UP-TO-DATE
+> Task :tramai-control-plane:testFixturesClasses UP-TO-DATE
+> Task :tramai-control-plane:testFixturesJar UP-TO-DATE
+> Task :tramai-scheduler:compileKotlin UP-TO-DATE
+> Task :tramai-scheduler:compileJava NO-SOURCE
+> Task :tramai-control-plane:compileTestKotlin UP-TO-DATE
+> Task :tramai-scheduler:classes UP-TO-DATE
+> Task :tramai-control-plane:compileTestJava NO-SOURCE
+> Task :tramai-control-plane:testClasses UP-TO-DATE
+> Task :tramai-scheduler:jar UP-TO-DATE
+> Task :tramai-server:compileKotlin
+> Task :tramai-server:compileJava NO-SOURCE
+> Task :tramai-server:classes UP-TO-DATE
+> Task :tramai-server:jar UP-TO-DATE
+> Task :tramai-server:compileTestKotlin
+> Task :tramai-server:compileTestJava NO-SOURCE
+> Task :tramai-server:testClasses UP-TO-DATE
+> Task :tramai-control-plane:test
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+> Task :tramai-server:test
+
+BUILD SUCCESSFUL in 9s
+21 actionable tasks: 4 executed, 17 up-to-date
+EXIT=0
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/home/gionag/.gradle/wrapper/dists/gradle-9.0.0-bin/d6wjpkvcgsg3oed0qlfss3wgl/gradle-9.0.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin UP-TO-DATE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors UP-TO-DATE
+> Task :build-logic:processResources UP-TO-DATE
+> Task :build-logic:classes UP-TO-DATE
+> Task :build-logic:jar UP-TO-DATE
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+> Task :tramai-structured:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-orchestration:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-spring-sovereign:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-testing:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-spring-boot-starter-sovereign-ops:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-spring-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-standalone:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-engine:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-security:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-sovereign:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-structured:processResources NO-SOURCE
+> Task :tramai-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-testing:processResources NO-SOURCE
+> Task :tramai-security:processResources NO-SOURCE
+> Task :tramai-testing:processTestFixturesResources NO-SOURCE
+> Task :tramai-security:processTestResources NO-SOURCE
+> Task :tramai-engine:processResources NO-SOURCE
+> Task :tramai-standalone:processResources NO-SOURCE
+> Task :tramai-sovereign:processResources NO-SOURCE
+> Task :tramai-spring-sovereign:processResources UP-TO-DATE
+> Task :tramai-orchestration:processResources NO-SOURCE
+> Task :tramai-spring-core:processResources UP-TO-DATE
+> Task :tramai-spring-boot-starter-sovereign-ops:processResources UP-TO-DATE
+> Task :tramai-core:compileKotlin UP-TO-DATE
+> Task :tramai-core:compileJava NO-SOURCE
+> Task :tramai-core:processResources NO-SOURCE
+> Task :tramai-core:classes UP-TO-DATE
+> Task :tramai-core:jar UP-TO-DATE
+> Task :tramai-security:compileKotlin UP-TO-DATE
+> Task :tramai-security:compileJava NO-SOURCE
+> Task :tramai-testing:compileKotlin UP-TO-DATE
+> Task :tramai-security:classes UP-TO-DATE
+> Task :tramai-security:jar UP-TO-DATE
+> Task :tramai-testing:compileJava NO-SOURCE
+> Task :tramai-structured:compileKotlin UP-TO-DATE
+> Task :tramai-testing:classes UP-TO-DATE
+> Task :tramai-structured:compileJava NO-SOURCE
+> Task :tramai-testing:jar UP-TO-DATE
+> Task :tramai-structured:classes UP-TO-DATE
+> Task :tramai-orchestration:compileKotlin UP-TO-DATE
+> Task :tramai-structured:jar UP-TO-DATE
+> Task :tramai-engine:compileKotlin UP-TO-DATE
+> Task :tramai-orchestration:compileJava NO-SOURCE
+> Task :tramai-engine:compileJava NO-SOURCE
+> Task :tramai-orchestration:classes UP-TO-DATE
+> Task :tramai-engine:classes UP-TO-DATE
+> Task :tramai-orchestration:jar UP-TO-DATE
+> Task :tramai-engine:jar UP-TO-DATE
+> Task :tramai-standalone:compileKotlin UP-TO-DATE
+> Task :tramai-standalone:compileJava NO-SOURCE
+> Task :tramai-standalone:classes UP-TO-DATE
+> Task :tramai-standalone:jar UP-TO-DATE
+> Task :tramai-sovereign:compileKotlin UP-TO-DATE
+> Task :tramai-sovereign:compileJava NO-SOURCE
+> Task :tramai-sovereign:classes UP-TO-DATE
+> Task :tramai-spring-core:compileKotlin UP-TO-DATE
+> Task :tramai-sovereign:jar UP-TO-DATE
+> Task :tramai-spring-core:compileJava NO-SOURCE
+> Task :tramai-spring-core:classes UP-TO-DATE
+> Task :tramai-spring-core:jar UP-TO-DATE
+> Task :tramai-spring-sovereign:compileKotlin UP-TO-DATE
+> Task :tramai-spring-sovereign:compileJava NO-SOURCE
+> Task :tramai-spring-sovereign:classes UP-TO-DATE
+> Task :tramai-spring-sovereign:jar UP-TO-DATE
+> Task :tramai-spring-boot-starter-sovereign-ops:compileKotlin UP-TO-DATE
+> Task :tramai-spring-boot-starter-sovereign-ops:compileJava NO-SOURCE
+> Task :tramai-spring-boot-starter-sovereign-ops:classes UP-TO-DATE
+> Task :tramai-spring-boot-starter-sovereign-ops:jar UP-TO-DATE
+> Task :tramai-testing:compileTestFixturesKotlin UP-TO-DATE
+> Task :tramai-testing:compileTestFixturesJava NO-SOURCE
+> Task :tramai-testing:testFixturesClasses UP-TO-DATE
+> Task :tramai-testing:testFixturesJar UP-TO-DATE
+> Task :tramai-security:compileTestKotlin UP-TO-DATE
+> Task :tramai-security:compileTestJava NO-SOURCE
+> Task :tramai-security:testClasses UP-TO-DATE
+> Task :tramai-security:test UP-TO-DATE
+
+BUILD SUCCESSFUL in 1s
+33 actionable tasks: 33 up-to-date
+EXIT=0
+TramAI static-analysis summary
+============================
+baselined legacy findings : 4792 (base: 4792)
+new/unbaselined findings   : 0
+baseline additions         : 0
+baseline removals          : 0
+new findings by rule:
+  (none)
+reports: detekt.xml, detekt.sarif, detekt.html
+tramai-control-plane: tests=92 failures=0 errors=0
+tramai-security: tests=209 failures=0 errors=0
+tramai-server: tests=89 failures=0 errors=0
+C1 CD BATTERY DONE

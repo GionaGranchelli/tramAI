@@ -1,0 +1,45 @@
+=== format (guarded: only files this slice authored may change)
+  changed:
+     M build-logic/src/main/kotlin/dev/tramai/build/quality/MergeGateVerifier.kt
+     M build-logic/src/main/kotlin/dev/tramai/build/release/TramaiReleaseVerificationPlugin.kt
+     M build-logic/src/test/kotlin/dev/tramai/build/quality/MergeGateVerifierTest.kt
+     M scripts/verify-merge-gate.sh
+
+=== spotlessCheck + the verifier suite
+  EXIT=0
+  BUILD SUCCESSFUL in 28s
+  violations:
+  compile errors:
+  suite: tests="29" skipped="0" failures="0" errors="0"
+
+=== the committed self-check: four named refusals + a positive control
+  == refusing: evidence that cannot be read
+    ok [unknown pull request]: refused with [checks-unavailable]
+  == refusing: readable evidence belonging to another commit
+    ok [wrong head]: refused with [head-mismatch]
+  == refusing: a required check identity absent from the rollup
+    ok [missing required check]: refused with [required-check-missing]
+  == refusing: invoked without a commit to tie evidence to
+    ok [no properties]: refused
+  == passing: a genuinely verified commit (positive control)
+    ok: merge gate PASSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: checks complete and green, required workflows successful
+  
+  SELF-CHECK PASSED: four named refusals hold, and the positive control still passes.
+  self-check EXIT=0
+
+=== real-task scenarios
+--- correct head 32d9a4abf4c7 (must PASS)
+  merge gate PASSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: checks complete and green, required workflows successful
+--- wrong head (must REFUSE)
+  > merge gate REFUSED at deadbeefdeadbeefdeadbeefdeadbeefdeadbeef: 5 violation(s)
+      - [head-mismatch] head moved from deadbeefdeadbeefdeadbeefdeadbeefdeadbeef to 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3; every check below belongs to a commit nobody reviewed
+      - [workflow-runs-unavailable] no workflow runs were read for deadbeefdeadbeefdeadbeefdeadbeefdeadbeef; a required workflow cannot be shown to have passed
+      - [required-workflow-missing] 'CI' has no workflow run at deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+--- unreadable pull request (must REFUSE)
+  > merge gate REFUSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: 3 violation(s)
+      - [head-unavailable] the API reported no head; merge evidence is unavailable, which is not a pass
+      - [checks-unavailable] no status checks were read; an empty result means the query failed, not that all checks passed
+      - [check-names-unavailable] required check identities were configured but no check names were read; completeness cannot be established from states alone
+--- merge call shape (dry run, no API call)
+  DRY RUN: would call
+    gh api --method PUT repos/{owner}/{repo}/pulls/518/merge -f sha=32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3 -f merge_method=squash

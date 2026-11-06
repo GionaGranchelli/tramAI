@@ -30,6 +30,11 @@ dependencies {
     implementation(kotlin("stdlib"))
     implementation(kotlin("reflect"))
     implementation(kotlin("gradle-plugin", version = "2.3.0"))
+    // L4 guard: Kotlin's own parser (PSI) instead of a hand-written lexer. compileOnly on purpose - the artifact is
+    // resolved into the guard's private configuration and loaded in a worker classloader, so it never joins the build's
+    // plugin classpath next to the Kotlin Gradle plugin's own compiler.
+    compileOnly("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.3.0")
+    testImplementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.3.0")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.3")
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.3")
@@ -200,6 +205,10 @@ gradlePlugin {
         create("staticSafetyGuards") {
             id = "tramai.static-safety-guards"
             implementationClass = "dev.tramai.build.quality.StaticSafetyGuardsPlugin"
+        }
+        create("directApprovalMutationGuard") {
+            id = "tramai.direct-approval-mutation-guard"
+            implementationClass = "dev.tramai.build.quality.DirectApprovalMutationGuardPlugin"
         }
         create("tramaiSupplyChain") {
             id = "tramai.supply-chain"

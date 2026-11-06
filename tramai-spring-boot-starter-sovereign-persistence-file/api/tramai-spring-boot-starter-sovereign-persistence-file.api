@@ -1,6 +1,7 @@
 public final class dev/tramai/spring/sovereign/persistence/file/FileSovereignOpsAuditOutboxStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore, java/lang/AutoCloseable {
 	public static final field Companion Ldev/tramai/spring/sovereign/persistence/file/FileSovereignOpsAuditOutboxStore$Companion;
 	public fun append (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun appendDispatchable (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun claimPending (Ljava/lang/String;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun close ()V
 	public fun findByEventKey (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -12,6 +13,7 @@ public final class dev/tramai/spring/sovereign/persistence/file/FileSovereignOps
 	public fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markReadyForDispatch (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun quarantineStore ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxQuarantineStore;
 	public final fun rebuildIndex ()V
 	public final fun verifyAll ()V
 }

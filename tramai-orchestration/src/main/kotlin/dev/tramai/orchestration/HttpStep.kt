@@ -8,7 +8,9 @@ import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.retry.DefaultRetryJitterSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -240,6 +242,8 @@ internal data class HttpWorkflowStep<S>(
                     )
                 } catch (error: Throwable) {
                     error.rethrowIfCancellation()
+                    // A refusal is the authority saying no, not a failed send: it must not become TRANSPORT_FAILED.
+                    error.rethrowIfAuthoritativeRefusal()
                     val code =
                         when (error) {
                             is HttpPolicyViolation -> WorkflowStepFailureCode.POLICY_REJECTED
@@ -323,17 +327,62 @@ internal data class HttpWorkflowStep<S>(
                         header(headerName, headerValue)
                     }
                 }.build()
+        // One durable grant per HTTP attempt, taken immediately before the transport is invoked and outside any block
+        // that rewrites a thrown error into a step failure code. This is the only production caller of
+        // HttpTransport.send, and HttpTransport is internal, so the grant taken here also covers the JDK send behind it:
+        // E1 never admits a second time for the same attempt.
+        val httpAdmission = currentHttpAdmission()
+        val evidenceStore = currentEffectEvidenceStore()
+        val stepAttempt = currentStepAttempt()
+        if (evidenceStore != null) {
+            requireEvidenceLineageIfEnabled(workflowName, context.workflowId, name, httpAdmission != null, stepAttempt)
+        }
+        val permit = httpAdmission?.admitHttp(name, HTTP_EFFECT_KIND)
+        var evidenceKey: WorkflowEffectEvidenceKey? = null
+
+        if (permit != null && evidenceStore != null && stepAttempt != null) {
+            val key =
+                WorkflowEffectEvidenceKey(
+                    workflowName = workflowName,
+                    workflowId = context.workflowId,
+                    checkpointGeneration = permit.checkpointGeneration,
+                    admissionSeq = permit.admissionSequence,
+                )
+            evidenceKey = key
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = key,
+                    stepName = name,
+                    stepAttemptId = stepAttempt.attemptId,
+                    effectKind = HTTP_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.ADMITTED,
+                    createdAtEpochMillis = currentEffectEvidenceClockMillis() ?: stepAttempt.startedAtEpochMillis,
+                ),
+            )
+        }
+
+        permit?.tryConsume()
+
         var connectedValidated = false
         val sendResult =
-            execution.transport.send(httpRequest, blockingDispatcher) { address ->
-                connectedValidated = true
-                try {
-                    execution.policy.validateTarget(execution.target.copy(addresses = listOf(address)))
-                } catch (error: Throwable) {
-                    error.rethrowIfCancellation()
-                    throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected connected address", error)
+            sendRecordingFailure(evidenceKey, evidenceStore) {
+                execution.transport.send(httpRequest, blockingDispatcher) { address ->
+                    connectedValidated = true
+                    try {
+                        execution.policy.validateTarget(execution.target.copy(addresses = listOf(address)))
+                    } catch (error: Throwable) {
+                        error.rethrowIfCancellation()
+                        throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected connected address", error)
+                    }
                 }
             }
+
+        if (evidenceKey != null && evidenceStore != null) {
+            val record = evidenceStore.getEvidence(evidenceKey)
+            if (record != null) {
+                evidenceStore.updateEvidence(record.copy(state = WorkflowEffectEvidenceState.DISPATCHED))
+            }
+        }
         if (execution.transport.capability == HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION && !connectedValidated) {
             val rejection = HttpPolicyViolation("connected-address validation was not performed")
             try {
@@ -366,6 +415,17 @@ internal data class HttpWorkflowStep<S>(
                 } else {
                     truncated = true
                 }
+            }
+        }
+        if (evidenceKey != null && evidenceStore != null) {
+            val record = evidenceStore.getEvidence(evidenceKey)
+            if (record != null) {
+                evidenceStore.updateEvidence(
+                    record.copy(
+                        state = WorkflowEffectEvidenceState.COMPLETED,
+                        completedAtEpochMillis = currentEffectEvidenceClockMillis() ?: record.createdAtEpochMillis,
+                    ),
+                )
             }
         }
         if (truncated) {
@@ -533,6 +593,52 @@ private class ExecutedHttpResponse(
             headers = headers,
             body = bodyBytes.takeIf { it.isNotEmpty() }?.toString(Charsets.UTF_8),
         )
+}
+
+/**
+ * Runs [send]; on any failure marks the effect evidence UNCERTAIN (the transport outcome is unknown) and rethrows
+ * the original error unchanged. Evidence-write failures are attached as suppressed and never mask the original.
+ */
+@Suppress("TooGenericExceptionCaught")
+private suspend fun <T> sendRecordingFailure(
+    evidenceKey: WorkflowEffectEvidenceKey?,
+    evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    send: suspend () -> T,
+): T {
+    try {
+        return send()
+    } catch (cancelled: CancellationException) {
+        recordUncertainFailure(evidenceKey, evidenceStore, cancelled)
+        throw cancelled
+    } catch (error: Throwable) {
+        recordUncertainFailure(evidenceKey, evidenceStore, error)
+        throw error
+    }
+}
+
+@Suppress("TooGenericExceptionCaught")
+private suspend fun recordUncertainFailure(
+    evidenceKey: WorkflowEffectEvidenceKey?,
+    evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    error: Throwable,
+) {
+    if (evidenceKey == null || evidenceStore == null) return
+    try {
+        withContext(NonCancellable) {
+            val record = evidenceStore.getEvidence(evidenceKey)
+            if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
+                evidenceStore.updateEvidence(
+                    record.copy(
+                        state = WorkflowEffectEvidenceState.UNCERTAIN,
+                        diagnosticSummary = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text,
+                    ),
+                )
+            }
+        }
+    } catch (suppressed: Throwable) {
+        suppressed.rethrowIfCancellation()
+        error.addSuppressed(suppressed)
+    }
 }
 
 private val supportedHttpMethods = setOf("GET", "POST", "PUT", "DELETE", "PATCH")

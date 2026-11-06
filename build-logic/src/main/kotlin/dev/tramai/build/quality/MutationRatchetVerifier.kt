@@ -45,13 +45,28 @@ import dev.tramai.build.quality.TestQualityConfiguration.MutationTargetFamily
  * - M16/M17/M18 analyzer semantics/mutator/timeout drift, base vs candidate
  *   AND candidate vs the executable PIT renderer               = fail
  * - M19 identity-schema drift                                  = fail
- * - M20 malformed / missing / self-inconsistent authority      = fail closed
+ * - M20 malformed / missing / self-inconsistent authority    = fail closed
+ * - M21 base identity absent from the candidate population   = fail by default. A recorded evolution
+ *   invocation may downgrade individually recorded removals to warnings only when the candidate has
+ *   a fresh measured population; all other removals fail closed.
+ * - M22 base-authorized enrollment: candidate adds a classification whose EXACT record (classification,
+ *   reason, issue, targetPhase) is already authorized by the base enrollment ledger, for a target that is
+ *   an unresolved NON_KILLED survivor in the base population                      = pass (the ceremony)
+ * - M23 candidate adds an enrollment authorization AND enrolls it in the same transition = fail
+ * - M24 enrolled classification payload differs from its base authorization      = fail
+ * - M25 enrollment authorization is duplicated, or targets an identity that is absent from the base
+ *   population, KILLED, or already classified                                    = fail closed
+ * - M26 base authorization removed while its exact authorized classification is enrolled = pass (consumption)
+ * - M27 authorization removed without enrollment, or retained after its classification was enrolled = fail
  *
  * Classification authority semantics: a PR may only REMOVE classifications
  * (when the underlying mutant dies), never add or re-author one. New
  * classifications are adjudicated on master during an enrollment ceremony and
  * become part of the base; anything a candidate adds is either self-approval
- * of its own survivor (M08) or fabrication (M09). byFamily metrics are
+ * of its own survivor (M08) or fabrication (M09). The ceremony itself is the
+ * base-side enrollment ledger (M22-M27): an authorization merged into the base
+ * may be consumed by a LATER transition, so a candidate can never create the
+ * authority it uses. byFamily metrics are
  * derived truth: they are recomputed from the persisted rows and must equal
  * the persisted entry exactly; every configured family must stay non-vacuous.
  *
@@ -63,6 +78,8 @@ class MutationRatchetVerifier {
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
         executable: MutationAnalyzerSemantics,
+        evolution: MutationPopulationEvolution = MutationPopulationEvolution.FORBID,
+        evolutionEvidence: MutationEvolutionEvidence = MutationEvolutionEvidence(),
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         diagnostics += schemaAndStatusChecks(base.population, candidate.population)
@@ -72,8 +89,43 @@ class MutationRatchetVerifier {
         diagnostics += validateClassificationList("base authority", base.classifications)
         diagnostics += validateClassificationList("candidate", candidate.classifications)
         diagnostics += baseClassificationIntegrity(base)
-        diagnostics += outcomeRatchet(base.population.mutants, candidate.population.mutants)
+        val freshAuthorityProjectionHash = evolutionEvidence.proof?.authorityProjectionHash
+        // Produced ONCE for the whole transition. M34, the admission lifecycle and the certificate
+        // lifecycle (M44/M47) all receive this exact instance, so they cannot quietly come to
+        // different conclusions about which consumptions were proven.
+        val admissionAuthority = base.admissionAuthority(freshAuthorityProjectionHash)
+        diagnostics +=
+            outcomeRatchet(
+                base.population,
+                candidate.population,
+                MutationEvolutionContext(
+                    evolution,
+                    evolutionEvidence,
+                    base.baseSha,
+                    AUTHORITY_EXCLUDED_IDENTITIES,
+                    base.admissions,
+                    candidate.admissions,
+                    freshAuthorityProjectionHash,
+                    admissionAuthority,
+                ),
+            )
         diagnostics += classificationRatchet(base, candidate)
+        diagnostics += MutationEnrollmentCeremony.checks(base, candidate)
+        // A promotion declaration carries already-certified evidence across the release promotion
+        // boundary. Computed once from the same ledgers both ceremonies judge, so the admission and
+        // certificate rules cannot disagree about what was carried. Null means "no promotion".
+        val promotion = MutationPopulationPromotion.carried(base, candidate)
+        diagnostics += MutationPopulationAdmissionCeremony.checks(base, candidate, admissionAuthority, promotion)
+        // Certificate custody (M44-M47), decided on the same facts M34 uses: one production site, so the
+        // lifecycle rules cannot disagree with the admission verdicts about what was consumed.
+        diagnostics +=
+            MutationAuthorityDigestCertificateCeremony.checks(
+                base = base.certificates,
+                candidate = candidate.certificates,
+                baseSha = base.baseSha,
+                validConsumptions = admissionAuthority.certifiedConsumptions,
+                promotion = promotion,
+            )
         diagnostics +=
             familyAndTargetChecks(
                 base.population,
@@ -245,10 +297,13 @@ class MutationRatchetVerifier {
     }
 
     private fun outcomeRatchet(
-        baseMutants: List<MutationOutcome>,
-        candidateMutants: List<MutationOutcome>,
+        basePopulation: MutationPopulationBaseline,
+        candidatePopulation: MutationPopulationBaseline,
+        evolution: MutationEvolutionContext,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
+        val baseMutants = basePopulation.mutants
+        val candidateMutants = candidatePopulation.mutants
         val baseById = baseMutants.associateBy { it.identity }
         val candidateById = candidateMutants.associateBy { it.identity }
         val baseIds = baseById.keys
@@ -278,20 +333,81 @@ class MutationRatchetVerifier {
                     )
             }
         }
-        for (id in candidateIds - baseIds) {
+        diagnostics +=
+            appearingIdentityChecks(
+                newIds = candidateIds - baseIds,
+                candidatePopulation = candidatePopulation,
+                baseAdmissions = evolution.baseAdmissions.byIdentity(),
+                candidateAdmissions = evolution.candidateAdmissions.byIdentity(),
+                authority = evolution.authority,
+            )
+
+        // M21: a base identity that simply stopped being measured. Absence is not evidence of
+        // improvement — a narrowed target, a module that stopped reporting, a truncated report or an
+        // aborted campaign all look exactly like this. Measured authority may only shrink through the
+        // repository's explicit baseline evolution ceremony, never as a side effect of a measurement.
+        diagnostics +=
+            populationEvolutionDiagnostics(
+                basePopulation,
+                candidatePopulation,
+                evolution,
+            )
+        return diagnostics
+    }
+
+    /**
+     * M30-M34: an appearing survivor is admitted only by an exact BASE-SIDE authorization matching
+     * its exact row, the analyzer semantics AND the canonical fresh-population digest. The judgment
+     * is shared with the admission ceremony ([MutationPopulationAdmissionCeremony.appearanceVerdict]),
+     * so an authorized identity is never both admitted and reported as a failure.
+     *
+     * Unauthorized appearances still fail M06, unchanged - that is what keeps this from becoming a
+     * general bypass: authorized X plus unauthorized Y still fails for Y. New KILLED identities pass
+     * through M07, as before.
+     */
+    private fun appearingIdentityChecks(
+        newIds: Set<String>,
+        candidatePopulation: MutationPopulationBaseline,
+        baseAdmissions: Map<String, MutationPopulationAdmission>,
+        candidateAdmissions: Map<String, MutationPopulationAdmission>,
+        authority: AdmissionAuthority,
+    ): List<VerificationDiagnostic> {
+        val diagnostics = mutableListOf<VerificationDiagnostic>()
+        val candidateById = candidatePopulation.mutants.associateBy { it.identity }
+        for (id in newIds) {
             val candidate = candidateById.getValue(id)
-            if (candidate.outcome == NON_KILLED) {
-                diagnostics +=
-                    VerificationDiagnostic.failure(
-                        DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR,
-                        "M06: ${describe(candidate)} (${short(id)}) is a NEW NON_KILLED identity absent from the " +
-                            "base authority. New mutants must be killed; a PR cannot certify its own survivors.",
-                        findingId = id,
-                        modulePath = candidate.module,
-                    )
+            if (candidate.outcome != NON_KILLED) {
+                continue
             }
-            // M07: new KILLED identities pass — improved protection is the ratchet's goal.
-            // (Only self-consistent kills pass: rowSelfChecks already rejected forged ones.)
+            diagnostics +=
+                when (
+                    val verdict =
+                        MutationPopulationAdmissionCeremony.appearanceVerdict(
+                            baseAdmission = baseAdmissions[id],
+                            candidateAdmission = candidateAdmissions[id],
+                            mutant = candidate,
+                            candidateAnalyzer = candidatePopulation.analyzer,
+                            authority = authority,
+                        )
+                ) {
+                    is MutationPopulationAdmissionCeremony.AdmissionVerdict.Authorized -> {
+                        VerificationDiagnostic.accepted(
+                            DiagnosticCode.MUTATION_RATCHET_ADMISSION_ACCEPTED,
+                            "M30: ${describe(candidate)} (${short(id)}) is admitted by an exact base-side " +
+                                "population authorization: the persisted row, the analyzer semantics and " +
+                                "the canonical fresh-population digest all match.",
+                        )
+                    }
+
+                    is MutationPopulationAdmissionCeremony.AdmissionVerdict.Rejected -> {
+                        VerificationDiagnostic.failure(
+                            verdict.code,
+                            verdict.message,
+                            findingId = id,
+                            modulePath = candidate.module,
+                        )
+                    }
+                }
         }
         return diagnostics
     }
@@ -344,11 +460,6 @@ class MutationRatchetVerifier {
             // M03: approved survivor stays NON_KILLED with an identical classification -> pass.
         }
 
-        // Added classifications (M08/M09): a candidate may never add one.
-        (candidateClassById.keys - baseClassById.keys).forEach { id ->
-            diagnostics += addedClassificationDiagnostic(id, candidateById[id], baseById[id], base.baseSha)
-        }
-
         // Removed classifications (M04/M11).
         (baseClassById.keys - candidateClassById.keys).forEach { id ->
             val mutant = candidateById[id]
@@ -366,38 +477,6 @@ class MutationRatchetVerifier {
             // M04: removed + mutant KILLED -> pass. Removed + mutant disappeared -> pass.
         }
         return diagnostics
-    }
-
-    private fun addedClassificationDiagnostic(
-        id: String,
-        candidateMutant: MutationOutcome?,
-        baseMutant: MutationOutcome?,
-        baseSha: String,
-    ): VerificationDiagnostic {
-        val reason =
-            when {
-                candidateMutant == null -> {
-                    "M09: classification ${short(id)} is fabricated — it references no mutant measured " +
-                        "in the candidate population and none certified in the base."
-                }
-
-                baseMutant == null -> {
-                    "M08: candidate self-approval — classification ${short(id)} was added for a mutant that " +
-                        "does not exist in the base authority. A PR cannot approve its own new survivors."
-                }
-
-                else -> {
-                    "M09: classification ${short(id)} was added for a mutant that was never classified in the " +
-                        "base authority (base outcome ${baseMutant.outcome}). New classifications are adjudicated " +
-                        "on master, never by the PR under review."
-                }
-            }
-        return VerificationDiagnostic.failure(
-            DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_INVALID,
-            "$reason (base $baseSha)",
-            findingId = id,
-            modulePath = candidateMutant?.module,
-        )
     }
 
     private fun familyAndTargetChecks(
@@ -490,7 +569,7 @@ class MutationRatchetVerifier {
         return diagnostics
     }
 
-    private companion object {
+    internal companion object {
         const val KILLED = "KILLED"
         const val NON_KILLED = "NON_KILLED"
         const val IDENTITY_SCHEMA_VERSION = "2"
@@ -695,4 +774,331 @@ class MutationRatchetVerifier {
                 "timedOut=${population.timedOutMutants} errors=${population.errorMutants} " +
                 "score=${population.mutationScore}"
     }
+}
+
+private const val M21_ID_SHORT_LENGTH = 8
+private const val HEX_BYTE_MASK = 0xff
+
+data class MutationEvolutionEvidence(
+    val records: MutationEvolutionRecords = MutationEvolutionRecords("1", emptyList()),
+    val proof: MutationPopulationEvolutionProof? = null,
+)
+
+private data class MutationEvolutionContext(
+    val mode: MutationPopulationEvolution,
+    val evidence: MutationEvolutionEvidence,
+    val baseSha: String,
+    val excludedIdentities: Set<String>,
+    /** Base-side population admissions (M30-M39): the ONLY authority an appearing identity can use. */
+    val baseAdmissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
+    /** Admissions this transition proposes: validated, but never authority for its own admission. */
+    val candidateAdmissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
+    /**
+     * Authority projection hash of the canonical fresh measurement
+     * ([MutationPopulationEvolutionProof.authorityProjectionHash]) - the digest a population
+     * authorization must match to be consumable (M34). Raw PIT status is excluded by design (C7).
+     * Null means no trusted measurement proof exists, and admission then fails closed.
+     */
+    val freshAuthorityProjectionHash: String? = null,
+    /**
+     * Authority context for appearing-identity verdicts (M34, Step 3b): the fresh projection plus the
+     * consumptions it certifies. Defaults to no projection and no consumptions, which is the
+     * fail-closed state: an appearing identity with no trusted measurement proof still fails M34.
+     */
+    val authority: AdmissionAuthority = AdmissionAuthority(null),
+)
+
+// No population hash is stored in mutation-evolution.yml: exact measurement
+// equality already binds the candidate, while this proof binds the verifier call.
+// [projectionHash] hashes the FULL canonical comparison projection — identity, raw status,
+// canonical outcome, family, module, family/module topology and analyzer semantics — not just the
+// identity set, so it cannot be reused for a population that shares the identities but differs in
+// outcomes. It stays raw-exact: that is the measurement-truth question.
+// [authorityProjectionHash] hashes the authority projection — identity, canonical outcome, family,
+// module, topology and analyzer semantics, with raw status deliberately excluded. That is the
+// population-context question M34 asks, and it is computed from the same fresh measurement by this
+// verifier, so it can never be supplied by a candidate.
+class MutationPopulationEvolutionProof private constructor(
+    val projectionHash: String,
+    val authorityProjectionHash: String,
+) {
+    fun matches(population: MutationPopulationBaseline): Boolean = projectionHash == population.projectionHash()
+
+    companion object {
+        fun exactComparison(
+            fresh: MutationPopulationBaseline,
+            candidate: MutationPopulationBaseline,
+        ): MutationPopulationExactComparison {
+            val diagnostics = mutableListOf<VerificationDiagnostic>()
+            val freshById = fresh.mutants.associateBy { it.identity }
+            val candidateById = candidate.mutants.associateBy { it.identity }
+            diagnostics += rowDifferences(freshById, candidateById)
+            val freshTopology = fresh.byFamily.mapValues { it.value.modules.toSet() }
+            val candidateTopology = candidate.byFamily.mapValues { it.value.modules.toSet() }
+            if (freshTopology != candidateTopology) {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                        "M21: fresh and committed mutation population family/module topology differs: " +
+                            "fresh=$freshTopology, candidate=$candidateTopology.",
+                    )
+            }
+            if (fresh.analyzer != candidate.analyzer) {
+                diagnostics +=
+                    exactDifference(
+                        "analyzer",
+                        "analyzer semantics fresh=${fresh.analyzer} != candidate=${candidate.analyzer}",
+                    )
+            }
+            (fresh.byFamily + candidate.byFamily).forEach { (family, population) ->
+                if (population.totalMutants == 0) {
+                    diagnostics += exactDifference(family, "family is empty")
+                }
+            }
+            val proof =
+                if (diagnostics.isEmpty()) {
+                    MutationPopulationEvolutionProof(
+                        projectionHash = fresh.projectionHash(),
+                        authorityProjectionHash = fresh.authorityProjectionHash(),
+                    )
+                } else {
+                    null
+                }
+            return MutationPopulationExactComparison(proof, diagnostics)
+        }
+
+        private fun exactDifference(
+            id: String,
+            difference: String,
+        ): VerificationDiagnostic =
+            VerificationDiagnostic.failure(
+                DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                "M21: fresh measurement differs from committed candidate for identity " +
+                    "${id.take(M21_ID_SHORT_LENGTH)}: $difference.",
+                findingId = id,
+            )
+
+        private fun rowDifferences(
+            fresh: Map<String, MutationOutcome>,
+            candidate: Map<String, MutationOutcome>,
+        ): List<VerificationDiagnostic> {
+            val diagnostics = mutableListOf<VerificationDiagnostic>()
+            for (id in (fresh.keys union candidate.keys).sorted()) {
+                val measured = fresh[id]
+                val committed = candidate[id]
+                val difference =
+                    when {
+                        measured == null -> {
+                            "identity is absent from fresh measurement"
+                        }
+
+                        committed == null -> {
+                            "identity is absent from committed candidate"
+                        }
+
+                        measured.status != committed.status -> {
+                            "raw status ${measured.status} != ${committed.status}"
+                        }
+
+                        measured.outcome != committed.outcome -> {
+                            "canonical status ${measured.outcome} != ${committed.outcome}"
+                        }
+
+                        measured.family != committed.family -> {
+                            "family ${measured.family} != ${committed.family}"
+                        }
+
+                        measured.module != committed.module -> {
+                            "module ${measured.module} != ${committed.module}"
+                        }
+
+                        else -> {
+                            null
+                        }
+                    }
+                if (difference != null) diagnostics += exactDifference(id, difference)
+            }
+            return diagnostics
+        }
+
+        private fun String.sha256(): String =
+            java.security.MessageDigest
+                .getInstance("SHA-256")
+                .digest(toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it.toInt() and HEX_BYTE_MASK) }
+
+        private fun MutationPopulationBaseline.projectionHash(): String = canonicalProjection().sha256()
+
+        /**
+         * The canonical exact-comparison projection: the complete, order-independent evidence a
+         * fresh measurement must reproduce. Hashed by [projectionHash] so the proof binds
+         * everything the comparison actually checked, not merely the identity set.
+         */
+        private fun MutationPopulationBaseline.canonicalProjection(): String =
+            buildString {
+                mutants
+                    .map { "${it.identity}|${it.status}|${it.outcome}|${it.family}|${it.module}" }
+                    .sorted()
+                    .forEach { appendLine(it) }
+                append(contextLines())
+            }
+
+        /**
+         * The canonical authority projection: the population context a population authorization is
+         * bound to (M34). Raw PIT status is deliberately EXCLUDED.
+         *
+         * C7 ([MutationOutcome]) declares raw `status` diagnostic evidence and not authority, and
+         * anticipates TIMED_OUT↔SURVIVED scheduler races. Four complete unrestricted campaigns at
+         * identical effective PIT inputs produced four distinct raw-status digests while this
+         * projection was byte-identical every time, so binding neighbours' raw status here let a
+         * scheduler race invalidate adjudicated authority that was itself stable.
+         *
+         * What remains is exactly the authority-relevant content: identity, canonical outcome,
+         * family, module, family/module topology and analyzer semantics. Use this for M34; the
+         * raw-exact [canonicalProjection] stays the measurement proof (M21, [exactComparison]).
+         */
+        private fun MutationPopulationBaseline.authorityProjection(): String =
+            buildString {
+                mutants
+                    .map { "${it.identity}|${it.outcome}|${it.family}|${it.module}" }
+                    .sorted()
+                    .forEach { appendLine(it) }
+                append(contextLines())
+            }
+
+        private fun MutationPopulationBaseline.authorityProjectionHash(): String = authorityProjection().sha256()
+
+        /**
+         * The serialization suffix every projection shares: family/module topology, then analyzer
+         * semantics. It lives in one place because the authority projection IS the raw projection
+         * minus raw status - duplicating the suffix would let the two drift apart silently.
+         */
+        private fun MutationPopulationBaseline.contextLines(): String =
+            buildString {
+                appendLine(
+                    "topology=" +
+                        byFamily.toSortedMap().entries.joinToString(",") {
+                            "${it.key}:${it.value.modules.sorted().joinToString("+")}"
+                        },
+                )
+                appendLine(
+                    "analyzer=" +
+                        analyzer.pluginVersion + "|" + analyzer.engineVersion + "|" +
+                        analyzer.mutators
+                            .sorted()
+                            .joinToString("+") + "|" +
+                        analyzer.timeoutConst + "|" + analyzer.timeoutFactor,
+                )
+            }
+    }
+}
+
+data class MutationPopulationExactComparison(
+    val proof: MutationPopulationEvolutionProof?,
+    val diagnostics: List<VerificationDiagnostic>,
+)
+
+private fun populationEvolutionDiagnostics(
+    basePopulation: MutationPopulationBaseline,
+    candidatePopulation: MutationPopulationBaseline,
+    evolution: MutationEvolutionContext,
+): List<VerificationDiagnostic> {
+    val diagnostics = mutableListOf<VerificationDiagnostic>()
+    val baseById = basePopulation.mutants.associateBy { it.identity }
+    val candidateIds = candidatePopulation.mutants.map { it.identity }.toSet()
+    diagnostics += evolutionEvidenceDiagnostics(baseById, candidateIds, candidatePopulation, evolution)
+    val recordsById = evolution.evidence.records.byIdentity()
+    for (id in baseById.keys - candidateIds) {
+        val base = baseById.getValue(id)
+        if (id in evolution.excludedIdentities) continue
+        val record = recordsById[id]
+        val description =
+            "${base.module} ${base.className}#${base.method}${base.methodDescription} " +
+                "[${base.mutator}] family '${base.family}'"
+        val message =
+            "M21: $description (${id.take(M21_ID_SHORT_LENGTH)}) exists in the base authority but is " +
+                "absent from the candidate population. "
+        when {
+            evolution.mode == MutationPopulationEvolution.FORBID -> {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                        message +
+                            "Absence alone cannot distinguish a legitimate code evolution from an " +
+                            "incomplete or narrowed measurement, so normal ratchet verification fails " +
+                            "closed. Population removal requires explicit baseline-evolution authority.",
+                        findingId = id,
+                        modulePath = base.module,
+                    )
+            }
+
+            record == null -> {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                        message + "Authorized evolution does not name this identity.",
+                        findingId = id,
+                        modulePath = base.module,
+                    )
+            }
+
+            else -> {
+                diagnostics +=
+                    VerificationDiagnostic.warning(
+                        DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                        message + "Authorized population evolution: ${record.reason}; " +
+                            "issue=${record.issue ?: "none"}, targetPhase=${record.targetPhase ?: "none"}.",
+                    )
+            }
+        }
+    }
+    return diagnostics
+}
+
+private fun evolutionEvidenceDiagnostics(
+    baseById: Map<String, MutationOutcome>,
+    candidateIds: Set<String>,
+    candidatePopulation: MutationPopulationBaseline,
+    evolution: MutationEvolutionContext,
+): List<VerificationDiagnostic> {
+    if (evolution.mode != MutationPopulationEvolution.RECORDED_EVOLUTION) return emptyList()
+    val diagnostics = mutableListOf<VerificationDiagnostic>()
+    val proof = evolution.evidence.proof
+    if (proof == null) {
+        diagnostics +=
+            VerificationDiagnostic.failure(
+                DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                "M21: recorded evolution requires a proof from an exact fresh canonical measurement; " +
+                    "authority without measurement evidence is not accepted.",
+            )
+    } else if (!proof.matches(candidatePopulation)) {
+        diagnostics +=
+            VerificationDiagnostic.failure(
+                DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                "M21: recorded evolution proof does not match the committed candidate population.",
+            )
+    }
+    val removedIds = baseById.keys - candidateIds - evolution.excludedIdentities
+    val records = evolution.evidence.records
+    for (id in records.byIdentity().keys - removedIds) {
+        diagnostics +=
+            VerificationDiagnostic.failure(
+                DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                "M21: evolution record ${id.take(M21_ID_SHORT_LENGTH)} does not name a base identity " +
+                    "disappearing in this transition.",
+                findingId = id,
+            )
+    }
+    for (record in records.records) {
+        if (record.fromBaseSha != evolution.baseSha) {
+            diagnostics +=
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                    "M21: evolution record ${record.id.take(M21_ID_SHORT_LENGTH)} is bound to base " +
+                        "${record.fromBaseSha}, not this transition base ${evolution.baseSha}.",
+                    findingId = record.id,
+                )
+        }
+    }
+    return diagnostics
 }

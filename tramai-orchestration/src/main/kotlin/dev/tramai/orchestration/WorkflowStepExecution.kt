@@ -43,6 +43,10 @@ internal data class WorkflowStepExecutionServices(
     val outboundNetworkPolicy: OutboundNetworkPolicy,
     val externalStepExecutorResolver: ExternalStepExecutorResolver,
     val failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
+    /** E11 admission capability, when the run claims durable cancellation authority. */
+    val stepAdmission: WorkflowStepAdmission? = null,
+    /** Synchronous step attempt authority, when the run claims authoritative attempt lineage. */
+    val stepAttemptAuthority: StepAttemptAuthority? = null,
 )
 
 /**
@@ -83,9 +87,7 @@ internal sealed interface InternalWorkflowStep<S> {
     val suspensionMode: WorkflowStepSuspensionMode
         get() = WorkflowStepSuspensionMode.NONE
 
-    suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S>
+    suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S>
 }
 
 // ─── Built-in step implementations (simple steps) ───────────────────────────
@@ -94,11 +96,10 @@ internal data class LocalWorkflowStep<S>(
     override val name: String,
     val transform: suspend (S, WorkflowContext) -> S,
 ) : InternalWorkflowStep<S> {
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
-        transform(request.state, request.context),
-    )
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
+        WorkflowStepExecutionResult.Completed(
+            transform(request.state, request.context),
+        )
 }
 
 internal data class AiWorkflowStep<S, I, O>(
@@ -113,20 +114,17 @@ internal data class AiWorkflowStep<S, I, O>(
         context: WorkflowContext,
     ): S = merge(state, invoke(input(state, context), context), context)
 
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
-        execute(request.state, request.context),
-    )
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
+        WorkflowStepExecutionResult.Completed(
+            execute(request.state, request.context),
+        )
 }
 
 internal data class GateWorkflowStep<S>(
     override val name: String,
     val decide: suspend (S, WorkflowContext) -> GateDecision,
 ) : InternalWorkflowStep<S> {
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> {
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> {
         val decision = decide(request.state, request.context)
         if (!decision.allowed) {
             throw WorkflowGateRejectedException(
@@ -152,26 +150,40 @@ internal data class PluginWorkflowStep<S>(
         require(type.isNotBlank()) {
             "Workflow '$workflowName' plugin step '$name' type must not be blank"
         }
+        // No resolver callback runs before admission. `ExternalStepExecutorResolver` is a public interface, so
+        // `isRegistered` would be third-party code executing on a *denied* invocation, including after
+        // cancellation, and it would race the built-in registry's mutable map between the check and the
+        // factory. Admission therefore comes first and the resolver is consulted exactly once, afterwards.
+        //
+        // E8: one durable grant for one call into the executor, taken immediately before it and consumed at most once.
+        // It authorizes this invocation and nothing the executor does inside its own code -- `ExternalStepExecutor` is
+        // a third-party extension point, so its internal effects stay outside the enforcement claim. A refused
+        // invocation reaches no resolver code at all, so it cannot instantiate the executor either.
+        //
+        // An unregistered type now fails at that single call, after the grant: an admitted attempt that never
+        // dispatched. D7's ADMITTED/DISPATCHED pair is what will distinguish the two; inventing an extra pre-check to
+        // keep the counters tidy would buy that distinction with a trust hole.
+        currentExternalAdmission()?.admitExternalStep(name, type)?.tryConsume()
         val result = executorResolver.create(type).execute(config)
         return merge(state, result, context)
     }
 
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
-        execute(
-            workflowName = request.workflowName,
-            state = request.state,
-            context = request.context,
-            executorResolver = request.services.externalStepExecutorResolver,
-        ),
-    )
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
+        WorkflowStepExecutionResult.Completed(
+            execute(
+                workflowName = request.workflowName,
+                state = request.state,
+                context = request.context,
+                executorResolver = request.services.externalStepExecutorResolver,
+            ),
+        )
 }
 
 // ─── External step executor support (plugin steps) ──────────────────────────
 
 interface ExternalStepExecutorFactory {
     val typeId: String
+
     fun create(): ExternalStepExecutor
 }
 
@@ -185,7 +197,9 @@ class ExternalStepExecutorNotRegisteredException(
 
 interface ExternalStepExecutorResolver {
     fun isRegistered(typeId: String): Boolean
+
     fun registeredTypeIds(): Set<String>
+
     fun create(typeId: String): ExternalStepExecutor
 }
 
@@ -230,6 +244,5 @@ object NoOpExternalStepExecutorResolver : ExternalStepExecutorResolver {
 
     override fun registeredTypeIds(): Set<String> = emptySet()
 
-    override fun create(typeId: String): ExternalStepExecutor =
-        throw ExternalStepExecutorNotRegisteredException(typeId)
+    override fun create(typeId: String): ExternalStepExecutor = throw ExternalStepExecutorNotRegisteredException(typeId)
 }

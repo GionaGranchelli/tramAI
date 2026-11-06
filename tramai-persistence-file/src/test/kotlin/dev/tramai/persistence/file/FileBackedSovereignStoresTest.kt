@@ -14,6 +14,7 @@ import dev.tramai.core.policy.RiskLevel
 import dev.tramai.core.policy.ToolSecurityMetadata
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.GovernedSuspendedInvocationStore
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
 import dev.tramai.engine.SensitiveReplayEnvelope
@@ -29,29 +30,34 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.util.Base64
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
-import kotlin.io.path.*
+import kotlin.io.path.createDirectories
+import kotlin.io.path.createTempDirectory
+import kotlin.io.path.deleteRecursively
+import kotlin.io.path.exists
+import kotlin.io.path.isDirectory
+import kotlin.io.path.readText
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class FileBackedSovereignStoresTest {
-
     private val rootDir: Path = Files.createTempDirectory("tramai-bundle-test-").toAbsolutePath()
 
-    private fun testKey(): SecretKey =
-        KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+    private fun testKey(): SecretKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
 
     private val testKey: SecretKey by lazy { testKey() }
 
     private val keyProvider = FileStoreEncryptionKeyProvider { testKey }
 
-    private fun createConfig(root: Path = rootDir) = FileBackedStoreConfiguration(
-        rootDirectory = root,
-        encryption = FileStoreEncryptionConfiguration(
-            activeKeyId = "test-key",
-            keyProvider = keyProvider,
-        ),
-        verifyOnOpen = false,
-    )
+    private fun createConfig(root: Path = rootDir) =
+        FileBackedStoreConfiguration(
+            rootDirectory = root,
+            encryption =
+                FileStoreEncryptionConfiguration(
+                    activeKeyId = "test-key",
+                    keyProvider = keyProvider,
+                ),
+            verifyOnOpen = false,
+        )
 
     @AfterEach
     fun cleanup() {
@@ -169,7 +175,7 @@ class FileBackedSovereignStoresTest {
             assertTrue(stores.approvalStore is FileApprovalStore)
             assertTrue(stores.approvalContinuationStore is FileApprovalContinuationStore)
             assertTrue(stores.auditStore is FileAuditStore)
-            assertTrue(stores.suspendedInvocationStore is FileSuspendedInvocationStore)
+            assertTrue(stores.suspendedInvocationStore is GovernedSuspendedInvocationStore)
         } finally {
             stores.close()
         }
@@ -192,14 +198,16 @@ class FileBackedSovereignStoresTest {
 
     @Test
     fun `open with verifyOnOpen succeeds on empty directory`() {
-        val config = FileBackedStoreConfiguration(
-            rootDirectory = rootDir.resolve("verify-empty"),
-            encryption = FileStoreEncryptionConfiguration(
-                activeKeyId = "test-key",
-                keyProvider = keyProvider,
-            ),
-            verifyOnOpen = true,
-        )
+        val config =
+            FileBackedStoreConfiguration(
+                rootDirectory = rootDir.resolve("verify-empty"),
+                encryption =
+                    FileStoreEncryptionConfiguration(
+                        activeKeyId = "test-key",
+                        keyProvider = keyProvider,
+                    ),
+                verifyOnOpen = true,
+            )
         val stores = FileBackedSovereignStores.open(config)
         stores.close()
     }
@@ -213,76 +221,85 @@ class FileBackedSovereignStoresTest {
     }
 
     @Test
-    fun `corrupted suspended record fails startup verification`() { runBlocking {
-        val config = createConfig()
-        val approvalId = "bundle-suspended-corrupt-1"
+    fun `corrupted suspended record fails startup verification`() {
+        runBlocking {
+            val config = createConfig()
+            val approvalId = "bundle-suspended-corrupt-1"
 
-        FileBackedSovereignStores.open(config).use { stores ->
-            val (metadata, envelope) = createValidSuspendedRecord(approvalId)
-            stores.suspendedInvocationStore.create(metadata, envelope)
-        }
+            FileBackedSovereignStores.open(config).use { stores ->
+                val (metadata, envelope) = createValidSuspendedRecord(approvalId)
+                stores.suspendedInvocationStore.create(metadata, envelope)
+            }
 
-        val path = suspendedRecordPath(approvalId)
-        val encrypted = EncryptedFileEnvelopeV1.fromJson(path.readText())
-        // Flip one byte of the ciphertext+tag so the corruption is guaranteed to
-        // change the decrypted content. String-level mutations are unreliable:
-        // depending on the trailing Base64 padding, some character replacements
-        // decode to the same significant bits (e.g. 'X' -> 'Y' under '==' padding
-        // keeps the top 2 bits), making the corruption a silent no-op. A byte
-        // flip always changes the decoded ciphertext, so GCM auth always fails.
-        val corruptedCiphertext = Base64.getDecoder().decode(encrypted.ciphertextBase64)
-            .also { it[0] = (it[0].toInt() xor 0x01).toByte() }
-        Files.writeString(
-            path,
-            encrypted.copy(
-                ciphertextBase64 = Base64.getEncoder().encodeToString(corruptedCiphertext),
-            ).toJson(),
-        )
-
-        assertThrows<FileStoreCorruptionException> {
-            FileBackedSovereignStores.open(
-                FileBackedStoreConfiguration(
-                    rootDirectory = rootDir,
-                    encryption = FileStoreEncryptionConfiguration(
-                        activeKeyId = "test-key",
-                        keyProvider = keyProvider,
-                    ),
-                    verifyOnOpen = true,
-                ),
+            val path = suspendedRecordPath(approvalId)
+            val encrypted = EncryptedFileEnvelopeV1.fromJson(path.readText())
+            // Flip one byte of the ciphertext+tag so the corruption is guaranteed to
+            // change the decrypted content. String-level mutations are unreliable:
+            // depending on the trailing Base64 padding, some character replacements
+            // decode to the same significant bits (e.g. 'X' -> 'Y' under '==' padding
+            // keeps the top 2 bits), making the corruption a silent no-op. A byte
+            // flip always changes the decoded ciphertext, so GCM auth always fails.
+            val corruptedCiphertext =
+                Base64
+                    .getDecoder()
+                    .decode(encrypted.ciphertextBase64)
+                    .also { it[0] = (it[0].toInt() xor 0x01).toByte() }
+            Files.writeString(
+                path,
+                encrypted
+                    .copy(
+                        ciphertextBase64 = Base64.getEncoder().encodeToString(corruptedCiphertext),
+                    ).toJson(),
             )
+
+            assertThrows<FileStoreCorruptionException> {
+                FileBackedSovereignStores.open(
+                    FileBackedStoreConfiguration(
+                        rootDirectory = rootDir,
+                        encryption =
+                            FileStoreEncryptionConfiguration(
+                                activeKeyId = "test-key",
+                                keyProvider = keyProvider,
+                            ),
+                        verifyOnOpen = true,
+                    ),
+                )
+            }
         }
-    }
     }
 
     @Test
-    fun `operations after close are rejected on suspended store`() { runBlocking {
-        val stores = FileBackedSovereignStores.open(createConfig())
-        val suspendedStore = stores.suspendedInvocationStore
-        stores.close()
+    fun `operations after close are rejected on suspended store`() {
+        runBlocking {
+            val stores = FileBackedSovereignStores.open(createConfig())
+            val suspendedStore = stores.suspendedInvocationStore
+            stores.close()
 
-        assertThrows<IllegalStateException> {
-            runBlocking { suspendedStore.get("approval-closed") }
+            assertThrows<IllegalStateException> {
+                runBlocking { suspendedStore.get("approval-closed") }
+            }
+            assertThrows<IllegalStateException> {
+                runBlocking { suspendedStore.revealReplayEnvelope("approval-closed") }
+            }
+            assertThrows<IllegalStateException> {
+                runBlocking { suspendedStore.remove("approval-closed") }
+            }
         }
-        assertThrows<IllegalStateException> {
-            runBlocking { suspendedStore.revealReplayEnvelope("approval-closed") }
-        }
-        assertThrows<IllegalStateException> {
-            runBlocking { suspendedStore.remove("approval-closed") }
-        }
-    }
     }
 
     // ── activeKeyId validation ──────────────────────────────────────────
 
     @Test
     fun `open rejects blank activeKeyId`() {
-        val config = FileBackedStoreConfiguration(
-            rootDirectory = rootDir.resolve("blank-keyid"),
-            encryption = FileStoreEncryptionConfiguration(
-                activeKeyId = "",
-                keyProvider = keyProvider,
-            ),
-        )
+        val config =
+            FileBackedStoreConfiguration(
+                rootDirectory = rootDir.resolve("blank-keyid"),
+                encryption =
+                    FileStoreEncryptionConfiguration(
+                        activeKeyId = "",
+                        keyProvider = keyProvider,
+                    ),
+            )
         assertThrows<FileStoreConfigurationException> {
             FileBackedSovereignStores.open(config)
         }
@@ -290,13 +307,15 @@ class FileBackedSovereignStoresTest {
 
     @Test
     fun `open rejects whitespace-only activeKeyId`() {
-        val config = FileBackedStoreConfiguration(
-            rootDirectory = rootDir.resolve("ws-keyid"),
-            encryption = FileStoreEncryptionConfiguration(
-                activeKeyId = "   ",
-                keyProvider = keyProvider,
-            ),
-        )
+        val config =
+            FileBackedStoreConfiguration(
+                rootDirectory = rootDir.resolve("ws-keyid"),
+                encryption =
+                    FileStoreEncryptionConfiguration(
+                        activeKeyId = "   ",
+                        keyProvider = keyProvider,
+                    ),
+            )
         assertThrows<FileStoreConfigurationException> {
             FileBackedSovereignStores.open(config)
         }
@@ -304,13 +323,15 @@ class FileBackedSovereignStoresTest {
 
     @Test
     fun `open rejects overly long activeKeyId`() {
-        val config = FileBackedStoreConfiguration(
-            rootDirectory = rootDir.resolve("long-keyid"),
-            encryption = FileStoreEncryptionConfiguration(
-                activeKeyId = "x".repeat(129),
-                keyProvider = keyProvider,
-            ),
-        )
+        val config =
+            FileBackedStoreConfiguration(
+                rootDirectory = rootDir.resolve("long-keyid"),
+                encryption =
+                    FileStoreEncryptionConfiguration(
+                        activeKeyId = "x".repeat(129),
+                        keyProvider = keyProvider,
+                    ),
+            )
         assertThrows<FileStoreConfigurationException> {
             FileBackedSovereignStores.open(config)
         }
@@ -318,13 +339,15 @@ class FileBackedSovereignStoresTest {
 
     @Test
     fun `open rejects activeKeyId with unsafe pattern`() {
-        val config = FileBackedStoreConfiguration(
-            rootDirectory = rootDir.resolve("unsafe-keyid"),
-            encryption = FileStoreEncryptionConfiguration(
-                activeKeyId = "-starts-with-hyphen",
-                keyProvider = keyProvider,
-            ),
-        )
+        val config =
+            FileBackedStoreConfiguration(
+                rootDirectory = rootDir.resolve("unsafe-keyid"),
+                encryption =
+                    FileStoreEncryptionConfiguration(
+                        activeKeyId = "-starts-with-hyphen",
+                        keyProvider = keyProvider,
+                    ),
+            )
         assertThrows<FileStoreConfigurationException> {
             FileBackedSovereignStores.open(config)
         }
@@ -332,13 +355,15 @@ class FileBackedSovereignStoresTest {
 
     @Test
     fun `open rejects activeKeyId containing whitespace`() {
-        val config = FileBackedStoreConfiguration(
-            rootDirectory = rootDir.resolve("space-keyid"),
-            encryption = FileStoreEncryptionConfiguration(
-                activeKeyId = "my key",
-                keyProvider = keyProvider,
-            ),
-        )
+        val config =
+            FileBackedStoreConfiguration(
+                rootDirectory = rootDir.resolve("space-keyid"),
+                encryption =
+                    FileStoreEncryptionConfiguration(
+                        activeKeyId = "my key",
+                        keyProvider = keyProvider,
+                    ),
+            )
         assertThrows<FileStoreConfigurationException> {
             FileBackedSovereignStores.open(config)
         }
@@ -346,13 +371,15 @@ class FileBackedSovereignStoresTest {
 
     @Test
     fun `open accepts valid activeKeyId with allowed special characters`() {
-        val config = FileBackedStoreConfiguration(
-            rootDirectory = rootDir.resolve("valid-special-keyid"),
-            encryption = FileStoreEncryptionConfiguration(
-                activeKeyId = "k8s_prod:us-east-1@v2",
-                keyProvider = keyProvider,
-            ),
-        )
+        val config =
+            FileBackedStoreConfiguration(
+                rootDirectory = rootDir.resolve("valid-special-keyid"),
+                encryption =
+                    FileStoreEncryptionConfiguration(
+                        activeKeyId = "k8s_prod:us-east-1@v2",
+                        keyProvider = keyProvider,
+                    ),
+            )
         val stores = FileBackedSovereignStores.open(config)
         stores.close()
     }
@@ -362,13 +389,15 @@ class FileBackedSovereignStoresTest {
     @Test
     fun `open rejects non-AES encryption key`() {
         val desKey = KeyGenerator.getInstance("DES").generateKey()
-        val config = FileBackedStoreConfiguration(
-            rootDirectory = rootDir.resolve("non-aes-key"),
-            encryption = FileStoreEncryptionConfiguration(
-                activeKeyId = "test-key",
-                keyProvider = FileStoreEncryptionKeyProvider { desKey },
-            ),
-        )
+        val config =
+            FileBackedStoreConfiguration(
+                rootDirectory = rootDir.resolve("non-aes-key"),
+                encryption =
+                    FileStoreEncryptionConfiguration(
+                        activeKeyId = "test-key",
+                        keyProvider = FileStoreEncryptionKeyProvider { desKey },
+                    ),
+            )
         assertThrows<FileStoreConfigurationException> {
             FileBackedSovereignStores.open(config)
         }
@@ -377,13 +406,15 @@ class FileBackedSovereignStoresTest {
     @Test
     fun `open rejects AES key that is not 256 bit`() {
         val aes128Key = KeyGenerator.getInstance("AES").apply { init(128) }.generateKey()
-        val config = FileBackedStoreConfiguration(
-            rootDirectory = rootDir.resolve("aes-128-key"),
-            encryption = FileStoreEncryptionConfiguration(
-                activeKeyId = "test-key",
-                keyProvider = FileStoreEncryptionKeyProvider { aes128Key },
-            ),
-        )
+        val config =
+            FileBackedStoreConfiguration(
+                rootDirectory = rootDir.resolve("aes-128-key"),
+                encryption =
+                    FileStoreEncryptionConfiguration(
+                        activeKeyId = "test-key",
+                        keyProvider = FileStoreEncryptionKeyProvider { aes128Key },
+                    ),
+            )
         assertThrows<FileStoreConfigurationException> {
             FileBackedSovereignStores.open(config)
         }
@@ -550,81 +581,79 @@ class FileBackedSovereignStoresTest {
             "suspended/${FileStoreSha256.digest("suspended-invocation", approvalId)}.tram.enc",
         )
 
-    private fun createValidSuspendedRecord(
-        approvalId: String,
-    ): Pair<SuspendedInvocationMetadata, SensitiveReplayEnvelope> {
-        val toolName = "bundle_lookup"
-        val toolCallId = "bundle-tool-call-1"
-        val operationReference = ResumeOperationReference(
+    private typealias SuspendedRecord = Pair<SuspendedInvocationMetadata, SensitiveReplayEnvelope>
+
+    private fun createValidSuspendedRecord(approvalId: String): SuspendedRecord {
+        val operationReference = bundleOperationReference()
+        val messages = bundleMessages()
+        return bundleMetadata(approvalId, operationReference, messages) to SensitiveReplayEnvelope.of(messages)
+    }
+
+    private fun bundleOperationReference() =
+        ResumeOperationReference(
             serviceInterface = "dev.tramai.persistence.file.BundleTestService",
             methodName = "resume",
             jvmMethodDescriptor = "(Ljava/lang/String;)Ljava/lang/String;",
-            resumeDefinitionDigest = Sha256Digest.of(
-                "sha256:4444444444444444444444444444444444444444444444444444444444444444",
-            ),
+            resumeDefinitionDigest =
+                Sha256Digest.of(
+                    "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+                ),
         )
-        val messages = listOf(
-            Message(
-                role = MessageRole.USER,
-                content = "bundle prompt",
-            ),
+
+    private fun bundleMessages() =
+        listOf(
+            Message(role = MessageRole.USER, content = "bundle prompt"),
             Message(
                 role = MessageRole.ASSISTANT,
                 content = "",
-                toolCalls = listOf(
-                    ToolCall(
-                        id = toolCallId,
-                        name = toolName,
-                        argumentsJson = "__redacted_approval_continuation_args__",
+                toolCalls =
+                    listOf(
+                        ToolCall(
+                            id = "bundle-tool-call-1",
+                            name = "bundle_lookup",
+                            argumentsJson = "__redacted_approval_continuation_args__",
+                        ),
                     ),
-                ),
             ),
         )
-        val metadata = SuspendedInvocationMetadata(
-            approvalId = approvalId,
-            toolCallId = toolCallId,
-            toolName = toolName,
-            toolCallIndex = 0,
-            correlationId = "bundle-correlation-1",
-            identity = EngineExecutionIdentity(
-                workflowRunId = "bundle-workflow-1",
-                correlationId = "bundle-correlation-1",
-                workflowDigest = Sha256Digest.of(
-                    "sha256:5555555555555555555555555555555555555555555555555555555555555555",
-                ),
-                policyVersion = "policy-v1",
-                actorId = "bundle-actor",
+
+    private fun bundleMetadata(
+        approvalId: String,
+        operationReference: ResumeOperationReference,
+        messages: List<Message>,
+    ) = SuspendedInvocationMetadata(
+        approvalId = approvalId,
+        toolCallId = "bundle-tool-call-1",
+        toolName = "bundle_lookup",
+        toolCallIndex = 0,
+        correlationId = "bundle-correlation-1",
+        identity =
+            EngineExecutionIdentity(
+                "bundle-workflow-1",
+                "bundle-correlation-1",
+                Sha256Digest.of("sha256:5555555555555555555555555555555555555555555555555555555555555555"),
+                "policy-v1",
+                "bundle-actor",
             ),
-            securityContext = ExecutionSecurityContext(
-                dataClassification = DataClassification.CONFIDENTIAL,
-                classificationSource = ClassificationSource.RULE_BASED,
+        securityContext = ExecutionSecurityContext(DataClassification.CONFIDENTIAL, ClassificationSource.RULE_BASED),
+        operationReference = operationReference,
+        replayEnvelopeDigest = ReplayEnvelopePersistenceCodec.computeReplayEnvelopeDigest(operationReference, messages),
+        conversationId = "bundle-conversation-1",
+        historySize = 1,
+        tokenBudgetSnapshot = TokenBudgetSnapshot(1, 2, 0.01, 0.02, true),
+        toolReference =
+            ResumeToolReference(
+                "bundle_lookup",
+                Sha256Digest.of("sha256:6666666666666666666666666666666666666666666666666666666666666666"),
             ),
-            operationReference = operationReference,
-            replayEnvelopeDigest = ReplayEnvelopePersistenceCodec.computeReplayEnvelopeDigest(operationReference, messages),
-            conversationId = "bundle-conversation-1",
-            historySize = 1,
-            tokenBudgetSnapshot = TokenBudgetSnapshot(
-                totalInputTokens = 1,
-                totalOutputTokens = 2,
-                totalInputCost = 0.01,
-                totalOutputCost = 0.02,
-                warnIfExceeded = true,
+        toolSecurity =
+            ToolSecurityMetadata(
+                "bundle.read",
+                RiskLevel.LOW,
+                ApprovalMode.HUMAN_REQUIRED,
+                ManagedNetworkEgress.DENY,
+                AuditDetail.FULL,
+                CompatibilityMode.STRICT,
             ),
-            toolReference = ResumeToolReference(
-                toolName = toolName,
-                declarationDigest = Sha256Digest.of(
-                    "sha256:6666666666666666666666666666666666666666666666666666666666666666",
-                ),
-            ),
-            toolSecurity = ToolSecurityMetadata(
-                permission = "bundle.read",
-                risk = RiskLevel.LOW,
-                approval = ApprovalMode.HUMAN_REQUIRED,
-                managedNetworkEgress = ManagedNetworkEgress.DENY,
-                audit = AuditDetail.FULL,
-                compatibilityMode = CompatibilityMode.STRICT,
-            ),
-        )
-        return metadata to SensitiveReplayEnvelope.of(messages)
-    }
+    )
 }

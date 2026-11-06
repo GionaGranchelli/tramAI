@@ -1,0 +1,126 @@
+repo=/home/gionag/tramai-audit-074
+base=6e1d4a1e8cbab8f5561f1cd372be9d4efb995938
+out=/tmp/bincompat2.2cuLBb
+stdlib=/home/gionag/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.3.21/a2ee2c4e220fee522f0451b723bab2a43f3481a7/kotlin-stdlib-2.3.21.jar
+coroutines=/home/gionag/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlinx/kotlinx-coroutines-core-jvm/1.9.0/9beade4c1c1569e4f36cbd2c37e02e3e41502601/kotlinx-coroutines-core-jvm-1.9.0.jar
+Preparing worktree (detached HEAD 6e1d4a1e)
+HEAD is now at 6e1d4a1e Merge pull request #516 from GionaGranchelli/task/0.7.4a-governance-evidence-audit
+  worktree HEAD=6e1d4a1e8cbab8f5561f1cd372be9d4efb995938
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin FROM-CACHE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors
+> Task :build-logic:processResources
+> Task :build-logic:classes
+> Task :build-logic:jar
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+> Task :tramai-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-core:compileKotlin FROM-CACHE
+> Task :tramai-core:compileJava NO-SOURCE
+> Task :tramai-core:processResources NO-SOURCE
+> Task :tramai-core:classes UP-TO-DATE
+> Task :tramai-core:jar
+
+BUILD SUCCESSFUL in 2s
+6 actionable tasks: 4 executed, 2 from cache
+EXIT[base jar]=0
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin UP-TO-DATE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors UP-TO-DATE
+> Task :build-logic:processResources UP-TO-DATE
+> Task :build-logic:classes UP-TO-DATE
+> Task :build-logic:jar UP-TO-DATE
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+> Task :tramai-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-core:compileKotlin UP-TO-DATE
+> Task :tramai-core:compileJava NO-SOURCE
+> Task :tramai-core:processResources NO-SOURCE
+> Task :tramai-core:classes UP-TO-DATE
+> Task :tramai-core:jar UP-TO-DATE
+> Task :tramai-core:compileTestKotlin FROM-CACHE
+
+BUILD SUCCESSFUL in 2s
+7 actionable tasks: 1 from cache, 6 up-to-date
+EXIT[base kotlin consumer compile]=0
+EXIT[javac against base jar]=0
+kotlin classes=1 java classes=1
+--- CONTROL base jar tramai-core-0.7.0-SNAPSHOT.jar
+OK    constructor/named-args
+OK    constructor/positional-16
+OK    copy/all-args
+OK    copy/named-args(copy$default)
+OK    destructuring/componentN
+OK    getters/sample
+OK    data-class/equals-hashCode-toString
+INFO  jvm-constructor-arity=[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18]
+OK    reflection/copy-16arg-descriptor
+OK    reflection/component16-descriptor
+KOTLIN_EXIT=0
+OK    java/constructor-4-args
+OK    java/constructor-16-args
+OK    java/getters
+OK    java/data-class-methods
+JAVA_EXIT=0
+Checking patch tramai-core/src/main/kotlin/dev/tramai/core/policy/PolicyContext.kt...
+Applied patch tramai-core/src/main/kotlin/dev/tramai/core/policy/PolicyContext.kt cleanly.
+  patch applied
+  candidate diff:
+ .../src/main/kotlin/dev/tramai/core/policy/PolicyContext.kt      | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin UP-TO-DATE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors UP-TO-DATE
+> Task :build-logic:processResources UP-TO-DATE
+> Task :build-logic:classes UP-TO-DATE
+> Task :build-logic:jar UP-TO-DATE
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+> Task :tramai-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-core:compileKotlin FROM-CACHE
+> Task :tramai-core:compileJava NO-SOURCE
+> Task :tramai-core:processResources NO-SOURCE
+> Task :tramai-core:classes UP-TO-DATE
+> Task :tramai-core:jar
+
+BUILD SUCCESSFUL in 2s
+6 actionable tasks: 1 executed, 1 from cache, 4 up-to-date
+EXIT[candidate jar]=0
+--- TEST candidate jar tramai-core-0.7.0-SNAPSHOT.jar
+FAIL  constructor/named-args -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+OK    constructor/positional-16
+FAIL  copy/all-args -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+FAIL  copy/named-args(copy$default) -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+FAIL  destructuring/componentN -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+FAIL  getters/sample -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+FAIL  data-class/equals-hashCode-toString -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+INFO  jvm-constructor-arity=[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19]
+FAIL  reflection/copy-16arg-descriptor -> java.lang.NoSuchMethodException: dev.tramai.core.policy.PolicyContext.copy(dev.tramai.core.policy.EnforcementPoint,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,dev.tramai.core.policy.DataClassification,dev.tramai.core.policy.ClassificationSource,java.lang.String,dev.tramai.core.policy.ToolSecurityMetadata,java.lang.String,java.lang.String,java.lang.String,java.util.Map)
+OK    reflection/component16-descriptor
+KOTLIN_EXIT=0
+OK    java/constructor-4-args
+OK    java/constructor-16-args
+OK    java/getters
+OK    java/data-class-methods
+JAVA_EXIT=0
