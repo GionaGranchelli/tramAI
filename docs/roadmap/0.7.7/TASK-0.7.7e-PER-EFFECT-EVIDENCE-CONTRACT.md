@@ -1,7 +1,8 @@
 # D7-A — Per-Effect Evidence Provenance & Correlation Design Contract
 
-**Status:** Ratified design & architectural contract.
+**Status:** Completed & Ratified.
 **Base:** `release/0.7.0` at `ee9860bf93af354f12633664dd74e6f5c7eef7ed` (PR #583).
+**Implementation Branch:** `task/0.7.7e-d7-a-effect-evidence-provenance`
 **Scope:** Per-effect child evidence provenance, step-attempt correlation, and crash-window qualification.
 
 ---
@@ -109,16 +110,18 @@ To avoid overclaiming remote physical execution while remaining truthful across 
 
 ---
 
-## 6. Implementation Phasing
+## 6. Implementation Phasing & Verification
 
-1. **`D7-A1` — Synchronous Step-Attempt Identity Foundation (Standalone PR):**
-   - Introduce `StepAttemptAuthority`, `PersistedStepAttempt`, and `StepAttemptScope`.
-   - Refactor `ExecutionTracker` to synchronously establish and persist `StepAttemptRecord` at step entry.
-   - Decouple `WorkerExecutionObserver.onStepStarted` to be observational only.
-   - Ensure complete backward compatibility and zero test regressions across existing worker suites.
-2. **`D7-A2` — Per-Effect Child Evidence Storage & Contracts:**
-   - Define `WorkflowEffectEvidenceRecordStore` and in-memory / JDBC implementations.
-   - Implement compound key retrieval and unclassified sequence reporting.
-3. **`D7-A3` — HTTP Dispatch Vertical Slice & Adversarial Suite:**
-   - Instrument `HttpWorkflowStep.executeRequest` with child evidence lifecycle.
-   - Execute all mandatory adversarial cases and mutation kills.
+1. **`D7-A1` — Synchronous Step-Attempt Identity Foundation (`64bfb346`):**
+   - Introduced `StepAttemptAuthority`, `PersistedStepAttempt`, and `StepAttemptScope`.
+   - Refactored `ExecutionTracker` to synchronously establish and persist `StepAttemptRecord` at step entry.
+   - Decoupled `WorkerExecutionObserver.onStepStarted` to be observational only.
+   - Verified with unit tests (`StepAttemptSynchronousAuthorityTest`) and regression suites.
+2. **`D7-A2` — Per-Effect Child Evidence Storage & Contracts (`55988b5a`):**
+   - Defined `WorkflowEffectEvidenceRecordStore`, `InMemoryWorkflowEffectEvidenceRecordStore`, and `JdbcWorkflowEffectEvidenceRecordStore`.
+   - Implemented compound key retrieval `(workflow_name, workflow_id, checkpoint_generation, admission_seq)` and unclassified sequence reporting.
+   - Verified with comprehensive store contract test (`WorkflowEffectEvidenceRecordStoreContractTest`).
+3. **`D7-A3` — HTTP Dispatch Vertical Slice & Adversarial Suite (`3efeb773`):**
+   - Instrumented `HttpWorkflowStep.executeRequest` with child evidence lifecycle.
+   - Verified that ordinary ungoverned execution carries zero overhead.
+   - Verified adversarial scenarios: multiple sends per step, transport failures, cancellations, and step retry attempt lineage (`WorkflowEffectEvidenceAdversarialTest`).
