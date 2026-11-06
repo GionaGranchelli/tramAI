@@ -13,6 +13,7 @@ import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import java.net.http.HttpClient
 import java.time.Clock
@@ -296,7 +297,11 @@ internal class WorkflowRunner<S, R>(
         frame: WorkflowExecutionFrame<S>,
     ): S {
         var currentState = state
-        val services = executionServices().copy(stepAdmission = frame.persistenceSession?.stepAdmission())
+        val services =
+            executionServices().copy(
+                stepAdmission = frame.persistenceSession?.stepAdmission(),
+                stepAttemptAuthority = resolveStepAttemptAuthority(frame),
+            )
         for (index in startIndex until steps.size) {
             val step = steps[index]
             val request =
@@ -325,25 +330,7 @@ internal class WorkflowRunner<S, R>(
                 if (frame.governedRunIdentity == null) {
                     stepExecutor.executeStep(step, request)
                 } else {
-                    // 0.7.1d: the canonical governed identity is established for the whole
-                    // step execution, so subsystems invoked from application step code (the
-                    // engine, evidence emitters) read the same run identity instead of
-                    // minting their own. Nested steps inherit this coroutine frame.context.
-                    //
-                    // E9: the checkpoint binding travels with it. Identity says which run this is; the binding says
-                    // which durable row can admit an effect for it, and the two are not interchangeable — the row key
-                    // needs the workflow name, which no identity carries. Installed here, where both are in scope.
-                    withContext(
-                        GovernedRunScope(frame.governedRunIdentity) +
-                            WorkflowCheckpointBindingScope(
-                                WorkflowCheckpointBinding(
-                                    workflowName = name,
-                                    workflowId = frame.context.workflowId,
-                                ),
-                            ),
-                    ) {
-                        stepExecutor.executeStep(step, request)
-                    }
+                    withContext(governedStepContext(name, frame)) { stepExecutor.executeStep(step, request) }
                 }
             when (val result = stepResult) {
                 is WorkflowStepExecutionResult.Completed -> currentState = result.state
@@ -444,12 +431,20 @@ internal class WorkflowRunner<S, R>(
         val http = effects?.http ?: refusing?.http
         val mcp = effects?.mcp ?: refusing?.mcp
         val external = effects?.external ?: refusing?.external
+        val evidenceStore =
+            if (governedRunIdentity == null) {
+                null
+            } else {
+                persistenceSession?.persistence?.evidenceStore
+                    ?: persistenceSession?.persistence?.checkpointStore.resolveEvidenceStore()
+            }
         // One context, four authorities: the process, HTTP, MCP and external-executor capabilities are separate types,
         // and each dispatch site asks only its own. All are installed here so no run has to remember the next one.
         return WorkflowProcessAdmissionScope(process) +
             WorkflowHttpAdmissionScope(http) +
             WorkflowMcpAdmissionScope(mcp) +
-            WorkflowExternalAdmissionScope(external)
+            WorkflowExternalAdmissionScope(external) +
+            WorkflowEffectEvidenceStoreScope(evidenceStore, clock)
     }
 }
 

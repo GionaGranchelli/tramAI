@@ -19,6 +19,7 @@ class JdbcWorkflowCheckpointStore(
         internal set
 
     private val admissions = JdbcAdmissionCounter(table, ::lifecycleInConnection)
+    internal var evidenceStore: WorkflowEffectEvidenceRecordStore? = null
 
     constructor(
         dataSource: DataSource,

@@ -227,6 +227,7 @@ internal class WorkflowExecutionSupervisor(
                 stateCodec = binding.erased.stateCodec,
                 delayWakeupScheduler = binding.erased.delayWakeupScheduler,
                 deleteCheckpointOnCompletion = binding.erased.deleteCheckpointOnCompletion,
+                evidenceStore = resolveWorkerEvidenceStore(binding.erased, checkpointStore),
             )
         val observer =
             WorkerExecutionObserver(
@@ -317,15 +318,17 @@ internal data class ActiveExecution(
 private class WorkerExecutionObserver(
     private val workflowName: String,
     private val tracker: ExecutionTracker,
-) : WorkflowObserver by NoOpWorkflowObserver {
-    override fun onStepStarted(
+) : WorkflowObserver by NoOpWorkflowObserver,
+    StepAttemptAuthority {
+    override suspend fun beginAttempt(
         workflowName: String,
+        workflowId: String,
         stepName: String,
-        context: WorkflowContext,
-    ) {
+    ): PersistedStepAttempt? {
         if (this.workflowName == workflowName) {
-            tracker.enqueueStartAttempt(stepName)
+            return tracker.startAttempt(stepName)
         }
+        return null
     }
 
     override fun onStepFailed(
@@ -409,23 +412,25 @@ internal class ExecutionTracker(
         return null
     }
 
-    suspend fun startAttempt(stepName: String) {
-        if (!trackedStepNames.contains(stepName)) {
-            return
-        }
-        val descriptor: WorkflowStepReplayDescriptor
-        val fingerprint: String?
-        synchronized(monitor) {
-            if (preparedStepName != stepName) {
-                return
-            }
-            descriptor = preparedReplayDescriptor
-                ?: WorkflowStepReplayDescriptor(
-                    WorkflowStepReplayability.NON_REPLAYABLE,
-                    WorkflowStepRepetitionSafety.UNSAFE,
-                )
-            fingerprint = inputFingerprint
-        }
+    suspend fun startAttempt(stepName: String): PersistedStepAttempt? {
+        val (descriptor, fingerprint) =
+            if (!trackedStepNames.contains(stepName)) {
+                null
+            } else {
+                synchronized(monitor) {
+                    if (preparedStepName != stepName) {
+                        null
+                    } else {
+                        val desc =
+                            preparedReplayDescriptor
+                                ?: WorkflowStepReplayDescriptor(
+                                    WorkflowStepReplayability.NON_REPLAYABLE,
+                                    WorkflowStepRepetitionSafety.UNSAFE,
+                                )
+                        desc to inputFingerprint
+                    }
+                }
+            } ?: return null
         val attempt =
             StepAttemptRecord(
                 runId = context.workflowId,
@@ -449,6 +454,13 @@ internal class ExecutionTracker(
             activeAttempt = attempt
         }
         observability.onStepAttemptStarted(context.workflowId, stepName, attempt.attemptId, workerId)
+        return PersistedStepAttempt(
+            workflowName = workflow.name,
+            workflowId = context.workflowId,
+            stepName = stepName,
+            attemptId = attempt.attemptId,
+            startedAtEpochMillis = attempt.startedAt,
+        )
     }
 
     suspend fun consumeRetryApproval(attempt: StepAttemptRecord) {
@@ -469,12 +481,6 @@ internal class ExecutionTracker(
             throw WorkflowRecoveryStateException(
                 "Workflow '${workflow.name}' and workflowId='${context.workflowId}': attempt '${attempt.attemptId}' changed during retry-approval consumption",
             )
-        }
-    }
-
-    fun enqueueStartAttempt(stepName: String) {
-        enqueueObserverTransition {
-            startAttempt(stepName)
         }
     }
 

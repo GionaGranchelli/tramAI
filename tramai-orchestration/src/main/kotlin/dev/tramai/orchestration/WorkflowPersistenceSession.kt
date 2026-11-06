@@ -15,7 +15,7 @@ import java.time.Instant
  * CAS behaviour, serialization, and store interfaces are unchanged.
  */
 internal class WorkflowPersistenceSession<S>(
-    private val persistence: WorkflowPersistence<S>,
+    internal val persistence: WorkflowPersistence<S>,
     private val inputs: WorkflowSessionInputs,
     private var lease: WorkflowLease?,
     initialRevision: Long?,
@@ -154,6 +154,7 @@ internal class WorkflowPersistenceSession<S>(
                         stepName = stepName,
                         effectKind = effectKind,
                         admissionSequence = admission.sequence,
+                        checkpointGeneration = currentGeneration ?: "",
                     )
                 },
             mcp =

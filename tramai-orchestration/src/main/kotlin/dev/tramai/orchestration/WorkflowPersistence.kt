@@ -254,6 +254,27 @@ data class WorkflowPersistence<S>(
     val leasePolicy: WorkflowLeasePolicy? = null,
     val deleteCheckpointOnCompletion: Boolean = true,
 ) {
+    internal var evidenceStore: WorkflowEffectEvidenceRecordStore? = null
+
+    internal constructor(
+        checkpointStore: WorkflowCheckpointStore,
+        stateCodec: WorkflowStateCodec<S>,
+        delayWakeupScheduler: WorkflowDelayWakeupScheduler? = null,
+        leaseStore: WorkflowLeaseStore? = null,
+        leasePolicy: WorkflowLeasePolicy? = null,
+        deleteCheckpointOnCompletion: Boolean = true,
+        evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    ) : this(
+        checkpointStore = checkpointStore,
+        stateCodec = stateCodec,
+        delayWakeupScheduler = delayWakeupScheduler,
+        leaseStore = leaseStore,
+        leasePolicy = leasePolicy,
+        deleteCheckpointOnCompletion = deleteCheckpointOnCompletion,
+    ) {
+        this.evidenceStore = evidenceStore
+    }
+
     init {
         require((leaseStore == null) == (leasePolicy == null)) {
             "WorkflowPersistence.leaseStore and WorkflowPersistence.leasePolicy must either both be set or both be null"
@@ -387,6 +408,7 @@ class InMemoryWorkflowCheckpointStore(
     private val cancellations = linkedMapOf<CheckpointKey, WorkflowLifecycleState>()
     private val admissions = linkedMapOf<CheckpointKey, Long>()
     private val stepAttempts = linkedMapOf<AttemptKey, StepAttemptRecord>()
+    internal var evidenceStore: WorkflowEffectEvidenceRecordStore? = null
     internal val monitor = Any()
 
     override suspend fun load(
