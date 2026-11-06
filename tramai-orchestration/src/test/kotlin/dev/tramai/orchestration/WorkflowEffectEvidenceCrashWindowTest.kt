@@ -166,8 +166,62 @@ class WorkflowEffectEvidenceCrashWindowTest {
             val delegateStore = JdbcWorkflowEffectEvidenceRecordStore(pool)
             val crashAfterAdmitted =
                 object : WorkflowEffectEvidenceRecordStore by delegateStore {
+                    override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                        delegateStore.recordEvidence(record)
+                        error("W2 process terminated immediately after durable ADMITTED write")
+                    }
+                }
+            var sendCount = 0
+            val countingTransport =
+                FakeHttpTransport { _ ->
+                    sendCount++
+                    FakeResponse(200, "UNEXPECTED")
+                }
+            val fixture =
+                createJdbcWorkerFixture(
+                    pool = pool,
+                    evidenceStoreOverride = crashAfterAdmitted,
+                    schemaStore = delegateStore,
+                    transport = countingTransport,
+                )
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            fixture.supervisor.attachScope(scope)
+
+            runBlocking {
+                val initialCheckpoint = saveGovernedInitialCheckpoint(fixture)
+                val expectedGeneration = checkNotNull(initialCheckpoint.checkpointGeneration)
+                val lease =
+                    fixture.leaseStore.claim(workflowName, workflowId, "worker-e2e-1", initialCheckpoint.revision, 5_000)
+                fixture.supervisor.launch(initialCheckpoint, lease)
+
+                withTimeout(5_000) {
+                    while (fixture.supervisor.activeExecutionCount() != 0) delay(10)
+                }
+
+                assertThat(sendCount).isEqualTo(0)
+                assertThat(fixture.supervisor.latestFailure(workflowId)).isNotNull()
+                val persistedEvidence = delegateStore.listEvidence(workflowName, workflowId).single()
+                assertThat(persistedEvidence.key.checkpointGeneration).isEqualTo(expectedGeneration)
+                assertThat(persistedEvidence.key.admissionSeq).isEqualTo(2L)
+                assertThat(persistedEvidence.stepAttemptId).isEqualTo("attempt-e2e-1")
+                assertThat(persistedEvidence.state).isEqualTo(WorkflowEffectEvidenceState.ADMITTED)
+                assertThat(persistedEvidence.completedAtEpochMillis).isNull()
+            }
+            scope.cancel()
+        } finally {
+            pool.dispose()
+        }
+    }
+
+    @Test
+    fun `ADMITTED evidence persists in JDBC store when transport fails and crash prevents UNCERTAIN transition`() {
+        val pool = JdbcConnectionPool.create("jdbc:h2:mem:d7_tx_fail_${UUID.randomUUID()};DB_CLOSE_DELAY=-1", "sa", "")
+        try {
+            val delegateStore = JdbcWorkflowEffectEvidenceRecordStore(pool)
+            val crashOnUpdate =
+                object : WorkflowEffectEvidenceRecordStore by delegateStore {
                     override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
-                        error("W2 process terminated before state update")
+                        error("Process terminated before UNCERTAIN update could persist")
                 }
             var sendCount = 0
             val crashingTransport =
@@ -178,12 +232,15 @@ class WorkflowEffectEvidenceCrashWindowTest {
                         httpRequest: JdkHttpRequest,
                         blockingDispatcher: CoroutineContext,
                         onConnected: (InetAddress) -> Unit,
-                    ): ControlledSendResult = error("W2 process crash before socket handoff")
+                    ): ControlledSendResult {
+                        sendCount++
+                        error("Transport connection crashed before handoff")
+                    }
                 }
             val fixture =
                 createJdbcWorkerFixture(
                     pool = pool,
-                    evidenceStoreOverride = crashAfterAdmitted,
+                    evidenceStoreOverride = crashOnUpdate,
                     schemaStore = delegateStore,
                     transport = crashingTransport,
                 )
@@ -201,7 +258,7 @@ class WorkflowEffectEvidenceCrashWindowTest {
                     while (fixture.supervisor.activeExecutionCount() != 0) delay(10)
                 }
 
-                assertThat(sendCount).isEqualTo(0)
+                assertThat(sendCount).isEqualTo(1)
                 assertThat(fixture.supervisor.latestFailure(workflowId)).isNotNull()
                 val persistedEvidence = delegateStore.listEvidence(workflowName, workflowId).single()
                 assertThat(persistedEvidence.key.checkpointGeneration).isEqualTo(expectedGeneration)
