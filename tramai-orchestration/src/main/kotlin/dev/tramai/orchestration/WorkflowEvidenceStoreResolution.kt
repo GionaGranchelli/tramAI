@@ -2,10 +2,13 @@
 
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.identity.WorkflowCheckpointBindingScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 
@@ -64,4 +67,29 @@ internal fun governedStepContext(
                 workflowId = frame.context.workflowId,
             ),
         )
+}
+
+@Suppress("TooGenericExceptionCaught")
+internal suspend fun recordUncertainFailure(
+    evidenceKey: WorkflowEffectEvidenceKey?,
+    evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    error: Throwable,
+) {
+    if (evidenceKey == null || evidenceStore == null) return
+    try {
+        withContext(NonCancellable) {
+            val record = evidenceStore.getEvidence(evidenceKey)
+            if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
+                evidenceStore.updateEvidence(
+                    record.copy(
+                        state = WorkflowEffectEvidenceState.UNCERTAIN,
+                        diagnosticSummary = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text,
+                    ),
+                )
+            }
+        }
+    } catch (suppressed: Throwable) {
+        suppressed.rethrowIfCancellation()
+        error.addSuppressed(suppressed)
+    }
 }

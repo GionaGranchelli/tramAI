@@ -246,7 +246,43 @@ internal data class ShellWorkflowStep<S>(
         // E7: a fresh durable grant for THIS dispatch, consumed once, immediately before acquisition so the permit
         // governs the corresponding start. Deliberately outside the start try/catch: a refusal is the authority saying
         // no, not a failed launch, and must never surface as START_FAILED.
-        currentProcessAdmission()?.admitProcess(name, PROCESS_EFFECT_KIND)?.tryConsume()
+        val processAdmission = currentProcessAdmission()
+        val evidenceStore = currentEffectEvidenceStore()
+        val stepAttempt = currentStepAttempt()
+        if (evidenceStore != null) {
+            requireEvidenceLineageIfEnabled(
+                workflowName,
+                context.workflowId,
+                name,
+                processAdmission != null,
+                stepAttempt,
+            )
+        }
+        val permit = processAdmission?.admitProcess(name, PROCESS_EFFECT_KIND)
+        var evidenceKey: WorkflowEffectEvidenceKey? = null
+
+        if (permit != null && evidenceStore != null && stepAttempt != null) {
+            val key =
+                WorkflowEffectEvidenceKey(
+                    workflowName = workflowName,
+                    workflowId = context.workflowId,
+                    checkpointGeneration = permit.checkpointGeneration,
+                    admissionSeq = permit.admissionSequence,
+                )
+            evidenceKey = key
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = key,
+                    stepName = name,
+                    stepAttemptId = stepAttempt.attemptId,
+                    effectKind = PROCESS_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.ADMITTED,
+                    createdAtEpochMillis = currentEffectEvidenceClockMillis() ?: stepAttempt.startedAtEpochMillis,
+                ),
+            )
+        }
+
+        permit?.tryConsume()
         val process =
             try {
                 ProcessBuilder(shellCommand.command)
@@ -254,8 +290,12 @@ internal data class ShellWorkflowStep<S>(
                         shellCommand.workdir?.let { directory(File(it)) }
                         environment().putAll(shellCommand.env)
                     }.run { startOwnedProcess(ioDispatcher) { start() } }
+            } catch (cancelled: CancellationException) {
+                recordUncertainFailure(evidenceKey, evidenceStore, cancelled)
+                throw cancelled
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
+                recordUncertainFailure(evidenceKey, evidenceStore, error)
                 throw failure(
                     workflowName,
                     error,
@@ -275,6 +315,13 @@ internal data class ShellWorkflowStep<S>(
         var primaryFailure: Throwable? = null
         var executedResult: ExecutedShellResult? = null
         try {
+            if (evidenceKey != null && evidenceStore != null) {
+                val record = evidenceStore.getEvidence(evidenceKey)
+                if (record != null) {
+                    evidenceStore.updateEvidence(record.copy(state = WorkflowEffectEvidenceState.DISPATCHED))
+                }
+            }
+
             process.outputStream.close()
             executedResult =
                 coroutineScope {
@@ -356,10 +403,12 @@ internal data class ShellWorkflowStep<S>(
                 }
         } catch (error: CancellationException) {
             primaryFailure = error
+            recordUncertainFailure(evidenceKey, evidenceStore, error)
             throw error
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             primaryFailure = error
+            recordUncertainFailure(evidenceKey, evidenceStore, error)
         } finally {
             registration.dispose()
             // NonCancellable + IO nesting lives inside terminateAndAwait; calling it
@@ -391,9 +440,21 @@ internal data class ShellWorkflowStep<S>(
                 } else {
                     WorkflowStepFailureCode.EXECUTION_FAILED
                 }
-            throw failure(workflowName, primaryFailure!!, code, executedResult, failureDiagnosticObserver)
+            throw failure(workflowName, primaryFailure, code, executedResult, failureDiagnosticObserver)
         }
-        return executedResult!!
+        val finalResult = executedResult!!
+        if (evidenceKey != null && evidenceStore != null) {
+            val record = evidenceStore.getEvidence(evidenceKey)
+            if (record != null) {
+                evidenceStore.updateEvidence(
+                    record.copy(
+                        state = WorkflowEffectEvidenceState.COMPLETED,
+                        completedAtEpochMillis = currentEffectEvidenceClockMillis() ?: record.createdAtEpochMillis,
+                    ),
+                )
+            }
+        }
+        return finalResult
     }
 
     private fun validateShellCommandDefinition(shellCommand: ShellCommand) {

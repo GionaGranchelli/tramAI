@@ -145,6 +145,7 @@ internal class WorkflowPersistenceSession<S>(
                         stepName = stepName,
                         effectKind = effectKind,
                         admissionSequence = admission.sequence,
+                        checkpointGeneration = currentGeneration ?: "",
                     )
                 },
             http =

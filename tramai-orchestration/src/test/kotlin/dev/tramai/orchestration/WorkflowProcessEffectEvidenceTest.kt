@@ -1,0 +1,687 @@
+@file:Suppress("MaxLineLength", "ktlint:standard:max-line-length")
+
+package dev.tramai.orchestration
+
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.h2.jdbcx.JdbcConnectionPool
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * Deterministic qualification test suite for D7-B1 durable Process effect evidence (Shell E7).
+ *
+ * Covers scenarios P1 through P11:
+ * - P1: Normal execution with real governed worker + JDBC stores -> COMPLETED
+ * - P2: Pre-admission refusal -> no evidence, no process
+ * - P3: Missing lineage -> WorkflowEvidenceResolutionException before effect admission
+ * - P4: Post-admission crash (W1) -> admission seq advances in checkpoint, child store empty, unclassified
+ * - P5: Post-ADMITTED crash (W2) -> ADMITTED in JDBC, process never launched
+ * - P6: Process acquisition failure -> ADMITTED transitions to UNCERTAIN, never DISPATCHED
+ * - P7: Post-launch failure -> process tree terminated and reaped via terminateAndAwait
+ * - P8: Timeout / cancellation -> UNCERTAIN, process terminated
+ * - P9: Non-zero exit code distinction -> process evidence COMPLETED while step fails NON_ZERO_EXIT
+ * - P10: Step retry -> distinct admission sequences and distinct attempt IDs
+ * - P11: Ungoverned compatibility -> zero overhead and zero evidence writes
+ */
+class WorkflowProcessEffectEvidenceTest {
+    private val workflowName = "test-process-workflow"
+    private val workflowId = "run-process-1"
+    private val stepName = "process-step"
+    private val attemptId = "att-process-1"
+
+    private fun testScope(
+        admission: WorkflowProcessAdmission? = null,
+        evidenceStore: WorkflowEffectEvidenceRecordStore? = null,
+        attempt: PersistedStepAttempt? = PersistedStepAttempt(workflowName, workflowId, stepName, attemptId),
+    ) = WorkflowProcessAdmissionScope(admission) +
+        WorkflowEffectEvidenceStoreScope(evidenceStore) +
+        (if (attempt != null) StepAttemptScope(attempt) else kotlin.coroutines.EmptyCoroutineContext)
+
+    private fun createShellStep(
+        stepName: String = this.stepName,
+        executable: String = "echo",
+        commandArgs: List<String> = listOf("echo", "hello"),
+        config: ShellStepConfig = ShellStepConfig(allowedCommands = setOf("echo", "sh", "sleep", "/bin/sh")),
+    ): ShellWorkflowStep<String> =
+        ShellWorkflowStep(
+            name = stepName,
+            definition = ShellCommandDefinition(executable = executable),
+            commandBuilder = { state, _ -> ShellCommand(command = commandArgs) },
+            merge = { state, result, _ -> "$state:${result.stdout.trim()}" },
+            config = config,
+        )
+
+    @Test
+    fun `P1 - normal execution with real governed worker and JDBC stores records COMPLETED evidence`() {
+        val pool = JdbcConnectionPool.create("jdbc:h2:mem:d7_p1_${UUID.randomUUID()};DB_CLOSE_DELAY=-1", "sa", "")
+        try {
+            val delegateStore = JdbcWorkflowEffectEvidenceRecordStore(pool)
+            val fixture = createJdbcWorkerFixture(pool = pool, schemaStore = delegateStore)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            fixture.supervisor.attachScope(scope)
+
+            runBlocking {
+                val initialCheckpoint = saveGovernedInitialCheckpoint(fixture)
+                val expectedGeneration = checkNotNull(initialCheckpoint.checkpointGeneration)
+                val lease =
+                    fixture.leaseStore.claim(workflowName, workflowId, "worker-e2e-1", initialCheckpoint.revision, 5_000)
+                fixture.supervisor.launch(initialCheckpoint, lease)
+
+                withTimeout(10_000) {
+                    while (fixture.supervisor.activeExecutionCount() != 0) delay(10)
+                }
+
+                assertThat(fixture.supervisor.latestFailure(workflowId)).isNull()
+                val evidenceList = delegateStore.listEvidence(workflowName, workflowId)
+                assertThat(evidenceList).hasSize(1)
+
+                val record = evidenceList.single()
+                assertThat(record.key.workflowName).isEqualTo(workflowName)
+                assertThat(record.key.workflowId).isEqualTo(workflowId)
+                assertThat(record.key.checkpointGeneration).isEqualTo(expectedGeneration)
+                assertThat(record.key.admissionSeq).isEqualTo(2L) // 1 was step admission E11, 2 is process admission E7
+                assertThat(record.stepName).isEqualTo(stepName)
+                assertThat(record.stepAttemptId).isEqualTo("attempt-e2e-1")
+                assertThat(record.effectKind).isEqualTo(PROCESS_EFFECT_KIND)
+                assertThat(record.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
+                assertThat(record.createdAtEpochMillis).isGreaterThan(0L)
+                assertThat(record.completedAtEpochMillis).isNotNull()
+                assertThat(record.completedAtEpochMillis).isGreaterThanOrEqualTo(record.createdAtEpochMillis)
+                assertThat(record.diagnosticSummary).isNull()
+            }
+            scope.cancel()
+        } finally {
+            pool.dispose()
+        }
+    }
+
+    @Test
+    fun `P2 - pre-admission refusal throws without creating evidence or launching process`() {
+        val store = InMemoryWorkflowEffectEvidenceRecordStore()
+        val step = createShellStep()
+        val refusingAdmission =
+            WorkflowProcessAdmission { _, _ ->
+                throw WorkflowAdmissionRefusedException("workflow execution has been cancelled")
+            }
+
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = refusingAdmission, evidenceStore = store)) {
+                    step.execute(
+                        workflowName = workflowName,
+                        state = "initial",
+                        context = WorkflowContext(workflowId),
+                        observer = NoOpWorkflowObserver,
+                    )
+                }
+            }
+        }.isInstanceOf(WorkflowAdmissionRefusedException::class.java)
+
+        runBlocking {
+            assertThat(store.listEvidence(workflowName, workflowId)).isEmpty()
+        }
+    }
+
+    @Test
+    fun `P3 - missing lineage throws WorkflowEvidenceResolutionException before effect admission`() {
+        val store = InMemoryWorkflowEffectEvidenceRecordStore()
+        val step = createShellStep()
+        var admissionCalled = false
+        val admission =
+            WorkflowProcessAdmission { sName, eKind ->
+                admissionCalled = true
+                WorkflowProcessPermit(sName, eKind, 1L)
+            }
+
+        // Evidence store configured, admission configured, but attempt is NULL
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = store, attempt = null)) {
+                    step.execute(
+                        workflowName = workflowName,
+                        state = "initial",
+                        context = WorkflowContext(workflowId),
+                        observer = NoOpWorkflowObserver,
+                    )
+                }
+            }
+        }.isInstanceOf(WorkflowEvidenceResolutionException::class.java)
+            .hasMessageContaining("authoritative step-attempt lineage or admission authority is absent")
+
+        assertThat(admissionCalled).isFalse()
+        runBlocking {
+            assertThat(store.listEvidence(workflowName, workflowId)).isEmpty()
+        }
+    }
+
+    @Test
+    fun `P4 - W1 crash window - admission commits in checkpoint store when child evidence write fails`() {
+        val pool = JdbcConnectionPool.create("jdbc:h2:mem:d7_p4_${UUID.randomUUID()};DB_CLOSE_DELAY=-1", "sa", "")
+        try {
+            val delegateStore = JdbcWorkflowEffectEvidenceRecordStore(pool)
+            val failingStore =
+                object : WorkflowEffectEvidenceRecordStore by delegateStore {
+                    override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
+                        error("W1 crash after admission commit before child evidence write")
+                }
+            val fixture =
+                createJdbcWorkerFixture(
+                    pool = pool,
+                    evidenceStoreOverride = failingStore,
+                    schemaStore = delegateStore,
+                )
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            fixture.supervisor.attachScope(scope)
+
+            runBlocking {
+                val initialCheckpoint = saveGovernedInitialCheckpoint(fixture)
+                val expectedGeneration = checkNotNull(initialCheckpoint.checkpointGeneration)
+                val lease =
+                    fixture.leaseStore.claim(workflowName, workflowId, "worker-e2e-1", initialCheckpoint.revision, 5_000)
+                fixture.supervisor.launch(initialCheckpoint, lease)
+
+                withTimeout(10_000) {
+                    while (fixture.supervisor.activeExecutionCount() != 0) delay(10)
+                }
+
+                assertThat(fixture.supervisor.latestFailure(workflowId)).isNotNull()
+                // Child store has no record
+                assertThat(delegateStore.listEvidence(workflowName, workflowId)).isEmpty()
+
+                // Classification reports Unclassified for admission sequence 2
+                val classification =
+                    delegateStore.classifyAdmission(workflowName, workflowId, expectedGeneration, 2L)
+                assertThat(classification).isEqualTo(WorkflowEffectClassification.Unclassified)
+
+                // Sequence 2 was durably consumed, so next admit yields 3
+                val nextAdmit =
+                    fixture.checkpointStore.admit(
+                        WorkflowAdmissionRequest(
+                            workflowName = workflowName,
+                            workflowId = workflowId,
+                            expectedRevision = initialCheckpoint.revision,
+                            expectedGeneration = expectedGeneration,
+                        ),
+                    )
+                assertThat(nextAdmit.admitted).isTrue()
+                assertThat(nextAdmit.sequence).isEqualTo(3L)
+            }
+            scope.cancel()
+        } finally {
+            pool.dispose()
+        }
+    }
+
+    @Test
+    fun `P5 - W2 crash window - ADMITTED evidence persists in JDBC store when crash occurs before process launch`() {
+        val pool = JdbcConnectionPool.create("jdbc:h2:mem:d7_p5_${UUID.randomUUID()};DB_CLOSE_DELAY=-1", "sa", "")
+        try {
+            val delegateStore = JdbcWorkflowEffectEvidenceRecordStore(pool)
+            val failingStore =
+                object : WorkflowEffectEvidenceRecordStore by delegateStore {
+                    override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                        delegateStore.recordEvidence(record)
+                        error("W2 crash immediately after durable ADMITTED before process launch")
+                    }
+                }
+            val fixture =
+                createJdbcWorkerFixture(
+                    pool = pool,
+                    evidenceStoreOverride = failingStore,
+                    schemaStore = delegateStore,
+                )
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            fixture.supervisor.attachScope(scope)
+
+            runBlocking {
+                val initialCheckpoint = saveGovernedInitialCheckpoint(fixture)
+                val expectedGeneration = checkNotNull(initialCheckpoint.checkpointGeneration)
+                val lease =
+                    fixture.leaseStore.claim(workflowName, workflowId, "worker-e2e-1", initialCheckpoint.revision, 5_000)
+                fixture.supervisor.launch(initialCheckpoint, lease)
+
+                withTimeout(10_000) {
+                    while (fixture.supervisor.activeExecutionCount() != 0) delay(10)
+                }
+
+                assertThat(fixture.supervisor.latestFailure(workflowId)).isNotNull()
+                val persistedEvidence = delegateStore.listEvidence(workflowName, workflowId).single()
+                assertThat(persistedEvidence.key.checkpointGeneration).isEqualTo(expectedGeneration)
+                assertThat(persistedEvidence.key.admissionSeq).isEqualTo(2L)
+                assertThat(persistedEvidence.state).isEqualTo(WorkflowEffectEvidenceState.ADMITTED)
+                assertThat(persistedEvidence.completedAtEpochMillis).isNull()
+            }
+            scope.cancel()
+        } finally {
+            pool.dispose()
+        }
+    }
+
+    @Test
+    fun `P6 - process acquisition failure transitions ADMITTED directly to UNCERTAIN without DISPATCHED`() {
+        val store = InMemoryWorkflowEffectEvidenceRecordStore()
+        val step =
+            createShellStep(
+                executable = "/definitely/nonexistent/tramai_binary_404",
+                commandArgs = listOf("/definitely/nonexistent/tramai_binary_404"),
+                config = ShellStepConfig(allowedCommands = setOf("/definitely/nonexistent/tramai_binary_404")),
+            )
+        val admission =
+            WorkflowProcessAdmission { sName, eKind ->
+                WorkflowProcessPermit(sName, eKind, 1L)
+            }
+
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = store)) {
+                    step.execute(
+                        workflowName = workflowName,
+                        state = "init",
+                        context = WorkflowContext(workflowId),
+                        observer = NoOpWorkflowObserver,
+                    )
+                }
+            }
+        }.isInstanceOf(WorkflowShellException::class.java)
+            .matches { (it as WorkflowShellException).failureCode == WorkflowStepFailureCode.START_FAILED }
+
+        runBlocking {
+            val evidence = store.listEvidence(workflowName, workflowId).single()
+            assertThat(evidence.state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
+            assertThat(evidence.diagnosticSummary).isNotNull()
+            assertThat(evidence.completedAtEpochMillis).isNull()
+        }
+    }
+
+    @Test
+    fun `P7 - post-launch evidence failure terminates process tree via terminateAndAwait`(
+        @TempDir tempDir: Path,
+    ) {
+        val pidFile = tempDir.resolve("child.pid")
+        val delegateStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        val failingStore =
+            object : WorkflowEffectEvidenceRecordStore by delegateStore {
+                override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                    if (record.state == WorkflowEffectEvidenceState.DISPATCHED) {
+                        error("simulated store failure on DISPATCHED write")
+                    }
+                    return delegateStore.updateEvidence(record)
+                }
+            }
+
+        val script = "echo $$ > '${pidFile.toAbsolutePath()}'; sleep 30"
+        val step =
+            createShellStep(
+                executable = "sh",
+                commandArgs = listOf("sh", "-c", script),
+                config = ShellStepConfig(allowedCommands = setOf("sh")),
+            )
+        val admission =
+            WorkflowProcessAdmission { sName, eKind ->
+                WorkflowProcessPermit(sName, eKind, 1L)
+            }
+
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = failingStore)) {
+                    step.execute(
+                        workflowName = workflowName,
+                        state = "init",
+                        context = WorkflowContext(workflowId),
+                        observer = NoOpWorkflowObserver,
+                    )
+                }
+            }
+        }.isInstanceOf(WorkflowShellException::class.java)
+
+        // Await pidFile creation
+        runBlocking {
+            val pid = awaitPid(pidFile)
+            assertThat(pid).isNotNull()
+
+            // Verify process handle is no longer alive (cleanly reaped, no orphan)
+            val handle = ProcessHandle.of(pid!!).orElse(null)
+            if (handle != null) {
+                withTimeout(5_000) {
+                    while (handle.isAlive) delay(50)
+                }
+                assertThat(handle.isAlive).isFalse()
+            }
+        }
+    }
+
+    @Test
+    fun `P8 - timeout marks evidence UNCERTAIN and terminates process`(
+        @TempDir tempDir: Path,
+    ) {
+        val pidFile = tempDir.resolve("timeout_child.pid")
+        val store = InMemoryWorkflowEffectEvidenceRecordStore()
+        val script = "echo $$ > '${pidFile.toAbsolutePath()}'; sleep 30"
+        val step =
+            createShellStep(
+                executable = "sh",
+                commandArgs = listOf("sh", "-c", script),
+                config = ShellStepConfig(timeoutSeconds = 1, allowedCommands = setOf("sh")),
+            )
+        val admission =
+            WorkflowProcessAdmission { sName, eKind ->
+                WorkflowProcessPermit(sName, eKind, 1L)
+            }
+
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = store)) {
+                    step.execute(
+                        workflowName = workflowName,
+                        state = "init",
+                        context = WorkflowContext(workflowId),
+                        observer = NoOpWorkflowObserver,
+                    )
+                }
+            }
+        }.isInstanceOf(WorkflowShellException::class.java)
+            .matches { (it as WorkflowShellException).failureCode == WorkflowStepFailureCode.TIMEOUT }
+
+        runBlocking {
+            val evidence = store.listEvidence(workflowName, workflowId).single()
+            assertThat(evidence.state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
+            assertThat(evidence.diagnosticSummary).contains("timed out")
+
+            val pid = awaitPid(pidFile)
+            if (pid != null) {
+                val handle = ProcessHandle.of(pid).orElse(null)
+                if (handle != null) {
+                    withTimeout(5_000) {
+                        while (handle.isAlive) delay(50)
+                    }
+                    assertThat(handle.isAlive).isFalse()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `P9 - non-zero exit code records COMPLETED evidence while step fails NON_ZERO_EXIT`() {
+        val store = InMemoryWorkflowEffectEvidenceRecordStore()
+        val step =
+            createShellStep(
+                executable = "sh",
+                commandArgs = listOf("sh", "-c", "echo failure-out; exit 42"),
+                config = ShellStepConfig(failOnNonZeroExit = true, allowedCommands = setOf("sh")),
+            )
+        val admission =
+            WorkflowProcessAdmission { sName, eKind ->
+                WorkflowProcessPermit(sName, eKind, 1L)
+            }
+
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = store)) {
+                    step.execute(
+                        workflowName = workflowName,
+                        state = "init",
+                        context = WorkflowContext(workflowId),
+                        observer = NoOpWorkflowObserver,
+                    )
+                }
+            }
+        }.isInstanceOf(WorkflowShellException::class.java)
+            .matches { (it as WorkflowShellException).failureCode == WorkflowStepFailureCode.NON_ZERO_EXIT }
+
+        runBlocking {
+            val evidence = store.listEvidence(workflowName, workflowId).single()
+            assertThat(evidence.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
+            assertThat(evidence.completedAtEpochMillis).isNotNull()
+            assertThat(evidence.diagnosticSummary).isNull()
+        }
+    }
+
+    @Test
+    fun `P10 - retried step execution generates distinct admission sequences and attempt IDs`() {
+        runBlocking {
+            val store = InMemoryWorkflowEffectEvidenceRecordStore()
+            var admissionCounter = 0L
+
+            val admission =
+                WorkflowProcessAdmission { sName, eKind ->
+                    WorkflowProcessPermit(sName, eKind, ++admissionCounter)
+                }
+
+            // Attempt 1: fails
+            val attempt1 = PersistedStepAttempt(workflowName, workflowId, stepName, "attempt-1")
+            val failingStep =
+                createShellStep(
+                    executable = "sh",
+                    commandArgs = listOf("sh", "-c", "exit 1"),
+                    config = ShellStepConfig(failOnNonZeroExit = true, allowedCommands = setOf("sh")),
+                )
+
+            assertThatThrownBy {
+                runBlocking {
+                    withContext(testScope(admission = admission, evidenceStore = store, attempt = attempt1)) {
+                        failingStep.execute(
+                            workflowName = workflowName,
+                            state = "init",
+                            context = WorkflowContext(workflowId),
+                            observer = NoOpWorkflowObserver,
+                        )
+                    }
+                }
+            }.isInstanceOf(WorkflowShellException::class.java)
+
+            // Attempt 2: succeeds
+            val attempt2 = PersistedStepAttempt(workflowName, workflowId, stepName, "attempt-2")
+            val successfulStep =
+                createShellStep(
+                    executable = "echo",
+                    commandArgs = listOf("echo", "retry-success"),
+                )
+
+            val result =
+                withContext(testScope(admission = admission, evidenceStore = store, attempt = attempt2)) {
+                    successfulStep.execute(
+                        workflowName = workflowName,
+                        state = "init",
+                        context = WorkflowContext(workflowId),
+                        observer = NoOpWorkflowObserver,
+                    )
+                }
+
+            assertThat(result).isEqualTo("init:retry-success")
+
+            val records = store.listEvidence(workflowName, workflowId)
+            assertThat(records).hasSize(2)
+
+            val record1 = records.first { it.stepAttemptId == "attempt-1" }
+            val record2 = records.first { it.stepAttemptId == "attempt-2" }
+
+            assertThat(record1.key.admissionSeq).isEqualTo(1L)
+            assertThat(record1.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED) // Process effect completed (exit 1)
+
+            assertThat(record2.key.admissionSeq).isEqualTo(2L)
+            assertThat(record2.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
+        }
+    }
+
+    @Test
+    fun `P11 - ungoverned workflow executes Shell normally and writes no evidence even with evidence store configured`() {
+        runBlocking {
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            val evidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
+            checkpointStore.evidenceStore = evidenceStore
+
+            val wf =
+                workflow<String>(workflowName) {
+                    shellStep(
+                        name = stepName,
+                        config = ShellStepConfig(allowedCommands = setOf("echo")),
+                        definition = ShellCommandDefinition(executable = "echo"),
+                        command = { state, _ -> ShellCommand(command = listOf("echo", state)) },
+                        merge = { state, result, _ -> "$state:${result.stdout.trim()}" },
+                    )
+                }.build { it }
+
+            val persistence =
+                WorkflowPersistence(
+                    checkpointStore = checkpointStore,
+                    stateCodec = PlainStringCodec,
+                    deleteCheckpointOnCompletion = false,
+                    evidenceStore = evidenceStore,
+                )
+
+            val runOutcome = wf.run("ungoverned", WorkflowContext("ungoverned-run"), persistence = persistence)
+            assertThat(runOutcome).isEqualTo("ungoverned:ungoverned")
+            assertThat(evidenceStore.listEvidence(workflowName, "ungoverned-run")).isEmpty()
+
+            checkpointStore.save(
+                WorkflowCheckpoint(
+                    workflowName = workflowName,
+                    workflowId = "ungoverned-resume",
+                    nextStepIndex = 0,
+                    stepExecutions = 0,
+                    lastCompletedStepName = null,
+                    statePayload = "resumed",
+                    metadata = wf.checkpointMetadata(),
+                ),
+            )
+            val resumeOutcome = wf.resume(WorkflowContext("ungoverned-resume"), persistence = persistence)
+            assertThat(resumeOutcome).isEqualTo("resumed:resumed")
+            assertThat(evidenceStore.listEvidence(workflowName, "ungoverned-resume")).isEmpty()
+        }
+    }
+
+    private suspend fun awaitPid(pidFile: Path): Long? {
+        val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadlineNanos) {
+            if (Files.exists(pidFile)) {
+                val text = Files.readString(pidFile).trim()
+                if (text.isNotEmpty()) {
+                    return text.toLongOrNull()
+                }
+            }
+            delay(50)
+        }
+        return null
+    }
+
+    private suspend fun saveGovernedInitialCheckpoint(fixture: JdbcWorkerFixture): WorkflowCheckpoint =
+        fixture.checkpointStore.save(
+            WorkflowCheckpoint(
+                workflowName = workflowName,
+                workflowId = workflowId,
+                nextStepIndex = 0,
+                stepExecutions = 0,
+                lastCompletedStepName = null,
+                statePayload = "start",
+                metadata = fixture.workflow.checkpointMetadata() + encodeGovernedRunAttribution(GOVERNED_IDENTITY),
+            ),
+        )
+
+    private fun createJdbcWorkerFixture(
+        pool: JdbcConnectionPool,
+        evidenceStoreOverride: WorkflowEffectEvidenceRecordStore = JdbcWorkflowEffectEvidenceRecordStore(pool),
+        schemaStore: JdbcWorkflowEffectEvidenceRecordStore,
+    ): JdbcWorkerFixture {
+        val checkpointStore = JdbcWorkflowCheckpointStore(pool)
+        val leaseStore = JdbcWorkflowLeaseStore(pool)
+        val attemptStore = JdbcStepAttemptRecordStore(pool)
+        checkpointStore.evidenceStore = evidenceStoreOverride
+
+        pool.connection.use { conn ->
+            conn.createStatement().use { stmt ->
+                val statements =
+                    listOf(checkpointStore.createTableSql(), leaseStore.createTableSql()) +
+                        attemptStore.createSchemaSql() +
+                        schemaStore.createSchemaSql()
+                statements.forEach(stmt::execute)
+            }
+        }
+
+        val wf =
+            workflow<String>(workflowName) {
+                shellStep(
+                    name = stepName,
+                    config = ShellStepConfig(allowedCommands = setOf("echo")),
+                    definition = ShellCommandDefinition(executable = "echo"),
+                    command = { state, _ -> ShellCommand(command = listOf("echo", state)) },
+                    merge = { state, result, _ -> "$state:${result.stdout.trim()}" },
+                )
+            }.build { it }
+
+        val workerConfig = WorkerConfig(workerId = "worker-e2e-1", poolName = "e2e-pool", pollIntervalMillis = 20)
+        val persistence =
+            WorkflowPersistence(
+                checkpointStore = checkpointStore,
+                stateCodec = PlainStringCodec,
+                deleteCheckpointOnCompletion = false,
+                evidenceStore = evidenceStoreOverride,
+            )
+        val supervisor =
+            WorkflowExecutionSupervisor(
+                config = workerConfig,
+                leaseStore = leaseStore,
+                checkpointStore = checkpointStore,
+                stepAttemptStore = attemptStore,
+                workflowBindings = WorkflowBindingRegistry { bind(wf, persistence) },
+                observability = NoOpTramaiWorkerObserver,
+                leaseCoordinator = LeaseCoordinator(workerConfig, leaseStore, NoOpTramaiWorkerObserver),
+                recoveryCoordinator = WorkflowRecoveryCoordinator(leaseStore, attemptStore),
+                leaseRenewalLoop = LeaseRenewalLoop(workerConfig, leaseStore, NoOpTramaiWorkerObserver),
+                shuttingDownGracefully = { false },
+                stepAttemptIdentitySource = StepAttemptIdentitySource { "attempt-e2e-1" },
+            )
+        return JdbcWorkerFixture(checkpointStore, leaseStore, attemptStore, wf, supervisor)
+    }
+
+    private class JdbcWorkerFixture(
+        val checkpointStore: JdbcWorkflowCheckpointStore,
+        val leaseStore: JdbcWorkflowLeaseStore,
+        val attemptStore: JdbcStepAttemptRecordStore,
+        val workflow: Workflow<String, String>,
+        val supervisor: WorkflowExecutionSupervisor,
+    )
+
+    private object PlainStringCodec : WorkflowStateCodec<String> {
+        override fun encode(state: String): String = state
+
+        override fun decode(payload: String): String = payload
+    }
+
+    private companion object {
+        private val GOVERNED_IDENTITY =
+            GovernedRunIdentity(
+                deployment =
+                    WorkloadDeploymentIdentity(
+                        workloadId = WorkloadId("d7-workload"),
+                        configuration =
+                            WorkloadConfigurationIdentity(ConfigurationId("conf"), ConfigurationVersion("1")),
+                        environmentId = EnvironmentId("test-env"),
+                        deploymentId = DeploymentId("test-dep"),
+                    ),
+                runId = RunId("run-process-1"),
+            )
+    }
+}
