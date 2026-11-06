@@ -8,7 +8,11 @@ import javax.sql.DataSource
 
 internal data class JdbcWorkflowEffectEvidenceTable(
     val tableName: String = "tramai_workflow_effect_evidence",
-)
+) {
+    init {
+        requireValidSqlIdentifier(tableName, "JdbcWorkflowEffectEvidenceTable.tableName")
+    }
+}
 
 /**
  * JDBC implementation of [WorkflowEffectEvidenceRecordStore].
@@ -62,7 +66,7 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
 
     override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
         persistenceBoundary(
-            PersistenceResourceKind.STEP_ATTEMPT,
+            PersistenceResourceKind.CHECKPOINT,
             PersistenceOperation.SAVE,
             persistenceFailureDiagnosticObserver,
         ) {
@@ -89,7 +93,7 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
 
     override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
         persistenceBoundary(
-            PersistenceResourceKind.STEP_ATTEMPT,
+            PersistenceResourceKind.CHECKPOINT,
             PersistenceOperation.SAVE,
             persistenceFailureDiagnosticObserver,
         ) {
@@ -132,7 +136,7 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
 
     override suspend fun getEvidence(key: WorkflowEffectEvidenceKey): WorkflowEffectEvidenceRecord? =
         persistenceBoundary(
-            PersistenceResourceKind.STEP_ATTEMPT,
+            PersistenceResourceKind.CHECKPOINT,
             PersistenceOperation.LOAD,
             persistenceFailureDiagnosticObserver,
         ) {
@@ -165,7 +169,7 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
         workflowId: String,
     ): List<WorkflowEffectEvidenceRecord> =
         persistenceBoundary(
-            PersistenceResourceKind.STEP_ATTEMPT,
+            PersistenceResourceKind.CHECKPOINT,
             PersistenceOperation.LIST,
             persistenceFailureDiagnosticObserver,
         ) {

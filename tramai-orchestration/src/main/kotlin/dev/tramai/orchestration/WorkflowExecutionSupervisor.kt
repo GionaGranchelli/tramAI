@@ -227,6 +227,7 @@ internal class WorkflowExecutionSupervisor(
                 stateCodec = binding.erased.stateCodec,
                 delayWakeupScheduler = binding.erased.delayWakeupScheduler,
                 deleteCheckpointOnCompletion = binding.erased.deleteCheckpointOnCompletion,
+                evidenceStore = resolveWorkerEvidenceStore(binding.erased, checkpointStore),
             )
         val observer =
             WorkerExecutionObserver(
@@ -458,6 +459,7 @@ internal class ExecutionTracker(
             workflowId = context.workflowId,
             stepName = stepName,
             attemptId = attempt.attemptId,
+            startedAtEpochMillis = attempt.startedAt,
         )
     }
 
@@ -617,8 +619,8 @@ internal class ExecutionTracker(
         }
 }
 
-internal class LeaseFencedCheckpointStore(
-    internal val delegate: WorkflowCheckpointStore,
+private class LeaseFencedCheckpointStore(
+    private val delegate: WorkflowCheckpointStore,
     private val leaseStore: WorkflowLeaseStore,
     private val leaseProvider: () -> WorkflowLease?,
     private val tracker: ExecutionTracker,

@@ -193,6 +193,56 @@ abstract class WorkflowEffectEvidenceRecordStoreContractTest {
             assertThat(list).containsExactly(r1, r2)
         }
     }
+
+    @Test
+    fun `rejects mutation of fields when state is unchanged and allows exact idempotent repeat`() {
+        runBlocking {
+            val store = createStore()
+            val key = WorkflowEffectEvidenceKey("wf", "run-1", "gen-1", 1L)
+            val admitted =
+                WorkflowEffectEvidenceRecord(
+                    key = key,
+                    stepName = "fetch",
+                    stepAttemptId = "att-1",
+                    effectKind = "HTTP",
+                    state = WorkflowEffectEvidenceState.ADMITTED,
+                    createdAtEpochMillis = 1000L,
+                )
+            store.recordEvidence(admitted)
+
+            // Exact same record is allowed idempotently
+            assertThat(store.updateEvidence(admitted)).isEqualTo(admitted)
+
+            // Mutating diagnosticSummary without advancing state is rejected
+            val mutatedAdmitted = admitted.copy(diagnosticSummary = "tampered")
+            try {
+                store.updateEvidence(mutatedAdmitted)
+                org.junit.jupiter.api
+                    .fail("Expected exception on unequal same-state update")
+            } catch (ex: Throwable) {
+                assertThat(ex is IllegalStateException || ex is WorkflowPersistenceFailureException).isTrue()
+            }
+
+            // Transition to COMPLETED and verify terminal immutability
+            val dispatched = admitted.copy(state = WorkflowEffectEvidenceState.DISPATCHED)
+            store.updateEvidence(dispatched)
+            val completed =
+                dispatched.copy(
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    completedAtEpochMillis = 2000L,
+                )
+            store.updateEvidence(completed)
+
+            val mutatedCompleted = completed.copy(completedAtEpochMillis = 3000L)
+            try {
+                store.updateEvidence(mutatedCompleted)
+                org.junit.jupiter.api
+                    .fail("Expected exception on terminal record mutation")
+            } catch (ex: Throwable) {
+                assertThat(ex is IllegalStateException || ex is WorkflowPersistenceFailureException).isTrue()
+            }
+        }
+    }
 }
 
 class InMemoryWorkflowEffectEvidenceRecordStoreTest : WorkflowEffectEvidenceRecordStoreContractTest() {
@@ -220,4 +270,12 @@ class JdbcWorkflowEffectEvidenceRecordStoreTest : WorkflowEffectEvidenceRecordSt
     }
 
     override fun createStore(): WorkflowEffectEvidenceRecordStore = store
+
+    @Test
+    fun `rejects invalid SQL identifier in table configuration`() {
+        assertThatThrownBy {
+            JdbcWorkflowEffectEvidenceTable("invalid-table-name; DROP TABLE x")
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("JdbcWorkflowEffectEvidenceTable.tableName")
+    }
 }

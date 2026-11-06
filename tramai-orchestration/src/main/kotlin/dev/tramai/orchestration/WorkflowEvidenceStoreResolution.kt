@@ -1,28 +1,50 @@
+@file:OptIn(dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.orchestration
 
 import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.identity.WorkflowCheckpointBindingScope
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 
 /**
- * Resolves the underlying [WorkflowEffectEvidenceRecordStore] from a [WorkflowCheckpointStore],
- * unwrapping lease fences or delegates if necessary.
+ * Resolves the active [WorkflowEffectEvidenceRecordStore] from a [WorkflowCheckpointStore]
+ * when evidence tracking has been explicitly configured.
  */
-internal fun WorkflowCheckpointStore?.resolveEvidenceStore(): WorkflowEffectEvidenceRecordStore? {
-    var current: Any? = this
-    var resolved: WorkflowEffectEvidenceRecordStore? = null
-    while (current != null && resolved == null) {
-        when (current) {
-            is WorkflowEffectEvidenceRecordStore -> resolved = current
-            is InMemoryWorkflowCheckpointStore -> resolved = current.evidenceStore
-            is JdbcWorkflowCheckpointStore -> resolved = current.evidenceStore
-            is LeaseFencedCheckpointStore -> current = current.delegate
-            else -> current = null
-        }
+internal fun WorkflowCheckpointStore?.resolveEvidenceStore(): WorkflowEffectEvidenceRecordStore? =
+    when (this) {
+        is WorkflowEffectEvidenceRecordStore -> this
+        is InMemoryWorkflowCheckpointStore -> this.evidenceStore
+        is JdbcWorkflowCheckpointStore -> this.evidenceStore
+        else -> null
     }
-    return resolved
+
+internal fun resolveWorkerEvidenceStore(
+    binding: ErasedWorkflowBinding,
+    checkpointStore: WorkflowCheckpointStore,
+): WorkflowEffectEvidenceRecordStore? = binding.evidenceStore ?: checkpointStore.resolveEvidenceStore()
+
+/**
+ * Validates that when D7 evidence tracking is enabled ([evidenceStore] != null),
+ * both an admission capability and authoritative step-attempt lineage are present
+ * before an effect admission sequence is requested.
+ */
+internal fun requireEvidenceLineageIfEnabled(
+    workflowName: String,
+    workflowId: String,
+    stepName: String,
+    admissionAvailable: Boolean,
+    stepAttempt: PersistedStepAttempt?,
+) {
+    if (!admissionAvailable || stepAttempt == null) {
+        throw WorkflowEvidenceResolutionException(
+            "workflow '$workflowName' run '$workflowId' cannot dispatch effect for step '$stepName': " +
+                "per-effect evidence tracking is enabled, but authoritative step-attempt lineage or admission " +
+                "authority is absent from the execution scope",
+        )
+    }
 }
 
 internal suspend fun resolveStepAttemptAuthority(frame: WorkflowExecutionFrame<*>): StepAttemptAuthority? =
@@ -30,23 +52,16 @@ internal suspend fun resolveStepAttemptAuthority(frame: WorkflowExecutionFrame<*
         ?: (frame.observer as? StepAttemptAuthority)
         ?: currentCoroutineContext()[StepAttemptAuthorityScope]?.authority
 
-internal suspend fun <S> executeGovernedStep(
+internal fun governedStepContext(
     workflowName: String,
-    stepExecutor: WorkflowStepExecutor<S>,
-    step: InternalWorkflowStep<S>,
-    request: WorkflowStepExecutionRequest<S>,
-    frame: WorkflowExecutionFrame<S>,
-): WorkflowStepExecutionResult<S> {
-    val identity = frame.governedRunIdentity ?: return stepExecutor.executeStep(step, request)
-    return withContext(
-        GovernedRunScope(identity) +
-            WorkflowCheckpointBindingScope(
-                WorkflowCheckpointBinding(
-                    workflowName = workflowName,
-                    workflowId = frame.context.workflowId,
-                ),
+    frame: WorkflowExecutionFrame<*>,
+): CoroutineContext {
+    val identity = frame.governedRunIdentity ?: return EmptyCoroutineContext
+    return GovernedRunScope(identity) +
+        WorkflowCheckpointBindingScope(
+            WorkflowCheckpointBinding(
+                workflowName = workflowName,
+                workflowId = frame.context.workflowId,
             ),
-    ) {
-        stepExecutor.executeStep(step, request)
-    }
+        )
 }

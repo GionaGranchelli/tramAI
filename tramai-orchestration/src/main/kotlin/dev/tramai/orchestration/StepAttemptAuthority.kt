@@ -15,6 +15,7 @@ internal data class PersistedStepAttempt(
     val workflowId: String,
     val stepName: String,
     val attemptId: String,
+    val startedAtEpochMillis: Long = 1L,
 )
 
 /**

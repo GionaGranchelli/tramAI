@@ -21,9 +21,10 @@ internal class InMemoryWorkflowEffectEvidenceRecordStore : WorkflowEffectEvidenc
     override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
         synchronized(monitor) {
             val key = record.key
-            val existing = checkNotNull(records[key]) {
-                "Evidence record does not exist for key: $key"
-            }
+            val existing =
+                checkNotNull(records[key]) {
+                    "Evidence record does not exist for key: $key"
+                }
             validateTransition(existing, record)
             records[key] = record
             return record

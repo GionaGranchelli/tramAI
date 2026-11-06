@@ -1,6 +1,7 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.currentCoroutineContext
+import java.time.Clock
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
@@ -10,6 +11,7 @@ import kotlin.coroutines.CoroutineContext
  */
 internal class WorkflowEffectEvidenceStoreScope(
     val store: WorkflowEffectEvidenceRecordStore?,
+    val clock: Clock? = null,
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<WorkflowEffectEvidenceStoreScope>
 }
@@ -20,3 +22,6 @@ internal class WorkflowEffectEvidenceStoreScope(
  */
 internal suspend fun currentEffectEvidenceStore(): WorkflowEffectEvidenceRecordStore? =
     currentCoroutineContext()[WorkflowEffectEvidenceStoreScope]?.store
+
+internal suspend fun currentEffectEvidenceClockMillis(): Long? =
+    currentCoroutineContext()[WorkflowEffectEvidenceStoreScope]?.clock?.millis()

@@ -111,7 +111,7 @@ class StepAttemptSynchronousAuthorityTest {
         val initialCheckpoint = createSyncInitialCheckpoint(testWorkflow)
         runBlocking {
             store.save(initialCheckpoint)
-            val lease = leaseStore.claim("sync-wf", "run-1", config.workerId, 1L, 5_000)!!
+            val lease = leaseStore.claim("sync-wf", "run-1", config.workerId, 1L, 5_000)
             supervisor.launch(initialCheckpoint, lease)
 
             withTimeout(5_000) {
@@ -245,7 +245,7 @@ class StepAttemptSynchronousAuthorityTest {
 
         runBlocking {
             store.save(initialCheckpoint)
-            val lease = leaseStore.claim("nested-sync-wf", "run-2", config.workerId, 1L, 5_000)!!
+            val lease = leaseStore.claim("nested-sync-wf", "run-2", config.workerId, 1L, 5_000)
             supervisor.launch(initialCheckpoint, lease)
 
             withTimeout(5_000) {

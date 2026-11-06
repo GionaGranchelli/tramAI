@@ -52,8 +52,8 @@ Every effect attempt is observable in exactly one of these states:
 | State | Meaning |
 | --- | --- |
 | `ADMITTED` | Durable admission sequence was obtained from the authority and child evidence record was persisted. |
-| `DISPATCHED` | The permit was locally consumed and the invocation was handed off to the transport/process boundary. |
-| `COMPLETED` | The instrumented invocation returned normally to the runtime. |
+| `DISPATCHED` | Transport handoff was observed (`transport.send()` returned a response stream), before response validation and body consumption complete. |
+| `COMPLETED` | The instrumented invocation and response consumption returned normally to the runtime. |
 | `UNCERTAIN` | An admission occurred, but due to cancellation, crash, or transport error, execution state cannot be proven. |
 
 ### Record Identity & Key Schema
@@ -82,17 +82,17 @@ $$\text{Key} = (workflowName, workflowId, checkpointGeneration, admissionSeq)$$
 
 To avoid overclaiming remote physical execution while remaining truthful across crashes:
 
-1. **`ADMITTED` is NOT Dispatch:** A granted permit and written `ADMITTED` record proves only that authority permitted the invocation.
-2. **`DISPATCHED` Means Local Transport Handoff Observed:**
-   - A durable `DISPATCHED` update is made immediately upon local permit consumption at the transport call boundary.
-   - It certifies: *"The runtime consumed the single-use permit and invoked the transport callable."*
-   - It does **NOT** certify that bytes traversed the physical network or that the remote server processed the payload.
-3. **`COMPLETED` Means Local Invocation Returned Normally:**
-   - Recorded when the transport call returns a response without throwing.
+1. **`ADMITTED` is NOT Dispatch:** A granted permit and written `ADMITTED` record proves only that authority permitted the invocation. `DISPATCHED` is **never** written before `transport.send()` is invoked, eliminating any false-positive durable claim if a process crashes between permit consumption and transport invocation.
+2. **`DISPATCHED` Means Transport Handoff Observed:**
+   - A durable `DISPATCHED` update is persisted only after `transport.send()` returns a response handle (proving handoff occurred), prior to post-connect policy verification and response body reading.
+   - If `transport.send()` throws or is cancelled before returning, the record transitions directly from `ADMITTED` to `UNCERTAIN` under `NonCancellable`.
+3. **`COMPLETED` Means Full Invocation & Response Processing Returned Normally:**
+   - Recorded after connected-address validation and response stream consumption complete without throwing.
    - It does **NOT** imply that an external system durably committed the business effect.
-4. **Crashes in the Gap:**
-   - A crash between `ADMITTED` and transport handoff leaves an `ADMITTED` record. On recovery, because the counter advanced, the effect is treated as `UNCERTAIN` and never assumed not to have executed.
-   - A crash between transport return and `COMPLETED` write leaves a `DISPATCHED` record, correctly signaling that dispatch was initiated.
+4. **Crashes in the Gap & Explicit Enablement:**
+   - A crash between `ADMITTED` and `transport.send()` completion leaves an `ADMITTED` record. On recovery, because the counter advanced, the effect is treated as `UNCERTAIN` and never assumed not to have executed, while never falsely claiming `DISPATCHED`.
+   - A crash or failure after `transport.send()` returns but before `COMPLETED` is written leaves a `DISPATCHED` record, truthfully signaling that transport handoff was observed.
+   - **Explicit Enablement & Fail-Closed Lineage:** Per-effect evidence tracking is explicitly enabled when a `WorkflowEffectEvidenceRecordStore` is configured on `WorkflowPersistence` or the checkpoint store. When enabled, `HttpWorkflowStep` validates that both admission capability and `PersistedStepAttempt` lineage are present **before** calling `admitHttp`, throwing `WorkflowEvidenceResolutionException` if either is missing.
 
 ---
 

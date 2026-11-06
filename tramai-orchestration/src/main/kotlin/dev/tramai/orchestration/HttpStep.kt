@@ -8,6 +8,7 @@ import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.retry.DefaultRetryJitterSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -330,9 +331,13 @@ internal data class HttpWorkflowStep<S>(
         // that rewrites a thrown error into a step failure code. This is the only production caller of
         // HttpTransport.send, and HttpTransport is internal, so the grant taken here also covers the JDK send behind it:
         // E1 never admits a second time for the same attempt.
-        val permit = currentHttpAdmission()?.admitHttp(name, HTTP_EFFECT_KIND)
+        val httpAdmission = currentHttpAdmission()
         val evidenceStore = currentEffectEvidenceStore()
         val stepAttempt = currentStepAttempt()
+        if (evidenceStore != null) {
+            requireEvidenceLineageIfEnabled(workflowName, context.workflowId, name, httpAdmission != null, stepAttempt)
+        }
+        val permit = httpAdmission?.admitHttp(name, HTTP_EFFECT_KIND)
         var evidenceKey: WorkflowEffectEvidenceKey? = null
 
         if (permit != null && evidenceStore != null && stepAttempt != null) {
@@ -351,18 +356,12 @@ internal data class HttpWorkflowStep<S>(
                     stepAttemptId = stepAttempt.attemptId,
                     effectKind = HTTP_EFFECT_KIND,
                     state = WorkflowEffectEvidenceState.ADMITTED,
-                    createdAtEpochMillis = System.currentTimeMillis(),
+                    createdAtEpochMillis = currentEffectEvidenceClockMillis() ?: stepAttempt.startedAtEpochMillis,
                 ),
             )
         }
 
         permit?.tryConsume()
-        if (evidenceKey != null && evidenceStore != null) {
-            val record = evidenceStore.getEvidence(evidenceKey)
-            if (record != null) {
-                evidenceStore.updateEvidence(record.copy(state = WorkflowEffectEvidenceState.DISPATCHED))
-            }
-        }
 
         var connectedValidated = false
         val sendResult =
@@ -381,12 +380,7 @@ internal data class HttpWorkflowStep<S>(
         if (evidenceKey != null && evidenceStore != null) {
             val record = evidenceStore.getEvidence(evidenceKey)
             if (record != null) {
-                evidenceStore.updateEvidence(
-                    record.copy(
-                        state = WorkflowEffectEvidenceState.COMPLETED,
-                        completedAtEpochMillis = System.currentTimeMillis(),
-                    ),
-                )
+                evidenceStore.updateEvidence(record.copy(state = WorkflowEffectEvidenceState.DISPATCHED))
             }
         }
         if (execution.transport.capability == HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION && !connectedValidated) {
@@ -421,6 +415,17 @@ internal data class HttpWorkflowStep<S>(
                 } else {
                     truncated = true
                 }
+            }
+        }
+        if (evidenceKey != null && evidenceStore != null) {
+            val record = evidenceStore.getEvidence(evidenceKey)
+            if (record != null) {
+                evidenceStore.updateEvidence(
+                    record.copy(
+                        state = WorkflowEffectEvidenceState.COMPLETED,
+                        completedAtEpochMillis = currentEffectEvidenceClockMillis() ?: record.createdAtEpochMillis,
+                    ),
+                )
             }
         }
         if (truncated) {
@@ -594,29 +599,46 @@ private class ExecutedHttpResponse(
  * Runs [send]; on any failure marks the effect evidence UNCERTAIN (the transport outcome is unknown) and rethrows
  * the original error unchanged. Evidence-write failures are attached as suppressed and never mask the original.
  */
+@Suppress("TooGenericExceptionCaught")
 private suspend fun <T> sendRecordingFailure(
     evidenceKey: WorkflowEffectEvidenceKey?,
     evidenceStore: WorkflowEffectEvidenceRecordStore?,
     send: suspend () -> T,
 ): T {
-    val outcome = runCatching { send() }
-    val error = outcome.exceptionOrNull() ?: return outcome.getOrThrow()
-    if (evidenceKey != null && evidenceStore != null) {
-        runCatching {
-            withContext(NonCancellable) {
-                val record = evidenceStore.getEvidence(evidenceKey)
-                if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
-                    evidenceStore.updateEvidence(
-                        record.copy(
-                            state = WorkflowEffectEvidenceState.UNCERTAIN,
-                            diagnosticSummary = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text,
-                        ),
-                    )
-                }
-            }
-        }.exceptionOrNull()?.let(error::addSuppressed)
+    try {
+        return send()
+    } catch (cancelled: CancellationException) {
+        recordUncertainFailure(evidenceKey, evidenceStore, cancelled)
+        throw cancelled
+    } catch (error: Throwable) {
+        recordUncertainFailure(evidenceKey, evidenceStore, error)
+        throw error
     }
-    throw error
+}
+
+@Suppress("TooGenericExceptionCaught")
+private suspend fun recordUncertainFailure(
+    evidenceKey: WorkflowEffectEvidenceKey?,
+    evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    error: Throwable,
+) {
+    if (evidenceKey == null || evidenceStore == null) return
+    try {
+        withContext(NonCancellable) {
+            val record = evidenceStore.getEvidence(evidenceKey)
+            if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
+                evidenceStore.updateEvidence(
+                    record.copy(
+                        state = WorkflowEffectEvidenceState.UNCERTAIN,
+                        diagnosticSummary = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text,
+                    ),
+                )
+            }
+        }
+    } catch (suppressed: Throwable) {
+        suppressed.rethrowIfCancellation()
+        error.addSuppressed(suppressed)
+    }
 }
 
 private val supportedHttpMethods = setOf("GET", "POST", "PUT", "DELETE", "PATCH")

@@ -326,7 +326,12 @@ internal class WorkflowRunner<S, R>(
                         )
                     },
                 )
-            val stepResult = executeGovernedStep(name, stepExecutor, step, request, frame)
+            val stepResult =
+                if (frame.governedRunIdentity == null) {
+                    stepExecutor.executeStep(step, request)
+                } else {
+                    withContext(governedStepContext(name, frame)) { stepExecutor.executeStep(step, request) }
+                }
             when (val result = stepResult) {
                 is WorkflowStepExecutionResult.Completed -> currentState = result.state
 
@@ -426,14 +431,16 @@ internal class WorkflowRunner<S, R>(
         val http = effects?.http ?: refusing?.http
         val mcp = effects?.mcp ?: refusing?.mcp
         val external = effects?.external ?: refusing?.external
-        val evidenceStore = persistenceSession?.persistence?.checkpointStore.resolveEvidenceStore()
+        val evidenceStore =
+            persistenceSession?.persistence?.evidenceStore
+                ?: persistenceSession?.persistence?.checkpointStore.resolveEvidenceStore()
         // One context, four authorities: the process, HTTP, MCP and external-executor capabilities are separate types,
         // and each dispatch site asks only its own. All are installed here so no run has to remember the next one.
         return WorkflowProcessAdmissionScope(process) +
             WorkflowHttpAdmissionScope(http) +
             WorkflowMcpAdmissionScope(mcp) +
             WorkflowExternalAdmissionScope(external) +
-            WorkflowEffectEvidenceStoreScope(evidenceStore)
+            WorkflowEffectEvidenceStoreScope(evidenceStore, clock)
     }
 }
 

@@ -144,7 +144,10 @@ internal fun workflowFailureTrusted(error: Throwable): Boolean =
  * [dev.tramai.core.coroutines.rethrowIfCancellation] in any handler that would otherwise wrap a step-body error.
  */
 internal fun Throwable.rethrowIfAuthoritativeRefusal() {
-    if (this is WorkflowAdmissionRefusedException || this is WorkflowCancellationUnsupportedException) {
+    if (this is WorkflowAdmissionRefusedException ||
+        this is WorkflowCancellationUnsupportedException ||
+        this is WorkflowEvidenceResolutionException
+    ) {
         throw this
     }
 }

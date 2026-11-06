@@ -11,10 +11,10 @@ internal enum class WorkflowEffectEvidenceState {
     /** Durable admission sequence obtained from authority; child evidence record written. */
     ADMITTED,
 
-    /** The single-use permit was locally consumed and the invocation handed off to the transport callable. */
+    /** Transport handoff was observed and returned a response stream before completion/body processing. */
     DISPATCHED,
 
-    /** The instrumented invocation returned normally to the runtime. */
+    /** The instrumented invocation and response processing completed normally. */
     COMPLETED,
 
     /** Execution state cannot be proven (cancellation, crash, or transport error). */
@@ -136,7 +136,6 @@ internal interface WorkflowEffectEvidenceRecordStore {
  * Thrown when a governed effect requires an active evidence store and step-attempt lineage,
  * but one or both are absent from the execution scope (failing closed).
  */
-class WorkflowEvidenceResolutionException(
+internal class WorkflowEvidenceResolutionException(
     message: String,
 ) : RuntimeException(message)
-
