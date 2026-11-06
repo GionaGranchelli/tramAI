@@ -11,12 +11,15 @@ import dev.tramai.core.identity.RunId
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -576,13 +579,13 @@ class WorkflowProcessEffectEvidenceTest {
     }
 
     @Test
-    fun `P12 - post-launch evidence store stall does not block bounded process cleanup`(
+    fun `P12 - post-launch evidence store stall triggers bounded cleanup without external cancellation`(
         @TempDir tempDir: Path,
     ) {
         val pidFile = tempDir.resolve("stalled_child.pid")
         val delegateStore = InMemoryWorkflowEffectEvidenceRecordStore()
         val updateDispatchedEntered = CompletableDeferred<Unit>()
-        val stallUntilReleased = CompletableDeferred<Unit>()
+        val neverReleasedStall = CompletableDeferred<Unit>()
         var processAliveDuringUncertainUpdate: Boolean? = null
         var childPid: Long? = null
 
@@ -591,7 +594,8 @@ class WorkflowProcessEffectEvidenceTest {
                 override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
                     if (record.state == WorkflowEffectEvidenceState.DISPATCHED) {
                         updateDispatchedEntered.complete(Unit)
-                        stallUntilReleased.await()
+                        // Never released: simulates an evidence store that hangs indefinitely on DISPATCHED write
+                        neverReleasedStall.await()
                     }
                     if (record.state == WorkflowEffectEvidenceState.UNCERTAIN) {
                         childPid?.let { pid ->
@@ -607,7 +611,7 @@ class WorkflowProcessEffectEvidenceTest {
             createShellStep(
                 executable = "sh",
                 commandArgs = listOf("sh", "-c", script),
-                config = ShellStepConfig(allowedCommands = setOf("sh")),
+                config = ShellStepConfig(allowedCommands = setOf("sh"), timeoutSeconds = 1),
             )
         val admission =
             WorkflowProcessAdmission { sName, eKind ->
@@ -615,15 +619,20 @@ class WorkflowProcessEffectEvidenceTest {
             }
 
         runBlocking {
+            var caughtException: Throwable? = null
             val job =
                 launch(Dispatchers.Default) {
-                    withContext(testScope(admission = admission, evidenceStore = stallingStore)) {
-                        step.execute(
-                            workflowName = workflowName,
-                            state = "init",
-                            context = WorkflowContext(workflowId),
-                            observer = NoOpWorkflowObserver,
-                        )
+                    try {
+                        withContext(testScope(admission = admission, evidenceStore = stallingStore)) {
+                            step.execute(
+                                workflowName = workflowName,
+                                state = "init",
+                                context = WorkflowContext(workflowId),
+                                observer = NoOpWorkflowObserver,
+                            )
+                        }
+                    } catch (e: Throwable) {
+                        caughtException = e
                     }
                 }
 
@@ -635,11 +644,11 @@ class WorkflowProcessEffectEvidenceTest {
             assertThat(handle).isNotNull()
             assertThat(handle?.isAlive).isTrue()
 
-            // Cancel the executing job while the evidence store operation is stalled
-            job.cancel()
-            // Release the stall so the coroutine can proceed to cleanup and UNCERTAIN recording
-            stallUntilReleased.complete(Unit)
+            // Do NOT cancel the workflow and do NOT release the stall!
+            // The configured execution deadline (1s) must fire and cause process cleanup!
             job.join()
+
+            assertThat(caughtException).isInstanceOf(WorkflowShellException::class.java)
 
             // Bounded graceful-to-forced process cleanup occurred
             withTimeout(5_000) {
@@ -649,6 +658,79 @@ class WorkflowProcessEffectEvidenceTest {
 
             // Proves process cleanup completed before UNCERTAIN update was attempted
             assertThat(processAliveDuringUncertainUpdate).isFalse()
+        }
+    }
+
+    @Test
+    fun `P14 - secondary cancellation during uncertainty persistence does not replace primary failure`() {
+        val delegateStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        val secondaryCancellation = kotlinx.coroutines.CancellationException("secondary store cancellation")
+
+        val storeWithCancellingUncertainty =
+            object : WorkflowEffectEvidenceRecordStore by delegateStore {
+                override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                    if (record.state == WorkflowEffectEvidenceState.UNCERTAIN) {
+                        throw secondaryCancellation
+                    }
+                    return delegateStore.updateEvidence(record)
+                }
+            }
+
+        // 1. Direct recordUncertainFailure helper preserves primary exception identity
+        val primaryError = IllegalStateException("known primary failure")
+        val key = WorkflowEffectEvidenceKey(workflowName, "run-disc-1", "", 1L)
+        runBlocking {
+            delegateStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = key,
+                    stepName = stepName,
+                    stepAttemptId = attemptId,
+                    effectKind = PROCESS_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.ADMITTED,
+                    createdAtEpochMillis = 1000L,
+                ),
+            )
+            // Must not throw secondaryCancellation; must attach it as suppressed
+            recordUncertainFailure(key, storeWithCancellingUncertainty, primaryError)
+            assertThat(primaryError.suppressed).anyMatch {
+                it is CancellationException && it.message == "secondary store cancellation"
+            }
+        }
+
+        // 2. Shell execution with primary failure does not get replaced by secondary cancellation
+        val step =
+            createShellStep(
+                executable = "sh",
+                commandArgs = listOf("sh", "-c", "sleep 30"),
+                config = ShellStepConfig(allowedCommands = setOf("sh"), timeoutSeconds = 1),
+            )
+        val admission =
+            WorkflowProcessAdmission { sName, eKind ->
+                WorkflowProcessPermit(sName, eKind, 1L)
+            }
+
+        runBlocking {
+            var caughtFailure: Throwable? = null
+            try {
+                withContext(testScope(admission = admission, evidenceStore = storeWithCancellingUncertainty)) {
+                    step.execute(
+                        workflowName = workflowName,
+                        state = "init",
+                        context = WorkflowContext(workflowId),
+                        observer = NoOpWorkflowObserver,
+                    )
+                }
+            } catch (error: Throwable) {
+                caughtFailure = error
+            }
+
+            // Caller receives the primary failure, NOT the secondary cancellation!
+            assertThat(caughtFailure).isInstanceOf(WorkflowShellException::class.java)
+            assertThat((caughtFailure as WorkflowShellException).failureCode)
+                .isEqualTo(WorkflowStepFailureCode.TIMEOUT)
+
+            // Caller's coroutine job was NOT cancelled (no cancellation swallowed from caller context)
+            assertThat(currentCoroutineContext().job.isActive).isTrue()
         }
     }
 

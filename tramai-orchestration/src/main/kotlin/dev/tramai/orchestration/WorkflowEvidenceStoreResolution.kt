@@ -6,6 +6,7 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.identity.WorkflowCheckpointBindingScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
@@ -92,6 +93,10 @@ internal suspend fun recordUncertainFailure(
                     )
                 }
             }
+        }
+    } catch (suppressedCancellation: CancellationException) {
+        if (suppressedCancellation !== error) {
+            error.addSuppressed(suppressedCancellation)
         }
     } catch (suppressed: Throwable) {
         suppressed.rethrowIfCancellation()
