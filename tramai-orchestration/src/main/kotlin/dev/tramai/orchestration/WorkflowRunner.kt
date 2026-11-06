@@ -432,8 +432,12 @@ internal class WorkflowRunner<S, R>(
         val mcp = effects?.mcp ?: refusing?.mcp
         val external = effects?.external ?: refusing?.external
         val evidenceStore =
-            persistenceSession?.persistence?.evidenceStore
-                ?: persistenceSession?.persistence?.checkpointStore.resolveEvidenceStore()
+            if (governedRunIdentity == null) {
+                null
+            } else {
+                persistenceSession?.persistence?.evidenceStore
+                    ?: persistenceSession?.persistence?.checkpointStore.resolveEvidenceStore()
+            }
         // One context, four authorities: the process, HTTP, MCP and external-executor capabilities are separate types,
         // and each dispatch site asks only its own. All are installed here so no run has to remember the next one.
         return WorkflowProcessAdmissionScope(process) +

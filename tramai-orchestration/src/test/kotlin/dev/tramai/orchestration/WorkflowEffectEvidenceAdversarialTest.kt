@@ -594,11 +594,10 @@ class WorkflowEffectEvidenceAdversarialTest {
             }
         }
 
-        val transport = FakeHttpTransport { _ -> FakeResponse(200, "E2E-OK") }
         val wf =
             workflow<String>(workflowName) {
                 outboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(allowPrivateDestinations = true)
-                httpTransport = transport
+                httpTransport = FakeHttpTransport { _ -> FakeResponse(200, "E2E-OK") }
                 httpStep(
                     name = stepName,
                     config = HttpStepConfig(allowedHosts = setOf("127.0.0.1")),
@@ -607,14 +606,7 @@ class WorkflowEffectEvidenceAdversarialTest {
                 )
             }.build { it }
 
-        val workerConfig =
-            WorkerConfig(
-                workerId = "worker-e2e-1",
-                poolName = "e2e-pool",
-                pollIntervalMillis = 20,
-                leaseDurationMillis = 5_000,
-                drainTimeoutMillis = 1_000,
-            )
+        val workerConfig = WorkerConfig(workerId = "worker-e2e-1", poolName = "e2e-pool", pollIntervalMillis = 20)
         val supervisor =
             WorkflowExecutionSupervisor(
                 config = workerConfig,
