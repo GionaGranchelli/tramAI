@@ -1,4 +1,4 @@
-@file:Suppress("MaxLineLength", "ktlint:standard:max-line-length")
+@file:Suppress("LargeClass", "MaxLineLength", "ktlint:standard:max-line-length")
 
 package dev.tramai.orchestration
 
@@ -11,11 +11,13 @@ import dev.tramai.core.identity.RunId
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -570,6 +572,130 @@ class WorkflowProcessEffectEvidenceTest {
             val resumeOutcome = wf.resume(WorkflowContext("ungoverned-resume"), persistence = persistence)
             assertThat(resumeOutcome).isEqualTo("resumed:resumed")
             assertThat(evidenceStore.listEvidence(workflowName, "ungoverned-resume")).isEmpty()
+        }
+    }
+
+    @Test
+    fun `P12 - post-launch evidence store stall does not block bounded process cleanup`(
+        @TempDir tempDir: Path,
+    ) {
+        val pidFile = tempDir.resolve("stalled_child.pid")
+        val delegateStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        val updateDispatchedEntered = CompletableDeferred<Unit>()
+        val stallUntilReleased = CompletableDeferred<Unit>()
+        var processAliveDuringUncertainUpdate: Boolean? = null
+        var childPid: Long? = null
+
+        val stallingStore =
+            object : WorkflowEffectEvidenceRecordStore by delegateStore {
+                override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                    if (record.state == WorkflowEffectEvidenceState.DISPATCHED) {
+                        updateDispatchedEntered.complete(Unit)
+                        stallUntilReleased.await()
+                    }
+                    if (record.state == WorkflowEffectEvidenceState.UNCERTAIN) {
+                        childPid?.let { pid ->
+                            processAliveDuringUncertainUpdate = ProcessHandle.of(pid).map { it.isAlive }.orElse(false)
+                        }
+                    }
+                    return delegateStore.updateEvidence(record)
+                }
+            }
+
+        val script = "echo $$ > '${pidFile.toAbsolutePath()}'; sleep 30"
+        val step =
+            createShellStep(
+                executable = "sh",
+                commandArgs = listOf("sh", "-c", script),
+                config = ShellStepConfig(allowedCommands = setOf("sh")),
+            )
+        val admission =
+            WorkflowProcessAdmission { sName, eKind ->
+                WorkflowProcessPermit(sName, eKind, 1L)
+            }
+
+        runBlocking {
+            val job =
+                launch(Dispatchers.Default) {
+                    withContext(testScope(admission = admission, evidenceStore = stallingStore)) {
+                        step.execute(
+                            workflowName = workflowName,
+                            state = "init",
+                            context = WorkflowContext(workflowId),
+                            observer = NoOpWorkflowObserver,
+                        )
+                    }
+                }
+
+            childPid = awaitPid(pidFile)
+            assertThat(childPid).isNotNull()
+            updateDispatchedEntered.await()
+
+            val handle = ProcessHandle.of(childPid!!).orElse(null)
+            assertThat(handle).isNotNull()
+            assertThat(handle?.isAlive).isTrue()
+
+            // Cancel the executing job while the evidence store operation is stalled
+            job.cancel()
+            // Release the stall so the coroutine can proceed to cleanup and UNCERTAIN recording
+            stallUntilReleased.complete(Unit)
+            job.join()
+
+            // Bounded graceful-to-forced process cleanup occurred
+            withTimeout(5_000) {
+                while (handle?.isAlive == true) delay(50)
+            }
+            assertThat(handle?.isAlive).isFalse()
+
+            // Proves process cleanup completed before UNCERTAIN update was attempted
+            assertThat(processAliveDuringUncertainUpdate).isFalse()
+        }
+    }
+
+    @Test
+    fun `P13 - W3 crash window - DISPATCHED evidence persists in JDBC store when completion evidence write fails after process exit`() {
+        val pool = JdbcConnectionPool.create("jdbc:h2:mem:d7_w3_shell_${UUID.randomUUID()};DB_CLOSE_DELAY=-1", "sa", "")
+        try {
+            val delegateStore = JdbcWorkflowEffectEvidenceRecordStore(pool)
+            val failOnCompletedStore =
+                object : WorkflowEffectEvidenceRecordStore by delegateStore {
+                    override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                        if (record.state == WorkflowEffectEvidenceState.COMPLETED) {
+                            error("W3 crash after process exit before COMPLETED write")
+                        }
+                        return delegateStore.updateEvidence(record)
+                    }
+                }
+            val fixture =
+                createJdbcWorkerFixture(
+                    pool = pool,
+                    evidenceStoreOverride = failOnCompletedStore,
+                    schemaStore = delegateStore,
+                )
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            fixture.supervisor.attachScope(scope)
+
+            runBlocking {
+                val initialCheckpoint = saveGovernedInitialCheckpoint(fixture)
+                val expectedGeneration = checkNotNull(initialCheckpoint.checkpointGeneration)
+                val lease =
+                    fixture.leaseStore.claim(workflowName, workflowId, "worker-e2e-1", initialCheckpoint.revision, 5_000)
+                fixture.supervisor.launch(initialCheckpoint, lease)
+
+                withTimeout(10_000) {
+                    while (fixture.supervisor.activeExecutionCount() != 0) delay(10)
+                }
+
+                assertThat(fixture.supervisor.latestFailure(workflowId)).isNotNull()
+
+                val persistedEvidence = delegateStore.listEvidence(workflowName, workflowId).single()
+                assertThat(persistedEvidence.key.checkpointGeneration).isEqualTo(expectedGeneration)
+                assertThat(persistedEvidence.state).isEqualTo(WorkflowEffectEvidenceState.DISPATCHED)
+                assertThat(persistedEvidence.completedAtEpochMillis).isNull()
+            }
+            scope.cancel()
+        } finally {
+            pool.dispose()
         }
     }
 

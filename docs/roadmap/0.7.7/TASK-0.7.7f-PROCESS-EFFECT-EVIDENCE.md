@@ -30,7 +30,7 @@ Every governed Shell E7 execution attempt is observable in exactly one of these 
 
 | State | Semantic Guarantee |
 | --- | --- |
-| `ADMITTED` | Durable admission sequence committed in checkpoint row; child record persisted in `WorkflowEffectEvidenceRecordStore`. Process has **not** started. |
+| `ADMITTED` | ADMITTED proves durable effect authorization and child-record creation. No process acquisition has been confirmed in durable evidence. The process may nevertheless have started if execution was interrupted before the next evidence transition. |
 | `DISPATCHED` | `ProcessBuilder.start()` succeeded under `NonCancellable`, OS process handle acquired, `CancellableProcessLifecycle` attached to caller `Job`, and streams opened. |
 | `COMPLETED` | The OS process exited normally, streams were captured, exit code was obtained, and `lifecycle.terminateAndAwait()` completed. |
 | `UNCERTAIN` | Admission occurred, but process start failed (`IOException`), or execution was cancelled, timed out, or threw an unexpected exception. |

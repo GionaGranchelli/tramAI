@@ -9,6 +9,7 @@ import dev.tramai.core.identity.WorkflowCheckpointBindingScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 
@@ -74,18 +75,22 @@ internal suspend fun recordUncertainFailure(
     evidenceKey: WorkflowEffectEvidenceKey?,
     evidenceStore: WorkflowEffectEvidenceRecordStore?,
     error: Throwable,
+    timeoutMillis: Long = 5_000L,
 ) {
     if (evidenceKey == null || evidenceStore == null) return
     try {
         withContext(NonCancellable) {
-            val record = evidenceStore.getEvidence(evidenceKey)
-            if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
-                evidenceStore.updateEvidence(
-                    record.copy(
-                        state = WorkflowEffectEvidenceState.UNCERTAIN,
-                        diagnosticSummary = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text,
-                    ),
-                )
+            withTimeoutOrNull(timeoutMillis) {
+                val record = evidenceStore.getEvidence(evidenceKey)
+                if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
+                    val preview = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text
+                    evidenceStore.updateEvidence(
+                        record.copy(
+                            state = WorkflowEffectEvidenceState.UNCERTAIN,
+                            diagnosticSummary = preview,
+                        ),
+                    )
+                }
             }
         }
     } catch (suppressed: Throwable) {

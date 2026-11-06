@@ -403,22 +403,22 @@ internal data class ShellWorkflowStep<S>(
                 }
         } catch (error: CancellationException) {
             primaryFailure = error
-            recordUncertainFailure(evidenceKey, evidenceStore, error)
-            throw error
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             primaryFailure = error
-            recordUncertainFailure(evidenceKey, evidenceStore, error)
         } finally {
             registration.dispose()
             // NonCancellable + IO nesting lives inside terminateAndAwait; calling it
             // directly here keeps the primary failure (and its diagnostics) intact.
+            // Bounded graceful-to-forced process cleanup happens FIRST before attempting
+            // any secondary evidence update, ensuring a stalled store cannot orphan processes.
             val cleanup = lifecycle.terminateAndAwait()
             try {
                 surfaceProcessCleanup(primaryFailure, cleanup)
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
                 if (primaryFailure == null) {
+                    recordUncertainFailure(evidenceKey, evidenceStore, error)
                     throw failure(
                         workflowName,
                         error,
@@ -430,10 +430,13 @@ internal data class ShellWorkflowStep<S>(
                 throw error
             }
         }
-        // The public safe failure is constructed only after process cleanup has
-        // completed: cleanup diagnostics stay suppressed on the raw internal
-        // primary (observer-only) and never reach the public exception chain.
+        // Once the process tree has been terminated and reaped, attempt the evidence update
+        // under a bounded failure policy.
         if (primaryFailure != null) {
+            recordUncertainFailure(evidenceKey, evidenceStore, primaryFailure)
+            if (primaryFailure is CancellationException) {
+                throw primaryFailure
+            }
             val code =
                 if (primaryFailure is ShellStepTimeoutException) {
                     WorkflowStepFailureCode.TIMEOUT
