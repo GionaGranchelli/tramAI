@@ -387,6 +387,7 @@ class InMemoryWorkflowCheckpointStore(
     private val cancellations = linkedMapOf<CheckpointKey, WorkflowLifecycleState>()
     private val admissions = linkedMapOf<CheckpointKey, Long>()
     private val stepAttempts = linkedMapOf<AttemptKey, StepAttemptRecord>()
+    internal val evidenceStore: WorkflowEffectEvidenceRecordStore = InMemoryWorkflowEffectEvidenceRecordStore()
     internal val monitor = Any()
 
     override suspend fun load(

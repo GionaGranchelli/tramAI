@@ -412,22 +412,24 @@ internal class ExecutionTracker(
     }
 
     suspend fun startAttempt(stepName: String): PersistedStepAttempt? {
-        if (!trackedStepNames.contains(stepName)) {
-            return null
-        }
-        val descriptor: WorkflowStepReplayDescriptor
-        val fingerprint: String?
-        synchronized(monitor) {
-            if (preparedStepName != stepName) {
-                return null
-            }
-            descriptor = preparedReplayDescriptor
-                ?: WorkflowStepReplayDescriptor(
-                    WorkflowStepReplayability.NON_REPLAYABLE,
-                    WorkflowStepRepetitionSafety.UNSAFE,
-                )
-            fingerprint = inputFingerprint
-        }
+        val (descriptor, fingerprint) =
+            if (!trackedStepNames.contains(stepName)) {
+                null
+            } else {
+                synchronized(monitor) {
+                    if (preparedStepName != stepName) {
+                        null
+                    } else {
+                        val desc =
+                            preparedReplayDescriptor
+                                ?: WorkflowStepReplayDescriptor(
+                                    WorkflowStepReplayability.NON_REPLAYABLE,
+                                    WorkflowStepRepetitionSafety.UNSAFE,
+                                )
+                        desc to inputFingerprint
+                    }
+                }
+            } ?: return null
         val attempt =
             StepAttemptRecord(
                 runId = context.workflowId,
@@ -615,8 +617,8 @@ internal class ExecutionTracker(
         }
 }
 
-private class LeaseFencedCheckpointStore(
-    private val delegate: WorkflowCheckpointStore,
+internal class LeaseFencedCheckpointStore(
+    internal val delegate: WorkflowCheckpointStore,
     private val leaseStore: WorkflowLeaseStore,
     private val leaseProvider: () -> WorkflowLease?,
     private val tracker: ExecutionTracker,

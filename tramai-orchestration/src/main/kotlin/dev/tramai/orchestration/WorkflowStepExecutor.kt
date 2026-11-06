@@ -16,8 +16,8 @@ import kotlinx.coroutines.withContext
  * Frozen contract (unchanged by the #246/#247 refactors, extended by 0.7.7b E11 and D7-A1):
  * ```
  * stepAdmission                     (governed runs only; a refusal stops the step here)
+ *   → stepCounter.beforeStep        (budget check before attempt persistence)
  *   → stepAttemptAuthority.beginAttempt (synchronously persists STARTED attempt record)
- *   → stepCounter.beforeStep
  *   → observer.onStepStarted
  *   → withContext(StepAttemptScope) { step.execute(request) }
  *   → Completed?  YES → observer.onStepCompleted
@@ -43,13 +43,13 @@ internal class WorkflowStepExecutor<S>(
         // E11: the durable authority gets asked before the step exists as work. A cancelled run never gets here,
         // because the refusal happens at this line rather than somewhere inside a step that already began.
         request.services.stepAdmission?.admit(step.name)
+        request.stepCounter.beforeStep(workflowName, step.name)
         val attempt =
             request.services.stepAttemptAuthority?.beginAttempt(
                 workflowName = workflowName,
                 workflowId = request.context.workflowId,
                 stepName = step.name,
             )
-        request.stepCounter.beforeStep(workflowName, step.name)
         request.observer.onStepStarted(workflowName, step.name, request.context)
         val result =
             try {

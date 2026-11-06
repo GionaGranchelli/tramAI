@@ -10,8 +10,8 @@ internal class InMemoryWorkflowEffectEvidenceRecordStore : WorkflowEffectEvidenc
     override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
         synchronized(monitor) {
             val key = record.key
-            if (records.containsKey(key)) {
-                throw IllegalStateException("Evidence record already exists for key: $key")
+            check(!records.containsKey(key)) {
+                "Evidence record already exists for key: $key"
             }
             records[key] = record
             return record
@@ -21,7 +21,9 @@ internal class InMemoryWorkflowEffectEvidenceRecordStore : WorkflowEffectEvidenc
     override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
         synchronized(monitor) {
             val key = record.key
-            val existing = records[key] ?: throw IllegalStateException("Evidence record does not exist for key: $key")
+            val existing = checkNotNull(records[key]) {
+                "Evidence record does not exist for key: $key"
+            }
             validateTransition(existing, record)
             records[key] = record
             return record
@@ -70,7 +72,12 @@ internal class InMemoryWorkflowEffectEvidenceRecordStore : WorkflowEffectEvidenc
         // Any -> UNCERTAIN
         // UNCERTAIN is terminal
         // COMPLETED is terminal
-        if (existing.state == updated.state) return
+        if (existing.state == updated.state) {
+            check(existing == updated) {
+                "Evidence record in state ${existing.state} is immutable: fields cannot be altered"
+            }
+            return
+        }
 
         when (existing.state) {
             WorkflowEffectEvidenceState.ADMITTED -> {

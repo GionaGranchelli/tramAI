@@ -9,6 +9,7 @@ import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.retry.DefaultRetryJitterSource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -365,7 +366,7 @@ internal data class HttpWorkflowStep<S>(
 
         var connectedValidated = false
         val sendResult =
-            try {
+            sendRecordingFailure(evidenceKey, evidenceStore) {
                 execution.transport.send(httpRequest, blockingDispatcher) { address ->
                     connectedValidated = true
                     try {
@@ -375,19 +376,6 @@ internal data class HttpWorkflowStep<S>(
                         throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected connected address", error)
                     }
                 }
-            } catch (error: Throwable) {
-                if (evidenceKey != null && evidenceStore != null) {
-                    val record = evidenceStore.getEvidence(evidenceKey)
-                    if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
-                        evidenceStore.updateEvidence(
-                            record.copy(
-                                state = WorkflowEffectEvidenceState.UNCERTAIN,
-                                diagnosticSummary = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text,
-                            ),
-                        )
-                    }
-                }
-                throw error
             }
 
         if (evidenceKey != null && evidenceStore != null) {
@@ -600,6 +588,35 @@ private class ExecutedHttpResponse(
             headers = headers,
             body = bodyBytes.takeIf { it.isNotEmpty() }?.toString(Charsets.UTF_8),
         )
+}
+
+/**
+ * Runs [send]; on any failure marks the effect evidence UNCERTAIN (the transport outcome is unknown) and rethrows
+ * the original error unchanged. Evidence-write failures are attached as suppressed and never mask the original.
+ */
+private suspend fun <T> sendRecordingFailure(
+    evidenceKey: WorkflowEffectEvidenceKey?,
+    evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    send: suspend () -> T,
+): T {
+    val outcome = runCatching { send() }
+    val error = outcome.exceptionOrNull() ?: return outcome.getOrThrow()
+    if (evidenceKey != null && evidenceStore != null) {
+        runCatching {
+            withContext(NonCancellable) {
+                val record = evidenceStore.getEvidence(evidenceKey)
+                if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
+                    evidenceStore.updateEvidence(
+                        record.copy(
+                            state = WorkflowEffectEvidenceState.UNCERTAIN,
+                            diagnosticSummary = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text,
+                        ),
+                    )
+                }
+            }
+        }.exceptionOrNull()?.let(error::addSuppressed)
+    }
+    throw error
 }
 
 private val supportedHttpMethods = setOf("GET", "POST", "PUT", "DELETE", "PATCH")

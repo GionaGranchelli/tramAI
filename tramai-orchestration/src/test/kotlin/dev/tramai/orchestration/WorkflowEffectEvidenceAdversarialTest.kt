@@ -295,7 +295,7 @@ class WorkflowEffectEvidenceAdversarialTest {
     fun `missing evidence sequence is never inferred as NOT_DISPATCHED or completed`() {
         runBlocking {
             val store = InMemoryWorkflowEffectEvidenceRecordStore()
-            // Suppose an admission sequence was issued by authority (seq=7), but process crashed before child evidence write
+            // Suppose an admission seq was issued (seq=7), but process crashed before child evidence write
             val classification = store.classifyAdmission(workflowName, workflowId, "gen-1", 7L)
             assertThat(classification).isEqualTo(WorkflowEffectClassification.Unclassified)
         }

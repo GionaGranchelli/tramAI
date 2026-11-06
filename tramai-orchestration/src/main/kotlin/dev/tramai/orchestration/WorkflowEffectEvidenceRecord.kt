@@ -131,3 +131,12 @@ internal interface WorkflowEffectEvidenceRecordStore {
         }
     }
 }
+
+/**
+ * Thrown when a governed effect requires an active evidence store and step-attempt lineage,
+ * but one or both are absent from the execution scope (failing closed).
+ */
+class WorkflowEvidenceResolutionException(
+    message: String,
+) : RuntimeException(message)
+

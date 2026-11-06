@@ -84,58 +84,31 @@ class StepAttemptSynchronousAuthorityTest {
     fun `step body observes synchronously persisted attempt record with STARTED status`() {
         val store = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
-        val identity = SingleAttemptIdentitySource("att-42")
-
         val observedInBody = AtomicReference<PersistedStepAttempt?>()
         val persistedStatusInBody = AtomicReference<StepAttemptStatus?>()
         val stepBodyEntered = CompletableDeferred<Unit>()
         val proceedStepBody = CompletableDeferred<Unit>()
 
         val testWorkflow =
-            workflow<State>("sync-wf") {
-                localStep("governed-step") { state, _ ->
-                    observedInBody.set(currentStepAttempt())
-                    val record = runBlocking { store.latestStepAttempt("run-1", "governed-step") }
-                    persistedStatusInBody.set(record?.status)
-                    stepBodyEntered.complete(Unit)
-                    runBlocking { proceedStepBody.await() }
-                    state
-                }
-            }.build { it }
-
-        val observer = TestObserver()
+            buildSyncTestWorkflow(
+                observedInBody,
+                store,
+                persistedStatusInBody,
+                stepBodyEntered,
+                proceedStepBody,
+            )
         val supervisor =
-            WorkflowExecutionSupervisor(
-                config = config,
-                leaseStore = leaseStore,
-                checkpointStore = store,
-                stepAttemptStore = store,
-                workflowBindings =
-                    WorkflowBindingRegistry {
-                        bind(testWorkflow, WorkflowPersistence(checkpointStore = store, stateCodec = StateCodec))
-                    },
-                observability = observer,
-                leaseCoordinator = LeaseCoordinator(config, leaseStore, observer),
-                recoveryCoordinator = WorkflowRecoveryCoordinator(leaseStore, store),
-                leaseRenewalLoop = LeaseRenewalLoop(config, leaseStore, observer),
-                shuttingDownGracefully = { false },
-                stepAttemptIdentitySource = identity,
+            createTestSupervisor(
+                store,
+                leaseStore,
+                testWorkflow,
+                SingleAttemptIdentitySource("att-42"),
             )
 
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         supervisor.attachScope(scope)
 
-        val initialCheckpoint =
-            WorkflowCheckpoint(
-                workflowName = "sync-wf",
-                workflowId = "run-1",
-                nextStepIndex = 0,
-                stepExecutions = 0,
-                lastCompletedStepName = null,
-                statePayload = StateCodec.encode(State("init")),
-                metadata = testWorkflow.checkpointMetadata() + encodeGovernedRunAttribution(GOVERNED),
-            )
-
+        val initialCheckpoint = createSyncInitialCheckpoint(testWorkflow)
         runBlocking {
             store.save(initialCheckpoint)
             val lease = leaseStore.claim("sync-wf", "run-1", config.workerId, 1L, 5_000)!!
@@ -145,7 +118,6 @@ class StepAttemptSynchronousAuthorityTest {
                 stepBodyEntered.await()
             }
 
-            // Invariant: BEFORE the step completes, the attempt record is ALREADY persisted as STARTED
             assertThat(observedInBody.get()).isNotNull
             assertThat(observedInBody.get()?.attemptId).isEqualTo("att-42")
             assertThat(observedInBody.get()?.stepName).isEqualTo("governed-step")
@@ -160,11 +132,63 @@ class StepAttemptSynchronousAuthorityTest {
         }
         scope.cancel()
 
-        // Completed verification: after completion, status is COMPLETED
         val finalRecord = runBlocking { store.latestStepAttempt("run-1", "governed-step") }
         assertThat(finalRecord?.status).isEqualTo(StepAttemptStatus.COMPLETED)
         assertThat(finalRecord?.attemptId).isEqualTo("att-42")
     }
+
+    private fun buildSyncTestWorkflow(
+        observedInBody: AtomicReference<PersistedStepAttempt?>,
+        store: InMemoryWorkflowCheckpointStore,
+        persistedStatusInBody: AtomicReference<StepAttemptStatus?>,
+        stepBodyEntered: CompletableDeferred<Unit>,
+        proceedStepBody: CompletableDeferred<Unit>,
+    ) = workflow<State>("sync-wf") {
+        localStep("governed-step") { state, _ ->
+            observedInBody.set(currentStepAttempt())
+            val record = runBlocking { store.latestStepAttempt("run-1", "governed-step") }
+            persistedStatusInBody.set(record?.status)
+            stepBodyEntered.complete(Unit)
+            runBlocking { proceedStepBody.await() }
+            state
+        }
+    }.build { it }
+
+    private fun createTestSupervisor(
+        store: InMemoryWorkflowCheckpointStore,
+        leaseStore: InMemoryWorkflowLeaseStore,
+        testWorkflow: Workflow<State, State>,
+        identity: StepAttemptIdentitySource,
+    ): WorkflowExecutionSupervisor {
+        val observer = TestObserver()
+        return WorkflowExecutionSupervisor(
+            config = config,
+            leaseStore = leaseStore,
+            checkpointStore = store,
+            stepAttemptStore = store,
+            workflowBindings =
+                WorkflowBindingRegistry {
+                    bind(testWorkflow, WorkflowPersistence(checkpointStore = store, stateCodec = StateCodec))
+                },
+            observability = observer,
+            leaseCoordinator = LeaseCoordinator(config, leaseStore, observer),
+            recoveryCoordinator = WorkflowRecoveryCoordinator(leaseStore, store),
+            leaseRenewalLoop = LeaseRenewalLoop(config, leaseStore, observer),
+            shuttingDownGracefully = { false },
+            stepAttemptIdentitySource = identity,
+        )
+    }
+
+    private fun createSyncInitialCheckpoint(testWorkflow: Workflow<State, State>) =
+        WorkflowCheckpoint(
+            workflowName = "sync-wf",
+            workflowId = "run-1",
+            nextStepIndex = 0,
+            stepExecutions = 0,
+            lastCompletedStepName = null,
+            statePayload = StateCodec.encode(State("init")),
+            metadata = testWorkflow.checkpointMetadata() + encodeGovernedRunAttribution(GOVERNED),
+        )
 
     @Test
     fun `nested step inherits enclosing attempt lineage from coroutine context`() {

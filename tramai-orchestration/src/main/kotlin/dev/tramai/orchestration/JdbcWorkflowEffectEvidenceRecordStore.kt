@@ -21,6 +21,20 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
     var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver = observer
         internal set
 
+    private companion object {
+        private const val PARAM_1 = 1
+        private const val PARAM_2 = 2
+        private const val PARAM_3 = 3
+        private const val PARAM_4 = 4
+        private const val PARAM_5 = 5
+        private const val PARAM_6 = 6
+        private const val PARAM_7 = 7
+        private const val PARAM_8 = 8
+        private const val PARAM_9 = 9
+        private const val PARAM_10 = 10
+        private const val PARAM_11 = 11
+    }
+
     fun createSchemaSql(): List<String> =
         listOf(
             """
@@ -81,8 +95,9 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
         ) {
             executeJdbcCancellable(dataSource, transactional = true) { conn ->
                 val existing =
-                    selectForUpdate(conn, record.key)
-                        ?: throw IllegalStateException("Evidence record does not exist for key: ${record.key}")
+                    checkNotNull(selectForUpdate(conn, record.key)) {
+                        "Evidence record does not exist for key: ${record.key}"
+                    }
                 validateTransition(existing, record)
 
                 val sql =
@@ -97,17 +112,17 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
                       AND admission_seq = ?
                     """.trimIndent()
                 conn.prepareStatement(sql).use { stmt ->
-                    stmt.setString(1, record.state.name)
+                    stmt.setString(PARAM_1, record.state.name)
                     if (record.completedAtEpochMillis != null) {
-                        stmt.setLong(2, record.completedAtEpochMillis)
+                        stmt.setLong(PARAM_2, record.completedAtEpochMillis)
                     } else {
-                        stmt.setNull(2, java.sql.Types.BIGINT)
+                        stmt.setNull(PARAM_2, java.sql.Types.BIGINT)
                     }
-                    stmt.setString(3, record.diagnosticSummary)
-                    stmt.setString(4, record.key.workflowName)
-                    stmt.setString(5, record.key.workflowId)
-                    stmt.setString(6, record.key.checkpointGeneration)
-                    stmt.setLong(7, record.key.admissionSeq)
+                    stmt.setString(PARAM_3, record.diagnosticSummary)
+                    stmt.setString(PARAM_4, record.key.workflowName)
+                    stmt.setString(PARAM_5, record.key.workflowId)
+                    stmt.setString(PARAM_6, record.key.checkpointGeneration)
+                    stmt.setLong(PARAM_7, record.key.admissionSeq)
                     val rows = stmt.executeUpdate()
                     check(rows == 1) { "Expected 1 row updated, got $rows" }
                 }
@@ -134,10 +149,10 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
                       AND admission_seq = ?
                     """.trimIndent()
                 conn.prepareStatement(sql).use { stmt ->
-                    stmt.setString(1, key.workflowName)
-                    stmt.setString(2, key.workflowId)
-                    stmt.setString(3, key.checkpointGeneration)
-                    stmt.setLong(4, key.admissionSeq)
+                    stmt.setString(PARAM_1, key.workflowName)
+                    stmt.setString(PARAM_2, key.workflowId)
+                    stmt.setString(PARAM_3, key.checkpointGeneration)
+                    stmt.setLong(PARAM_4, key.admissionSeq)
                     stmt.executeQuery().use { rs ->
                         if (rs.next()) readRow(rs) else null
                     }
@@ -165,14 +180,14 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
                     ORDER BY admission_seq ASC
                     """.trimIndent()
                 conn.prepareStatement(sql).use { stmt ->
-                    stmt.setString(1, workflowName)
-                    stmt.setString(2, workflowId)
+                    stmt.setString(PARAM_1, workflowName)
+                    stmt.setString(PARAM_2, workflowId)
                     stmt.executeQuery().use { rs ->
-                        val result = mutableListOf<WorkflowEffectEvidenceRecord>()
-                        while (rs.next()) {
-                            result += readRow(rs)
+                        buildList {
+                            while (rs.next()) {
+                                add(readRow(rs))
+                            }
                         }
-                        result
                     }
                 }
             }
@@ -195,10 +210,10 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
             FOR UPDATE
             """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
-            stmt.setString(1, key.workflowName)
-            stmt.setString(2, key.workflowId)
-            stmt.setString(3, key.checkpointGeneration)
-            stmt.setLong(4, key.admissionSeq)
+            stmt.setString(PARAM_1, key.workflowName)
+            stmt.setString(PARAM_2, key.workflowId)
+            stmt.setString(PARAM_3, key.checkpointGeneration)
+            stmt.setLong(PARAM_4, key.admissionSeq)
             stmt.executeQuery().use { rs ->
                 return if (rs.next()) readRow(rs) else null
             }
@@ -209,21 +224,21 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
         stmt: PreparedStatement,
         record: WorkflowEffectEvidenceRecord,
     ) {
-        stmt.setString(1, record.key.workflowName)
-        stmt.setString(2, record.key.workflowId)
-        stmt.setString(3, record.key.checkpointGeneration)
-        stmt.setLong(4, record.key.admissionSeq)
-        stmt.setString(5, record.stepName)
-        stmt.setString(6, record.stepAttemptId)
-        stmt.setString(7, record.effectKind)
-        stmt.setString(8, record.state.name)
-        stmt.setLong(9, record.createdAtEpochMillis)
+        stmt.setString(PARAM_1, record.key.workflowName)
+        stmt.setString(PARAM_2, record.key.workflowId)
+        stmt.setString(PARAM_3, record.key.checkpointGeneration)
+        stmt.setLong(PARAM_4, record.key.admissionSeq)
+        stmt.setString(PARAM_5, record.stepName)
+        stmt.setString(PARAM_6, record.stepAttemptId)
+        stmt.setString(PARAM_7, record.effectKind)
+        stmt.setString(PARAM_8, record.state.name)
+        stmt.setLong(PARAM_9, record.createdAtEpochMillis)
         if (record.completedAtEpochMillis != null) {
-            stmt.setLong(10, record.completedAtEpochMillis)
+            stmt.setLong(PARAM_10, record.completedAtEpochMillis)
         } else {
-            stmt.setNull(10, java.sql.Types.BIGINT)
+            stmt.setNull(PARAM_10, java.sql.Types.BIGINT)
         }
-        stmt.setString(11, record.diagnosticSummary)
+        stmt.setString(PARAM_11, record.diagnosticSummary)
     }
 
     private fun readRow(rs: ResultSet): WorkflowEffectEvidenceRecord {
@@ -267,7 +282,12 @@ internal class JdbcWorkflowEffectEvidenceRecordStore(
             "createdAtEpochMillis is immutable"
         }
 
-        if (existing.state == updated.state) return
+        if (existing.state == updated.state) {
+            check(existing == updated) {
+                "Evidence record in state ${existing.state} is immutable: fields cannot be altered"
+            }
+            return
+        }
 
         when (existing.state) {
             WorkflowEffectEvidenceState.ADMITTED -> {
