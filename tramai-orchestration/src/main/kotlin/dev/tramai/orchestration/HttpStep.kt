@@ -616,31 +616,6 @@ private suspend fun <T> sendRecordingFailure(
     }
 }
 
-@Suppress("TooGenericExceptionCaught")
-private suspend fun recordUncertainFailure(
-    evidenceKey: WorkflowEffectEvidenceKey?,
-    evidenceStore: WorkflowEffectEvidenceRecordStore?,
-    error: Throwable,
-) {
-    if (evidenceKey == null || evidenceStore == null) return
-    try {
-        withContext(NonCancellable) {
-            val record = evidenceStore.getEvidence(evidenceKey)
-            if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
-                evidenceStore.updateEvidence(
-                    record.copy(
-                        state = WorkflowEffectEvidenceState.UNCERTAIN,
-                        diagnosticSummary = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text,
-                    ),
-                )
-            }
-        }
-    } catch (suppressed: Throwable) {
-        suppressed.rethrowIfCancellation()
-        error.addSuppressed(suppressed)
-    }
-}
-
 private val supportedHttpMethods = setOf("GET", "POST", "PUT", "DELETE", "PATCH")
 internal val allowedHttpSchemes = setOf("http", "https")
 private const val responseChunkSize = 8_192
