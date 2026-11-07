@@ -101,6 +101,7 @@ internal data class ShellWorkflowStep<S>(
     val merge: suspend (S, ShellResult, WorkflowContext) -> S,
     val config: ShellStepConfig = ShellStepConfig(),
     val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    internal val processStarter: (ProcessBuilder) -> Process = { it.start() },
 ) : InternalWorkflowStep<S> {
     override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
         WorkflowStepExecutionResult.Completed(
@@ -289,7 +290,7 @@ internal data class ShellWorkflowStep<S>(
                     .apply {
                         shellCommand.workdir?.let { directory(File(it)) }
                         environment().putAll(shellCommand.env)
-                    }.run { startOwnedProcess(ioDispatcher) { start() } }
+                    }.run { startOwnedProcess(ioDispatcher) { processStarter(this) } }
             } catch (cancelled: CancellationException) {
                 recordUncertainFailure(evidenceKey, evidenceStore, cancelled)
                 throw cancelled

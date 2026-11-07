@@ -29,10 +29,18 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.h2.jdbcx.JdbcConnectionPool
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -70,6 +78,7 @@ class WorkflowProcessEffectEvidenceTest {
         executable: String = "echo",
         commandArgs: List<String> = listOf("echo", "hello"),
         config: ShellStepConfig = ShellStepConfig(allowedCommands = setOf("echo", "sh", "sleep", "/bin/sh")),
+        processStarter: (ProcessBuilder) -> Process = { it.start() },
     ): ShellWorkflowStep<String> =
         ShellWorkflowStep(
             name = stepName,
@@ -77,6 +86,7 @@ class WorkflowProcessEffectEvidenceTest {
             commandBuilder = { state, _ -> ShellCommand(command = commandArgs) },
             merge = { state, result, _ -> "$state:${result.stdout.trim()}" },
             config = config,
+            processStarter = processStarter,
         )
 
     @Test
@@ -717,6 +727,114 @@ class WorkflowProcessEffectEvidenceTest {
             Files.deleteIfExists(childPidFile)
             runCatching { parentHandle?.destroyForcibly() }
             runCatching { childHandle?.destroyForcibly() }
+        }
+    }
+
+    @Test
+    fun `P16 - timeout scope cancellation unblocks output capture when root process has exited but stream reader is blocked`() {
+        val streamBlockedLatch = CountDownLatch(1)
+        val streamClosed = AtomicBoolean(false)
+        val evidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
+
+        val blockingInputStream =
+            object : InputStream() {
+                override fun read(): Int {
+                    streamBlockedLatch.countDown()
+                    while (!streamClosed.get()) {
+                        try {
+                            Thread.sleep(25)
+                        } catch (e: InterruptedException) {
+                            throw IOException("interrupted", e)
+                        }
+                    }
+                    throw IOException("stream closed by lifecycle termination")
+                }
+
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int =
+                    if (len == 0) {
+                        0
+                    } else {
+                        val byte = read()
+                        if (byte == -1) {
+                            -1
+                        } else {
+                            b[off] = byte.toByte()
+                            1
+                        }
+                    }
+
+                override fun close() {
+                    streamClosed.set(true)
+                }
+            }
+
+        val exitedProcess = ProcessBuilder("true").start().apply { waitFor() }
+        val testProcessHandle = exitedProcess.toHandle()
+        val mockProcess =
+            object : Process() {
+                override fun getOutputStream(): OutputStream = ByteArrayOutputStream()
+
+                override fun getInputStream(): InputStream = blockingInputStream
+
+                override fun getErrorStream(): InputStream = ByteArrayInputStream(ByteArray(0))
+
+                override fun waitFor(): Int = 0
+
+                override fun exitValue(): Int = 0
+
+                override fun destroy() {
+                    // Mock process requires no OS cleanup
+                }
+
+                override fun onExit(): CompletableFuture<Process> = CompletableFuture.completedFuture(this)
+
+                override fun toHandle(): ProcessHandle = testProcessHandle
+
+                override fun isAlive(): Boolean = false
+            }
+
+        val step =
+            createShellStep(
+                executable = "echo",
+                commandArgs = listOf("echo", "test"),
+                config = ShellStepConfig(allowedCommands = setOf("echo"), timeoutSeconds = 1),
+                processStarter = { mockProcess },
+            )
+        val admission = WorkflowProcessAdmission { s, e -> WorkflowProcessPermit(s, e, 1L) }
+
+        runBlocking {
+            withTimeout(10_000) {
+                var caughtFailure: Throwable? = null
+                val job =
+                    CoroutineScope(Dispatchers.Default).launch {
+                        try {
+                            withContext(testScope(admission = admission, evidenceStore = evidenceStore)) {
+                                step.execute(workflowName, "init", WorkflowContext(workflowId), NoOpWorkflowObserver)
+                            }
+                        } catch (error: Throwable) {
+                            caughtFailure = error
+                        }
+                    }
+
+                assertThat(streamBlockedLatch.await(5, TimeUnit.SECONDS)).isTrue()
+
+                withTimeout(5_000) {
+                    job.join()
+                }
+
+                assertThat(streamClosed.get()).isTrue()
+                assertThat(caughtFailure).isInstanceOf(WorkflowShellException::class.java)
+                val failureCode = (caughtFailure as WorkflowShellException).failureCode
+                assertThat(failureCode).isEqualTo(WorkflowStepFailureCode.TIMEOUT)
+
+                val records = evidenceStore.listEvidence(workflowName, workflowId)
+                assertThat(records).hasSize(1)
+                assertThat(records.first().state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
+            }
         }
     }
 
