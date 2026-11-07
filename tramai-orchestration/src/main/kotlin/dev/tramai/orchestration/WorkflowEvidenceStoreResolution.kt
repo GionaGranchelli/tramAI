@@ -71,6 +71,30 @@ internal fun governedStepContext(
         )
 }
 
+/**
+ * Cause-free, fixed-text marker attached to a primary CancellationException when
+ * evidence persistence had diagnostics or secondary failures.
+ *
+ * This ensures that sensitive diagnostics (e.g. database error messages, SQL queries, or internal paths)
+ * never leak onto cancellation control flow via suppressed exceptions.
+ */
+internal class SanitizedEvidenceDiagnosticException :
+    RuntimeException(
+        "Evidence persistence had diagnostics",
+    )
+
+internal fun Throwable.suppressEvidenceDiagnostic(secondary: Throwable) {
+    if (this is CancellationException) {
+        if (suppressed.none { it is SanitizedEvidenceDiagnosticException }) {
+            addSuppressed(SanitizedEvidenceDiagnosticException())
+        }
+    } else {
+        if (this !== secondary && suppressed.none { it === secondary }) {
+            addSuppressed(secondary)
+        }
+    }
+}
+
 @Suppress("TooGenericExceptionCaught")
 internal suspend fun recordUncertainFailure(
     evidenceKey: WorkflowEffectEvidenceKey?,
@@ -96,10 +120,10 @@ internal suspend fun recordUncertainFailure(
         }
     } catch (suppressedCancellation: CancellationException) {
         if (suppressedCancellation !== error) {
-            error.addSuppressed(suppressedCancellation)
+            error.suppressEvidenceDiagnostic(suppressedCancellation)
         }
     } catch (suppressed: Throwable) {
         suppressed.rethrowIfCancellation()
-        error.addSuppressed(suppressed)
+        error.suppressEvidenceDiagnostic(suppressed)
     }
 }

@@ -664,74 +664,158 @@ class WorkflowProcessEffectEvidenceTest {
     @Test
     fun `P14 - secondary cancellation during uncertainty persistence does not replace primary failure`() {
         val delegateStore = InMemoryWorkflowEffectEvidenceRecordStore()
-        val secondaryCancellation = kotlinx.coroutines.CancellationException("secondary store cancellation")
-
-        val storeWithCancellingUncertainty =
-            object : WorkflowEffectEvidenceRecordStore by delegateStore {
-                override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
-                    if (record.state == WorkflowEffectEvidenceState.UNCERTAIN) {
-                        throw secondaryCancellation
-                    }
-                    return delegateStore.updateEvidence(record)
-                }
-            }
-
-        // 1. Direct recordUncertainFailure helper preserves primary exception identity
-        val primaryError = IllegalStateException("known primary failure")
+        val secondaryCancellation = CancellationException("secondary store cancellation")
+        val store = createCancellingUncertaintyStore(delegateStore, secondaryCancellation)
         val key = WorkflowEffectEvidenceKey(workflowName, "run-disc-1", "", 1L)
+
         runBlocking {
-            delegateStore.recordEvidence(
-                WorkflowEffectEvidenceRecord(
-                    key = key,
-                    stepName = stepName,
-                    stepAttemptId = attemptId,
-                    effectKind = PROCESS_EFFECT_KIND,
-                    state = WorkflowEffectEvidenceState.ADMITTED,
-                    createdAtEpochMillis = 1000L,
-                ),
-            )
-            // Must not throw secondaryCancellation; must attach it as suppressed
-            recordUncertainFailure(key, storeWithCancellingUncertainty, primaryError)
-            assertThat(primaryError.suppressed).anyMatch {
-                it is CancellationException && it.message == "secondary store cancellation"
+            assertDirectUncertaintySuppression(delegateStore, store, key, secondaryCancellation)
+            assertShellExecutionPreservesPrimaryFailure(store)
+        }
+    }
+
+    @Test
+    fun `P15 - step timeout terminates descendant and unblocks output capture when root process exits but descendant holds pipe open`() {
+        val parentPidFile = Files.createTempFile("d7-p15-parent", ".pid")
+        val childPidFile = Files.createTempFile("d7-p15-child", ".pid")
+        val evidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
+
+        try {
+            val script =
+                "echo $$ > '${parentPidFile.toAbsolutePath()}'; " +
+                    "sleep 30 & child=$!; echo \$child > '${childPidFile.toAbsolutePath()}'; " +
+                    "exit 0"
+            val step =
+                createShellStep(
+                    executable = "sh",
+                    commandArgs = listOf("sh", "-c", script),
+                    config = ShellStepConfig(allowedCommands = setOf("sh"), timeoutSeconds = 1),
+                )
+            val admission = WorkflowProcessAdmission { s, e -> WorkflowProcessPermit(s, e, 1L) }
+
+            runBlocking {
+                assertDescendantCleanupOnOutputStall(step, admission, evidenceStore, parentPidFile, childPidFile)
+            }
+        } finally {
+            Files.deleteIfExists(parentPidFile)
+            Files.deleteIfExists(childPidFile)
+        }
+    }
+
+    private fun createCancellingUncertaintyStore(
+        delegate: WorkflowEffectEvidenceRecordStore,
+        cancellation: CancellationException,
+    ): WorkflowEffectEvidenceRecordStore =
+        object : WorkflowEffectEvidenceRecordStore by delegate {
+            override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                if (record.state == WorkflowEffectEvidenceState.UNCERTAIN) {
+                    throw cancellation
+                }
+                return delegate.updateEvidence(record)
             }
         }
 
-        // 2. Shell execution with primary failure does not get replaced by secondary cancellation
+    private suspend fun assertDirectUncertaintySuppression(
+        delegateStore: InMemoryWorkflowEffectEvidenceRecordStore,
+        store: WorkflowEffectEvidenceRecordStore,
+        key: WorkflowEffectEvidenceKey,
+        secondaryCancellation: CancellationException,
+    ) {
+        delegateStore.recordEvidence(
+            WorkflowEffectEvidenceRecord(
+                key = key,
+                stepName = stepName,
+                stepAttemptId = attemptId,
+                effectKind = PROCESS_EFFECT_KIND,
+                state = WorkflowEffectEvidenceState.ADMITTED,
+                createdAtEpochMillis = 1000L,
+            ),
+        )
+        val primaryError = IllegalStateException("known primary failure")
+        recordUncertainFailure(key, store, primaryError)
+        assertThat(primaryError.suppressed).anyMatch {
+            it is CancellationException && it.message == "secondary store cancellation"
+        }
+
+        val primaryCancellation = CancellationException("primary cancellation")
+        recordUncertainFailure(key, store, primaryCancellation)
+        assertThat(primaryCancellation.suppressed).anyMatch {
+            it is SanitizedEvidenceDiagnosticException
+        }
+        assertThat(primaryCancellation.suppressed).noneMatch {
+            it.message == secondaryCancellation.message
+        }
+    }
+
+    private suspend fun assertShellExecutionPreservesPrimaryFailure(store: WorkflowEffectEvidenceRecordStore) {
         val step =
             createShellStep(
                 executable = "sh",
                 commandArgs = listOf("sh", "-c", "sleep 30"),
                 config = ShellStepConfig(allowedCommands = setOf("sh"), timeoutSeconds = 1),
             )
-        val admission =
-            WorkflowProcessAdmission { sName, eKind ->
-                WorkflowProcessPermit(sName, eKind, 1L)
+        val admission = WorkflowProcessAdmission { s, e -> WorkflowProcessPermit(s, e, 1L) }
+        var caughtFailure: Throwable? = null
+        try {
+            withContext(testScope(admission = admission, evidenceStore = store)) {
+                step.execute(workflowName, "init", WorkflowContext(workflowId), NoOpWorkflowObserver)
             }
-
-        runBlocking {
-            var caughtFailure: Throwable? = null
-            try {
-                withContext(testScope(admission = admission, evidenceStore = storeWithCancellingUncertainty)) {
-                    step.execute(
-                        workflowName = workflowName,
-                        state = "init",
-                        context = WorkflowContext(workflowId),
-                        observer = NoOpWorkflowObserver,
-                    )
-                }
-            } catch (error: Throwable) {
-                caughtFailure = error
-            }
-
-            // Caller receives the primary failure, NOT the secondary cancellation!
-            assertThat(caughtFailure).isInstanceOf(WorkflowShellException::class.java)
-            assertThat((caughtFailure as WorkflowShellException).failureCode)
-                .isEqualTo(WorkflowStepFailureCode.TIMEOUT)
-
-            // Caller's coroutine job was NOT cancelled (no cancellation swallowed from caller context)
-            assertThat(currentCoroutineContext().job.isActive).isTrue()
+        } catch (error: Throwable) {
+            caughtFailure = error
         }
+
+        assertThat(caughtFailure).isInstanceOf(WorkflowShellException::class.java)
+        assertThat((caughtFailure as WorkflowShellException).failureCode).isEqualTo(WorkflowStepFailureCode.TIMEOUT)
+        assertThat(currentCoroutineContext().job.isActive).isTrue()
+    }
+
+    private suspend fun assertDescendantCleanupOnOutputStall(
+        step: ShellWorkflowStep<String>,
+        admission: WorkflowProcessAdmission,
+        evidenceStore: InMemoryWorkflowEffectEvidenceRecordStore,
+        parentPidFile: Path,
+        childPidFile: Path,
+    ) {
+        var caughtException: Throwable? = null
+        val job =
+            CoroutineScope(Dispatchers.Default).launch {
+                try {
+                    withContext(testScope(admission = admission, evidenceStore = evidenceStore)) {
+                        step.execute(workflowName, "init", WorkflowContext(workflowId), NoOpWorkflowObserver)
+                    }
+                } catch (e: Throwable) {
+                    caughtException = e
+                }
+            }
+
+        val parentPid = awaitPid(parentPidFile)
+        val childPid = awaitPid(childPidFile)
+        assertThat(parentPid).isNotNull()
+        assertThat(childPid).isNotNull()
+
+        val parentHandle = ProcessHandle.of(parentPid!!).orElse(null)
+        val childHandle = ProcessHandle.of(childPid!!).orElse(null)
+        assertThat(childHandle?.isAlive).isTrue()
+
+        withTimeout(5_000) {
+            while (parentHandle?.isAlive == true) delay(25)
+        }
+        assertThat(parentHandle?.isAlive ?: false).isFalse()
+
+        // Unreleased reader stall causes execution deadline to fire and reap descendant
+        job.join()
+
+        assertThat(caughtException).isInstanceOf(WorkflowShellException::class.java)
+        assertThat((caughtException as WorkflowShellException).failureCode).isEqualTo(WorkflowStepFailureCode.TIMEOUT)
+
+        withTimeout(5_000) {
+            while (childHandle?.isAlive == true) delay(25)
+        }
+        assertThat(childHandle?.isAlive).isFalse()
+
+        val records = evidenceStore.listEvidence(workflowName, workflowId)
+        assertThat(records).hasSize(1)
+        assertThat(records.first().state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
     }
 
     @Test

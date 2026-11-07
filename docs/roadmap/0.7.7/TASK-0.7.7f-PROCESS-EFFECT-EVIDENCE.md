@@ -71,12 +71,13 @@ A non-zero process exit code (e.g. exit 1, 127, 255) represents an observed proc
 To prevent orphaned processes:
 1. `lifecycle = CancellableProcessLifecycle(process)` and `registration = lifecycle.attachTo(currentCoroutineContext().job)` are established immediately upon process acquisition.
 2. The entire post-acquisition lifecycle — including the transition to `DISPATCHED`, stream capture, and process exit awaiting — is bounded by `withTimeoutOrNull(config.timeoutSeconds.seconds)` inside a `try ... finally` block.
-3. If writing `DISPATCHED` stalls indefinitely, the configured execution deadline (`config.timeoutSeconds`) fires, initiates process termination via `lifecycle.requestTermination()`, and triggers `finally { lifecycle.terminateAndAwait() }`. A stalled store write can never indefinitely delay process cleanup even when no external cancellation occurs.
-4. If writing `DISPATCHED` or `COMPLETED` throws an exception (e.g. JDBC outage) or is interrupted by cancellation:
+3. Within `withTimeoutOrNull`, the timeout scope's cancellation is directly registered with `lifecycle.attachTo(currentCoroutineContext().job)`. When the deadline fires, `requestTermination()` is invoked immediately on the cancelling timeout scope, closing the pipes and terminating descendants before structured concurrency awaits child coroutines. This guarantees bounded cleanup even when the root process has exited but blocking output readers remain held open by descendants.
+4. If writing `DISPATCHED` stalls indefinitely, the configured execution deadline (`config.timeoutSeconds`) fires, initiates process termination via `lifecycle.requestTermination()`, and triggers `finally { lifecycle.terminateAndAwait() }`. A stalled store write can never indefinitely delay process cleanup even when no external cancellation occurs.
+5. If writing `DISPATCHED` or `COMPLETED` throws an exception (e.g. JDBC outage) or is interrupted by cancellation:
    - The `finally` block executes `lifecycle.terminateAndAwait()`, forcefully terminating and reaping the process tree.
    - Bounded process cleanup occurs **before** attempting secondary uncertainty persistence (`recordUncertainFailure`).
    - No orphan process is left running on the host system.
-5. In `recordUncertainFailure`, evidence updates execute with a cooperative suspension deadline (`withTimeoutOrNull(5_000L)` under `NonCancellable`). If secondary cancellation occurs from the evidence store, it is suppressed on the primary failure rather than replacing it, preserving the primary exception identity.
+6. In `recordUncertainFailure`, evidence updates execute with a cooperative suspension deadline (`withTimeoutOrNull(5_000L)` under `NonCancellable`). If secondary cancellation occurs from the evidence store, it is suppressed on the primary failure rather than replacing it, preserving the primary exception identity. When the primary failure is itself a `CancellationException`, only a sanitized, cause-free marker (`SanitizedEvidenceDiagnosticException`) is attached to prevent internal persistence diagnostic leakage onto cancellation control flow.
 
 ### 3.3 Fail-Closed Lineage Attribution
 

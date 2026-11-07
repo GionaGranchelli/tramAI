@@ -318,55 +318,67 @@ internal data class ShellWorkflowStep<S>(
             process.outputStream.close()
             executedResult =
                 withTimeoutOrNull(config.timeoutSeconds.seconds) {
-                    if (evidenceKey != null && evidenceStore != null) {
-                        val record = evidenceStore.getEvidence(evidenceKey)
-                        if (record != null) {
-                            evidenceStore.updateEvidence(record.copy(state = WorkflowEffectEvidenceState.DISPATCHED))
+                    // Register timeout scope cancellation with lifecycle immediately:
+                    // when the deadline fires, TimeoutCoroutine enters cancelling, invoking
+                    // requestTermination() BEFORE waiting for child coroutines. This closes
+                    // the pipes and terminates descendants, preventing blocking InputStream.read()
+                    // calls from indefinitely stalling coroutineScope completion after awaitExit().
+                    val timeoutRegistration = lifecycle.attachTo(currentCoroutineContext().job)
+                    try {
+                        if (evidenceKey != null && evidenceStore != null) {
+                            val record = evidenceStore.getEvidence(evidenceKey)
+                            if (record != null) {
+                                evidenceStore.updateEvidence(
+                                    record.copy(state = WorkflowEffectEvidenceState.DISPATCHED),
+                                )
+                            }
                         }
-                    }
 
-                    coroutineScope {
-                        val stdoutDeferred =
-                            async(ioDispatcher) {
-                                process.inputStream.captureStream(config.maxOutputBytes, lifecycle)
-                            }
-                        val stderrDeferred =
-                            async(ioDispatcher) {
-                                process.errorStream.captureStream(config.maxOutputBytes, lifecycle)
-                            }
+                        coroutineScope {
+                            val stdoutDeferred =
+                                async(ioDispatcher) {
+                                    process.inputStream.captureStream(config.maxOutputBytes, lifecycle)
+                                }
+                            val stderrDeferred =
+                                async(ioDispatcher) {
+                                    process.errorStream.captureStream(config.maxOutputBytes, lifecycle)
+                                }
 
-                        lifecycle.awaitExit()
-                        // Cancellation can terminate the child process (e.g. exit
-                        // 143 on SIGTERM): awaitExit may observe process death
-                        // BEFORE the cancellation reaches this coroutine's next
-                        // checkpoint. Re-check so a parent cancellation is never
-                        // interpreted as an owned shell outcome below.
-                        currentCoroutineContext().ensureActive()
+                            lifecycle.awaitExit()
+                            // Cancellation can terminate the child process (e.g. exit
+                            // 143 on SIGTERM): awaitExit may observe process death
+                            // BEFORE the cancellation reaches this coroutine's next
+                            // checkpoint. Re-check so a parent cancellation is never
+                            // interpreted as an owned shell outcome below.
+                            currentCoroutineContext().ensureActive()
 
-                        val stdout = stdoutDeferred.await()
-                        val stderr = stderrDeferred.await()
+                            val stdout = stdoutDeferred.await()
+                            val stderr = stderrDeferred.await()
 
-                        emitTruncationEventIfNeeded(
-                            workflowName = workflowName,
-                            context = context,
-                            observer = observer,
-                            stream = "stdout",
-                            capture = stdout,
-                        )
-                        emitTruncationEventIfNeeded(
-                            workflowName = workflowName,
-                            context = context,
-                            observer = observer,
-                            stream = "stderr",
-                            capture = stderr,
-                        )
+                            emitTruncationEventIfNeeded(
+                                workflowName = workflowName,
+                                context = context,
+                                observer = observer,
+                                stream = "stdout",
+                                capture = stdout,
+                            )
+                            emitTruncationEventIfNeeded(
+                                workflowName = workflowName,
+                                context = context,
+                                observer = observer,
+                                stream = "stderr",
+                                capture = stderr,
+                            )
 
-                        ExecutedShellResult(
-                            exitCode = process.exitValue(),
-                            stdout = stdout,
-                            stderr = stderr,
-                            charset = config.charset,
-                        )
+                            ExecutedShellResult(
+                                exitCode = process.exitValue(),
+                                stdout = stdout,
+                                stderr = stderr,
+                                charset = config.charset,
+                            )
+                        }
+                    } finally {
+                        timeoutRegistration.dispose()
                     }
                 }
             if (executedResult == null) {
