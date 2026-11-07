@@ -101,6 +101,7 @@ internal data class ShellWorkflowStep<S>(
     val merge: suspend (S, ShellResult, WorkflowContext) -> S,
     val config: ShellStepConfig = ShellStepConfig(),
     val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    internal val processStarter: (ProcessBuilder) -> Process = { it.start() },
 ) : InternalWorkflowStep<S> {
     override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
         WorkflowStepExecutionResult.Completed(
@@ -246,16 +247,56 @@ internal data class ShellWorkflowStep<S>(
         // E7: a fresh durable grant for THIS dispatch, consumed once, immediately before acquisition so the permit
         // governs the corresponding start. Deliberately outside the start try/catch: a refusal is the authority saying
         // no, not a failed launch, and must never surface as START_FAILED.
-        currentProcessAdmission()?.admitProcess(name, PROCESS_EFFECT_KIND)?.tryConsume()
+        val processAdmission = currentProcessAdmission()
+        val evidenceStore = currentEffectEvidenceStore()
+        val stepAttempt = currentStepAttempt()
+        if (evidenceStore != null) {
+            requireEvidenceLineageIfEnabled(
+                workflowName,
+                context.workflowId,
+                name,
+                processAdmission != null,
+                stepAttempt,
+            )
+        }
+        val permit = processAdmission?.admitProcess(name, PROCESS_EFFECT_KIND)
+        var evidenceKey: WorkflowEffectEvidenceKey? = null
+
+        if (permit != null && evidenceStore != null && stepAttempt != null) {
+            val key =
+                WorkflowEffectEvidenceKey(
+                    workflowName = workflowName,
+                    workflowId = context.workflowId,
+                    checkpointGeneration = permit.checkpointGeneration,
+                    admissionSeq = permit.admissionSequence,
+                )
+            evidenceKey = key
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = key,
+                    stepName = name,
+                    stepAttemptId = stepAttempt.attemptId,
+                    effectKind = PROCESS_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.ADMITTED,
+                    createdAtEpochMillis = currentEffectEvidenceClockMillis() ?: stepAttempt.startedAtEpochMillis,
+                ),
+            )
+        }
+
+        permit?.tryConsume()
         val process =
             try {
                 ProcessBuilder(shellCommand.command)
                     .apply {
                         shellCommand.workdir?.let { directory(File(it)) }
                         environment().putAll(shellCommand.env)
-                    }.run { startOwnedProcess(ioDispatcher) { start() } }
+                    }.run { startOwnedProcess(ioDispatcher) { processStarter(this) } }
+            } catch (cancelled: CancellationException) {
+                recordUncertainFailure(evidenceKey, evidenceStore, cancelled)
+                throw cancelled
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
+                recordUncertainFailure(evidenceKey, evidenceStore, error)
                 throw failure(
                     workflowName,
                     error,
@@ -277,23 +318,33 @@ internal data class ShellWorkflowStep<S>(
         try {
             process.outputStream.close()
             executedResult =
-                coroutineScope {
-                    val stdoutDeferred =
-                        async(ioDispatcher) {
-                            process.inputStream.captureStream(config.maxOutputBytes, lifecycle)
-                        }
-                    val stderrDeferred =
-                        async(ioDispatcher) {
-                            process.errorStream.captureStream(config.maxOutputBytes, lifecycle)
+                withTimeoutOrNull(config.timeoutSeconds.seconds) {
+                    // Register timeout scope cancellation with lifecycle immediately:
+                    // when the deadline fires, TimeoutCoroutine enters cancelling, invoking
+                    // requestTermination() BEFORE waiting for child coroutines. This closes
+                    // the pipes and terminates descendants, preventing blocking InputStream.read()
+                    // calls from indefinitely stalling coroutineScope completion after awaitExit().
+                    val timeoutRegistration = lifecycle.attachTo(currentCoroutineContext().job)
+                    try {
+                        if (evidenceKey != null && evidenceStore != null) {
+                            val record = evidenceStore.getEvidence(evidenceKey)
+                            if (record != null) {
+                                evidenceStore.updateEvidence(
+                                    record.copy(state = WorkflowEffectEvidenceState.DISPATCHED),
+                                )
+                            }
                         }
 
-                    // withTimeoutOrNull distinguishes its OWN timeout (null) from a
-                    // foreign TimeoutCancellationException (a parent withTimeout or
-                    // genuine cancellation), which propagates through untouched. A
-                    // broad catch(TimeoutCancellationException) below would convert a
-                    // PARENT timeout into an owned shell TIMEOUT + diagnostic.
-                    val timedOut =
-                        withTimeoutOrNull(config.timeoutSeconds.seconds) {
+                        coroutineScope {
+                            val stdoutDeferred =
+                                async(ioDispatcher) {
+                                    process.inputStream.captureStream(config.maxOutputBytes, lifecycle)
+                                }
+                            val stderrDeferred =
+                                async(ioDispatcher) {
+                                    process.errorStream.captureStream(config.maxOutputBytes, lifecycle)
+                                }
+
                             lifecycle.awaitExit()
                             // Cancellation can terminate the child process (e.g. exit
                             // 143 on SIGTERM): awaitExit may observe process death
@@ -301,62 +352,63 @@ internal data class ShellWorkflowStep<S>(
                             // checkpoint. Re-check so a parent cancellation is never
                             // interpreted as an owned shell outcome below.
                             currentCoroutineContext().ensureActive()
-                            false
-                        } ?: true
-                    if (timedOut) {
-                        currentCoroutineContext().ensureActive()
-                        // Request termination BEFORE the observer: closing the pipes lets
-                        // the reader coroutines finish, and an observer failure can never
-                        // skip the termination request. The bounded graceful→forced cleanup
-                        // happens exactly once in the outer finally and attaches its
-                        // diagnostics to this internal marker; the public safe failure is
-                        // constructed only after cleanup below, so raw cleanup diagnostics
-                        // never reach the public exception chain.
-                        lifecycle.requestTermination()
-                        observer.emitWorkflowEvent(
-                            workflowName = workflowName,
-                            event =
-                                RuntimeEvent.of(RuntimeEvents.WORKFLOW_SHELL_TIMEOUT) {
-                                    set(RuntimeAttributes.STEP_NAME, name)
-                                },
-                            context = context,
-                        )
-                        // Owned timeout becomes a non-cancellation internal marker: a
-                        // genuine parent cancellation was already rethrown by ensureActive
-                        // above and must stay a CancellationException all the way out.
-                        throw ShellStepTimeoutException(
-                            CancellationException("Shell step timed out after ${config.timeoutSeconds}s"),
-                        )
+
+                            val stdout = stdoutDeferred.await()
+                            val stderr = stderrDeferred.await()
+
+                            emitTruncationEventIfNeeded(
+                                workflowName = workflowName,
+                                context = context,
+                                observer = observer,
+                                stream = "stdout",
+                                capture = stdout,
+                            )
+                            emitTruncationEventIfNeeded(
+                                workflowName = workflowName,
+                                context = context,
+                                observer = observer,
+                                stream = "stderr",
+                                capture = stderr,
+                            )
+
+                            ExecutedShellResult(
+                                exitCode = process.exitValue(),
+                                stdout = stdout,
+                                stderr = stderr,
+                                charset = config.charset,
+                            )
+                        }
+                    } finally {
+                        timeoutRegistration.dispose()
                     }
-
-                    val stdout = stdoutDeferred.await()
-                    val stderr = stderrDeferred.await()
-
-                    emitTruncationEventIfNeeded(
-                        workflowName = workflowName,
-                        context = context,
-                        observer = observer,
-                        stream = "stdout",
-                        capture = stdout,
-                    )
-                    emitTruncationEventIfNeeded(
-                        workflowName = workflowName,
-                        context = context,
-                        observer = observer,
-                        stream = "stderr",
-                        capture = stderr,
-                    )
-
-                    ExecutedShellResult(
-                        exitCode = process.exitValue(),
-                        stdout = stdout,
-                        stderr = stderr,
-                        charset = config.charset,
-                    )
                 }
+            if (executedResult == null) {
+                currentCoroutineContext().ensureActive()
+                // Request termination BEFORE the observer: closing the pipes lets
+                // the reader coroutines finish, and an observer failure can never
+                // skip the termination request. The bounded graceful→forced cleanup
+                // happens exactly once in the outer finally and attaches its
+                // diagnostics to this internal marker; the public safe failure is
+                // constructed only after cleanup below, so raw cleanup diagnostics
+                // never reach the public exception chain.
+                lifecycle.requestTermination()
+                observer.emitWorkflowEvent(
+                    workflowName = workflowName,
+                    event =
+                        RuntimeEvent.of(RuntimeEvents.WORKFLOW_SHELL_TIMEOUT) {
+                            set(RuntimeAttributes.STEP_NAME, name)
+                        },
+                    context = context,
+                )
+                // Owned timeout becomes a non-cancellation internal marker: a
+                // genuine parent cancellation was already rethrown by ensureActive
+                // above and must stay a CancellationException all the way out.
+                throw ShellStepTimeoutException(
+                    CancellationException("Shell step timed out after ${config.timeoutSeconds}s"),
+                )
+            }
         } catch (error: CancellationException) {
             primaryFailure = error
-            throw error
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             primaryFailure = error
@@ -364,12 +416,15 @@ internal data class ShellWorkflowStep<S>(
             registration.dispose()
             // NonCancellable + IO nesting lives inside terminateAndAwait; calling it
             // directly here keeps the primary failure (and its diagnostics) intact.
+            // Bounded graceful-to-forced process cleanup happens FIRST before attempting
+            // any secondary evidence update, ensuring a stalled store cannot orphan processes.
             val cleanup = lifecycle.terminateAndAwait()
             try {
                 surfaceProcessCleanup(primaryFailure, cleanup)
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
                 if (primaryFailure == null) {
+                    recordUncertainFailure(evidenceKey, evidenceStore, error)
                     throw failure(
                         workflowName,
                         error,
@@ -381,19 +436,34 @@ internal data class ShellWorkflowStep<S>(
                 throw error
             }
         }
-        // The public safe failure is constructed only after process cleanup has
-        // completed: cleanup diagnostics stay suppressed on the raw internal
-        // primary (observer-only) and never reach the public exception chain.
+        // Once the process tree has been terminated and reaped, attempt the evidence update
+        // under a bounded failure policy.
         if (primaryFailure != null) {
+            recordUncertainFailure(evidenceKey, evidenceStore, primaryFailure)
+            if (primaryFailure is CancellationException) {
+                throw primaryFailure
+            }
             val code =
                 if (primaryFailure is ShellStepTimeoutException) {
                     WorkflowStepFailureCode.TIMEOUT
                 } else {
                     WorkflowStepFailureCode.EXECUTION_FAILED
                 }
-            throw failure(workflowName, primaryFailure!!, code, executedResult, failureDiagnosticObserver)
+            throw failure(workflowName, primaryFailure, code, executedResult, failureDiagnosticObserver)
         }
-        return executedResult!!
+        val finalResult = executedResult!!
+        if (evidenceKey != null && evidenceStore != null) {
+            val record = evidenceStore.getEvidence(evidenceKey)
+            if (record != null) {
+                evidenceStore.updateEvidence(
+                    record.copy(
+                        state = WorkflowEffectEvidenceState.COMPLETED,
+                        completedAtEpochMillis = currentEffectEvidenceClockMillis() ?: record.createdAtEpochMillis,
+                    ),
+                )
+            }
+        }
+        return finalResult
     }
 
     private fun validateShellCommandDefinition(shellCommand: ShellCommand) {
