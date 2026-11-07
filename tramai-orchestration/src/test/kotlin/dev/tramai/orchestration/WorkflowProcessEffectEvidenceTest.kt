@@ -675,16 +675,18 @@ class WorkflowProcessEffectEvidenceTest {
     }
 
     @Test
-    fun `P15 - step timeout terminates descendant and unblocks output capture when root process exits but descendant holds pipe open`() {
+    fun `P15 - step timeout terminates descendant and unblocks output capture when process tree stalls`() {
         val parentPidFile = Files.createTempFile("d7-p15-parent", ".pid")
         val childPidFile = Files.createTempFile("d7-p15-child", ".pid")
         val evidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        var parentHandle: ProcessHandle? = null
+        var childHandle: ProcessHandle? = null
 
         try {
             val script =
                 "echo $$ > '${parentPidFile.toAbsolutePath()}'; " +
                     "sleep 30 & child=$!; echo \$child > '${childPidFile.toAbsolutePath()}'; " +
-                    "exit 0"
+                    "wait"
             val step =
                 createShellStep(
                     executable = "sh",
@@ -694,11 +696,27 @@ class WorkflowProcessEffectEvidenceTest {
             val admission = WorkflowProcessAdmission { s, e -> WorkflowProcessPermit(s, e, 1L) }
 
             runBlocking {
-                assertDescendantCleanupOnOutputStall(step, admission, evidenceStore, parentPidFile, childPidFile)
+                withTimeout(10_000) {
+                    assertDescendantCleanupOnOutputStall(
+                        ProcessStallFixture(
+                            step = step,
+                            admission = admission,
+                            evidenceStore = evidenceStore,
+                            parentPidFile = parentPidFile,
+                            childPidFile = childPidFile,
+                            onHandlesResolved = { pHandle, cHandle ->
+                                parentHandle = pHandle
+                                childHandle = cHandle
+                            },
+                        ),
+                    )
+                }
             }
         } finally {
             Files.deleteIfExists(parentPidFile)
             Files.deleteIfExists(childPidFile)
+            runCatching { parentHandle?.destroyForcibly() }
+            runCatching { childHandle?.destroyForcibly() }
         }
     }
 
@@ -769,53 +787,66 @@ class WorkflowProcessEffectEvidenceTest {
         assertThat(currentCoroutineContext().job.isActive).isTrue()
     }
 
-    private suspend fun assertDescendantCleanupOnOutputStall(
-        step: ShellWorkflowStep<String>,
-        admission: WorkflowProcessAdmission,
-        evidenceStore: InMemoryWorkflowEffectEvidenceRecordStore,
-        parentPidFile: Path,
-        childPidFile: Path,
-    ) {
+    private class ProcessStallFixture(
+        val step: ShellWorkflowStep<String>,
+        val admission: WorkflowProcessAdmission,
+        val evidenceStore: InMemoryWorkflowEffectEvidenceRecordStore,
+        val parentPidFile: Path,
+        val childPidFile: Path,
+        val onHandlesResolved: (ProcessHandle?, ProcessHandle?) -> Unit,
+    )
+
+    private suspend fun assertDescendantCleanupOnOutputStall(fixture: ProcessStallFixture) {
         var caughtException: Throwable? = null
         val job =
             CoroutineScope(Dispatchers.Default).launch {
                 try {
-                    withContext(testScope(admission = admission, evidenceStore = evidenceStore)) {
-                        step.execute(workflowName, "init", WorkflowContext(workflowId), NoOpWorkflowObserver)
+                    withContext(testScope(admission = fixture.admission, evidenceStore = fixture.evidenceStore)) {
+                        fixture.step.execute(workflowName, "init", WorkflowContext(workflowId), NoOpWorkflowObserver)
                     }
                 } catch (e: Throwable) {
                     caughtException = e
                 }
             }
 
-        val parentPid = awaitPid(parentPidFile)
-        val childPid = awaitPid(childPidFile)
-        assertThat(parentPid).isNotNull()
-        assertThat(childPid).isNotNull()
+        try {
+            val parentPid = awaitPid(fixture.parentPidFile)
+            val childPid = awaitPid(fixture.childPidFile)
+            assertThat(parentPid).isNotNull()
+            assertThat(childPid).isNotNull()
 
-        val parentHandle = ProcessHandle.of(parentPid!!).orElse(null)
-        val childHandle = ProcessHandle.of(childPid!!).orElse(null)
-        assertThat(childHandle?.isAlive).isTrue()
+            val parentHandle = ProcessHandle.of(parentPid!!).orElse(null)
+            val childHandle = ProcessHandle.of(childPid!!).orElse(null)
+            fixture.onHandlesResolved(parentHandle, childHandle)
+            assertThat(parentHandle?.isAlive).isTrue()
+            assertThat(childHandle?.isAlive).isTrue()
 
-        withTimeout(5_000) {
-            while (parentHandle?.isAlive == true) delay(25)
+            withTimeout(5_000) {
+                job.join()
+            }
+
+            assertThat(caughtException).isInstanceOf(WorkflowShellException::class.java)
+            assertThat((caughtException as WorkflowShellException).failureCode).isEqualTo(WorkflowStepFailureCode.TIMEOUT)
+
+            withTimeout(5_000) {
+                while (parentHandle?.isAlive == true) delay(25)
+            }
+            assertThat(parentHandle?.isAlive).isFalse()
+
+            withTimeout(5_000) {
+                while (childHandle?.isAlive == true) delay(25)
+            }
+            assertThat(childHandle?.isAlive).isFalse()
+
+            val records = fixture.evidenceStore.listEvidence(workflowName, workflowId)
+            assertThat(records).hasSize(1)
+            assertThat(records.first().state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
+        } finally {
+            if (job.isActive) {
+                job.cancel()
+                runCatching { withTimeout(2_000) { job.join() } }
+            }
         }
-        assertThat(parentHandle?.isAlive ?: false).isFalse()
-
-        // Unreleased reader stall causes execution deadline to fire and reap descendant
-        job.join()
-
-        assertThat(caughtException).isInstanceOf(WorkflowShellException::class.java)
-        assertThat((caughtException as WorkflowShellException).failureCode).isEqualTo(WorkflowStepFailureCode.TIMEOUT)
-
-        withTimeout(5_000) {
-            while (childHandle?.isAlive == true) delay(25)
-        }
-        assertThat(childHandle?.isAlive).isFalse()
-
-        val records = evidenceStore.listEvidence(workflowName, workflowId)
-        assertThat(records).hasSize(1)
-        assertThat(records.first().state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
     }
 
     @Test
