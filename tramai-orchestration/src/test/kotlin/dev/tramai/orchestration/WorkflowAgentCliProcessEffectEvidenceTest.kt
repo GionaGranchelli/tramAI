@@ -1020,6 +1020,95 @@ class WorkflowAgentCliProcessEffectEvidenceTest {
     }
 
     @Test
+    fun `process-start failure containing secret does not leak into persisted evidence record`() {
+        val secretToken = "SUPER_SECRET_PROCESS_START_CREDENTIAL_999"
+        val store = InMemoryWorkflowEffectEvidenceRecordStore()
+        val step =
+            createCodexStep(
+                processStarter = { throw IOException("Failed to launch process with credential: $secretToken") },
+            )
+        val admission =
+            WorkflowProcessAdmission { sName, eKind ->
+                WorkflowProcessPermit(sName, eKind, 1L)
+            }
+
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = store)) {
+                    step.execute(
+                        workflowName = workflowName,
+                        state = "harmless-prompt",
+                        context = WorkflowContext(workflowId),
+                        observer = NoOpWorkflowObserver,
+                    )
+                }
+            }
+        }.isInstanceOf(WorkflowCodexException::class.java)
+
+        runBlocking {
+            val record = store.listEvidence(workflowName, workflowId).single()
+            assertThat(record.state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
+            assertThat(record.diagnosticSummary).isEqualTo(CLI_PROCESS_START_FAILED_DIAGNOSTIC)
+            assertThat(record.diagnosticSummary).doesNotContain(secretToken)
+            assertThat(record.toString()).doesNotContain(secretToken)
+        }
+    }
+
+    @Test
+    fun `missing evidence record lookup during update fails closed and cleans up process`() {
+        val pidFile = Files.createTempFile("d7-missing-lookup-pid", ".txt")
+        val killedMarker = Files.createTempFile("d7-missing-lookup-killed", ".txt")
+        try {
+            withExecutableScript(
+                name = "fake-codex-missing-record",
+                content =
+                    """
+                    |#!/bin/sh
+                    |echo $$ > "$pidFile"
+                    |trap 'echo "killed" > "$killedMarker"; exit 0' TERM INT HUP
+                    |sleep 30
+                    """.trimMargin(),
+            ) { script ->
+                val baseStore = InMemoryWorkflowEffectEvidenceRecordStore()
+                val corruptingStore =
+                    object : WorkflowEffectEvidenceRecordStore by baseStore {
+                        override suspend fun getEvidence(key: WorkflowEffectEvidenceKey): WorkflowEffectEvidenceRecord? = null
+                    }
+                val step = createCodexStep(cliPath = script.toString())
+                val admission =
+                    WorkflowProcessAdmission { sName, eKind ->
+                        WorkflowProcessPermit(sName, eKind, 1L)
+                    }
+
+                assertThatThrownBy {
+                    runBlocking {
+                        withContext(testScope(admission = admission, evidenceStore = corruptingStore)) {
+                            step.execute(
+                                workflowName = workflowName,
+                                state = "prompt",
+                                context = WorkflowContext(workflowId),
+                                observer = NoOpWorkflowObserver,
+                            )
+                        }
+                    }
+                }.isInstanceOf(WorkflowEvidenceResolutionException::class.java)
+                    .hasMessageContaining("Missing expected evidence record")
+
+                runBlocking {
+                    val pid = awaitPid(pidFile)
+                    if (pid != null) {
+                        val handle = ProcessHandle.of(pid).orElse(null)
+                        assertThat(handle == null || !handle.isAlive).isTrue()
+                    }
+                }
+            }
+        } finally {
+            Files.deleteIfExists(pidFile)
+            Files.deleteIfExists(killedMarker)
+        }
+    }
+
+    @Test
     fun `C16 - later output validation failure leaves process evidence COMPLETED`() {
         withExecutableScript(
             name = "fake-codex-c16",
@@ -1098,6 +1187,7 @@ class WorkflowAgentCliProcessEffectEvidenceTest {
                 deleteCheckpointOnCompletion = false,
                 evidenceStore = delegateStore,
             )
+        val attemptCounter = AtomicInteger(0)
         val supervisor =
             WorkflowExecutionSupervisor(
                 config = workerConfig,
@@ -1110,7 +1200,7 @@ class WorkflowAgentCliProcessEffectEvidenceTest {
                 recoveryCoordinator = WorkflowRecoveryCoordinator(leaseStore, attemptStore),
                 leaseRenewalLoop = LeaseRenewalLoop(workerConfig, leaseStore, NoOpTramaiWorkerObserver),
                 shuttingDownGracefully = { false },
-                stepAttemptIdentitySource = StepAttemptIdentitySource { "attempt-e2e-multi" },
+                stepAttemptIdentitySource = StepAttemptIdentitySource { "attempt-e2e-${attemptCounter.incrementAndGet()}" },
             )
         return JdbcMultiStepEnvironment(supervisor, checkpointStore, leaseStore, delegateStore)
     }
@@ -1123,9 +1213,11 @@ class WorkflowAgentCliProcessEffectEvidenceTest {
         val codexRecord = evidenceList[0]
         val hermesRecord = evidenceList[1]
         assertThat(codexRecord.stepName).isEqualTo(codexStepName)
+        assertThat(codexRecord.stepAttemptId).isEqualTo("attempt-e2e-1")
         assertThat(codexRecord.key.admissionSeq).isEqualTo(2L)
         assertThat(codexRecord.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
         assertThat(hermesRecord.stepName).isEqualTo(hermesStepName)
+        assertThat(hermesRecord.stepAttemptId).isEqualTo("attempt-e2e-2")
         assertThat(hermesRecord.key.admissionSeq).isEqualTo(4L)
         assertThat(hermesRecord.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
         assertThat(codexRecord.key.checkpointGeneration).isEqualTo(expectedGeneration)
@@ -1133,7 +1225,7 @@ class WorkflowAgentCliProcessEffectEvidenceTest {
     }
 
     @Test
-    fun `Integration - two CLI process invocations produce separate admission sequences sharing parent attempt`() {
+    fun `Integration - two top-level CLI steps establish distinct step-attempt identities and admission sequences`() {
         val pool = JdbcConnectionPool.create("jdbc:h2:mem:d7_integ_${UUID.randomUUID()};DB_CLOSE_DELAY=-1", "sa", "")
         withExecutableScript(name = "fake-codex-int", content = "#!/bin/sh\nprintf 'codex-out'") { codexCli ->
             withExecutableScript(name = "fake-hermes-int", content = "#!/bin/sh\nprintf 'hermes-out'") { hermesCli ->
@@ -1184,6 +1276,65 @@ class WorkflowAgentCliProcessEffectEvidenceTest {
                     scope.cancel()
                 } finally {
                     pool.dispose()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `two CLI process invocations executing within one enclosing step attempt share parent attempt ID and produce distinct admission sequences`() {
+        withExecutableScript(name = "fake-codex-shared", content = "#!/bin/sh\nprintf 'codex-out'") { codexCli ->
+            withExecutableScript(name = "fake-hermes-shared", content = "#!/bin/sh\nprintf 'hermes-out'") { hermesCli ->
+                val store = InMemoryWorkflowEffectEvidenceRecordStore()
+                val sharedAttempt =
+                    PersistedStepAttempt(
+                        workflowName = workflowName,
+                        workflowId = workflowId,
+                        stepName = "composite-step",
+                        attemptId = "shared-attempt-123",
+                    )
+                var currentSeq = 0L
+                val admission =
+                    WorkflowProcessAdmission { sName, eKind ->
+                        WorkflowProcessPermit(sName, eKind, ++currentSeq, checkpointGeneration = "gen-shared")
+                    }
+
+                val codexStep = createCodexStep(stepName = "composite-step", cliPath = codexCli.toString())
+                val hermesStep = createHermesStep(stepName = "composite-step", cliPath = hermesCli.toString())
+
+                runBlocking {
+                    withContext(testScope(admission = admission, evidenceStore = store, attempt = sharedAttempt)) {
+                        codexStep.execute(
+                            workflowName = workflowName,
+                            state = "initial",
+                            context = WorkflowContext(workflowId),
+                            observer = NoOpWorkflowObserver,
+                        )
+                        hermesStep.execute(
+                            workflowName = workflowName,
+                            state = "next",
+                            context = WorkflowContext(workflowId),
+                            observer = NoOpWorkflowObserver,
+                        )
+                    }
+                }
+
+                runBlocking {
+                    val evidenceList = store.listEvidence(workflowName, workflowId).sortedBy { it.key.admissionSeq }
+                    assertThat(evidenceList).hasSize(2)
+
+                    val first = evidenceList[0]
+                    val second = evidenceList[1]
+
+                    assertThat(first.stepAttemptId).isEqualTo("shared-attempt-123")
+                    assertThat(first.key.admissionSeq).isEqualTo(1L)
+                    assertThat(first.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
+                    assertThat(first.key.checkpointGeneration).isEqualTo("gen-shared")
+
+                    assertThat(second.stepAttemptId).isEqualTo("shared-attempt-123")
+                    assertThat(second.key.admissionSeq).isEqualTo(2L)
+                    assertThat(second.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
+                    assertThat(second.key.checkpointGeneration).isEqualTo("gen-shared")
                 }
             }
         }

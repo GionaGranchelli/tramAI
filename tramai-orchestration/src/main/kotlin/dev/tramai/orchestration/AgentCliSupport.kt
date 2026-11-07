@@ -38,6 +38,12 @@ internal class AgentCliStartException(
     cause: Throwable,
 ) : RuntimeException("agent CLI process could not be started", cause)
 
+internal const val CLI_PROCESS_START_FAILED_DIAGNOSTIC = "process_start_failed"
+internal const val CLI_PROCESS_TIMEOUT_DIAGNOSTIC = "process_timeout"
+internal const val CLI_PROCESS_CANCELLED_DIAGNOSTIC = "process_cancelled"
+internal const val CLI_PROCESS_EXECUTION_FAILED_DIAGNOSTIC = "process_execution_failed"
+internal const val CLI_PROCESS_CLEANUP_FAILED_DIAGNOSTIC = "process_cleanup_failed"
+
 internal data class AgentCliRequest(
     val workflowName: String,
     val stepName: String,
@@ -187,9 +193,10 @@ internal suspend fun executeAgentCli(
         cleanupResult = lifecycle.terminateAndAwait()
     }
 
+    val cleanup = checkNotNull(cleanupResult) { "Process cleanup must run in finally before handling failures" }
     handleExecutionCleanupAndFailure(
         primaryFailure = primaryFailure,
-        cleanup = cleanupResult,
+        cleanup = cleanup,
         evidenceKey = evidenceKey,
         evidenceStore = evidenceStore,
     )
@@ -239,11 +246,21 @@ private suspend fun startAgentProcess(
             )
         }
     } catch (cancelled: CancellationException) {
-        recordUncertainFailure(evidenceKey, evidenceStore, cancelled)
+        recordUncertainFailure(
+            evidenceKey = evidenceKey,
+            evidenceStore = evidenceStore,
+            error = cancelled,
+            diagnosticSummary = CLI_PROCESS_CANCELLED_DIAGNOSTIC,
+        )
         throw cancelled
     } catch (error: Throwable) {
         error.rethrowIfCancellation()
-        recordUncertainFailure(evidenceKey, evidenceStore, error)
+        recordUncertainFailure(
+            evidenceKey = evidenceKey,
+            evidenceStore = evidenceStore,
+            error = error,
+            diagnosticSummary = CLI_PROCESS_START_FAILED_DIAGNOSTIC,
+        )
         throw AgentCliStartException(error)
     }
 
@@ -253,7 +270,11 @@ private suspend fun updateEvidenceState(
     targetState: WorkflowEffectEvidenceState,
 ) {
     if (evidenceKey == null || evidenceStore == null) return
-    val record = evidenceStore.getEvidence(evidenceKey) ?: return
+    val record =
+        evidenceStore.getEvidence(evidenceKey)
+            ?: throw WorkflowEvidenceResolutionException(
+                "Missing expected evidence record for key: $evidenceKey (target state: $targetState)",
+            )
     val completedAt =
         if (targetState == WorkflowEffectEvidenceState.COMPLETED) {
             currentEffectEvidenceClockMillis() ?: record.createdAtEpochMillis
@@ -280,7 +301,12 @@ private suspend fun handleExecutionCleanupAndFailure(
     } catch (error: Throwable) {
         error.rethrowIfCancellation()
         if (primaryFailure == null) {
-            recordUncertainFailure(evidenceKey, evidenceStore, error)
+            recordUncertainFailure(
+                evidenceKey = evidenceKey,
+                evidenceStore = evidenceStore,
+                error = error,
+                diagnosticSummary = CLI_PROCESS_CLEANUP_FAILED_DIAGNOSTIC,
+            )
         }
         cleanupFailure = error
     }
@@ -288,7 +314,18 @@ private suspend fun handleExecutionCleanupAndFailure(
     val terminalFailure = primaryFailure ?: cleanupFailure
     if (terminalFailure != null) {
         if (terminalFailure === primaryFailure) {
-            recordUncertainFailure(evidenceKey, evidenceStore, primaryFailure)
+            val summary =
+                when (primaryFailure) {
+                    is CancellationException -> CLI_PROCESS_CANCELLED_DIAGNOSTIC
+                    is AgentCliTimeoutException -> CLI_PROCESS_TIMEOUT_DIAGNOSTIC
+                    else -> CLI_PROCESS_EXECUTION_FAILED_DIAGNOSTIC
+                }
+            recordUncertainFailure(
+                evidenceKey = evidenceKey,
+                evidenceStore = evidenceStore,
+                error = primaryFailure,
+                diagnosticSummary = summary,
+            )
         }
         throw terminalFailure
     }

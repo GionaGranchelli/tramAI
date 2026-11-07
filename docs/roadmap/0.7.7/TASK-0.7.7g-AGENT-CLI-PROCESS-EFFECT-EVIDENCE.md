@@ -91,6 +91,7 @@ To prevent orphaned processes:
    - Bounded process cleanup occurs **before** attempting secondary uncertainty persistence (`recordUncertainFailure`).
    - No orphan process is left running on the host system.
 6. In `recordUncertainFailure`, evidence updates execute with a cooperative suspension deadline (`withTimeoutOrNull(5_000L)` under `NonCancellable`). If secondary cancellation occurs from the evidence store, it is suppressed on the primary failure rather than replacing it. When the primary failure is itself a `CancellationException`, only a sanitized, cause-free marker (`SanitizedEvidenceDiagnosticException`) is attached to prevent internal persistence diagnostic leakage onto cancellation control flow.
+7. `updateEvidenceState()` fails closed: when updating evidence state (e.g. to `DISPATCHED` or `COMPLETED`), if the expected child record is missing from the store (`getEvidence() == null`), it throws `WorkflowEvidenceResolutionException`. The outer `finally` block executes `lifecycle.terminateAndAwait()`, ensuring that any running process is forcefully terminated before propagating the failure as an authoritative refusal.
 
 ### 3.4 Fail-Closed Lineage Attribution
 
@@ -109,7 +110,7 @@ For ordinary ungoverned agent workflows (`workflow.run(...)` or `workflow.resume
 
 ### 3.6 Sensitive Data Isolation
 
-The process evidence store intentionally omits prompt text, CLI arguments, environment variables, raw stdout, and raw stderr. Only bounded, sanitized diagnostics appear in `diagnosticSummary` upon failure, preventing secret leakage or prompt poisoning data from entering the evidence store.
+The process evidence store intentionally omits prompt text, CLI arguments, environment variables, raw stdout, and raw stderr. Rather than persisting raw exception messages or previews, CLI process failure transitions persist fixed, safe diagnostic categories (`CLI_PROCESS_START_FAILED_DIAGNOSTIC = "process_start_failed"`, `CLI_PROCESS_TIMEOUT_DIAGNOSTIC = "process_timeout"`, `CLI_PROCESS_CANCELLED_DIAGNOSTIC = "process_cancelled"`, `CLI_PROCESS_EXECUTION_FAILED_DIAGNOSTIC = "process_execution_failed"`, `CLI_PROCESS_CLEANUP_FAILED_DIAGNOSTIC = "process_cleanup_failed"`). This guarantees that process launch exceptions containing command arguments, sensitive paths, credentials, or prompts never enter durable evidence records. Raw exception details are strictly preserved only in memory within the diagnostic observer boundary (`failureDiagnosticObserver`).
 
 ---
 
@@ -146,9 +147,11 @@ The process evidence store intentionally omits prompt text, CLI arguments, envir
 - **C12 (Parent Cancellation & Diagnostics):** Cancellation cleans up process tree before uncertainty persistence; secondary store errors are sanitized.
 - **C13 (Step Retry Distinctness):** Retried step generates distinct admission sequences and attempt IDs.
 - **C14 (Ungoverned Compatibility):** Ungoverned workflow executes Codex and Hermes normally with zero evidence writes.
-- **C15 (Sensitive Data Isolation):** Prompt text, arguments, secrets, and raw output do not leak into evidence records.
+- **C15 (Sensitive Data Isolation):** Prompt text, arguments, secrets, and raw output do not leak into evidence records; launch exception with secret token verifies fixed diagnostic category `process_start_failed`.
 - **C16 (Downstream Output Validation):** Output rejection leaves process evidence `COMPLETED`.
-- **Integration Test:** Multi-step pipeline with both Codex and Hermes invocations sharing parent attempt context produces distinct admission sequences.
+- **Missing Record Lookup Fail-Closed:** Missing child record lookup during state transition throws `WorkflowEvidenceResolutionException` and reaps process tree before step fails.
+- **Distinct Top-Level Step Lineage:** Multi-step pipeline with sequential Codex and Hermes steps establishes distinct `stepAttemptId`s (`attempt-e2e-1`, `attempt-e2e-2`) and distinct admission sequences.
+- **Shared Attempt Multiple Invocations:** Multiple CLI process invocations executing inside one enclosing step attempt share the parent `stepAttemptId` while producing distinct monotonic admission sequences.
 
 ### Targeted Mutation Proofs (M1–M8)
 

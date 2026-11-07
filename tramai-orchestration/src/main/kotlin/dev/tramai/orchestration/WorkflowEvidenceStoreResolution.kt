@@ -101,6 +101,7 @@ internal suspend fun recordUncertainFailure(
     evidenceStore: WorkflowEffectEvidenceRecordStore?,
     error: Throwable,
     timeoutMillis: Long = 5_000L,
+    diagnosticSummary: String? = null,
 ) {
     if (evidenceKey == null || evidenceStore == null) return
     try {
@@ -108,7 +109,9 @@ internal suspend fun recordUncertainFailure(
             withTimeoutOrNull(timeoutMillis) {
                 val record = evidenceStore.getEvidence(evidenceKey)
                 if (record != null && record.state != WorkflowEffectEvidenceState.UNCERTAIN) {
-                    val preview = boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text
+                    val preview =
+                        diagnosticSummary
+                            ?: boundedWorkflowDetailPreview(error.message ?: error::class.java.name).text
                     evidenceStore.updateEvidence(
                         record.copy(
                             state = WorkflowEffectEvidenceState.UNCERTAIN,
