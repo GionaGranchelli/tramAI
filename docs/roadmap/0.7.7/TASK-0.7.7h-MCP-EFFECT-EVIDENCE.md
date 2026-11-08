@@ -30,7 +30,7 @@ Every governed MCP server start (E4) and tool invocation (E3) attempt transition
 | State | E4 (Server Start) Guarantee | E3 (Tool Call) Guarantee |
 | --- | --- | --- |
 | `ADMITTED` | Proves effect authorization via `WorkflowMcpServerStartPermit`. Child record written. Subprocess launch not yet confirmed. | Proves effect authorization via `WorkflowMcpToolPermit`. Child record written. Client tool invocation not yet executed. |
-| `DISPATCHED` | Transport connection established (`transportProvider.connect()` returned). Process started. | Remote tool call finished and returned (`client.callTool()` returned `CallToolResult`). |
+| `DISPATCHED` | Transport connection established (`transportProvider.connect()` returned a connection). Transport acquisition observed. | Remote tool call finished and returned (`client.callTool()` returned `CallToolResult`). |
 | `COMPLETED` | MCP protocol handshake completed (`client.connect()` succeeded). | Tool result parsed, truncated, and returned to step engine. |
 | `UNCERTAIN` | Failure occurred before handshake completed, or connection cancelled/timed out. | Tool call threw an exception, timed out, cancelled, or post-call evidence write failed. |
 
@@ -73,18 +73,20 @@ When D7 evidence tracking is enabled (`evidenceStore != null`):
 - If `mcpAdmission == null` or `stepAttempt == null`: `WorkflowEvidenceResolutionException` is thrown immediately.
 - No admission counter is incremented, no permit is granted, no subprocess is launched, and no tool is invoked.
 
-### 3.3 Strict Reconnect Discipline & Non-Reconnection on Uncertainty
-- When an E3 tool call fails or throws an exception, the outcome on the remote tool server is inherently uncertain (e.g., the remote tool may have executed side-effects before socket disconnection).
-- `executeMcpCall` wraps any tool execution failure or post-tool evidence failure in `McpToolExecutionException`.
-- `isTransientForReconnect()` explicitly returns `false` for `McpToolExecutionException` and `McpPostCallCleanupException`.
-- Automatic reconnect (`config.reconnect = true`) is permitted **only** on transient transport connection failures occurring during E4 before tool execution starts. Once tool execution begins or fails, the runtime never reconnects, preventing duplicate side-effects.
+### 3.3 Strict Phase-Aware Reconnect Discipline & Non-Reconnection on Uncertainty
+- Reconnection eligibility is strictly phase-aware, never derived from raw exception types alone:
+  - **Safe-to-reconnect phase (E4 connect):** Only proven transient transport/setup failures occurring during initial transport connection acquisition (`transportProvider.connect()`) before E4 completion may trigger a reconnect attempt when `config.reconnect = true`. Each retry receives fresh durable admissions and distinct child evidence records.
+  - **Evidence persistence failure (non-reconnectable):** Evidence store operations (`recordAdmitted`, `updateState`) wrap store errors in `McpEvidencePersistenceException`, which strictly forbids reconnection.
+  - **E4 completion write failure (non-reconnectable):** A successful E4 connection followed by an E4 completion-evidence write failure fails closed immediately and does not reconnect.
+  - **E3 phase (non-reconnectable):** Once E3 admission begins, any subsequent failure (E3 permit admission, E3 child record persistence, tool invocation, or result processing) is wrapped in `McpToolExecutionException` (`isTransientForReconnect() == false`), strictly forbidding an implicit new E4 connection or tool retry.
+  - **Post-result cleanup phase (non-reconnectable):** Client or transport cleanup failures are surfaced as `McpPostCallCleanupException` and never retry.
 
-### 3.4 Cleanup Before Secondary Uncertainty Persistence
-- Subprocess and MCP client cleanup always executes in `finally { performCleanup() }` before secondary uncertainty persistence (`recordUncertainty`).
-- Client connection is closed under `NonCancellable`.
-- Process tree termination (`terminateAndAwait()`) is completed and awaited under `NonCancellable`.
-- Only after resources are cleaned up is the active evidence record transitioned to `UNCERTAIN`.
-- Any cleanup failure occurring when no primary failure exists is surfaced as `McpPostCallCleanupException`. If a primary failure already exists, cleanup failures are suppressed onto it.
+### 3.4 Bounded Cleanup & Secondary Cancellation Isolation
+- Bounded client shutdown: `client.close()` is executed under `NonCancellable` with an explicit 5-second deadline (`withTimeoutOrNull(5_000L)`). A stalled client close cannot indefinitely block subsequent cleanup.
+- Unconditional transport cleanup: transport and subprocess cleanup (`cleanupConnection`) runs in a `finally` block, guaranteeing that process trees and pipes are cleaned up regardless of how client close finishes.
+- Secondary cancellation isolation: If client close or transport cleanup throws `CancellationException` while an earlier `primaryFailure` already exists, the secondary cancellation is sanitized and suppressed onto `primaryFailure` via `primaryFailure.suppressCleanupDiagnostic(error)`. It never replaces the primary execution failure.
+- Active evidence uncertainty: `recordUncertainty` runs in an inner `finally` block, ensuring that any incomplete effect transitions to `UNCERTAIN` before cleanup completes.
+- Standalone cleanup failures: Surfaced as `McpPostCallCleanupException` only when no primary failure occurred.
 
 ### 3.5 Sensitive Data Isolation & Safe Fixed Diagnostics
 Evidence records persist fixed, safe diagnostic categories:
@@ -128,7 +130,7 @@ All 20 qualification scenarios are implemented and verified in `WorkflowMcpEffec
 | **MCE-05** | W2 crash window: E4 process start crash | E4 record remains `ADMITTED` when crash occurs before launch; never `DISPATCHED`. |
 | **MCE-06** | E4 server start failure | E4 transitions `ADMITTED` -> `UNCERTAIN` (`mcp_server_start_failed`); subprocess cleaned up; E3 never admitted. |
 | **MCE-07** | E4 client initialization failure | E4 transitions `ADMITTED` -> `DISPATCHED` -> `UNCERTAIN` (`mcp_initialization_failed`); connection cleaned up; E3 never admitted. |
-| **MCE-08** | W1 crash window: E3 child write fails | E4 record `COMPLETED`; E3 admission sequence committed on checkpoint; tool call never invoked. |
+| **MCE-08** | W1/W2 crash window: failure writing E3 ADMITTED | E4 record `COMPLETED`; E3 admission sequence committed on checkpoint; tool call never invoked (`toolInvoked == false`). |
 | **MCE-09** | W2 crash window: E3 tool call crash | E3 record remains `ADMITTED` when crash occurs before dispatch; never `COMPLETED`. |
 | **MCE-10** | E3 tool invocation failure | E3 transitions `ADMITTED` -> `UNCERTAIN` (`mcp_tool_execution_failed`); client cleaned up; reconnect suppressed. |
 | **MCE-11** | Retry on reconnectable failure allocates fresh sequences | Transient E4 failure with `reconnect=true` allocates fresh admission sequence on retry; distinct child records. |

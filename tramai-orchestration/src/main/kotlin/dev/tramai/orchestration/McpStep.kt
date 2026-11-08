@@ -21,6 +21,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.io.Sink
 import kotlinx.io.Source
 import kotlinx.io.asSink
@@ -38,6 +39,7 @@ internal const val MCP_TOOL_EXECUTION_FAILED_DIAGNOSTIC = "mcp_tool_execution_fa
 internal const val MCP_TIMEOUT_DIAGNOSTIC = "mcp_timeout"
 internal const val MCP_CANCELLED_DIAGNOSTIC = "mcp_cancelled"
 internal const val MCP_CLEANUP_FAILED_DIAGNOSTIC = "mcp_cleanup_failed"
+private const val MCP_CLIENT_CLOSE_TIMEOUT_MILLIS = 5_000L
 
 data class McpToolCall(
     val serverCommand: List<String>,
@@ -234,6 +236,7 @@ internal data class McpWorkflowStep<S>(
     val merge: suspend (S, McpToolResult, WorkflowContext) -> S,
     val config: McpStepConfig = McpStepConfig(),
     val transportProvider: McpTransportProvider = SubprocessMcpTransportProvider(),
+    val clientCloser: suspend (Client) -> Unit = { it.close() },
 ) : InternalWorkflowStep<S> {
     override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
         WorkflowStepExecutionResult.Completed(
@@ -622,6 +625,7 @@ private class McpCallSession(
         }
     }
 
+    @Suppress("TooGenericExceptionCaught")
     private suspend fun performConnectedCall(serverStartKey: WorkflowEffectEvidenceKey?): McpToolResult {
         val conn = step.transportProvider.connect(toolCall)
         connection = conn
@@ -637,15 +641,28 @@ private class McpCallSession(
         McpEvidenceOps.updateState(serverStartKey, evidenceStore, WorkflowEffectEvidenceState.COMPLETED)
         activeEvidenceKey = null
 
-        val toolPermit = mcpAdmission?.admitToolCall(step.name)
+        val toolPermit =
+            try {
+                mcpAdmission?.admitToolCall(step.name)
+            } catch (admitError: Throwable) {
+                admitError.rethrowIfCancellation()
+                admitError.rethrowIfAuthoritativeRefusal()
+                throw McpToolExecutionException(admitError)
+            }
         toolPermit?.tryConsume()
         val toolKey =
-            McpEvidenceOps.recordAdmitted(
-                permit = toolPermit,
-                context = evidenceContext,
-                effectKind = MCP_TOOL_EFFECT_KIND,
-                checkpointGeneration = toolPermit?.checkpointGeneration ?: "",
-            )
+            try {
+                McpEvidenceOps.recordAdmitted(
+                    permit = toolPermit,
+                    context = evidenceContext,
+                    effectKind = MCP_TOOL_EFFECT_KIND,
+                    checkpointGeneration = toolPermit?.checkpointGeneration ?: "",
+                )
+            } catch (admittedError: Throwable) {
+                admittedError.rethrowIfCancellation()
+                admittedError.rethrowIfAuthoritativeRefusal()
+                throw McpToolExecutionException(admittedError)
+            }
         activeEvidenceKey = toolKey
         activeFailureSummary = MCP_TOOL_EXECUTION_FAILED_DIAGNOSTIC
 
@@ -672,38 +689,50 @@ private class McpCallSession(
 
     @Suppress("TooGenericExceptionCaught")
     private suspend fun performCleanup() {
-        var closeFailure: Throwable? = null
+        var cleanupFailure: Throwable? = null
         try {
-            withContext(NonCancellable) { client?.close() }
-        } catch (closeError: Throwable) {
-            closeError.rethrowIfCancellation()
-            if (primaryFailure != null) {
-                primaryFailure?.suppressCleanupDiagnostic(closeError)
-            } else {
-                closeFailure = closeError
+            try {
+                withContext(NonCancellable) {
+                    withTimeoutOrNull(MCP_CLIENT_CLOSE_TIMEOUT_MILLIS) {
+                        client?.let { step.clientCloser(it) }
+                    }
+                }
+            } catch (closeError: CancellationException) {
+                if (primaryFailure != null) {
+                    primaryFailure?.suppressCleanupDiagnostic(closeError)
+                } else {
+                    cleanupFailure = closeError
+                }
+            } catch (closeError: Throwable) {
+                closeError.rethrowIfCancellation()
+                if (primaryFailure != null) {
+                    primaryFailure?.suppressCleanupDiagnostic(closeError)
+                } else {
+                    cleanupFailure = closeError
+                }
+            }
+        } finally {
+            try {
+                McpEvidenceOps.cleanupConnection(connection, primaryFailure ?: cleanupFailure)
+            } catch (connError: Throwable) {
+                connError.rethrowIfCancellation()
+                if (primaryFailure == null && cleanupFailure == null) {
+                    cleanupFailure = connError
+                }
+            } finally {
+                val terminalError = primaryFailure ?: cleanupFailure
+                McpEvidenceOps.recordUncertainty(
+                    evidenceKey = activeEvidenceKey,
+                    evidenceStore = evidenceContext.evidenceStore,
+                    terminalError = terminalError,
+                    defaultDiagnostic = activeFailureSummary,
+                )
             }
         }
 
-        try {
-            McpEvidenceOps.cleanupConnection(connection, primaryFailure ?: closeFailure)
-        } catch (cleanupError: Throwable) {
-            cleanupError.rethrowIfCancellation()
-            if (primaryFailure == null && closeFailure == null) {
-                closeFailure = cleanupError
-            }
-        }
-
-        val terminalError = primaryFailure ?: closeFailure
-        McpEvidenceOps.recordUncertainty(
-            evidenceKey = activeEvidenceKey,
-            evidenceStore = evidenceContext.evidenceStore,
-            terminalError = terminalError,
-            defaultDiagnostic = activeFailureSummary,
-        )
-
-        if (primaryFailure == null && closeFailure != null) {
-            if (closeFailure is CancellationException) throw closeFailure
-            throw McpPostCallCleanupException(closeFailure)
+        if (primaryFailure == null && cleanupFailure != null) {
+            if (cleanupFailure is CancellationException) throw cleanupFailure
+            throw McpPostCallCleanupException(cleanupFailure)
         }
     }
 }
@@ -791,6 +820,7 @@ private object McpEvidenceOps {
         }
     }
 
+    @Suppress("TooGenericExceptionCaught")
     suspend fun recordAdmitted(
         permit: EffectPermit?,
         context: McpEvidenceContext,
@@ -805,19 +835,27 @@ private object McpEvidenceOps {
                 checkpointGeneration = checkpointGeneration,
                 admissionSeq = permit.admissionSequence,
             )
-        context.evidenceStore.recordEvidence(
-            WorkflowEffectEvidenceRecord(
-                key = key,
-                stepName = context.stepName,
-                stepAttemptId = context.stepAttempt.attemptId,
-                effectKind = effectKind,
-                state = WorkflowEffectEvidenceState.ADMITTED,
-                createdAtEpochMillis = currentEffectEvidenceClockMillis() ?: context.stepAttempt.startedAtEpochMillis,
-            ),
-        )
+        try {
+            context.evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = key,
+                    stepName = context.stepName,
+                    stepAttemptId = context.stepAttempt.attemptId,
+                    effectKind = effectKind,
+                    state = WorkflowEffectEvidenceState.ADMITTED,
+                    createdAtEpochMillis =
+                        currentEffectEvidenceClockMillis() ?: context.stepAttempt.startedAtEpochMillis,
+                ),
+            )
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            error.rethrowIfAuthoritativeRefusal()
+            throw McpEvidencePersistenceException(error)
+        }
         return key
     }
 
+    @Suppress("TooGenericExceptionCaught", "ThrowsCount")
     suspend fun updateState(
         evidenceKey: WorkflowEffectEvidenceKey?,
         evidenceStore: WorkflowEffectEvidenceRecordStore?,
@@ -825,22 +863,33 @@ private object McpEvidenceOps {
     ) {
         if (evidenceKey == null || evidenceStore == null) return
         val record =
-            evidenceStore.getEvidence(evidenceKey)
-                ?: throw WorkflowEvidenceResolutionException(
-                    "Missing expected evidence record for key: $evidenceKey (target state: $targetState)",
-                )
+            try {
+                evidenceStore.getEvidence(evidenceKey)
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                error.rethrowIfAuthoritativeRefusal()
+                throw McpEvidencePersistenceException(error)
+            } ?: throw WorkflowEvidenceResolutionException(
+                "Missing expected evidence record for key: $evidenceKey (target state: $targetState)",
+            )
         val completedAt =
             if (targetState == WorkflowEffectEvidenceState.COMPLETED) {
                 currentEffectEvidenceClockMillis() ?: record.createdAtEpochMillis
             } else {
                 record.completedAtEpochMillis
             }
-        evidenceStore.updateEvidence(
-            record.copy(
-                state = targetState,
-                completedAtEpochMillis = completedAt,
-            ),
-        )
+        try {
+            evidenceStore.updateEvidence(
+                record.copy(
+                    state = targetState,
+                    completedAtEpochMillis = completedAt,
+                ),
+            )
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            error.rethrowIfAuthoritativeRefusal()
+            throw McpEvidencePersistenceException(error)
+        }
     }
 }
 
@@ -866,16 +915,51 @@ internal class McpToolExecutionException(
 ) : RuntimeException("MCP tool execution failed", cause)
 
 /**
- * Only retry on transport/setup failures, not timeouts or tool-level errors.
+ * Failure when reading or writing durable effect evidence records.
+ * Evidence store failures must never trigger an automatic reconnect.
+ */
+internal class McpEvidencePersistenceException(
+    cause: Throwable,
+) : RuntimeException("MCP evidence persistence failed", cause)
+
+/**
+ * Only retry on proven transient E4 transport/setup failures, not timeouts,
+ * tool-level errors, or evidence store failures.
  * A non-idempotent MCP tool must not run twice after partial completion.
  */
 private fun Throwable.isTransientForReconnect(): Boolean =
     when (this) {
-        is TimeoutCancellationException -> false
-        is CancellationException -> false
-        is McpTimeoutException, is McpPostCallCleanupException, is McpToolExecutionException -> false
-        is WorkflowMcpException -> failureCode == WorkflowStepFailureCode.TRANSPORT_FAILED || failureCode == null
-        else -> mcpFailureCode(this) == WorkflowStepFailureCode.TRANSPORT_FAILED
+        is TimeoutCancellationException -> {
+            false
+        }
+
+        is CancellationException -> {
+            false
+        }
+
+        is McpTimeoutException,
+        is McpPostCallCleanupException,
+        is McpToolExecutionException,
+        is McpEvidencePersistenceException,
+        -> {
+            false
+        }
+
+        is WorkflowEvidenceResolutionException -> {
+            false
+        }
+
+        is WorkflowMcpException -> {
+            failureCode == WorkflowStepFailureCode.TRANSPORT_FAILED || failureCode == null
+        }
+
+        is java.io.IOException -> {
+            true
+        }
+
+        else -> {
+            false
+        }
     }
 
 private fun mcpFailureCode(error: Throwable): WorkflowStepFailureCode =
@@ -883,6 +967,7 @@ private fun mcpFailureCode(error: Throwable): WorkflowStepFailureCode =
         is McpTimeoutException, is TimeoutCancellationException -> WorkflowStepFailureCode.TIMEOUT
         is McpPostCallCleanupException -> WorkflowStepFailureCode.CLEANUP_FAILED
         is McpToolExecutionException -> mcpFailureCode(error.cause ?: error)
+        is McpEvidencePersistenceException -> WorkflowStepFailureCode.TRANSPORT_FAILED
         is WorkflowMcpException -> error.failureCode ?: WorkflowStepFailureCode.TRANSPORT_FAILED
         else -> WorkflowStepFailureCode.TRANSPORT_FAILED
     }

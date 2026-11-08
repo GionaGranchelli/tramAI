@@ -489,15 +489,25 @@ class WorkflowMcpEffectEvidenceTest {
     }
 
     @Test
-    fun `MCE-08 - E3 admission recorded, failure before invocation marks E3 UNCERTAIN`() {
-        val (transportProvider, serverCloseable) = createEchoServer()
+    fun `MCE-08 - failure persisting E3 ADMITTED leaves E4 COMPLETED and never invokes tool`() {
+        val toolInvoked = AtomicBoolean(false)
+        val (transportProvider, serverCloseable) =
+            createEchoServer(onToolCall = { toolInvoked.set(true) })
         servers += serverCloseable
 
-        val store = InMemoryWorkflowEffectEvidenceRecordStore()
-        // Asking for nonexistent tool triggers failure during tool invocation
+        val baseStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        val failingStore =
+            object : WorkflowEffectEvidenceRecordStore by baseStore {
+                override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                    if (record.effectKind == MCP_TOOL_EFFECT_KIND && record.state == WorkflowEffectEvidenceState.ADMITTED) {
+                        throw IOException("Storage failure writing E3 ADMITTED")
+                    }
+                    return baseStore.recordEvidence(record)
+                }
+            }
+
         val step =
             createEchoStep(
-                toolName = "nonexistent_tool",
                 config = McpStepConfig.unrestricted().copy(reconnect = false),
                 transportProvider = transportProvider,
             )
@@ -512,19 +522,23 @@ class WorkflowMcpEffectEvidenceTest {
                     WorkflowMcpToolPermit(stepName, seq++, "gen-m08")
             }
 
-        runBlocking {
-            withContext(testScope(admission = admission, evidenceStore = store)) {
-                val result = step.executeStep()
-                // MCP protocol reports error for nonexistent tool as CallToolResult.isError = true
-                assertThat(result.result?.isError).isTrue()
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = failingStore)) {
+                    step.executeStep()
+                }
             }
+        }.isInstanceOf(WorkflowMcpException::class.java)
 
-            val records = store.listEvidence(workflowName, workflowId)
-            assertThat(records).hasSize(2)
-            val e4 = records.first { it.effectKind == MCP_SERVER_START_EFFECT_KIND }
-            val e3 = records.first { it.effectKind == MCP_TOOL_EFFECT_KIND }
+        // Verifies the absolute absence of any client.callTool() execution
+        assertThat(toolInvoked.get()).isFalse()
+
+        runBlocking {
+            val records = baseStore.listEvidence(workflowName, workflowId)
+            assertThat(records).hasSize(1)
+            val e4 = records.first()
+            assertThat(e4.effectKind).isEqualTo(MCP_SERVER_START_EFFECT_KIND)
             assertThat(e4.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
-            assertThat(e3.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
         }
     }
 
@@ -700,14 +714,14 @@ class WorkflowMcpEffectEvidenceTest {
         val (transportProvider, serverCloseable) = createEchoServer()
         servers += serverCloseable
 
-        val toolCalls = AtomicInteger(0)
+        val cleanupCalls = AtomicInteger(0)
         val cleanupFailingTransport =
             object : McpTransportProvider {
                 override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
                     val conn = transportProvider.connect(toolCall)
                     return conn.copy(
                         cleanup = {
-                            toolCalls.incrementAndGet()
+                            cleanupCalls.incrementAndGet()
                             throw IOException("Post-call cleanup failure")
                         },
                     )
@@ -745,7 +759,7 @@ class WorkflowMcpEffectEvidenceTest {
         assertThat(workflowFailureCode(error!!)).isEqualTo(WorkflowStepFailureCode.CLEANUP_FAILED)
 
         // Crucial invariant: even with reconnect=true, cleanup failure does NOT retry
-        assertThat(toolCalls.get()).isEqualTo(1)
+        assertThat(cleanupCalls.get()).isEqualTo(1)
 
         runBlocking {
             val records = store.listEvidence(workflowName, workflowId)
@@ -1065,7 +1079,7 @@ class WorkflowMcpEffectEvidenceTest {
 
         runBlocking {
             val records = store.listEvidence(workflowName, workflowId)
-            assertThat(records).isNotEmpty
+            assertThat(records).isNotEmpty()
             for (record in records) {
                 assertThat(record.diagnosticSummary).doesNotContain(secretArg)
                 assertThat(record.diagnosticSummary).doesNotContain(secretErrorMsg)
@@ -1094,6 +1108,195 @@ class WorkflowMcpEffectEvidenceTest {
         assertThat(result.result?.content).contains("echo: hello")
         runBlocking {
             assertThat(store.listEvidence(workflowName, workflowId)).isEmpty()
+        }
+    }
+
+    @Test
+    fun `failure writing E3 ADMITTED with reconnect enabled does not trigger second E4 connection`() {
+        val connectAttempts = AtomicInteger(0)
+        val (transportProvider, serverCloseable) = createEchoServer()
+        servers += serverCloseable
+
+        val trackingTransport =
+            object : McpTransportProvider {
+                override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
+                    connectAttempts.incrementAndGet()
+                    return transportProvider.connect(toolCall)
+                }
+            }
+
+        val baseStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        val failingStore =
+            object : WorkflowEffectEvidenceRecordStore by baseStore {
+                override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                    if (record.effectKind == MCP_TOOL_EFFECT_KIND && record.state == WorkflowEffectEvidenceState.ADMITTED) {
+                        throw IOException("Storage failure writing E3 ADMITTED")
+                    }
+                    return baseStore.recordEvidence(record)
+                }
+            }
+
+        val step =
+            createEchoStep(
+                config = McpStepConfig.unrestricted().copy(reconnect = true),
+                transportProvider = trackingTransport,
+            )
+
+        var seq = 1L
+        val admission =
+            object : WorkflowMcpAdmission {
+                override suspend fun admitServerStart(stepName: String): WorkflowMcpServerStartPermit =
+                    WorkflowMcpServerStartPermit(stepName, seq++, "gen-e3-no-retry")
+
+                override suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit =
+                    WorkflowMcpToolPermit(stepName, seq++, "gen-e3-no-retry")
+            }
+
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = failingStore)) {
+                    step.executeStep()
+                }
+            }
+        }.isInstanceOf(WorkflowMcpException::class.java)
+
+        // Must connect exactly once: no second E4 connection attempt
+        assertThat(connectAttempts.get()).isEqualTo(1)
+
+        runBlocking {
+            val records = baseStore.listEvidence(workflowName, workflowId)
+            assertThat(records).hasSize(1)
+            val e4 = records.first()
+            assertThat(e4.effectKind).isEqualTo(MCP_SERVER_START_EFFECT_KIND)
+            assertThat(e4.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
+        }
+    }
+
+    @Test
+    fun `failure writing E4 COMPLETED with reconnect enabled does not trigger second E4 connection`() {
+        val connectAttempts = AtomicInteger(0)
+        val (transportProvider, serverCloseable) = createEchoServer()
+        servers += serverCloseable
+
+        val trackingTransport =
+            object : McpTransportProvider {
+                override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
+                    connectAttempts.incrementAndGet()
+                    return transportProvider.connect(toolCall)
+                }
+            }
+
+        val baseStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        val failingStore =
+            object : WorkflowEffectEvidenceRecordStore by baseStore {
+                override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                    if (record.effectKind == MCP_SERVER_START_EFFECT_KIND && record.state == WorkflowEffectEvidenceState.COMPLETED) {
+                        throw IOException("Storage failure writing E4 COMPLETED")
+                    }
+                    return baseStore.updateEvidence(record)
+                }
+            }
+
+        val step =
+            createEchoStep(
+                config = McpStepConfig.unrestricted().copy(reconnect = true),
+                transportProvider = trackingTransport,
+            )
+
+        var seq = 1L
+        val admission =
+            object : WorkflowMcpAdmission {
+                override suspend fun admitServerStart(stepName: String): WorkflowMcpServerStartPermit =
+                    WorkflowMcpServerStartPermit(stepName, seq++, "gen-e4-no-retry")
+
+                override suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit =
+                    WorkflowMcpToolPermit(stepName, seq++, "gen-e4-no-retry")
+            }
+
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = failingStore)) {
+                    step.executeStep()
+                }
+            }
+        }.isInstanceOf(WorkflowMcpException::class.java)
+
+        // Must connect exactly once: no second E4 connection attempt
+        assertThat(connectAttempts.get()).isEqualTo(1)
+
+        runBlocking {
+            val records = baseStore.listEvidence(workflowName, workflowId)
+            assertThat(records).hasSize(1)
+            val e4 = records.first()
+            assertThat(e4.effectKind).isEqualTo(MCP_SERVER_START_EFFECT_KIND)
+            assertThat(e4.state).isNotEqualTo(WorkflowEffectEvidenceState.COMPLETED)
+        }
+    }
+
+    @Test
+    fun `client shutdown cancellation preserves primary failure and executes transport cleanup`() {
+        val transportCleanedUp = AtomicBoolean(false)
+        val (transportProvider, serverCloseable) =
+            createEchoServer(
+                onToolCall = { pipe ->
+                    pipe.close() // Drop socket mid-tool execution to cause primary tool execution failure
+                },
+            )
+        servers += serverCloseable
+
+        val cleanupTrackingTransport =
+            object : McpTransportProvider {
+                override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
+                    val conn = transportProvider.connect(toolCall)
+                    return conn.copy(
+                        cleanup = {
+                            transportCleanedUp.set(true)
+                            conn.cleanup?.invoke()
+                        },
+                    )
+                }
+            }
+
+        val store = InMemoryWorkflowEffectEvidenceRecordStore()
+        val step =
+            createEchoStep(
+                config = McpStepConfig.unrestricted().copy(reconnect = false),
+                transportProvider = cleanupTrackingTransport,
+            ).copy(
+                clientCloser = {
+                    throw CancellationException("Secondary client-close cancellation")
+                },
+            )
+
+        var seq = 1L
+        val admission =
+            object : WorkflowMcpAdmission {
+                override suspend fun admitServerStart(stepName: String): WorkflowMcpServerStartPermit =
+                    WorkflowMcpServerStartPermit(stepName, seq++, "gen-cleanup-cancel")
+
+                override suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit =
+                    WorkflowMcpToolPermit(stepName, seq++, "gen-cleanup-cancel")
+            }
+
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = store)) {
+                    step.executeStep()
+                }
+            }
+        }.isInstanceOf(WorkflowMcpException::class.java)
+            .hasMessageContaining("Workflow mcp step transport failed")
+
+        // 1. Transport cleanup MUST execute
+        assertThat(transportCleanedUp.get()).isTrue()
+
+        // 2. Evidence must be conservative: E3 is UNCERTAIN (mcp_tool_execution_failed)
+        runBlocking {
+            val records = store.listEvidence(workflowName, workflowId)
+            assertThat(records).hasSize(2)
+            val e3 = records.first { it.effectKind == MCP_TOOL_EFFECT_KIND }
+            assertThat(e3.state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
+            assertThat(e3.diagnosticSummary).isEqualTo(MCP_TOOL_EXECUTION_FAILED_DIAGNOSTIC)
         }
     }
 
