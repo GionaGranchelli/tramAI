@@ -75,14 +75,15 @@ When D7 evidence tracking is enabled (`evidenceStore != null`):
 
 ### 3.3 Strict Phase-Aware Reconnect Discipline & Non-Reconnection on Uncertainty
 - Reconnection eligibility is strictly phase-aware, never derived from raw exception types alone:
-  - **Safe-to-reconnect phase (E4 connect):** Only proven transient transport/setup failures occurring during initial transport connection acquisition (`transportProvider.connect()`) before E4 completion may trigger a reconnect attempt when `config.reconnect = true`. Each retry receives fresh durable admissions and distinct child evidence records.
+  - **Safe-to-reconnect phase (E4 connect):** Only proven transient transport/setup failures occurring during initial transport connection acquisition (`transportProvider.connect()`) before transport acquisition returns may trigger a reconnect attempt when `config.reconnect = true`. Each retry receives fresh durable admissions and distinct child evidence records.
+  - **MCP protocol handshake failure (non-reconnectable):** Once `transportProvider.connect()` succeeds, any subsequent failure during `client.connect()` (protocol handshake) is classified at that boundary as `McpHandshakeException` (`isTransientForReconnect() == false`), strictly forbidding an automatic reconnect.
   - **Evidence persistence failure (non-reconnectable):** Evidence store operations (`recordAdmitted`, `updateState`) wrap store errors in `McpEvidencePersistenceException`, which strictly forbids reconnection.
   - **E4 completion write failure (non-reconnectable):** A successful E4 connection followed by an E4 completion-evidence write failure fails closed immediately and does not reconnect.
   - **E3 phase (non-reconnectable):** Once E3 admission begins, any subsequent failure (E3 permit admission, E3 child record persistence, tool invocation, or result processing) is wrapped in `McpToolExecutionException` (`isTransientForReconnect() == false`), strictly forbidding an implicit new E4 connection or tool retry.
   - **Post-result cleanup phase (non-reconnectable):** Client or transport cleanup failures are surfaced as `McpPostCallCleanupException` and never retry.
 
-### 3.4 Bounded Cleanup & Secondary Cancellation Isolation
-- Bounded client shutdown: `client.close()` is executed under `NonCancellable` with an explicit 5-second deadline (`withTimeoutOrNull(5_000L)`). A stalled client close cannot indefinitely block subsequent cleanup.
+### 3.4 Cooperative Bounded Cleanup & Secondary Cancellation Isolation
+- Cooperative bounded client shutdown: `client.close()` is executed under `NonCancellable` with a cooperative 5-second deadline (`withTimeoutOrNull(5_000L)`). The runtime distinguishes normal close completion from deadline expiry: a timed-out close is classified as a cleanup failure (`cleanupFailure`) when there is no earlier primary failure. The 5-second limit remains cooperative and is not a hard bound against uninterruptible native I/O.
 - Unconditional transport cleanup: transport and subprocess cleanup (`cleanupConnection`) runs in a `finally` block, guaranteeing that process trees and pipes are cleaned up regardless of how client close finishes.
 - Secondary cancellation isolation: If client close or transport cleanup throws `CancellationException` while an earlier `primaryFailure` already exists, the secondary cancellation is sanitized and suppressed onto `primaryFailure` via `primaryFailure.suppressCleanupDiagnostic(error)`. It never replaces the primary execution failure.
 - Active evidence uncertainty: `recordUncertainty` runs in an inner `finally` block, ensuring that any incomplete effect transitions to `UNCERTAIN` before cleanup completes.

@@ -237,6 +237,7 @@ internal data class McpWorkflowStep<S>(
     val config: McpStepConfig = McpStepConfig(),
     val transportProvider: McpTransportProvider = SubprocessMcpTransportProvider(),
     val clientCloser: suspend (Client) -> Unit = { it.close() },
+    val clientCloseTimeoutMillis: Long = MCP_CLIENT_CLOSE_TIMEOUT_MILLIS,
 ) : InternalWorkflowStep<S> {
     override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
         WorkflowStepExecutionResult.Completed(
@@ -625,7 +626,7 @@ private class McpCallSession(
         }
     }
 
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "ThrowsCount")
     private suspend fun performConnectedCall(serverStartKey: WorkflowEffectEvidenceKey?): McpToolResult {
         val conn = step.transportProvider.connect(toolCall)
         connection = conn
@@ -637,7 +638,13 @@ private class McpCallSession(
                 clientInfo = Implementation(name = "tramai-mcp-step", version = MCP_STEP_VERSION),
             )
         client = mcpClient
-        mcpClient.connect(StdioClientTransport(input = conn.input, output = conn.output))
+        try {
+            mcpClient.connect(StdioClientTransport(input = conn.input, output = conn.output))
+        } catch (initError: Throwable) {
+            initError.rethrowIfCancellation()
+            initError.rethrowIfAuthoritativeRefusal()
+            throw McpHandshakeException(initError)
+        }
         McpEvidenceOps.updateState(serverStartKey, evidenceStore, WorkflowEffectEvidenceState.COMPLETED)
         activeEvidenceKey = null
 
@@ -688,23 +695,47 @@ private class McpCallSession(
         }
 
     @Suppress("TooGenericExceptionCaught")
-    private suspend fun performCleanup() {
-        var cleanupFailure: Throwable? = null
-        try {
+    private suspend fun closeClientGracefully(): Throwable? {
+        var failure: Throwable? = null
+        val closeCompleted =
             try {
                 withContext(NonCancellable) {
-                    withTimeoutOrNull(MCP_CLIENT_CLOSE_TIMEOUT_MILLIS) {
+                    withTimeoutOrNull(step.clientCloseTimeoutMillis) {
                         client?.let { step.clientCloser(it) }
+                        true
                     }
                 }
             } catch (closeError: CancellationException) {
-                if (primaryFailure != null) {
-                    primaryFailure?.suppressCleanupDiagnostic(closeError)
-                } else {
-                    cleanupFailure = closeError
-                }
+                failure = closeError
+                true
             } catch (closeError: Throwable) {
                 closeError.rethrowIfCancellation()
+                failure = closeError
+                true
+            }
+        return when {
+            failure != null -> {
+                failure
+            }
+
+            closeCompleted == null && client != null -> {
+                java.util.concurrent.TimeoutException(
+                    "MCP client close timed out after ${step.clientCloseTimeoutMillis}ms",
+                )
+            }
+
+            else -> {
+                null
+            }
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun performCleanup() {
+        var cleanupFailure: Throwable? = null
+        try {
+            val closeError = closeClientGracefully()
+            if (closeError != null) {
                 if (primaryFailure != null) {
                     primaryFailure?.suppressCleanupDiagnostic(closeError)
                 } else {
@@ -718,6 +749,8 @@ private class McpCallSession(
                 connError.rethrowIfCancellation()
                 if (primaryFailure == null && cleanupFailure == null) {
                     cleanupFailure = connError
+                } else {
+                    (primaryFailure ?: cleanupFailure)?.suppressCleanupDiagnostic(connError)
                 }
             } finally {
                 val terminalError = primaryFailure ?: cleanupFailure
@@ -731,7 +764,6 @@ private class McpCallSession(
         }
 
         if (primaryFailure == null && cleanupFailure != null) {
-            if (cleanupFailure is CancellationException) throw cleanupFailure
             throw McpPostCallCleanupException(cleanupFailure)
         }
     }
@@ -923,6 +955,15 @@ internal class McpEvidencePersistenceException(
 ) : RuntimeException("MCP evidence persistence failed", cause)
 
 /**
+ * Failure during the MCP client initialization / protocol handshake phase.
+ * Because transport acquisition has already succeeded, handshake failures
+ * must fail closed and never trigger an automatic reconnect.
+ */
+internal class McpHandshakeException(
+    cause: Throwable,
+) : RuntimeException("MCP client handshake failed", cause)
+
+/**
  * Only retry on proven transient E4 transport/setup failures, not timeouts,
  * tool-level errors, or evidence store failures.
  * A non-idempotent MCP tool must not run twice after partial completion.
@@ -941,6 +982,7 @@ private fun Throwable.isTransientForReconnect(): Boolean =
         is McpPostCallCleanupException,
         is McpToolExecutionException,
         is McpEvidencePersistenceException,
+        is McpHandshakeException,
         -> {
             false
         }
@@ -968,6 +1010,7 @@ private fun mcpFailureCode(error: Throwable): WorkflowStepFailureCode =
         is McpPostCallCleanupException -> WorkflowStepFailureCode.CLEANUP_FAILED
         is McpToolExecutionException -> mcpFailureCode(error.cause ?: error)
         is McpEvidencePersistenceException -> WorkflowStepFailureCode.TRANSPORT_FAILED
+        is McpHandshakeException -> WorkflowStepFailureCode.TRANSPORT_FAILED
         is WorkflowMcpException -> error.failureCode ?: WorkflowStepFailureCode.TRANSPORT_FAILED
         else -> WorkflowStepFailureCode.TRANSPORT_FAILED
     }

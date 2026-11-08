@@ -1300,6 +1300,196 @@ class WorkflowMcpEffectEvidenceTest {
         }
     }
 
+    @Test
+    fun `handshake IOException with reconnect enabled fails closed without second connection attempt`() {
+        val connectCalls = AtomicInteger(0)
+        val cleanupCalls = AtomicInteger(0)
+        val brokenHandshakeTransport =
+            object : McpTransportProvider {
+                override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
+                    connectCalls.incrementAndGet()
+                    val pOut = PipedOutputStream()
+                    val pIn = PipedInputStream(pOut)
+                    pIn.close() // Closed stream causes client.connect() handshake to fail with IOException
+                    pOut.close()
+                    return McpTransportConnection(
+                        input = pIn.asSource().buffered(),
+                        output = pOut.asSink().buffered(),
+                        cleanup = { cleanupCalls.incrementAndGet() },
+                    )
+                }
+            }
+
+        val store = InMemoryWorkflowEffectEvidenceRecordStore()
+        val step =
+            createEchoStep(
+                config = McpStepConfig.unrestricted().copy(reconnect = true),
+                transportProvider = brokenHandshakeTransport,
+            )
+        var seq = 1L
+        val admission =
+            object : WorkflowMcpAdmission {
+                override suspend fun admitServerStart(stepName: String): WorkflowMcpServerStartPermit =
+                    WorkflowMcpServerStartPermit(stepName, seq++, "gen-handshake-retry")
+
+                override suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit =
+                    WorkflowMcpToolPermit(stepName, seq++, "gen-handshake-retry")
+            }
+
+        assertThatThrownBy {
+            runBlocking {
+                withContext(testScope(admission = admission, evidenceStore = store)) {
+                    step.executeStep()
+                }
+            }
+        }.isInstanceOf(WorkflowMcpException::class.java)
+
+        // Handshake failure must fail closed without attempting reconnect: provider called exactly once
+        assertThat(connectCalls.get()).isEqualTo(1)
+        assertThat(cleanupCalls.get()).isEqualTo(1)
+
+        runBlocking {
+            val records = store.listEvidence(workflowName, workflowId)
+            assertThat(records).hasSize(1)
+            val e4 = records.single()
+            assertThat(e4.effectKind).isEqualTo(MCP_SERVER_START_EFFECT_KIND)
+            assertThat(e4.state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
+            assertThat(e4.diagnosticSummary).isEqualTo(MCP_INITIALIZATION_FAILED_DIAGNOSTIC)
+        }
+    }
+
+    @Test
+    fun `client close timeout without primary failure classifies as cleanup failure and runs transport cleanup`() {
+        val (transportProvider, serverCloseable) = createEchoServer()
+        servers += serverCloseable
+
+        val transportCleanedUp = AtomicBoolean(false)
+        val hookedTransport =
+            object : McpTransportProvider {
+                override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
+                    val conn = transportProvider.connect(toolCall)
+                    return conn.copy(
+                        cleanup = {
+                            transportCleanedUp.set(true)
+                            conn.cleanup?.invoke()
+                        },
+                    )
+                }
+            }
+
+        val store = InMemoryWorkflowEffectEvidenceRecordStore()
+        val step =
+            createEchoStep(
+                config = McpStepConfig.unrestricted().copy(reconnect = false),
+                transportProvider = hookedTransport,
+            ).copy(
+                clientCloser = {
+                    kotlinx.coroutines.awaitCancellation()
+                },
+                clientCloseTimeoutMillis = 50L,
+            )
+
+        var seq = 1L
+        val admission =
+            object : WorkflowMcpAdmission {
+                override suspend fun admitServerStart(stepName: String): WorkflowMcpServerStartPermit =
+                    WorkflowMcpServerStartPermit(stepName, seq++, "gen-close-timeout")
+
+                override suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit =
+                    WorkflowMcpToolPermit(stepName, seq++, "gen-close-timeout")
+            }
+
+        val thrown =
+            org.junit.jupiter.api.assertThrows<WorkflowMcpException> {
+                runBlocking {
+                    withContext(testScope(admission = admission, evidenceStore = store)) {
+                        step.executeStep()
+                    }
+                }
+            }
+        assertThat(thrown.failureCode).isEqualTo(WorkflowStepFailureCode.CLEANUP_FAILED)
+
+        // Transport cleanup must execute
+        assertThat(transportCleanedUp.get()).isTrue()
+
+        // Evidence: Tool call completed before client close timed out
+        runBlocking {
+            val records = store.listEvidence(workflowName, workflowId)
+            assertThat(records).hasSize(2)
+            val e4 = records.first { it.effectKind == MCP_SERVER_START_EFFECT_KIND }
+            val e3 = records.first { it.effectKind == MCP_TOOL_EFFECT_KIND }
+            assertThat(e4.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
+            assertThat(e3.state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
+        }
+    }
+
+    @Test
+    fun `client close timeout with primary failure preserves primary failure and runs transport cleanup`() {
+        val transportCleanedUp = AtomicBoolean(false)
+        val (transportProvider, serverCloseable) =
+            createEchoServer(
+                onToolCall = { pipe -> pipe.close() }, // primary tool execution failure
+            )
+        servers += serverCloseable
+
+        val hookedTransport =
+            object : McpTransportProvider {
+                override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
+                    val conn = transportProvider.connect(toolCall)
+                    return conn.copy(
+                        cleanup = {
+                            transportCleanedUp.set(true)
+                            conn.cleanup?.invoke()
+                        },
+                    )
+                }
+            }
+
+        val store = InMemoryWorkflowEffectEvidenceRecordStore()
+        val step =
+            createEchoStep(
+                config = McpStepConfig.unrestricted().copy(reconnect = false),
+                transportProvider = hookedTransport,
+            ).copy(
+                clientCloser = {
+                    kotlinx.coroutines.awaitCancellation()
+                },
+                clientCloseTimeoutMillis = 50L,
+            )
+
+        var seq = 1L
+        val admission =
+            object : WorkflowMcpAdmission {
+                override suspend fun admitServerStart(stepName: String): WorkflowMcpServerStartPermit =
+                    WorkflowMcpServerStartPermit(stepName, seq++, "gen-close-timeout-primary")
+
+                override suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit =
+                    WorkflowMcpToolPermit(stepName, seq++, "gen-close-timeout-primary")
+            }
+
+        val thrown =
+            org.junit.jupiter.api.assertThrows<WorkflowMcpException> {
+                runBlocking {
+                    withContext(testScope(admission = admission, evidenceStore = store)) {
+                        step.executeStep()
+                    }
+                }
+            }
+        assertThat(thrown.failureCode).isEqualTo(WorkflowStepFailureCode.TRANSPORT_FAILED)
+
+        // Transport cleanup must execute
+        assertThat(transportCleanedUp.get()).isTrue()
+
+        // Evidence: E3 is UNCERTAIN due to primary tool execution failure
+        runBlocking {
+            val records = store.listEvidence(workflowName, workflowId)
+            assertThat(records).hasSize(2)
+            val e3 = records.first { it.effectKind == MCP_TOOL_EFFECT_KIND }
+            assertThat(e3.state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
+            assertThat(e3.diagnosticSummary).isEqualTo(MCP_TOOL_EXECUTION_FAILED_DIAGNOSTIC)
+        }
+    }
+
     // ─── test infrastructure ────────────────────────────────────────────
 
     data class McpState(
