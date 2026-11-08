@@ -181,6 +181,7 @@ internal class WorkflowPersistenceSession<S>(
                         stepName = stepName,
                         effectKind = effectKind,
                         admissionSequence = grant(stepName, effectKind).sequence,
+                        checkpointGeneration = currentGeneration ?: "",
                     )
                 },
         )
