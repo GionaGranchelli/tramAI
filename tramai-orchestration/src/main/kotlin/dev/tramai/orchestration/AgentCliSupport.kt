@@ -12,7 +12,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.charset.Charset
@@ -38,6 +38,12 @@ internal class AgentCliStartException(
     cause: Throwable,
 ) : RuntimeException("agent CLI process could not be started", cause)
 
+internal const val CLI_PROCESS_START_FAILED_DIAGNOSTIC = "process_start_failed"
+internal const val CLI_PROCESS_TIMEOUT_DIAGNOSTIC = "process_timeout"
+internal const val CLI_PROCESS_CANCELLED_DIAGNOSTIC = "process_cancelled"
+internal const val CLI_PROCESS_EXECUTION_FAILED_DIAGNOSTIC = "process_execution_failed"
+internal const val CLI_PROCESS_CLEANUP_FAILED_DIAGNOSTIC = "process_cleanup_failed"
+
 internal data class AgentCliRequest(
     val workflowName: String,
     val stepName: String,
@@ -50,38 +56,51 @@ internal data class AgentCliRequest(
     val promptLength: Int,
     val context: WorkflowContext,
     val observer: WorkflowObserver,
+    internal val processStarter: (ProcessBuilder) -> Process = { it.start() },
 )
 
 internal suspend fun executeAgentCli(
     request: AgentCliRequest,
     ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ): AgentCliExecution {
+    currentCoroutineContext().ensureActive()
     val workflowName = request.workflowName
     val stepName = request.stepName
     val startedEvent = request.startedEvent
     val completedEvent = request.completedEvent
     val agentType = request.agentType
-    val processBuilder = request.processBuilder
     val timeoutSeconds = request.timeoutSeconds
     val maxOutputBytes = request.maxOutputBytes
     val promptLength = request.promptLength
     val context = request.context
     val observer = request.observer
-    // E5/E6: a fresh durable grant for THIS dispatch, consumed once, immediately before acquisition so the permit
-    // governs the corresponding start. Deliberately outside the start try/catch: a refusal is the authority saying no,
-    // not a failed launch, and must never surface as AgentCliStartException/START_FAILED.
-    currentProcessAdmission()?.admitProcess(stepName, PROCESS_EFFECT_KIND)?.tryConsume()
-    val process =
-        try {
-            startOwnedProcess(ioDispatcher) {
-                processBuilder
-                    .redirectErrorStream(false)
-                    .start()
-            }
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            throw AgentCliStartException(error)
-        }
+
+    // E5/E6: Lineage validation before admission
+    val processAdmission = currentProcessAdmission()
+    val evidenceStore = currentEffectEvidenceStore()
+    val stepAttempt = currentStepAttempt()
+    if (evidenceStore != null) {
+        requireEvidenceLineageIfEnabled(
+            workflowName,
+            context.workflowId,
+            stepName,
+            processAdmission != null,
+            stepAttempt,
+        )
+    }
+
+    // A fresh durable grant for THIS dispatch, consumed once, immediately before acquisition
+    val permit = processAdmission?.admitProcess(stepName, PROCESS_EFFECT_KIND)
+    val evidenceKey =
+        recordAdmittedEvidence(
+            permit = permit,
+            evidenceStore = evidenceStore,
+            stepAttempt = stepAttempt,
+            request = request,
+        )
+
+    permit?.tryConsume()
+    val process = startAgentProcess(request, ioDispatcher, evidenceKey, evidenceStore)
     val lifecycle = CancellableProcessLifecycle(process)
     // Attach-then-active-check: parent cancellation requests process-tree termination
     // immediately, closing the pipes so the blocking readers below cannot delay
@@ -91,6 +110,8 @@ internal suspend fun executeAgentCli(
 
     val startedAtNanos = System.nanoTime()
     var primaryFailure: Throwable? = null
+    var executedResult: AgentCliExecution? = null
+    var cleanupResult: ProcessCleanupResult? = null
     try {
         process.outputStream.close()
         observer.emitWorkflowEvent(
@@ -103,71 +124,210 @@ internal suspend fun executeAgentCli(
                     set(RuntimeAttributes.PROMPT_LENGTH, promptLength.toLong())
                 },
         )
-        return coroutineScope {
-            val stdoutDeferred =
-                async(ioDispatcher) {
-                    process.inputStream.captureAgentOutput(maxOutputBytes, lifecycle)
-                }
-            val stderrDeferred =
-                async(ioDispatcher) {
-                    process.errorStream.captureAgentOutput(maxOutputBytes, lifecycle)
-                }
+        executedResult =
+            withTimeoutOrNull(timeoutSeconds.seconds) {
+                val timeoutRegistration = lifecycle.attachTo(currentCoroutineContext().job)
+                try {
+                    updateEvidenceState(evidenceKey, evidenceStore, WorkflowEffectEvidenceState.DISPATCHED)
 
-            try {
-                withTimeout(timeoutSeconds.seconds) {
-                    lifecycle.awaitExit()
+                    coroutineScope {
+                        val stdoutDeferred =
+                            async(ioDispatcher) {
+                                process.inputStream.captureAgentOutput(maxOutputBytes, lifecycle)
+                            }
+                        val stderrDeferred =
+                            async(ioDispatcher) {
+                                process.errorStream.captureAgentOutput(maxOutputBytes, lifecycle)
+                            }
+
+                        lifecycle.awaitExit()
+                        currentCoroutineContext().ensureActive()
+
+                        val stdout = stdoutDeferred.await()
+                        val stderr = stderrDeferred.await()
+                        val renderedOutput = stdout.asTextWithFooter(maxOutputBytes)
+                        val renderedStderr = stderr.asTextWithFooter(maxOutputBytes)
+                        val durationMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos)
+
+                        observer.emitWorkflowEvent(
+                            workflowName = workflowName,
+                            context = context,
+                            event =
+                                RuntimeEvent.of(completedEvent) {
+                                    set(RuntimeAttributes.STEP_NAME, stepName)
+                                    set(RuntimeAttributes.AGENT_TYPE, agentType)
+                                    set(RuntimeAttributes.PROMPT_LENGTH, promptLength.toLong())
+                                    set(RuntimeAttributes.RESPONSE_LENGTH, renderedOutput.length.toLong())
+                                    set(RuntimeAttributes.DURATION_MS, durationMillis)
+                                    set(RuntimeAttributes.EXIT_CODE, process.exitValue().toLong())
+                                },
+                        )
+
+                        AgentCliExecution(
+                            exitCode = process.exitValue(),
+                            output = renderedOutput,
+                            stderr = renderedStderr,
+                            truncated = stdout.truncated,
+                            actualSizeBytes = stdout.actualSizeBytes,
+                            durationMillis = durationMillis,
+                        )
+                    }
+                } finally {
+                    timeoutRegistration.dispose()
                 }
-            } catch (error: TimeoutCancellationException) {
-                currentCoroutineContext().ensureActive()
-                // Only request termination here: closing the pipes lets the reader
-                // coroutines finish. The bounded graceful→forced cleanup happens exactly
-                // once in the outer finally and attaches its diagnostics to this exception.
-                lifecycle.requestTermination()
-                throw AgentCliTimeoutException(timeoutSeconds)
             }
-
-            val stdout = stdoutDeferred.await()
-            val stderr = stderrDeferred.await()
-            val renderedOutput = stdout.asTextWithFooter(maxOutputBytes)
-            val renderedStderr = stderr.asTextWithFooter(maxOutputBytes)
-            val durationMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos)
-
-            observer.emitWorkflowEvent(
-                workflowName = workflowName,
-                context = context,
-                event =
-                    RuntimeEvent.of(completedEvent) {
-                        set(RuntimeAttributes.STEP_NAME, stepName)
-                        set(RuntimeAttributes.AGENT_TYPE, agentType)
-                        set(RuntimeAttributes.PROMPT_LENGTH, promptLength.toLong())
-                        set(RuntimeAttributes.RESPONSE_LENGTH, renderedOutput.length.toLong())
-                        set(RuntimeAttributes.DURATION_MS, durationMillis)
-                        set(RuntimeAttributes.EXIT_CODE, process.exitValue().toLong())
-                    },
-            )
-
-            AgentCliExecution(
-                exitCode = process.exitValue(),
-                output = renderedOutput,
-                stderr = renderedStderr,
-                truncated = stdout.truncated,
-                actualSizeBytes = stdout.actualSizeBytes,
-                durationMillis = durationMillis,
-            )
+        if (executedResult == null) {
+            currentCoroutineContext().ensureActive()
+            lifecycle.requestTermination()
+            throw AgentCliTimeoutException(timeoutSeconds)
         }
     } catch (error: CancellationException) {
         primaryFailure = error
-        throw error
     } catch (error: Throwable) {
         error.rethrowIfCancellation()
         primaryFailure = error
-        throw error
     } finally {
         registration.dispose()
         // NonCancellable + IO nesting lives inside terminateAndAwait; calling it
         // directly here keeps the primary failure (and its diagnostics) intact.
-        val cleanup = lifecycle.terminateAndAwait()
+        cleanupResult = lifecycle.terminateAndAwait()
+    }
+
+    val cleanup = checkNotNull(cleanupResult) { "Process cleanup must run in finally before handling failures" }
+    handleExecutionCleanupAndFailure(
+        primaryFailure = primaryFailure,
+        cleanup = cleanup,
+        evidenceKey = evidenceKey,
+        evidenceStore = evidenceStore,
+    )
+
+    val finalResult = executedResult!!
+    updateEvidenceState(evidenceKey, evidenceStore, WorkflowEffectEvidenceState.COMPLETED)
+    return finalResult
+}
+
+private suspend fun recordAdmittedEvidence(
+    permit: WorkflowProcessPermit?,
+    evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    stepAttempt: PersistedStepAttempt?,
+    request: AgentCliRequest,
+): WorkflowEffectEvidenceKey? {
+    if (permit == null || evidenceStore == null || stepAttempt == null) return null
+    val key =
+        WorkflowEffectEvidenceKey(
+            workflowName = request.workflowName,
+            workflowId = request.context.workflowId,
+            checkpointGeneration = permit.checkpointGeneration,
+            admissionSeq = permit.admissionSequence,
+        )
+    evidenceStore.recordEvidence(
+        WorkflowEffectEvidenceRecord(
+            key = key,
+            stepName = request.stepName,
+            stepAttemptId = stepAttempt.attemptId,
+            effectKind = PROCESS_EFFECT_KIND,
+            state = WorkflowEffectEvidenceState.ADMITTED,
+            createdAtEpochMillis = currentEffectEvidenceClockMillis() ?: stepAttempt.startedAtEpochMillis,
+        ),
+    )
+    return key
+}
+
+private suspend fun startAgentProcess(
+    request: AgentCliRequest,
+    ioDispatcher: CoroutineDispatcher,
+    evidenceKey: WorkflowEffectEvidenceKey?,
+    evidenceStore: WorkflowEffectEvidenceRecordStore?,
+): Process =
+    try {
+        startOwnedProcess(ioDispatcher) {
+            request.processStarter(
+                request.processBuilder.redirectErrorStream(false),
+            )
+        }
+    } catch (cancelled: CancellationException) {
+        recordUncertainFailure(
+            evidenceKey = evidenceKey,
+            evidenceStore = evidenceStore,
+            error = cancelled,
+            diagnosticSummary = CLI_PROCESS_CANCELLED_DIAGNOSTIC,
+        )
+        throw cancelled
+    } catch (error: Throwable) {
+        error.rethrowIfCancellation()
+        recordUncertainFailure(
+            evidenceKey = evidenceKey,
+            evidenceStore = evidenceStore,
+            error = error,
+            diagnosticSummary = CLI_PROCESS_START_FAILED_DIAGNOSTIC,
+        )
+        throw AgentCliStartException(error)
+    }
+
+private suspend fun updateEvidenceState(
+    evidenceKey: WorkflowEffectEvidenceKey?,
+    evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    targetState: WorkflowEffectEvidenceState,
+) {
+    if (evidenceKey == null || evidenceStore == null) return
+    val record =
+        evidenceStore.getEvidence(evidenceKey)
+            ?: throw WorkflowEvidenceResolutionException(
+                "Missing expected evidence record for key: $evidenceKey (target state: $targetState)",
+            )
+    val completedAt =
+        if (targetState == WorkflowEffectEvidenceState.COMPLETED) {
+            currentEffectEvidenceClockMillis() ?: record.createdAtEpochMillis
+        } else {
+            record.completedAtEpochMillis
+        }
+    evidenceStore.updateEvidence(
+        record.copy(
+            state = targetState,
+            completedAtEpochMillis = completedAt,
+        ),
+    )
+}
+
+private suspend fun handleExecutionCleanupAndFailure(
+    primaryFailure: Throwable?,
+    cleanup: ProcessCleanupResult,
+    evidenceKey: WorkflowEffectEvidenceKey?,
+    evidenceStore: WorkflowEffectEvidenceRecordStore?,
+) {
+    var cleanupFailure: Throwable? = null
+    try {
         surfaceProcessCleanup(primaryFailure, cleanup)
+    } catch (error: Throwable) {
+        error.rethrowIfCancellation()
+        if (primaryFailure == null) {
+            recordUncertainFailure(
+                evidenceKey = evidenceKey,
+                evidenceStore = evidenceStore,
+                error = error,
+                diagnosticSummary = CLI_PROCESS_CLEANUP_FAILED_DIAGNOSTIC,
+            )
+        }
+        cleanupFailure = error
+    }
+
+    val terminalFailure = primaryFailure ?: cleanupFailure
+    if (terminalFailure != null) {
+        if (terminalFailure === primaryFailure) {
+            val summary =
+                when (primaryFailure) {
+                    is CancellationException -> CLI_PROCESS_CANCELLED_DIAGNOSTIC
+                    is AgentCliTimeoutException -> CLI_PROCESS_TIMEOUT_DIAGNOSTIC
+                    else -> CLI_PROCESS_EXECUTION_FAILED_DIAGNOSTIC
+                }
+            recordUncertainFailure(
+                evidenceKey = evidenceKey,
+                evidenceStore = evidenceStore,
+                error = primaryFailure,
+                diagnosticSummary = summary,
+            )
+        }
+        throw terminalFailure
     }
 }
 

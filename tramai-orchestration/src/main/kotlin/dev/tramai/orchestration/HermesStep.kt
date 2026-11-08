@@ -45,6 +45,7 @@ internal data class HermesWorkflowStep<S>(
     val promptBuilder: suspend (S, WorkflowContext) -> String,
     val merge: suspend (S, String, WorkflowContext) -> S,
     val config: HermesStepConfig = HermesStepConfig(),
+    internal val processStarter: (ProcessBuilder) -> Process = { it.start() },
 ) : InternalWorkflowStep<S> {
     override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
         WorkflowStepExecutionResult.Completed(
@@ -117,6 +118,7 @@ internal data class HermesWorkflowStep<S>(
                         promptLength = resolvedSecurity.defendedPrompt.length,
                         context = context,
                         observer = observer,
+                        processStarter = processStarter,
                     ),
                 )
             } catch (error: Throwable) {
