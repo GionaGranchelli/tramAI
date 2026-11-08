@@ -335,6 +335,7 @@ internal interface WorkflowMcpAdmission {
 internal class WorkflowMcpServerStartPermit(
     stepName: String,
     admissionSequence: Long,
+    val checkpointGeneration: String = "",
 ) : EffectPermit(stepName, MCP_SERVER_START_EFFECT_KIND, admissionSequence) {
     override val effectLabel: String get() = "mcp server start"
 }
@@ -343,6 +344,7 @@ internal class WorkflowMcpServerStartPermit(
 internal class WorkflowMcpToolPermit(
     stepName: String,
     admissionSequence: Long,
+    val checkpointGeneration: String = "",
 ) : EffectPermit(stepName, MCP_TOOL_EFFECT_KIND, admissionSequence) {
     override val effectLabel: String get() = "mcp tool"
 }

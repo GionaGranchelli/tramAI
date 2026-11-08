@@ -164,12 +164,14 @@ internal class WorkflowPersistenceSession<S>(
                         WorkflowMcpServerStartPermit(
                             stepName = stepName,
                             admissionSequence = grant(stepName, MCP_SERVER_START_EFFECT_KIND).sequence,
+                            checkpointGeneration = currentGeneration ?: "",
                         )
 
                     override suspend fun admitToolCall(stepName: String): WorkflowMcpToolPermit =
                         WorkflowMcpToolPermit(
                             stepName = stepName,
                             admissionSequence = grant(stepName, MCP_TOOL_EFFECT_KIND).sequence,
+                            checkpointGeneration = currentGeneration ?: "",
                         )
                 },
             external =
