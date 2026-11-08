@@ -145,12 +145,14 @@ class WorkflowMcpEffectEvidenceTest {
         state: McpState = McpState(),
         targetWorkflowName: String = this@WorkflowMcpEffectEvidenceTest.workflowName,
         targetWorkflowId: String = this@WorkflowMcpEffectEvidenceTest.workflowId,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     ): McpState =
         execute(
             workflowName = targetWorkflowName,
             state = state,
             context = WorkflowContext(targetWorkflowId),
             observer = NoOpWorkflowObserver,
+            failureDiagnosticObserver = failureDiagnosticObserver,
         )
 
     @Test
@@ -409,10 +411,10 @@ class WorkflowMcpEffectEvidenceTest {
         val brokenPipeTransport =
             object : McpTransportProvider {
                 override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
-                    val pOut = PipedOutputStream()
-                    val pIn = PipedInputStream(pOut)
-                    pIn.close() // Closed stream causes client.connect() to fail immediately
-                    pOut.close()
+                    val errorResponse =
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32600,\"message\":\"Initialization rejected\"}}\n"
+                    val pIn = java.io.ByteArrayInputStream(errorResponse.toByteArray())
+                    val pOut = java.io.ByteArrayOutputStream()
                     return McpTransportConnection(
                         input = pIn.asSource().buffered(),
                         output = pOut.asSink().buffered(),
@@ -1308,10 +1310,10 @@ class WorkflowMcpEffectEvidenceTest {
             object : McpTransportProvider {
                 override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
                     connectCalls.incrementAndGet()
-                    val pOut = PipedOutputStream()
-                    val pIn = PipedInputStream(pOut)
-                    pIn.close() // Closed stream causes client.connect() handshake to fail with IOException
-                    pOut.close()
+                    val errorResponse =
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32000,\"message\":\"Handshake I/O error\"}}\n"
+                    val pIn = java.io.ByteArrayInputStream(errorResponse.toByteArray())
+                    val pOut = java.io.ByteArrayOutputStream()
                     return McpTransportConnection(
                         input = pIn.asSource().buffered(),
                         output = pOut.asSink().buffered(),
@@ -1467,11 +1469,17 @@ class WorkflowMcpEffectEvidenceTest {
                     WorkflowMcpToolPermit(stepName, seq++, "gen-close-timeout-primary")
             }
 
+        val capturedDiagnostics = mutableListOf<WorkflowStepFailureDiagnosticEvent>()
+        val diagnosticObserver =
+            WorkflowStepFailureDiagnosticObserver { event ->
+                capturedDiagnostics.add(event)
+            }
+
         val thrown =
             org.junit.jupiter.api.assertThrows<WorkflowMcpException> {
                 runBlocking {
                     withContext(testScope(admission = admission, evidenceStore = store)) {
-                        step.executeStep()
+                        step.executeStep(failureDiagnosticObserver = diagnosticObserver)
                     }
                 }
             }
@@ -1479,6 +1487,14 @@ class WorkflowMcpEffectEvidenceTest {
 
         // Transport cleanup must execute
         assertThat(transportCleanedUp.get()).isTrue()
+
+        // Primary failure must have the secondary client-close timeout suppressed onto it
+        assertThat(capturedDiagnostics).hasSize(1)
+        val event = capturedDiagnostics.single()
+        assertThat(event.failure?.suppressed).anySatisfy { suppressed ->
+            assertThat(suppressed).isInstanceOf(java.util.concurrent.TimeoutException::class.java)
+            assertThat(suppressed.message).contains("MCP client close timed out")
+        }
 
         // Evidence: E3 is UNCERTAIN due to primary tool execution failure
         runBlocking {

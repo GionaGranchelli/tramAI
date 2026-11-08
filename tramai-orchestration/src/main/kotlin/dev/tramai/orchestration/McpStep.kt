@@ -942,26 +942,53 @@ internal class McpTimeoutException(
  * Failure during the tool call invocation phase. Because the tool may already have executed
  * on the remote server, this exception must never trigger an automatic reconnect.
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 internal class McpToolExecutionException(
     cause: Throwable,
-) : RuntimeException("MCP tool execution failed", cause)
+) : RuntimeException("MCP tool execution failed", cause),
+    kotlinx.coroutines.CopyableThrowable<McpToolExecutionException> {
+    override fun createCopy(): McpToolExecutionException =
+        McpToolExecutionException(cause ?: this).also { copy ->
+            for (s in suppressed) {
+                copy.addSuppressed(s)
+            }
+        }
+}
 
 /**
  * Failure when reading or writing durable effect evidence records.
  * Evidence store failures must never trigger an automatic reconnect.
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 internal class McpEvidencePersistenceException(
     cause: Throwable,
-) : RuntimeException("MCP evidence persistence failed", cause)
+) : RuntimeException("MCP evidence persistence failed", cause),
+    kotlinx.coroutines.CopyableThrowable<McpEvidencePersistenceException> {
+    override fun createCopy(): McpEvidencePersistenceException =
+        McpEvidencePersistenceException(cause ?: this).also { copy ->
+            for (s in suppressed) {
+                copy.addSuppressed(s)
+            }
+        }
+}
 
 /**
  * Failure during the MCP client initialization / protocol handshake phase.
  * Because transport acquisition has already succeeded, handshake failures
  * must fail closed and never trigger an automatic reconnect.
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 internal class McpHandshakeException(
     cause: Throwable,
-) : RuntimeException("MCP client handshake failed", cause)
+) : RuntimeException("MCP client handshake failed", cause),
+    kotlinx.coroutines.CopyableThrowable<McpHandshakeException> {
+    override fun createCopy(): McpHandshakeException =
+        McpHandshakeException(cause ?: this).also { copy ->
+            for (s in suppressed) {
+                copy.addSuppressed(s)
+            }
+        }
+}
 
 /**
  * Only retry on proven transient E4 transport/setup failures, not timeouts,
