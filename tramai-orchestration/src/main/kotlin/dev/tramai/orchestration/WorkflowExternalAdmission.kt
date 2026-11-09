@@ -16,6 +16,27 @@ internal const val EXTERNAL_EFFECT_KIND: String = "EXTERNAL"
 /** The effect kind recorded for one external executor invocation (E8): `EXTERNAL:<typeId>`. */
 internal fun externalEffectKind(typeId: String): String = "$EXTERNAL_EFFECT_KIND:$typeId"
 
+internal const val EXTERNAL_RESOLUTION_FAILED_DIAGNOSTIC = "external_resolution_failed"
+internal const val EXTERNAL_EXECUTION_FAILED_DIAGNOSTIC = "external_execution_failed"
+internal const val EXTERNAL_CANCELLED_DIAGNOSTIC = "external_cancelled"
+internal const val EXTERNAL_EVIDENCE_FAILED_DIAGNOSTIC = "external_evidence_failed"
+
+/**
+ * Failure when reading or writing durable effect evidence records for external executor steps.
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+internal class ExternalEvidencePersistenceException(
+    cause: Throwable,
+) : RuntimeException("External evidence persistence failed", cause),
+    kotlinx.coroutines.CopyableThrowable<ExternalEvidencePersistenceException> {
+    override fun createCopy(): ExternalEvidencePersistenceException =
+        ExternalEvidencePersistenceException(cause ?: this).also { copy ->
+            for (suppressedError in suppressed) {
+                copy.addSuppressed(suppressedError)
+            }
+        }
+}
+
 /**
  * External executor admission (E8) as a capability distinct from step, process, HTTP and MCP admission.
  *
@@ -40,6 +61,7 @@ internal class WorkflowExternalPermit(
     stepName: String,
     effectKind: String,
     admissionSequence: Long,
+    val checkpointGeneration: String = "",
 ) : EffectPermit(stepName, effectKind, admissionSequence) {
     override val effectLabel: String get() = "external executor"
 }
