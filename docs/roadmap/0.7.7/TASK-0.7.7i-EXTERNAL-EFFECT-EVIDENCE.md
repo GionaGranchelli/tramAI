@@ -44,7 +44,7 @@ Every governed external step executor invocation (E8) transitions through audite
 | State | Conservative Observable Guarantee |
 | --- | --- |
 | `ADMITTED` | Proves effect authorization via `WorkflowExternalPermit` and child evidence record written to `WorkflowEffectEvidenceRecordStore`. Neither `executorResolver.create()` nor `executor.execute()` has been invoked yet. |
-| `DISPATCHED` | The external invocation returned normally: `executor.execute(config)` completed execution without throwing an exception. TramAI does not claim `DISPATCHED` on entering the callback, because an opaque callback's entry does not establish observable outbound progress. |
+| `DISPATCHED` | The external invocation returned normally: `executor.execute(config)` completed execution without throwing an exception. TramAI does not claim `DISPATCHED` on entering the callback, because an opaque callback's entry does not establish observable outbound progress. (An executor that performs an irreversible external operation and then throws will therefore leave UNCERTAIN evidence rather than DISPATCHED. This is an intentionally conservative observation: recovery never interprets ADMITTED or missing DISPATCHED as proof that the external operation did not occur). |
 | `COMPLETED` | The executor invocation returned a result and completion evidence was successfully recorded in `WorkflowEffectEvidenceRecordStore`. Recorded **before** `merge(state, result, context)`. |
 | `UNCERTAIN` | Failure occurred after admission: resolver/factory exception, executor exception, coroutine cancellation, timeout, evidence persistence error, or worker crash before completion evidence write. |
 
@@ -182,13 +182,14 @@ The deterministic test suite `WorkflowExternalEffectEvidenceTest.kt` verifies:
 | **EXT-09** | Merge failure | Exception in `merge` lambda surfaces; E8 evidence record remains `COMPLETED`. |
 | **EXT-10** | Parent cancellation | Coroutine cancellation preserves `CancellationException` identity; records `UNCERTAIN` (`external_cancelled`). |
 | **EXT-11** | Multiple E8 effects | Two plugin executions in one attempt have distinct admission sequences and share parent `stepAttemptId`. |
-| **EXT-12** | Nested plugin step | Nested execution inherits parent step attempt context and `checkpointGeneration`. |
-| **EXT-13** | Retried step | Retried attempt gets fresh permit, new admission sequence, and distinct attempt lineage. |
+| **EXT-12** | Child coroutine execution | Child coroutine execution inherits parent step attempt context and `checkpointGeneration`. |
+| **EXT-13** | Sequential step attempts | Sequential step attempts produce distinct evidence records and generations without cross-attempt interference. |
 | **EXT-14** | Ungoverned workflow | Ordinary workflows execute with zero evidence enforcement, zero writes, and full backward compatibility. |
 | **EXT-15** | Unknown plugin type | No `isRegistered()` callback precedes admission. Resolver throws `ExternalStepExecutorNotRegisteredException` after admission; record is `UNCERTAIN` (`external_resolution_failed`). |
 | **EXT-16** | Sensitive data isolation | Injected secrets in config and exceptions do not leak into durable evidence. |
 | **EXT-17** | Missing child evidence lookup | Missing evidence record during state update fails closed with `WorkflowEvidenceResolutionException`. |
 | **EXT-18** | Duplicate permit consumption | Attempting to consume an already-consumed `WorkflowExternalPermit` fails with `IllegalStateException`. |
+| **EXT-19** | Persistence exception createCopy | `CopyableThrowable.createCopy()` retains cause and suppressed diagnostics without `initCause()` collision, and propagates intact across coroutine suspension boundaries. |
 
 ---
 
@@ -206,3 +207,4 @@ The deterministic test suite `WorkflowExternalEffectEvidenceTest.kt` verifies:
 | **M8** | Reuse previous permit (disable `consumed` check) | `EXT-18` | `AssertionFailedError: Expected IllegalStateException to be thrown, but nothing was thrown` |
 | **M9** | Persist raw exception messages | `EXT-16` | `AssertionFailedError: expected external_execution_failed but was raw secret message` |
 | **M10** | Mark invocation UNCERTAIN if merge subsequently fails | `EXT-09` | `AssertionFailedError: expected COMPLETED but was UNCERTAIN` |
+| **M11** | Call `copy.initCause(this)` in `ExternalEvidencePersistenceException.createCopy()` | `EXT-19` | `IllegalStateException: Can't overwrite cause with this` |

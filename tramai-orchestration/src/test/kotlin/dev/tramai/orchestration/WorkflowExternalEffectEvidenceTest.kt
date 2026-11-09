@@ -2,7 +2,6 @@
 
 package dev.tramai.orchestration
 
-import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.identity.ConfigurationId
 import dev.tramai.core.identity.ConfigurationVersion
 import dev.tramai.core.identity.DeploymentId
@@ -16,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -23,7 +23,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.h2.jdbcx.JdbcConnectionPool
 import org.junit.jupiter.api.Test
 import java.time.Clock
@@ -31,17 +30,13 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
  * Deterministic qualification test suite for D7-D durable External Step Executor evidence (Boundary E8).
  *
- * Covers scenarios EXT-01 through EXT-18:
+ * Covers scenarios EXT-01 through EXT-19:
  * - EXT-01: Successful governed execution with real worker and JDBC stores (COMPLETED)
  * - EXT-02: Missing authority: Refused before admission (WorkflowEvidenceResolutionException)
  * - EXT-03: Missing step attempt: Refused before admission (WorkflowEvidenceResolutionException)
@@ -53,13 +48,14 @@ import kotlin.test.assertTrue
  * - EXT-09: Merge callback fails: E8 remains COMPLETED
  * - EXT-10: Parent cancellation: Original cancellation identity preserved (external_cancelled)
  * - EXT-11: Multiple E8 effects in one attempt: Distinct sequences, shared authoritative parent
- * - EXT-12: Nested plugin step: Inherits correct parent attempt
- * - EXT-13: Recovered/retried step: Fresh permit and correct new attempt lineage
+ * - EXT-12: Child coroutine execution: Inherits parent attempt context and generation
+ * - EXT-13: Sequential step attempts: Distinct evidence attribution and generations without cross-attempt interference
  * - EXT-14: Ungoverned workflow: No evidence enforcement or writes
  * - EXT-15: Unknown plugin type: No pre-admission resolver callback
  * - EXT-16: Sensitive-data injection: No secrets in stored evidence
  * - EXT-17: Missing child evidence lookup: Fail closed
  * - EXT-18: Duplicate permit consumption: Second invocation refused
+ * - EXT-19: Persistence exception createCopy: Retains cause and suppressed across coroutine boundaries
  */
 class WorkflowExternalEffectEvidenceTest {
     private val workflowName = "test-ext-workflow"
@@ -556,7 +552,7 @@ class WorkflowExternalEffectEvidenceTest {
     }
 
     @Test
-    fun `EXT-12 - Nested plugin step Inherits correct parent attempt`() {
+    fun `EXT-12 - Child coroutine execution inherits parent attempt context and generation`() {
         val evidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
         val admission =
             WorkflowExternalAdmission { sName, typeId ->
@@ -567,7 +563,10 @@ class WorkflowExternalEffectEvidenceTest {
 
         runBlocking {
             withContext(testContext(admission = admission, evidenceStore = evidenceStore)) {
-                // Execute child step in a nested coroutine context
+                // Proves that a plugin step invoked within a child coroutine inherits the parent
+                // attempt and admission scope from the outer coroutine context, recording evidence
+                // with that parent lineage. (Nested BranchWorkflowStep branching is governed at
+                // the step-orchestration boundary).
                 launch {
                     childStep.execute(workflowName, "start", WorkflowContext(workflowId), resolver)
                 }.join()
@@ -581,7 +580,7 @@ class WorkflowExternalEffectEvidenceTest {
     }
 
     @Test
-    fun `EXT-13 - Recovered or retried step Fresh permit and correct new attempt lineage`() {
+    fun `EXT-13 - Sequential step attempts produce distinct evidence records and generations`() {
         val evidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
         val admissionSeq = AtomicLong(0L)
         val admission =
@@ -597,6 +596,8 @@ class WorkflowExternalEffectEvidenceTest {
         val step = createPluginStep()
 
         runBlocking {
+            // Proves distinct evidence attribution when the context changes across sequential step attempts;
+            // retry decision and recovery coordinator machinery are audited in supervisor integration suites.
             withContext(
                 testContext(
                     admission = admission,
@@ -797,6 +798,38 @@ class WorkflowExternalEffectEvidenceTest {
                 permit.tryConsume()
             }
         assertThat(error.message).contains("was already consumed; one permit authorizes at most one dispatch")
+    }
+
+    @Test
+    fun `EXT-19 - Persistence exception createCopy retains cause and suppressed across coroutine boundary`() {
+        val rootCause = IllegalStateException("database connection reset")
+        val suppressedDiagnostic = RuntimeException("correlation id context")
+        val original =
+            ExternalEvidencePersistenceException(rootCause).apply {
+                addSuppressed(suppressedDiagnostic)
+            }
+
+        // Direct createCopy() verification
+        val copy = original.createCopy()
+        assertThat(copy).isNotNull()
+        assertThat(copy.cause).isSameAs(rootCause)
+        assertThat(copy.message).isEqualTo("External evidence persistence failed")
+        assertThat(copy.suppressed).containsExactly(suppressedDiagnostic)
+
+        // Coroutine stack-trace recovery boundary verification
+        runBlocking {
+            kotlinx.coroutines.supervisorScope {
+                val thrown =
+                    assertFailsWith<ExternalEvidencePersistenceException> {
+                        async(Dispatchers.Default) {
+                            delay(10)
+                            throw original
+                        }.await()
+                    }
+                assertThat(thrown.cause).isSameAs(rootCause)
+                assertThat(thrown.suppressed).contains(suppressedDiagnostic)
+            }
+        }
     }
 
     private suspend fun saveGovernedInitialCheckpoint(fixture: JdbcWorkerFixture): WorkflowCheckpoint =

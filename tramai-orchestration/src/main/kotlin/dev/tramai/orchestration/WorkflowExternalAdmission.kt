@@ -31,7 +31,9 @@ internal class ExternalEvidencePersistenceException(
     kotlinx.coroutines.CopyableThrowable<ExternalEvidencePersistenceException> {
     override fun createCopy(): ExternalEvidencePersistenceException =
         ExternalEvidencePersistenceException(cause ?: this).also { copy ->
-            copy.initCause(this)
+            for (suppressedError in suppressed) {
+                copy.addSuppressed(suppressedError)
+            }
         }
 }
 
