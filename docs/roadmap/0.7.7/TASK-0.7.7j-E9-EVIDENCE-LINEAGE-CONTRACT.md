@@ -90,12 +90,13 @@ In existing effect boundaries (E1–E8), every child evidence record points to a
 - **Trusted Source & Validation Boundary:**
   - **Trusted Source:** Inside `ApprovalResumeCoordinator`, the claim version originates exclusively from `ApprovalContinuationStore.claimForExecution(approvalId, expectedVersion, claimedBy)`. This claim is taken under cryptographic presented-token verification, single-use CAS, and transition from `PENDING` to `CLAIMED`, atomically yielding the incremented `ClaimedApprovalContinuation.version`.
   - **Transmission:** `ApprovalResumeAdmissionRequest` in `tramai-core` conveys `continuationVersion: Long` (with a binary-compatible 4-argument constructor supplying `0L` for legacy compiled callers).
-  - **Validation Boundary:** In D7-E1, `WorkflowApprovalResumeAdmission` accepts `continuationStore: ApprovalContinuationStore?` as a validator seam. When evidence recording is enabled (`evidenceStore != null`), the authority verifies the claim against durable continuation state:
+  - **Mandatory Validation Boundary:** In D7-E1, `WorkflowApprovalResumeAdmission` requires durable claim verification whenever evidence recording is enabled (`evidenceStore != null`). In evidence-enabled configurations, `continuationStore: ApprovalContinuationStore` is a **mandatory dependency**; if absent, admission fails closed immediately with `ApprovalResumeAdmissionRefusedException`. The authority verifies the claim against durable continuation state across all 5 dimensions:
     1. The continuation exists in the store.
     2. `continuation.status == ApprovalContinuationStatus.CLAIMED`.
     3. `continuation.version == request.continuationVersion`.
     4. Run attribution matches (`continuation.workflowRunId == request.checkpointBinding.workflowId`).
-    If any check fails (such as an forged version like version 7 when the store holds version 1), admission is refused fail-closed with `ApprovalResumeAdmissionRefusedException`. False provenance cannot be admitted or persisted.
+    5. Tool name matches (`continuation.toolName == request.toolName`).
+    If any check fails (such as an incorrect version, mismatched tool name, wrong run ID, or non-CLAIMED status), admission is refused fail-closed with `ApprovalResumeAdmissionRefusedException`. False provenance cannot be admitted or persisted.
 - **Advantages:**
   1. **100% Truthful:** Reflects the exact runtime and durable architecture without inventing fake entities.
   2. **Universal:** Works identically for in-process workflows and worker-supervised workflows.
@@ -266,34 +267,60 @@ class ApprovalResumePermit(
 }
 ```
 
-#### Runtime Compatibility vs Evidence Enforcement Policy
-Compatibility is preserved at both binary and runtime levels:
+#### Runtime Compatibility, Misconfiguration Detection & Evidence Enforcement Policy
+Compatibility is preserved at both binary and runtime levels, while strictly preventing unrecorded execution:
 1. **Evidence-Disabled Legacy Deployments (`evidenceStore == null`):**
    - An admission request with `continuationVersion == 0L` (e.g. from the retained 4-argument constructor) is accepted and admitted against the checkpoint row as before, returning an `ApprovalResumePermit(evidenceHandle = null)`. Existing workflows without evidence tracking continue to function with zero behavioral regression.
 2. **Evidence-Enabled Deployments (`evidenceStore != null`):**
    - The authority **fails closed** if `request.continuationVersion <= 0L`: missing continuation claim provenance cannot produce durable child evidence (`ApprovalResumeAdmissionRefusedException: cannot record approval resume evidence without authoritative continuation claim version`).
-   - The issued permit **must** carry a non-null `evidenceHandle`. If evidence is required and the handle is absent, the engine must fail closed rather than allowing a governed invocation to execute unrecorded.
+   - In evidence-enabled configurations, `continuationStore` is **mandatory**; omission fails closed at admission time (`ApprovalResumeAdmissionRefusedException: cannot record approval resume evidence: continuationStore is required`).
+   - All 5 claim provenance checks (existence, CLAIMED status, version match, run ID match, tool name match) must pass before a permit is granted.
+   - The issued permit **must** carry a non-null `evidenceHandle`.
+3. **Engine-Side Enforcement Against Misconfiguration:**
+   - A nullable handle alone cannot distinguish a legitimate evidence-disabled deployment from a misconfigured deployment.
+   - Therefore, in governed workflow execution where evidence tracking is expected (or whenever `request.continuationVersion > 0L`), `ApprovalResumeCoordinator` in `tramai-engine` checks `permit.evidenceHandle`. If the authority returns `evidenceHandle == null`, the coordinator **fails closed** before dispatching the tool continuation:
+     `throw IllegalStateException("Approval resume for '${request.approvalId}' requires durable evidence tracking, but admission authority returned permit without evidenceHandle")`
+   - This prevents silent unrecorded tool execution if an evidence-tracking engine is accidentally wired to an evidence-disabled admission authority.
 
-### 6.3 Orchestration Implementation & Evidence Store Ownership
-- `WorkflowApprovalResumeAdmission` accepts `evidenceStore: WorkflowEffectEvidenceRecordStore? = null` and `continuationStore: ApprovalContinuationStore? = null` directly via **constructor dependency injection** at composition time. It does **not** rely on coroutine-local context scopes like `WorkflowEffectEvidenceStoreScope`.
-- In `admitResume()`, orchestration:
-  1. Validates attribution continuity.
-  2. If evidence is enabled (`evidenceStore != null`), validates that `request.continuationVersion > 0L` and optionally verifies against `continuationStore` (`status == CLAIMED` and `version == request.continuationVersion`).
-  3. Admits against the checkpoint row (`checkpointStore.admitEffect(...)`).
-  4. Writes the initial `ADMITTED` record to `evidenceStore` (if configured) with `ParentProvenance.ApprovalContinuation(request.approvalId, request.continuationVersion, request.toolName)`.
-  5. Returns `ApprovalResumePermit` closing over an `ApprovalResumeEvidenceHandle` instance bound to the record key.
+### 6.3 Orchestration Implementation, Construction & Encapsulation
+Because `WorkflowApprovalResumeAdmission` is a `public` class while `WorkflowEffectEvidenceRecordStore` is `internal` to the `tramai-orchestration` module, a public constructor cannot accept `WorkflowEffectEvidenceRecordStore` without violating Kotlin encapsulation rules (`'public' constructor exposes its 'internal' parameter type`).
+
+To maintain strict encapsulation and module boundary hygiene:
+- **Public API Surface:**
+  - `constructor(checkpointStore: WorkflowCheckpointStore)`: Retains the existing 1-argument public constructor; automatically resolves `evidenceStore` internally via `checkpointStore.resolveEvidenceStore()`.
+  - `constructor(checkpointStore: WorkflowCheckpointStore, continuationStore: ApprovalContinuationStore)`: Adds a public 2-argument constructor for explicit continuation store injection.
+- **Internal Construction Mechanism:**
+  - `internal constructor(checkpointStore: WorkflowCheckpointStore, continuationStore: ApprovalContinuationStore?, evidenceStore: WorkflowEffectEvidenceRecordStore?)`: Used within orchestration wiring and integration fixtures to provide explicit evidence store bindings without leaking `internal` types to library consumers.
+
+In `admitResume()`, orchestration:
+1. Validates attribution continuity (`decodeGovernedRunAttribution` vs `request.runIdentity`).
+2. If evidence is enabled (`evidenceStore != null`):
+   - Fails closed if `continuationStore == null` (`continuationStore is required when evidence tracking is enabled`).
+   - Fails closed if `request.continuationVersion <= 0L`.
+   - **Mandatorily verifies** the claim against durable state in `continuationStore`: existence, status == CLAIMED, version == request.continuationVersion, workflowRunId == request.checkpointBinding.workflowId, and toolName == request.toolName.
+3. Admits against the checkpoint row (`checkpointStore.admitEffect(...)`).
+4. Writes the initial `ADMITTED` record to `evidenceStore` with `ParentProvenance.ApprovalContinuation(request.approvalId, request.continuationVersion, request.toolName)`.
+5. Returns `ApprovalResumePermit` closing over an `ApprovalResumeEvidenceHandle` instance bound to the record key.
 - `ApprovalResumeCoordinator` in engine consumes `handle.recordDispatched()`, `handle.recordCompleted()`, or `handle.recordUncertain(error, category)` at execution boundaries.
 
-### 6.4 Phased Non-Destructive JDBC Schema Migration
+### 6.4 Phased Non-Destructive JDBC Schema Migration & Deployment Strategy
 Existing databases contain E1–E8 evidence records. Adding a non-null column immediately would fail on existing populated tables. Furthermore, approval IDs can be arbitrary compound strings (`$runId-appr-$uuid`), which could exceed `VARCHAR(255)` if concatenated with version suffixes.
 
-To guarantee zero downtime and length safety:
 1. **Unambiguous, Length-Safe Representation:**
-   - Instead of fragile delimiter concatenation (`"$approvalId:v$continuationVersion"`), lineage is stored across two dedicated columns:
+   - Instead of fragile delimiter concatenation (`"$approvalId:v$continuationVersion"`), lineage is stored across dedicated columns:
      - `parent_kind VARCHAR(32) NOT NULL DEFAULT 'STEP_ATTEMPT'`
      - `parent_id VARCHAR(512) NULL` (holds `step_attempt_id` for step attempts, or `approval_id` for approval resumes — length-safe for any approval ID without concatenation)
      - `parent_version BIGINT NULL` (holds `continuation_version` for approval resumes; NULL for step attempts)
-2. **Phased Non-Destructive Upgrade Sequence:**
+
+2. **Deployment Compatibility Strategy:**
+   - **Coordinated Application-and-Schema Upgrade:** The phased sequence below (Phases 1–4) can be executed as a coordinated upgrade during a planned application maintenance window (stop instances -> execute schema migration and backfill -> enforce constraint -> start upgraded instances).
+   - **Rolling Zero-Downtime Deployment (Expand / Dual-Write / Contract):** If a zero-downtime rolling restart across multiple nodes is required, the deployment must follow an expand/contract lifecycle across separate releases:
+     - **Step 1 (Expand - Schema):** Apply Phase 1 only (adding nullable `parent_kind`, `parent_id`, `parent_version` and relaxing `step_attempt_id`). Older instances continue writing legacy columns without interruption.
+     - **Step 2 (Dual-Write / Transition - Application):** Deploy D7-E1 across nodes. D7-E1 instances write `parent_id` (and for step attempts, dual-write `step_attempt_id` for backward-compatible readers).
+     - **Step 3 (Backfill - Data):** Run the Phase 2 backfill SQL to populate `parent_id` for any rows written by legacy instances during the rolling restart window.
+     - **Step 4 (Contract - Schema):** Only after all nodes are confirmed running D7-E1+ and validation (Phase 3) confirms 0 rows with `parent_id IS NULL`, apply Phase 4 (`parent_id SET NOT NULL`).
+
+3. **Phased Schema Upgrade DDL:**
    - **Phase 1 (Column Addition & Nullability Relaxation):**
      ```sql
      ALTER TABLE tramai_workflow_effect_evidence ADD COLUMN parent_kind VARCHAR(32) NOT NULL DEFAULT 'STEP_ATTEMPT';
@@ -313,11 +340,16 @@ To guarantee zero downtime and length safety:
      ```sql
      ALTER TABLE tramai_workflow_effect_evidence ALTER COLUMN parent_id SET NOT NULL;
      ```
-3. **Fresh Schema Creation (`schema-v2`):**
+
+4. **Fresh Schema Creation (`schema-v2`):**
    New installations create the table directly with `parent_kind`, `parent_id VARCHAR(512) NOT NULL`, `parent_version BIGINT NULL`, and nullable `step_attempt_id`.
-4. **Code Compatibility (Constructors & Readers):**
+
+5. **Code Compatibility (Constructors & Readers):**
    - `WorkflowEffectEvidenceRecord` retains a legacy constructor defaulting `parent = ParentProvenance.StepAttempt(stepName, stepAttemptId)` for compiling callers.
    - JDBC decoders read `parent_kind`, `parent_id`, and `parent_version`, falling back to `step_attempt_id` when reading legacy schema rows.
+
+6. **D7-E1 Qualification Requirement:**
+   In D7-E1, the implementation must include an automated integration test executing this migration against a genuinely pre-populated E1–E8 evidence database (verifying data preservation across H2 and PostgreSQL, successful backfill, and mixed reading of legacy and E9 records).
 
 ---
 
@@ -357,7 +389,7 @@ The qualification suite is implemented in:
 | **E9-L10** | Checkpoint generation freshness & race detection | Tests real `WorkflowApprovalResumeAdmission.admitResume()` under Policy A: fresh admission succeeds, while simulated concurrent generation rotation races CAS and fails closed with conflict before tool dispatch. |
 | **E9-L11** | Outcome separation on real resume path | Real workflow resume through `engine.resumeApproval` with failing continuation store completion; tool executes (`tool.executions.get() == 1`), resume fails with completion error, and continuation remains in `CLAIMED` status. |
 | **E9-L12** | Module-wide dependency direction | Bytecode analysis via ASM `ClassReader` scanning every compiled class in `tramai-engine`, proving zero bytecode references to `dev/tramai/orchestration`. |
-| **E9-L13** | Continuation claim validation & compatibility | Validates that a substituted claim version (e.g. version 7 instead of 1) is rejected fail-closed, legacy unversioned requests fail when evidence is enabled, and legacy requests succeed when evidence is disabled. |
+| **E9-L13** | Fail-closed claim provenance validation characterized (production enforcement required in D7-E1) | Characterizes the validation boundary: substituted claim version (e.g. version 7 vs 1), mismatched tool name, and missing continuationStore when evidence is enabled are rejected fail-closed; legacy unversioned requests fail when evidence is enabled, and legacy requests succeed when evidence is disabled. |
 
 ---
 
@@ -373,16 +405,21 @@ The subsequent implementation task (**D7-E1**) will realize this ratified contra
 
 2. **`tramai-orchestration`:**
    - In `WorkflowApprovalResumeAdmission`:
-     - Accept `evidenceStore: WorkflowEffectEvidenceRecordStore? = null` and `continuationStore: ApprovalContinuationStore? = null` via constructor dependency injection.
-     - When evidence is enabled, validate `request.continuationVersion > 0L` and verify against `continuationStore` (`status == CLAIMED` and `version == request.continuationVersion`).
+     - Retain public 1-arg constructor `(checkpointStore)` and add public 2-arg constructor `(checkpointStore, continuationStore)`.
+     - Implement internal 3-arg constructor `(checkpointStore, continuationStore, evidenceStore)` preserving clean encapsulation without exposing `internal` type `WorkflowEffectEvidenceRecordStore` to public callers.
+     - When evidence is enabled (`evidenceStore != null`):
+       - Mandatorily require `continuationStore != null` (fail-closed if missing).
+       - Mandatorily validate `request.continuationVersion > 0L`.
+       - Mandatorily verify claim across all 5 dimensions (existence, status == CLAIMED, version match, run ID match, tool name match).
      - Persist `ADMITTED` record with compound key `(workflowName, workflowId, checkpointGeneration, sequence)` and parent provenance `ParentProvenance.ApprovalContinuation(approvalId, continuationVersion, toolName)`.
-     - Return `ApprovalResumePermit` containing `ApprovalResumeEvidenceHandle` implementation bound to the evidence key.
-   - Execute phased, non-destructive JDBC migration for `tramai_workflow_effect_evidence`: add `parent_kind`, `parent_id VARCHAR(512)`, `parent_version BIGINT`, relax `step_attempt_id`, backfill existing rows, enforce NOT NULL constraint, and qualify schema upgrade and fresh creation.
+     - Return `ApprovalResumePermit` containing non-null `ApprovalResumeEvidenceHandle` implementation bound to the evidence key.
+   - Execute phased JDBC migration for `tramai_workflow_effect_evidence`: add `parent_kind`, `parent_id VARCHAR(512)`, `parent_version BIGINT`, relax `step_attempt_id`, backfill existing rows, enforce NOT NULL constraint via expand/contract deployment protocol, and qualify via automated upgrade test on pre-populated E1–E8 database.
 
 3. **`tramai-engine`:**
    - In `ApprovalResumeCoordinator`:
      - Thread authoritative `claimed.version` into `ApprovalResumeAdmissionRequest(continuationVersion = claimed.version)`.
      - Obtain `evidenceHandle` from `ApprovalResumePermit`.
+     - Enforce non-null `evidenceHandle` when evidence tracking is expected (fail closed with `IllegalStateException` on misconfigured admission authorities).
      - Call `handle.recordDispatched()` and `handle.recordCompleted()` upon normal tool return.
      - Call `handle.recordUncertain(error, category)` on exception or cancellation using safe diagnostic category.
 
@@ -397,11 +434,12 @@ To avoid confusing architectural intentions with qualified guarantees, the bound
 | **Absence of Step Attempt in Suspensions** | **PROVEN** in characterization tests (E9-L02, E9-L04) | Retain existing suspension models unchanged |
 | **Typed Parent Provenance (Option C)** | **RATIFIED** design contract | Add `ParentProvenance.ApprovalContinuation` to evidence records |
 | **Continuation Version Transmission** | **RATIFIED** cross-module contract | Add `continuationVersion` to request & coordinator |
-| **Continuation Version Validation Boundary** | **PROVEN** contract discriminator (E9-L13) | Implement validator seam in `WorkflowApprovalResumeAdmission` |
+| **Continuation Version Validation Boundary** | **CHARACTERIZED** in contract model discriminator (E9-L13) | **PRODUCTION ENFORCEMENT** in `WorkflowApprovalResumeAdmission` against mandatory `continuationStore` (5 dimensions) |
 | **Permit Single-Use & Non-Data Class** | **PROVEN** in characterization tests (E9-L05) | Retain class invariant, add generation and handle |
-| **Runtime Compatibility Policy** | **RATIFIED** specification (E9-L13) | Enforce handle presence when evidence enabled |
+| **Runtime Compatibility & Misconfiguration** | **RATIFIED** specification (E9-L13) | Enforce handle presence on engine side when evidence expected |
 | **Diagnostic Category Typing** | **RATIFIED** specification | Implement `WorkflowEvidenceDiagnosticCategory` enum |
+| **Constructor Encapsulation** | **RATIFIED** design (public constructors clean; internal constructor binds store) | Implement internal constructor without leaking internal types |
 | **Module-Wide Bytecode Decoupling** | **PROVEN** across entire `tramai-engine` (E9-L12) | Preserve zero-dependency boundary |
 | **Outcome Separation (Tool vs Store)** | **PROVEN** through real engine resume (E9-L11) | Thread `evidenceHandle.recordCompleted()` before completion |
-| **JDBC Schema Upgrade & Backfill** | **RATIFIED** phased migration DDL | Implement migration script, qualify fresh/upgrade schema |
+| **JDBC Schema Upgrade & Backfill** | **RATIFIED** expand/contract DDL specification | **EXECUTE** migration script and **QUALIFY** with automated test against populated E1–E8 database |
 | **Automatic Recovery Completion** | **DEFERRED** (operator reconciliation required) | Design dedicated authorized recovery path in future epic |
