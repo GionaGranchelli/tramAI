@@ -9,6 +9,7 @@ import dev.tramai.core.approval.ApprovalAuthorization
 import dev.tramai.core.approval.ApprovalChallenge
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
+import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalResumeAdmission
 import dev.tramai.core.approval.ApprovalResumeAdmissionRequest
@@ -16,6 +17,7 @@ import dev.tramai.core.approval.ApprovalResumePermit
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.ApprovalValidation
 import dev.tramai.core.approval.AuthorizeResumeCommand
+import dev.tramai.core.approval.ClaimedApprovalContinuation
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.SensitiveToolArguments
@@ -64,9 +66,20 @@ import dev.tramai.engine.TramaiEngine
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
 import dev.tramai.security.approval.InMemoryApprovalRecoveryCoordinator
 import dev.tramai.security.approval.Sha256ToolArgumentsDigester
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import net.bytebuddy.jar.asm.ClassReader
+import net.bytebuddy.jar.asm.ClassVisitor
+import net.bytebuddy.jar.asm.FieldVisitor
+import net.bytebuddy.jar.asm.MethodVisitor
+import net.bytebuddy.jar.asm.Opcodes
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.time.Clock
@@ -256,7 +269,7 @@ class WorkflowApprovalResumeEvidenceContractTest {
     private class TestFixture(
         val checkpoints: InMemoryWorkflowCheckpointStore,
         val suspendedStore: RecordingSuspendedStore,
-        val continuationStore: InMemoryApprovalContinuationStore,
+        val continuationStore: ApprovalContinuationStore,
         val tool: CountingTool,
         val engine: TramaiEngine,
         val identity: GovernedRunIdentity,
@@ -265,10 +278,10 @@ class WorkflowApprovalResumeEvidenceContractTest {
     private fun createFixture(
         identity: GovernedRunIdentity = testIdentity(),
         checkpoints: InMemoryWorkflowCheckpointStore = InMemoryWorkflowCheckpointStore(),
+        continuations: ApprovalContinuationStore = InMemoryApprovalContinuationStore(clock = Clock.systemUTC()),
+        tool: CountingTool = CountingTool(),
     ): TestFixture {
         val suspended = RecordingSuspendedStore(identity)
-        val continuations = InMemoryApprovalContinuationStore(clock = Clock.systemUTC())
-        val tool = CountingTool()
         val engine =
             TramaiEngine(
                 providerRegistry = ProviderRegistry.singleProvider(RecordingProvider()),
@@ -335,15 +348,10 @@ class WorkflowApprovalResumeEvidenceContractTest {
         val suspended = suspendWorkflow(fixture)
 
         val record = runBlocking { fixture.suspendedStore.governedSuspension(suspended.approvalId) }!!
-        // Direct architectural proof: inspect all properties of GovernedSuspendedInvocation and SuspendedInvocationMetadata.
-        // Step attempt identity does not exist on either record.
+        // Assert required fields are present and step attempt identity is strictly absent without brittle field enumeration
         val recordProperties = record::class.java.declaredFields.map { it.name }
-        assertThat(recordProperties).containsExactlyInAnyOrder(
-            "metadata",
-            "runIdentity",
-            "provenance",
-            "checkpointBinding",
-        )
+        assertThat(recordProperties).contains("metadata", "runIdentity", "provenance", "checkpointBinding")
+        assertThat(recordProperties).doesNotContain("stepAttemptId", "attemptId", "persistedStepAttempt")
 
         val metadataProperties = record.metadata::class.java.declaredFields.map { it.name }
         assertThat(metadataProperties).doesNotContain("stepAttemptId", "attemptId", "persistedStepAttempt")
@@ -364,33 +372,87 @@ class WorkflowApprovalResumeEvidenceContractTest {
 
     @Test
     fun `E9-L04 - Worker-persisted workflow suspension characterized`() {
-        val attempt = PersistedStepAttempt(WORKFLOW_NAME, RUN_ID, "agent-step", "attempt-worker-1")
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val workerConfig = WorkerConfig(workerId = "worker-e9-1", poolName = "e9-pool", pollIntervalMillis = 20)
+        val fixture = createFixture()
+        val service = fixture.engine.create(ApprovalService::class)
 
-        runBlocking {
-            var insideAttempt: PersistedStepAttempt? = null
-            var afterUnwindAttempt: PersistedStepAttempt? = null
+        var insideAttemptId: String? = null
+        val wf =
+            workflow<String>(WORKFLOW_NAME, definitionVersion = "v1") {
+                localStep("suspend-step") { state, _ ->
+                    insideAttemptId = currentStepAttempt()?.attemptId
+                    service.answer("invoke")
+                    state
+                }
+            }.build { it }
 
-            val thrown =
-                runCatching {
-                    withContext(StepAttemptScope(attempt)) {
-                        insideAttempt = currentStepAttempt()
-                        throw ApprovalSuspendedException(
-                            challenge = ApprovalChallenge("appr-1", ApprovalToken.parsePresented("tok-1"), Instant.now()),
-                            approvalId = "appr-1",
-                            workflowRunId = RUN_ID,
-                            toolCallId = "tc-1",
-                            toolName = TOOL_NAME,
-                            continuationVersion = 0L,
-                        )
-                    }
-                }.exceptionOrNull()
+        val persistence =
+            WorkflowPersistence(
+                checkpointStore = checkpointStore,
+                stateCodec = StringCodec,
+                deleteCheckpointOnCompletion = false,
+            )
+        val observer = NoOpTramaiWorkerObserver
+        val supervisor =
+            WorkflowExecutionSupervisor(
+                config = workerConfig,
+                leaseStore = leaseStore,
+                checkpointStore = checkpointStore,
+                stepAttemptStore = checkpointStore,
+                workflowBindings = WorkflowBindingRegistry { bind(wf, persistence) },
+                observability = observer,
+                leaseCoordinator = LeaseCoordinator(workerConfig, leaseStore, observer),
+                recoveryCoordinator = WorkflowRecoveryCoordinator(leaseStore, checkpointStore),
+                leaseRenewalLoop = LeaseRenewalLoop(workerConfig, leaseStore, observer),
+                shuttingDownGracefully = { false },
+                stepAttemptIdentitySource = StepAttemptIdentitySource { "attempt-worker-e9-1" },
+            )
 
-            afterUnwindAttempt = currentStepAttempt()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        supervisor.attachScope(scope)
+        try {
+            val initialCp =
+                runBlocking {
+                    checkpointStore.save(
+                        WorkflowCheckpoint(
+                            workflowName = WORKFLOW_NAME,
+                            workflowId = RUN_ID,
+                            nextStepIndex = 0,
+                            stepExecutions = 0,
+                            lastCompletedStepName = null,
+                            statePayload = StringCodec.encode("start"),
+                            metadata = wf.checkpointMetadata() + encodeGovernedRunAttribution(testIdentity()),
+                        ),
+                    )
+                }
+            val lease =
+                runBlocking {
+                    leaseStore.claim(WORKFLOW_NAME, RUN_ID, "worker-e9-1", initialCp.revision, 5_000)
+                }
+            supervisor.launch(initialCp, lease)
 
-            assertThat(thrown).isInstanceOf(ApprovalSuspendedException::class.java)
-            assertThat(insideAttempt).isNotNull
-            assertThat(insideAttempt!!.attemptId).isEqualTo("attempt-worker-1")
-            assertThat(afterUnwindAttempt).isNull()
+            runBlocking {
+                withTimeout(10_000) {
+                    while (supervisor.activeExecutionCount() != 0) delay(10)
+                }
+            }
+
+            // Invariant 1: Step attempt was STARTED during execution
+            assertThat(insideAttemptId).isEqualTo("attempt-worker-e9-1")
+
+            // Invariant 2: Supervisor terminated step attempt upon suspension; status is FAILED, not STARTED
+            val attempts = runBlocking { checkpointStore.listStepAttempts(RUN_ID) }
+            assertThat(attempts).hasSize(1)
+            val recordedAttempt = attempts.single()
+            assertThat(recordedAttempt.attemptId).isEqualTo("attempt-worker-e9-1")
+            assertThat(recordedAttempt.status).isEqualTo(StepAttemptStatus.FAILED)
+
+            // Invariant 3: At the resume boundary outside worker attempt execution, currentStepAttempt is null
+            assertThat(runBlocking { currentStepAttempt() }).isNull()
+        } finally {
+            scope.cancel()
         }
     }
 
@@ -429,9 +491,20 @@ class WorkflowApprovalResumeEvidenceContractTest {
         assertThat(permit.checkpointBinding).isEqualTo(binding)
         assertThat(permit.approvalId).isEqualTo("appr-test-1")
 
-        // The current permit carries no step attempt identity or checkpoint generation.
+        // Invariant: ApprovalResumePermit is a standard class (NOT a data class) to protect single-use tryConsume
+        assertThat(ApprovalResumePermit::class.isData).isFalse()
+        val declaredMethods = ApprovalResumePermit::class.java.declaredMethods.map { it.name }
+        assertThat(declaredMethods).doesNotContain("copy")
+
+        // Single-use tryConsume invariant
+        assertThat(permit.tryConsume()).isTrue()
+        assertFailsWith<IllegalStateException> {
+            permit.tryConsume()
+        }
+
+        // The current permit carries no step attempt identity
         val permitFields = permit::class.java.declaredFields.map { it.name }
-        assertThat(permitFields).doesNotContain("stepAttemptId", "checkpointGeneration")
+        assertThat(permitFields).doesNotContain("stepAttemptId", "attemptId")
     }
 
     @Test
@@ -477,44 +550,45 @@ class WorkflowApprovalResumeEvidenceContractTest {
     @Test
     fun `E9-L07 - Concurrent resume claims cannot produce duplicate execution`() {
         val continuations = InMemoryApprovalContinuationStore(clock = Clock.systemUTC())
-        val approvalId = "appr-concurrent-" + UUID.randomUUID()
-        val continuation =
-            ApprovalContinuation(
-                approvalId = approvalId,
-                workflowRunId = RUN_ID,
-                correlationId = "corr-1",
-                toolCallId = "tc-1",
-                toolName = TOOL_NAME,
-                argumentsDigest = Sha256Digest.of(ARGS_DIGEST),
-                policyVersion = "p1",
-                workflowDigest = Sha256Digest.of("sha256:" + "0".repeat(64)),
-                status = ApprovalContinuationStatus.PENDING,
-                createdAt = Instant.now(),
-                approvalExpiresAt = Instant.now().plusSeconds(600),
-                claimedBy = null,
-                claimedAt = null,
-                completedAt = null,
-                version = 0L,
+        val barrier = java.util.concurrent.CyclicBarrier(2)
+        val synchronizingContinuations =
+            object : ApprovalContinuationStore by continuations {
+                override suspend fun claimForExecution(
+                    approvalId: String,
+                    expectedVersion: Long,
+                    claimedBy: String,
+                ): ClaimedApprovalContinuation {
+                    runCatching { barrier.await(5, java.util.concurrent.TimeUnit.SECONDS) }
+                    return continuations.claimForExecution(approvalId, expectedVersion, claimedBy)
+                }
+            }
+
+        val fixture = createFixture(continuations = synchronizingContinuations)
+        val suspended = suspendWorkflow(fixture)
+
+        val cmd1 =
+            ResumeApprovalCommand(
+                approvalId = suspended.approvalId,
+                approvalExpectedVersion = 0L,
+                continuationExpectedVersion = 0L,
+                presentedToken = suspended.challenge.token,
+                resumedBy = "worker-1",
+            )
+        val cmd2 =
+            ResumeApprovalCommand(
+                approvalId = suspended.approvalId,
+                approvalExpectedVersion = 0L,
+                continuationExpectedVersion = 0L,
+                presentedToken = suspended.challenge.token,
+                resumedBy = "worker-2",
             )
 
-        runBlocking {
-            continuations.create(continuation, SensitiveToolArguments.of("""{"x":2,"y":3}"""))
+        runBlocking(Dispatchers.Default) {
+            val call1 = async { runCatching { fixture.engine.resumeApproval(cmd1) } }
+            val call2 = async { runCatching { fixture.engine.resumeApproval(cmd2) } }
 
-            val claim1 =
-                async {
-                    runCatching {
-                        continuations.claimForExecution(approvalId, expectedVersion = 0L, claimedBy = "worker-1")
-                    }
-                }
-            val claim2 =
-                async {
-                    runCatching {
-                        continuations.claimForExecution(approvalId, expectedVersion = 0L, claimedBy = "worker-2")
-                    }
-                }
-
-            val r1 = claim1.await()
-            val r2 = claim2.await()
+            val r1 = call1.await()
+            val r2 = call2.await()
 
             // Exactly one succeeds, exactly one fails with ApprovalContinuationConflictException
             val successes = listOf(r1, r2).filter { it.isSuccess }
@@ -522,7 +596,11 @@ class WorkflowApprovalResumeEvidenceContractTest {
 
             assertThat(successes).hasSize(1)
             assertThat(failures).hasSize(1)
-            assertThat(failures.single().exceptionOrNull()).isInstanceOf(ApprovalContinuationConflictException::class.java)
+            assertThat(failures.single().exceptionOrNull())
+                .isInstanceOf(ApprovalContinuationConflictException::class.java)
+
+            // Exactly one execution occurred
+            assertThat(fixture.tool.executions.get()).isEqualTo(1)
         }
     }
 
@@ -615,67 +693,191 @@ class WorkflowApprovalResumeEvidenceContractTest {
     @Test
     fun `E9-L10 - Checkpoint generation across retries and restarts is accounted for correctly`() {
         val checkpoints = InMemoryWorkflowCheckpointStore()
-        runBlocking {
-            val saved =
-                checkpoints.save(
-                    WorkflowCheckpoint(
-                        workflowName = WORKFLOW_NAME,
-                        workflowId = RUN_ID,
-                        nextStepIndex = 1,
-                        stepExecutions = 1,
-                        lastCompletedStepName = "step-1",
-                        statePayload = "payload",
-                        metadata = encodeGovernedRunAttribution(testIdentity()),
-                    ),
-                )
+        val binding = WorkflowCheckpointBinding(WORKFLOW_NAME, RUN_ID)
+        val initial =
+            WorkflowCheckpoint(
+                workflowName = WORKFLOW_NAME,
+                workflowId = RUN_ID,
+                nextStepIndex = 1,
+                stepExecutions = 1,
+                lastCompletedStepName = "step-1",
+                statePayload = "payload",
+                checkpointGeneration = "gen-1",
+                metadata = encodeGovernedRunAttribution(testIdentity()),
+            )
+        runBlocking { checkpoints.save(initial) }
 
-            // Admission with matching generation succeeds
-            val grant =
-                checkpoints.admitEffect(
-                    workflowName = WORKFLOW_NAME,
-                    workflowId = RUN_ID,
-                    currentRevision = saved.revision,
-                    currentGeneration = saved.checkpointGeneration,
-                    stepName = TOOL_NAME,
-                    effectKind = APPROVAL_RESUME_EFFECT_KIND,
-                )
-            assertThat(grant.sequence).isEqualTo(1L)
+        val authority = WorkflowApprovalResumeAdmission(checkpoints)
+        val request =
+            ApprovalResumeAdmissionRequest(
+                approvalId = "appr-1",
+                toolName = TOOL_NAME,
+                runIdentity = testIdentity(),
+                checkpointBinding = binding,
+            )
 
-            // Attempting to admit against a stale generation must fail
-            assertFailsWith<WorkflowCheckpointConflictException> {
-                checkpoints.admitEffect(
-                    workflowName = WORKFLOW_NAME,
-                    workflowId = RUN_ID,
-                    currentRevision = saved.revision,
-                    currentGeneration = "gen-stale",
-                    stepName = TOOL_NAME,
-                    effectKind = APPROVAL_RESUME_EFFECT_KIND,
-                )
+        // Policy A (Admission-Time Freshness): fresh admission against current row succeeds
+        val permit = runBlocking { authority.admitResume(request) }
+        assertThat(permit.admissionSequence).isEqualTo(1L)
+        assertThat(permit.approvalId).isEqualTo("appr-1")
+
+        // Now simulate a concurrent generation race (e.g. concurrent retry rotates checkpoint generation)
+        val racingStore =
+            object : WorkflowCheckpointStore by checkpoints {
+                override suspend fun load(
+                    workflowName: String,
+                    workflowId: String,
+                ): WorkflowCheckpoint? {
+                    val snapshot = checkpoints.load(workflowName, workflowId)!!
+                    // Simulate concurrent worker saving new checkpoint with rotated generation
+                    checkpoints.save(
+                        snapshot.copy(
+                            checkpointGeneration = "gen-rotated-by-retry",
+                            revision = snapshot.revision + 1,
+                        ),
+                    )
+                    return snapshot
+                }
             }
+
+        val racingAuthority = WorkflowApprovalResumeAdmission(racingStore)
+        assertFailsWith<WorkflowCheckpointConflictException> {
+            runBlocking { racingAuthority.admitResume(request) }
         }
     }
 
     @Test
     fun `E9-L11 - Post-execution continuation-completion failure is distinguished from executor failure`() {
-        var executorSucceeded = false
-        var completionFailed = false
+        val continuations = InMemoryApprovalContinuationStore(clock = Clock.systemUTC())
+        val failingContinuations =
+            object : ApprovalContinuationStore by continuations {
+                override suspend fun complete(
+                    approvalId: String,
+                    expectedVersion: Long,
+                    completedBy: String,
+                ): ApprovalContinuation {
+                    error("simulated continuation completion store failure")
+                }
+            }
 
-        val thrown =
-            runCatching {
-                // Simulated executor execution
-                executorSucceeded = true
-                // Simulated continuation store failure
-                error("continuation store disk full")
-            }.exceptionOrNull()
+        val fixture = createFixture(continuations = failingContinuations)
+        val suspended = suspendWorkflow(fixture)
 
-        if (thrown is IllegalStateException) {
-            completionFailed = true
-        }
+        val command =
+            ResumeApprovalCommand(
+                approvalId = suspended.approvalId,
+                approvalExpectedVersion = 0L,
+                continuationExpectedVersion = 0L,
+                presentedToken = suspended.challenge.token,
+                resumedBy = "operator",
+            )
 
-        // Proves that when completion fails after executor execution, the tool did execute.
-        // It must not be reported as a failure of the tool/executor.
-        assertThat(executorSucceeded).isTrue()
-        assertThat(completionFailed).isTrue()
+        val failure =
+            assertFailsWith<IllegalStateException> {
+                runBlocking { fixture.engine.resumeApproval(command) }
+            }
+        assertThat(failure.message).contains("simulated continuation completion store failure")
+
+        // Invariant 1: The tool did execute (executions == 1) despite post-execution completion store failure
+        assertThat(fixture.tool.executions.get()).isEqualTo(1)
+
+        // Invariant 2: Continuation remains in CLAIMED status with version incremented to 1L, ready for recovery reconciliation
+        val continuation = runBlocking { continuations.get(suspended.approvalId) }!!
+        assertThat(continuation.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+        assertThat(continuation.version).isEqualTo(1L)
+    }
+
+    private fun scanBytecodeReferences(className: String): Set<String> {
+        val resource =
+            checkNotNull(
+                WorkflowApprovalResumeEvidenceContractTest::class.java.getResourceAsStream("/$className.class"),
+            ) { "Unable to load bytecode for $className" }
+        val orchestrationReferences = mutableSetOf<String>()
+        val visitor =
+            object : ClassVisitor(Opcodes.ASM9) {
+                override fun visit(
+                    version: Int,
+                    access: Int,
+                    name: String,
+                    signature: String?,
+                    superName: String?,
+                    interfaces: Array<out String>?,
+                ) {
+                    if (signature?.contains("dev/tramai/orchestration") == true) {
+                        orchestrationReferences += "$name: signature references dev.tramai.orchestration"
+                    }
+                    if (superName?.startsWith("dev/tramai/orchestration") == true) {
+                        orchestrationReferences += "$name: superclass $superName references dev.tramai.orchestration"
+                    }
+                    interfaces?.filter { it.startsWith("dev/tramai/orchestration") }?.forEach {
+                        orchestrationReferences += "$name: interface $it references dev.tramai.orchestration"
+                    }
+                }
+
+                override fun visitField(
+                    access: Int,
+                    name: String,
+                    descriptor: String,
+                    signature: String?,
+                    value: Any?,
+                ): FieldVisitor? {
+                    if (descriptor.contains("dev/tramai/orchestration") ||
+                        signature?.contains("dev/tramai/orchestration") == true
+                    ) {
+                        orchestrationReferences += "Field $name references dev.tramai.orchestration"
+                    }
+                    return null
+                }
+
+                override fun visitMethod(
+                    access: Int,
+                    name: String,
+                    descriptor: String,
+                    signature: String?,
+                    exceptions: Array<out String>?,
+                ): MethodVisitor {
+                    if (descriptor.contains("dev/tramai/orchestration") ||
+                        signature?.contains("dev/tramai/orchestration") == true
+                    ) {
+                        orchestrationReferences += "Method $name descriptor references dev.tramai.orchestration"
+                    }
+                    return object : MethodVisitor(Opcodes.ASM9) {
+                        override fun visitTypeInsn(
+                            opcode: Int,
+                            type: String,
+                        ) {
+                            if (type.startsWith("dev/tramai/orchestration")) {
+                                orchestrationReferences += "Type instruction $type in $name"
+                            }
+                        }
+
+                        override fun visitFieldInsn(
+                            opcode: Int,
+                            owner: String,
+                            fieldName: String,
+                            desc: String,
+                        ) {
+                            if (owner.startsWith("dev/tramai/orchestration") || desc.contains("dev/tramai/orchestration")) {
+                                orchestrationReferences += "Field instruction $owner.$fieldName in $name"
+                            }
+                        }
+
+                        override fun visitMethodInsn(
+                            opcode: Int,
+                            owner: String,
+                            methodName: String,
+                            desc: String,
+                            isInterface: Boolean,
+                        ) {
+                            if (owner.startsWith("dev/tramai/orchestration") || desc.contains("dev/tramai/orchestration")) {
+                                orchestrationReferences += "Method instruction $owner.$methodName in $name"
+                            }
+                        }
+                    }
+                }
+            }
+        ClassReader(resource).accept(visitor, 0)
+        return orchestrationReferences
     }
 
     @Test
@@ -684,26 +886,18 @@ class WorkflowApprovalResumeEvidenceContractTest {
         assertThat(ApprovalResumeAdmission::class.java.packageName).isEqualTo("dev.tramai.core.approval")
         assertThat(ApprovalResumePermit::class.java.packageName).isEqualTo("dev.tramai.core.approval")
 
-        // Assert that ApprovalResumeCoordinator belongs to tramai-engine.
-        val coordinatorClass = Class.forName("dev.tramai.engine.approval.ApprovalResumeCoordinator")
-        assertThat(coordinatorClass.packageName).isEqualTo("dev.tramai.engine.approval")
-
-        // Assert that no classes in tramai-engine import dev.tramai.orchestration.
+        // Bytecode scan of engine classes to prove zero references to dev.tramai.orchestration
         val engineClasses =
             listOf(
-                coordinatorClass,
-                TramaiEngine::class.java,
-                GovernedSuspendedInvocation::class.java,
+                "dev/tramai/engine/TramaiEngine",
+                "dev/tramai/engine/approval/ApprovalResumeCoordinator",
+                "dev/tramai/engine/GovernedSuspendedInvocation",
             )
-        for (cls in engineClasses) {
-            val references =
-                cls.declaredFields.map { it.type.name } +
-                    cls.declaredMethods.flatMap { m ->
-                        listOf(m.returnType.name) + m.parameterTypes.map { it.name }
-                    }
-            assertThat(references.none { it.startsWith("dev.tramai.orchestration") })
-                .withFailMessage("Engine class ${cls.name} must not reference tramai-orchestration")
-                .isTrue()
+        for (internalName in engineClasses) {
+            val refs = scanBytecodeReferences(internalName)
+            assertThat(refs)
+                .withFailMessage("Engine class $internalName must have zero bytecode references to dev.tramai.orchestration, found: $refs")
+                .isEmpty()
         }
     }
 }
