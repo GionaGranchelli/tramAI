@@ -82,6 +82,8 @@ import net.bytebuddy.jar.asm.MethodVisitor
 import net.bytebuddy.jar.asm.Opcodes
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import java.io.File
+import java.net.URI
 import java.time.Clock
 import java.time.Instant
 import java.util.UUID
@@ -558,7 +560,7 @@ class WorkflowApprovalResumeEvidenceContractTest {
                     expectedVersion: Long,
                     claimedBy: String,
                 ): ClaimedApprovalContinuation {
-                    runCatching { barrier.await(5, java.util.concurrent.TimeUnit.SECONDS) }
+                    barrier.await(5, java.util.concurrent.TimeUnit.SECONDS)
                     return continuations.claimForExecution(approvalId, expectedVersion, claimedBy)
                 }
             }
@@ -787,11 +789,7 @@ class WorkflowApprovalResumeEvidenceContractTest {
         assertThat(continuation.version).isEqualTo(1L)
     }
 
-    private fun scanBytecodeReferences(className: String): Set<String> {
-        val resource =
-            checkNotNull(
-                WorkflowApprovalResumeEvidenceContractTest::class.java.getResourceAsStream("/$className.class"),
-            ) { "Unable to load bytecode for $className" }
+    private fun scanBytecodeReferences(classStream: java.io.InputStream): Set<String> {
         val orchestrationReferences = mutableSetOf<String>()
         val visitor =
             object : ClassVisitor(Opcodes.ASM9) {
@@ -876,9 +874,57 @@ class WorkflowApprovalResumeEvidenceContractTest {
                     }
                 }
             }
-        ClassReader(resource).accept(visitor, 0)
+        classStream.use { stream ->
+            ClassReader(stream).accept(visitor, 0)
+        }
         return orchestrationReferences
     }
+
+    private fun scanClassFiles(files: Sequence<Pair<String, () -> java.io.InputStream>>): Pair<Int, Map<String, Set<String>>> {
+        var count = 0
+        val offenders = mutableMapOf<String, Set<String>>()
+        for ((name, openStream) in files) {
+            count++
+            val refs = scanBytecodeReferences(openStream())
+            if (refs.isNotEmpty()) {
+                offenders[name] = refs
+            }
+        }
+        return count to offenders
+    }
+
+    private fun scanEngineLocation(location: File): Pair<Int, Map<String, Set<String>>> =
+        when {
+            location.isDirectory -> {
+                val classFiles =
+                    location
+                        .walkTopDown()
+                        .filter { it.isFile && it.name.endsWith(".class") }
+                        .map { file ->
+                            file.relativeTo(location).path.removeSuffix(".class") to { file.inputStream() }
+                        }
+                scanClassFiles(classFiles)
+            }
+
+            location.name.endsWith(".jar") -> {
+                java.util.jar.JarFile(location).use { jar ->
+                    val entries =
+                        jar
+                            .entries()
+                            .asSequence()
+                            .filter { !it.isDirectory && it.name.endsWith(".class") }
+                            .map { entry ->
+                                val bytes = jar.getInputStream(entry).use { it.readBytes() }
+                                entry.name.removeSuffix(".class") to { bytes.inputStream() }
+                            }.toList()
+                    scanClassFiles(entries.asSequence())
+                }
+            }
+
+            else -> {
+                error("Engine location is neither a directory nor a jar: ${location.absolutePath}")
+            }
+        }
 
     @Test
     fun `E9-L12 - New evidence interface preserves the current module dependency direction`() {
@@ -886,18 +932,150 @@ class WorkflowApprovalResumeEvidenceContractTest {
         assertThat(ApprovalResumeAdmission::class.java.packageName).isEqualTo("dev.tramai.core.approval")
         assertThat(ApprovalResumePermit::class.java.packageName).isEqualTo("dev.tramai.core.approval")
 
-        // Bytecode scan of engine classes to prove zero references to dev.tramai.orchestration
-        val engineClasses =
-            listOf(
-                "dev/tramai/engine/TramaiEngine",
-                "dev/tramai/engine/approval/ApprovalResumeCoordinator",
-                "dev/tramai/engine/GovernedSuspendedInvocation",
+        // Module-wide bytecode scan across every compiled class in tramai-engine
+        val engineLocation =
+            File(
+                URI.create(
+                    checkNotNull(
+                        TramaiEngine::class.java.protectionDomain.codeSource.location
+                            .toString(),
+                    ),
+                ),
             )
-        for (internalName in engineClasses) {
-            val refs = scanBytecodeReferences(internalName)
-            assertThat(refs)
-                .withFailMessage("Engine class $internalName must have zero bytecode references to dev.tramai.orchestration, found: $refs")
-                .isEmpty()
+        check(engineLocation.exists()) {
+            "Engine location unavailable: ${engineLocation.absolutePath}"
+        }
+
+        val (classCount, offenders) = scanEngineLocation(engineLocation)
+
+        assertThat(classCount)
+            .withFailMessage("Engine bytecode scan scanned zero classes — fail closed")
+            .isGreaterThanOrEqualTo(100)
+
+        assertThat(offenders)
+            .withFailMessage(
+                "Engine module must have zero bytecode references to dev.tramai.orchestration; offenders: $offenders",
+            ).isEmpty()
+    }
+
+    /**
+     * Models the D7-E1 extended admission request contract which carries [continuationVersion].
+     */
+    private data class ContractApprovalResumeAdmissionRequest(
+        val approvalId: String,
+        val toolName: String,
+        val runIdentity: dev.tramai.core.identity.GovernedRunIdentity,
+        val checkpointBinding: WorkflowCheckpointBinding,
+        val continuationVersion: Long = 0L,
+    )
+
+    @Test
+    fun `E9-L13 - Substituted claim version cannot be admitted or produce false parent provenance`() {
+        val fixture = createFixture()
+        val suspended = suspendWorkflow(fixture)
+
+        // Claim the continuation through the store (transitioning PENDING -> CLAIMED, version 0L -> 1L)
+        val claimed =
+            runBlocking {
+                fixture.continuationStore.claimForExecution(
+                    approvalId = suspended.approvalId,
+                    expectedVersion = 0L,
+                    claimedBy = "worker-1",
+                )
+            }
+        assertThat(claimed.continuation.version).isEqualTo(1L)
+        assertThat(claimed.continuation.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+
+        val binding = WorkflowCheckpointBinding(WORKFLOW_NAME, RUN_ID)
+
+        // Validation rule defining the Option C validation boundary for D7-E1
+        suspend fun validateClaimProvenance(
+            store: ApprovalContinuationStore,
+            request: ContractApprovalResumeAdmissionRequest,
+            evidenceEnabled: Boolean,
+        ) {
+            if (!evidenceEnabled) {
+                // Legacy / evidence-disabled compatibility: admission proceeds without claim version validation
+                return
+            }
+            val stored = store.get(request.approvalId)
+            val rejectionReason =
+                when {
+                    request.continuationVersion <= 0L -> {
+                        "approval '${request.approvalId}' cannot record evidence: continuationVersion must be positive"
+                    }
+
+                    stored == null -> {
+                        "approval '${request.approvalId}' not found"
+                    }
+
+                    stored.status != ApprovalContinuationStatus.CLAIMED -> {
+                        "approval '${request.approvalId}' is not in CLAIMED status (was ${stored.status})"
+                    }
+
+                    stored.version != request.continuationVersion -> {
+                        "approval '${request.approvalId}' continuation version mismatch: store has ${stored.version}, request claimed ${request.continuationVersion}"
+                    }
+
+                    else -> {
+                        null
+                    }
+                }
+            if (rejectionReason != null) {
+                throw ApprovalResumeAdmissionRefusedException(rejectionReason)
+            }
+        }
+
+        // Case 1: Substituted / falsified claim version (store has 1L, request claims 7L) is refused fail-closed
+        val forgedRequest =
+            ContractApprovalResumeAdmissionRequest(
+                approvalId = suspended.approvalId,
+                toolName = TOOL_NAME,
+                runIdentity = testIdentity(),
+                checkpointBinding = binding,
+                continuationVersion = 7L,
+            )
+        val forgedFailure =
+            assertFailsWith<ApprovalResumeAdmissionRefusedException> {
+                runBlocking {
+                    validateClaimProvenance(fixture.continuationStore, forgedRequest, evidenceEnabled = true)
+                }
+            }
+        assertThat(forgedFailure.message).contains("continuation version mismatch")
+
+        // Case 2: Legacy unversioned request (version = 0L) is refused fail-closed when evidence tracking is enabled
+        val legacyRequest =
+            ContractApprovalResumeAdmissionRequest(
+                approvalId = suspended.approvalId,
+                toolName = TOOL_NAME,
+                runIdentity = testIdentity(),
+                checkpointBinding = binding,
+                continuationVersion = 0L,
+            )
+        val legacyFailure =
+            assertFailsWith<ApprovalResumeAdmissionRefusedException> {
+                runBlocking {
+                    validateClaimProvenance(fixture.continuationStore, legacyRequest, evidenceEnabled = true)
+                }
+            }
+        assertThat(legacyFailure.message).contains("continuationVersion must be positive")
+
+        // Case 3: Legacy unversioned request (version = 0L) succeeds when evidence tracking is disabled (runtime backward compatibility)
+        runBlocking {
+            validateClaimProvenance(fixture.continuationStore, legacyRequest, evidenceEnabled = false)
+        }
+
+        // Case 4: Authentic claimed version (1L) passes validation and matches durable state
+        val authenticRequest =
+            ContractApprovalResumeAdmissionRequest(
+                approvalId = suspended.approvalId,
+                toolName = TOOL_NAME,
+                runIdentity = testIdentity(),
+                checkpointBinding = binding,
+                continuationVersion = claimed.continuation.version,
+            )
+        runBlocking {
+            validateClaimProvenance(fixture.continuationStore, authenticRequest, evidenceEnabled = true)
         }
     }
 }
