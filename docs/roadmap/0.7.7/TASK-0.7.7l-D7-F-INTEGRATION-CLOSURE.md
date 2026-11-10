@@ -209,15 +209,17 @@ Implemented and verified in `WorkflowCrossBoundaryAdversarialTest.kt`. Each test
 
 ## 7. Epic 0.7.7 Acceptance Matrix
 
-| Epic 0.7.7 Acceptance Criterion | Status | Verified Evidence |
+| Criterion | Status | Required evidence |
 |---|---|---|
-| **1. Cancelled persisted run can never resume authoritative execution.** | **PASS (VERIFIED)** | D7-F01, D7-F02, D7-F05, ADV-01: Every resume and step admission attempt fails closed with `WorkflowAdmissionRefusedException`. |
-| **2. Competing cancel/resume has one authoritative winner.** | **PASS (VERIFIED)** | D7-F03, D7-F08: Checkpoint CAS revision and atomic sequence numbers enforce a single winner. |
-| **3. Cancellation survives process restart.** | **PASS (VERIFIED)** | D7-F10, ADV-04: Brand-new store instances backed by real DB preserve `CANCELLED_CLEAN` and `CANCELLED_UNCERTAIN`. |
-| **4. Repeated cancellation is idempotent.** | **PASS (VERIFIED)** | D7-F09: Re-invoking `cancel()` on an already-cancelled run returns success without mutating revision or state. |
-| **5. Late approval cannot authorize continuation.** | **PASS (VERIFIED)** | D7-F07, ADV-03: Approval claim on a cancelled run is refused; execution cannot proceed. |
-| **6. Cancellation remains visible to timeline/reconstruction.** | **PASS (VERIFIED)** | D7-F11, Phase 4: `WorkflowHistoricalEvidenceReader` reconstructs exact cancellation state, reason, and timestamp. |
-| **7. Cancellation never represents prior external effects as compensated.** | **PASS (VERIFIED)** | D7-F03, D7-F04, D7-F12: Runs with admitted effects commit `CANCELLED_UNCERTAIN` and flag `reconciliationRequired = true`. |
+| **Authoritative cancellation** | **MET** | Real checkpoint and cancel path (D7-F01, D7-F02, D7-F05, ADV-01). Real `JdbcWorkflowCheckpointStore` sets terminal `CANCELLED_CLEAN` or `CANCELLED_UNCERTAIN`; subsequent admission fails closed with `WorkflowAdmissionRefusedException`. |
+| **Effect admission fencing** | **MET** | E1–E9 and E11 coverage (D7-F01–D7-F04, D7-F08, D7-F12, ADV-01, ADV-12). Monotonic admission sequences committed atomically in checkpoint store. Post-cancel admissions refused fail-closed. |
+| **Recovery lease fencing** | **MET** | E10 tests (D7-F06, ADV-07). `JdbcWorkflowLeaseStore` with `admitUnderLeaseFence`; expired lease presented by stale worker refused with `WorkflowAdmissionRefusedException`. |
+| **Restart survival** | **MET** | Persisted restart scenario (D7-F10, ADV-04). Re-instantiated store connected to existing JDBC database preserves terminal state and refuses execution. |
+| **Late approval exclusion** | **MET** | E9 real resume path (D7-F07, D7-F13, ADV-03). `WorkflowApprovalResumeAdmission` inspects checkpoint before issuing permit; rejects resume on cancelled run; expired continuation fails closed. |
+| **Cross-family evidence integrity** | **MET** | Durable evidence records (Phase 3, `CrossFamilyEvidenceCorrelationTest`). HTTP (E1), MCP (E3), Process (E7), and Approval Resume (E9) records persist with correct run ID, generation, sequence, and typed parent provenance (`StepAttempt` vs `ApprovalContinuation`). |
+| **Historical reconstruction truthfulness** | **MET** | Read-only reconstruction proof (Phase 4, `WorkflowHistoricalEvidenceTimelineTest`). `WorkflowHistoricalEvidenceReader.readTimeline` extracts exact lifecycle without side-effects or external tool execution; identifies admission gaps; flags `reconciliationRequired`. |
+| **Sensitive-data protection** | **MET** | Adversarial canary evidence (Phase 3, ADV-11). Canary secret strings in arguments, headers, and environment variables are never committed in plaintext to evidence stores or exception messages; SHA256 digests used. |
+| **Integration and release gates** | **MET** | Exact-head qualification. CI suite runs clean on head `0c4e5b62` (all 16 jobs in `CI` green: `tests`, `consumer-smoke`, `static-safety`, `static-analysis`, `compiler-warnings`, `governance-integration`, `hygiene`, `formatting`, `api-check`, `zero-egress`). Base-red proven for pre-existing `verify060Architecture` failure. |
 
 ---
 
