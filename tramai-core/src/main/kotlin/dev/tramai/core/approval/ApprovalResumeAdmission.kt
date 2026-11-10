@@ -19,15 +19,57 @@ data class ApprovalResumeAdmissionRequest(
     val toolName: String,
     val runIdentity: GovernedRunIdentity,
     val checkpointBinding: WorkflowCheckpointBinding,
-    val continuationVersion: Long = 0L,
 ) {
-    // Retained for binary compatibility with compiled callers
+    var continuationVersion: Long = 0L
+        private set
+
     constructor(
         approvalId: String,
         toolName: String,
         runIdentity: GovernedRunIdentity,
         checkpointBinding: WorkflowCheckpointBinding,
-    ) : this(approvalId, toolName, runIdentity, checkpointBinding, 0L)
+        continuationVersion: Long,
+    ) : this(approvalId, toolName, runIdentity, checkpointBinding) {
+        this.continuationVersion = continuationVersion
+    }
+
+    fun copy(
+        approvalId: String = this.approvalId,
+        toolName: String = this.toolName,
+        runIdentity: GovernedRunIdentity = this.runIdentity,
+        checkpointBinding: WorkflowCheckpointBinding = this.checkpointBinding,
+        continuationVersion: Long,
+    ): ApprovalResumeAdmissionRequest =
+        ApprovalResumeAdmissionRequest(
+            approvalId,
+            toolName,
+            runIdentity,
+            checkpointBinding,
+            continuationVersion,
+        )
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ApprovalResumeAdmissionRequest) return false
+        return approvalId == other.approvalId &&
+            toolName == other.toolName &&
+            runIdentity == other.runIdentity &&
+            checkpointBinding == other.checkpointBinding &&
+            continuationVersion == other.continuationVersion
+    }
+
+    override fun hashCode(): Int {
+        var result = approvalId.hashCode()
+        result = 31 * result + toolName.hashCode()
+        result = 31 * result + runIdentity.hashCode()
+        result = 31 * result + checkpointBinding.hashCode()
+        result = 31 * result + continuationVersion.hashCode()
+        return result
+    }
+
+    override fun toString(): String =
+        "ApprovalResumeAdmissionRequest(approvalId=$approvalId, toolName=$toolName, " +
+            "runIdentity=$runIdentity, checkpointBinding=$checkpointBinding, continuationVersion=$continuationVersion)"
 }
 
 /**

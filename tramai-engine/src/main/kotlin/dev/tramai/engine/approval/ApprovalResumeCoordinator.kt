@@ -259,35 +259,77 @@ internal class ApprovalResumeCoordinator(
         expectedArgsDigest: Sha256Digest,
         emitter: suspend (String) -> Unit,
         handle: ApprovalResumeEvidenceHandle?,
+    ): Any? {
+        val executed =
+            executeClaimedResumePayload(
+                context = context,
+                rehydratedPayload = rehydratedPayload,
+                validatedInput = validatedInput,
+                expectedArgsDigest = expectedArgsDigest,
+                emitter = emitter,
+                handle = handle,
+            )
+        recordDispatchedAndCompleted(handle)
+        return executed
+    }
+
+    private suspend fun executeClaimedResumePayload(
+        context: ResumeExecutionContext,
+        rehydratedPayload: RehydratedReplayPayload,
+        validatedInput: String,
+        expectedArgsDigest: Sha256Digest,
+        emitter: suspend (String) -> Unit,
+        handle: ApprovalResumeEvidenceHandle?,
     ): Any? =
         try {
-            val executed =
-                context.registered.resumeExecutor.execute(
-                    ClaimedResumeExecutionRequest(
-                        context.command,
-                        context.metadata,
-                        context.registered,
-                        context.resolvedTool,
-                        rehydratedPayload,
-                        validatedInput,
-                        expectedArgsDigest,
-                        emitter,
-                    ),
-                )
-            handle?.recordDispatched()
-            handle?.recordCompleted()
-            executed
-        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_TIMEOUT)
-            throw e
-        } catch (e: CancellationException) {
-            recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_CANCELLED)
-            throw e
-        } catch (e: Exception) {
-            e.rethrowIfCancellation()
-            recordUncertainAndSuppress(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_FAILED)
+            context.registered.resumeExecutor.execute(
+                ClaimedResumeExecutionRequest(
+                    context.command,
+                    context.metadata,
+                    context.registered,
+                    context.resolvedTool,
+                    rehydratedPayload,
+                    validatedInput,
+                    expectedArgsDigest,
+                    emitter,
+                ),
+            )
+        } catch (
+            @Suppress("TooGenericExceptionCaught") e: Throwable,
+        ) {
+            when (e) {
+                is kotlinx.coroutines.TimeoutCancellationException -> {
+                    recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_TIMEOUT)
+                }
+
+                is CancellationException -> {
+                    recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_CANCELLED)
+                }
+
+                is Exception -> {
+                    recordUncertainAndSuppress(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_FAILED)
+                }
+
+                else -> {
+                    recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_FAILED)
+                }
+            }
             throw e
         }
+
+    private suspend fun recordDispatchedAndCompleted(handle: ApprovalResumeEvidenceHandle?) {
+        if (handle == null) return
+        try {
+            handle.recordDispatched()
+            handle.recordCompleted()
+        } catch (
+            @Suppress("TooGenericExceptionCaught") e: Throwable,
+        ) {
+            e.rethrowIfCancellation()
+            recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.PERSISTENCE_FAILED)
+            throw e
+        }
+    }
 
     private suspend fun recordUncertainSafely(
         handle: ApprovalResumeEvidenceHandle?,
@@ -297,8 +339,9 @@ internal class ApprovalResumeCoordinator(
         try {
             handle?.recordUncertain(error, category)
         } catch (
-            @Suppress("TooGenericExceptionCaught") _: Throwable,
+            @Suppress("TooGenericExceptionCaught") suppressed: Throwable,
         ) {
+            suppressed.rethrowIfCancellation()
             // Cancellation must never be suppressed or obscured
         }
     }
@@ -313,6 +356,7 @@ internal class ApprovalResumeCoordinator(
         } catch (
             @Suppress("TooGenericExceptionCaught") suppressed: Throwable,
         ) {
+            suppressed.rethrowIfCancellation()
             if (error !== suppressed) {
                 error.addSuppressed(suppressed)
             }

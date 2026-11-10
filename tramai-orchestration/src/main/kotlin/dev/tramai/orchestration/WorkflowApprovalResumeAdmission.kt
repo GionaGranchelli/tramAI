@@ -38,6 +38,7 @@ class WorkflowApprovalResumeAdmission internal constructor(
     private val evidenceStore: WorkflowEffectEvidenceRecordStore?,
     private val approvalResumeEvidenceEnabled: Boolean,
     private val clock: Clock,
+    private val evidenceTimeoutMillis: Long = 5_000L,
 ) : ApprovalResumeAdmission {
     constructor(checkpointStore: WorkflowCheckpointStore) : this(
         checkpointStore = checkpointStore,
@@ -86,12 +87,14 @@ class WorkflowApprovalResumeAdmission internal constructor(
         continuationStore: ApprovalContinuationStore?,
         evidenceStore: WorkflowEffectEvidenceRecordStore?,
         approvalResumeEvidenceEnabled: Boolean = (evidenceStore != null),
+        evidenceTimeoutMillis: Long = 5_000L,
     ) : this(
         checkpointStore = checkpointStore,
         continuationStore = continuationStore,
         evidenceStore = evidenceStore,
         approvalResumeEvidenceEnabled = approvalResumeEvidenceEnabled,
         clock = Clock.systemUTC(),
+        evidenceTimeoutMillis = evidenceTimeoutMillis,
     )
 
     override suspend fun admitResume(request: ApprovalResumeAdmissionRequest): ApprovalResumePermit {
@@ -274,7 +277,7 @@ class WorkflowApprovalResumeAdmission internal constructor(
                 ex,
             )
         }
-        return WorkflowApprovalResumeEvidenceHandle(store, evidenceKey, clock)
+        return WorkflowApprovalResumeEvidenceHandle(store, evidenceKey, clock, evidenceTimeoutMillis)
     }
 }
 
@@ -286,30 +289,65 @@ private class WorkflowApprovalResumeEvidenceHandle(
 ) : ApprovalResumeEvidenceHandle {
     override suspend fun recordDispatched() {
         withContext(NonCancellable) {
-            withTimeoutOrNull(timeoutMillis) {
-                val existing =
-                    checkNotNull(evidenceStore.getEvidence(evidenceKey)) {
-                        "Evidence record missing for key: $evidenceKey"
+            val updated =
+                try {
+                    withTimeoutOrNull(timeoutMillis) {
+                        val existing =
+                            checkNotNull(evidenceStore.getEvidence(evidenceKey)) {
+                                "Evidence record missing for key: $evidenceKey"
+                            }
+                        evidenceStore.updateEvidence(existing.copy(state = WorkflowEffectEvidenceState.DISPATCHED))
                     }
-                val updated = existing.copy(state = WorkflowEffectEvidenceState.DISPATCHED)
-                evidenceStore.updateEvidence(updated)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") ex: Throwable,
+                ) {
+                    ex.rethrowIfCancellation()
+                    throw ApprovalResumeEvidencePersistenceException(
+                        "Failed to record DISPATCHED evidence for key $evidenceKey: ${ex.message}",
+                        ex,
+                    )
+                }
+            if (updated == null) {
+                throw ApprovalResumeEvidencePersistenceException(
+                    "Timed out after ${timeoutMillis}ms waiting to record DISPATCHED evidence for key: $evidenceKey",
+                )
             }
         }
     }
 
     override suspend fun recordCompleted() {
         withContext(NonCancellable) {
-            withTimeoutOrNull(timeoutMillis) {
-                val existing =
-                    checkNotNull(evidenceStore.getEvidence(evidenceKey)) {
-                        "Evidence record missing for key: $evidenceKey"
+            val updated =
+                try {
+                    withTimeoutOrNull(timeoutMillis) {
+                        val existing =
+                            checkNotNull(evidenceStore.getEvidence(evidenceKey)) {
+                                "Evidence record missing for key: $evidenceKey"
+                            }
+                        evidenceStore.updateEvidence(
+                            existing.copy(
+                                state = WorkflowEffectEvidenceState.COMPLETED,
+                                completedAtEpochMillis = clock.millis(),
+                            ),
+                        )
                     }
-                val updated =
-                    existing.copy(
-                        state = WorkflowEffectEvidenceState.COMPLETED,
-                        completedAtEpochMillis = clock.millis(),
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") ex: Throwable,
+                ) {
+                    ex.rethrowIfCancellation()
+                    throw ApprovalResumeEvidencePersistenceException(
+                        "Failed to record COMPLETED evidence for key $evidenceKey: ${ex.message}",
+                        ex,
                     )
-                evidenceStore.updateEvidence(updated)
+                }
+            if (updated == null) {
+                throw ApprovalResumeEvidencePersistenceException(
+                    "Timed out after ${timeoutMillis}ms waiting to record COMPLETED evidence for key: $evidenceKey",
+                )
             }
         }
     }

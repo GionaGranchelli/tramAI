@@ -2503,49 +2503,151 @@ class WorkflowApprovalResumeEffectEvidenceTest {
     }
 
     @Test
-    fun `E9-E28 - Evidence handle bounded execution with stalling store`() {
-        val slowStore =
+    fun `E9-E28 - Evidence-write timeout throws persistence exception, leaves continuation CLAIMED, and prevents completion`() {
+        val baseEvidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        val stallingEvidenceStore =
             object : WorkflowEffectEvidenceRecordStore {
-                override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord = record
+                override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
+                    baseEvidenceStore.recordEvidence(record)
 
-                override suspend fun getEvidence(key: WorkflowEffectEvidenceKey): WorkflowEffectEvidenceRecord? {
-                    kotlinx.coroutines.delay(200)
-                    return WorkflowEffectEvidenceRecord(
-                        key = key,
-                        parent = ParentProvenance.ApprovalContinuation("appr-1", 1L, "tool"),
-                        effectKind = APPROVAL_RESUME_EFFECT_KIND,
-                        state = WorkflowEffectEvidenceState.ADMITTED,
-                        createdAtEpochMillis = 1000L,
-                    )
-                }
+                override suspend fun getEvidence(key: WorkflowEffectEvidenceKey): WorkflowEffectEvidenceRecord? =
+                    baseEvidenceStore.getEvidence(key)
 
                 override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
                     kotlinx.coroutines.delay(200)
-                    return record
+                    return baseEvidenceStore.updateEvidence(record)
                 }
 
                 override suspend fun listEvidence(
                     workflowName: String,
                     workflowId: String,
-                ): List<WorkflowEffectEvidenceRecord> = emptyList()
+                ): List<WorkflowEffectEvidenceRecord> = baseEvidenceStore.listEvidence(workflowName, workflowId)
             }
 
-        val key = WorkflowEffectEvidenceKey("wf", "run-1", "gen-1", 1L)
-        val handleClass = Class.forName("dev.tramai.orchestration.WorkflowApprovalResumeEvidenceHandle")
-        val ctor = handleClass.declaredConstructors[0].apply { isAccessible = true }
+        val checkpoints =
+            InMemoryWorkflowCheckpointStore().apply {
+                evidenceStore = stallingEvidenceStore
+            }
+        val continuations = InMemoryApprovalContinuationStore(clock = Clock.systemUTC())
+        val admission =
+            WorkflowApprovalResumeAdmission(
+                checkpointStore = checkpoints,
+                continuationStore = continuations,
+                evidenceStore = stallingEvidenceStore,
+                approvalResumeEvidenceEnabled = true,
+                evidenceTimeoutMillis = 50L,
+            )
 
-        @Suppress("UNCHECKED_CAST")
-        val handle =
-            ctor.newInstance(slowStore, key, Clock.systemUTC(), 50L) as dev.tramai.core.approval.ApprovalResumeEvidenceHandle
+        val fixture =
+            createFixture(
+                checkpoints = checkpoints,
+                continuations = continuations,
+                evidenceStore = stallingEvidenceStore,
+                customAdmission = admission,
+                evidenceRequired = true,
+            )
 
-        val elapsed =
-            kotlin.system.measureTimeMillis {
-                runBlocking {
-                    handle.recordDispatched()
-                    handle.recordCompleted()
+        val suspended = suspendWorkflow(fixture)
+
+        val resumeCommand =
+            ResumeApprovalCommand(
+                approvalId = suspended.approvalId,
+                approvalExpectedVersion = 0L,
+                continuationExpectedVersion = 0L,
+                presentedToken = suspended.challenge.token,
+                resumedBy = "operator-alice",
+            )
+
+        val ex =
+            assertFailsWith<ApprovalResumeEvidencePersistenceException> {
+                runBlocking { fixture.engine.resumeApproval(resumeCommand) }
+            }
+        assertThat(ex.message).contains("Timed out")
+        assertThat(fixture.tool.executions.get()).isEqualTo(1)
+
+        val continuation = runBlocking { fixture.continuationStore.get(suspended.approvalId) }
+        assertThat(continuation?.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+    }
+
+    @Test
+    fun `E9-E30 - Post-execution persistence failure labels evidence as PERSISTENCE_FAILED, preserves tool execution, and leaves continuation CLAIMED`() {
+        val baseEvidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        var failCompleted = true
+        val flakingEvidenceStore =
+            object : WorkflowEffectEvidenceRecordStore {
+                override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
+                    baseEvidenceStore.recordEvidence(record)
+
+                override suspend fun getEvidence(key: WorkflowEffectEvidenceKey): WorkflowEffectEvidenceRecord? =
+                    baseEvidenceStore.getEvidence(key)
+
+                override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                    if (record.state == WorkflowEffectEvidenceState.COMPLETED && failCompleted) {
+                        failCompleted = false
+                        throw SQLException("Database connection lost during COMPLETED write")
+                    }
+                    return baseEvidenceStore.updateEvidence(record)
                 }
+
+                override suspend fun listEvidence(
+                    workflowName: String,
+                    workflowId: String,
+                ): List<WorkflowEffectEvidenceRecord> = baseEvidenceStore.listEvidence(workflowName, workflowId)
             }
-        assertThat(elapsed).isLessThan(350L)
+
+        val checkpoints =
+            InMemoryWorkflowCheckpointStore().apply {
+                evidenceStore = flakingEvidenceStore
+            }
+        val continuations = InMemoryApprovalContinuationStore(clock = Clock.systemUTC())
+        val admission =
+            WorkflowApprovalResumeAdmission(
+                checkpointStore = checkpoints,
+                continuationStore = continuations,
+                evidenceStore = flakingEvidenceStore,
+                approvalResumeEvidenceEnabled = true,
+            )
+
+        val fixture =
+            createFixture(
+                checkpoints = checkpoints,
+                continuations = continuations,
+                evidenceStore = flakingEvidenceStore,
+                customAdmission = admission,
+                evidenceRequired = true,
+            )
+
+        val suspended = suspendWorkflow(fixture)
+
+        val resumeCommand =
+            ResumeApprovalCommand(
+                approvalId = suspended.approvalId,
+                approvalExpectedVersion = 0L,
+                continuationExpectedVersion = 0L,
+                presentedToken = suspended.challenge.token,
+                resumedBy = "operator-alice",
+            )
+
+        val ex =
+            assertFailsWith<ApprovalResumeEvidencePersistenceException> {
+                runBlocking { fixture.engine.resumeApproval(resumeCommand) }
+            }
+        assertThat(ex.message).contains("Failed to record COMPLETED evidence")
+        assertThat(ex.cause).isInstanceOf(SQLException::class.java)
+
+        // Tool was executed once and NOT retried
+        assertThat(fixture.tool.executions.get()).isEqualTo(1)
+
+        // Continuation remains in CLAIMED state for reconciliation
+        val continuation = runBlocking { fixture.continuationStore.get(suspended.approvalId) }
+        assertThat(continuation?.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+
+        // Evidence was updated to UNCERTAIN with diagnosticSummary = PERSISTENCE_FAILED (NOT TOOL_EXECUTION_FAILED)
+        val records = runBlocking { flakingEvidenceStore.listEvidence(WORKFLOW_NAME, RUN_ID) }
+        assertThat(records).hasSize(1)
+        val evidence = records[0]
+        assertThat(evidence.state).isEqualTo(WorkflowEffectEvidenceState.UNCERTAIN)
+        assertThat(evidence.diagnosticSummary).isEqualTo(WorkflowEvidenceDiagnosticCategory.PERSISTENCE_FAILED.name)
     }
 
     @Test
