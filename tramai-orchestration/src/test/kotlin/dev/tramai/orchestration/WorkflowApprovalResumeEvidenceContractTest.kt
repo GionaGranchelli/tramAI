@@ -969,6 +969,68 @@ class WorkflowApprovalResumeEvidenceContractTest {
         val continuationVersion: Long = 0L,
     )
 
+    private suspend fun validateClaimProvenance(
+        store: ApprovalContinuationStore?,
+        request: ContractApprovalResumeAdmissionRequest,
+        evidenceEnabled: Boolean,
+    ) {
+        if (!evidenceEnabled) {
+            // Legacy / evidence-disabled compatibility: admission proceeds without claim version validation
+            return
+        }
+        if (store == null) {
+            throw ApprovalResumeAdmissionRefusedException(
+                "approval '${request.approvalId}' cannot be admitted: continuationStore is required when evidence tracking is enabled",
+            )
+        }
+        val stored = store.get(request.approvalId)
+        val rejectionReason =
+            when {
+                request.continuationVersion <= 0L -> {
+                    "approval '${request.approvalId}' cannot record evidence: continuationVersion must be positive"
+                }
+
+                stored == null -> {
+                    "approval '${request.approvalId}' not found"
+                }
+
+                stored.status != ApprovalContinuationStatus.CLAIMED -> {
+                    "approval '${request.approvalId}' is not in CLAIMED status (was ${stored.status})"
+                }
+
+                stored.version != request.continuationVersion -> {
+                    "approval '${request.approvalId}' continuation version mismatch: store has ${stored.version}, request claimed ${request.continuationVersion}"
+                }
+
+                stored.workflowRunId != request.checkpointBinding.workflowId -> {
+                    "approval '${request.approvalId}' workflowRunId mismatch: store has ${stored.workflowRunId}, request claimed ${request.checkpointBinding.workflowId}"
+                }
+
+                stored.toolName != request.toolName -> {
+                    "approval '${request.approvalId}' tool mismatch: store has ${stored.toolName}, request claimed ${request.toolName}"
+                }
+
+                else -> {
+                    null
+                }
+            }
+        if (rejectionReason != null) {
+            throw ApprovalResumeAdmissionRefusedException(rejectionReason)
+        }
+    }
+
+    private fun verifyEngineDispatchPrecondition(
+        evidenceRequired: Boolean,
+        permitEvidenceHandle: Any?,
+        approvalId: String,
+    ) {
+        if (evidenceRequired && permitEvidenceHandle == null) {
+            error(
+                "Approval resume for '$approvalId' requires durable evidence tracking, but admission authority returned permit without evidenceHandle",
+            )
+        }
+    }
+
     @Test
     fun `E9-L13 - Fail-closed claim provenance validation characterized (production enforcement required in D7-E1)`() {
         val fixture = createFixture()
@@ -987,58 +1049,6 @@ class WorkflowApprovalResumeEvidenceContractTest {
         assertThat(claimed.continuation.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
 
         val binding = WorkflowCheckpointBinding(WORKFLOW_NAME, RUN_ID)
-
-        // Validation rule defining the Option C validation boundary for D7-E1.
-        // Proves contract semantics against authentic claimed state; production authority enforcement occurs in D7-E1.
-        suspend fun validateClaimProvenance(
-            store: ApprovalContinuationStore?,
-            request: ContractApprovalResumeAdmissionRequest,
-            evidenceEnabled: Boolean,
-        ) {
-            if (!evidenceEnabled) {
-                // Legacy / evidence-disabled compatibility: admission proceeds without claim version validation
-                return
-            }
-            if (store == null) {
-                throw ApprovalResumeAdmissionRefusedException(
-                    "approval '${request.approvalId}' cannot be admitted: continuationStore is required when evidence tracking is enabled",
-                )
-            }
-            val stored = store.get(request.approvalId)
-            val rejectionReason =
-                when {
-                    request.continuationVersion <= 0L -> {
-                        "approval '${request.approvalId}' cannot record evidence: continuationVersion must be positive"
-                    }
-
-                    stored == null -> {
-                        "approval '${request.approvalId}' not found"
-                    }
-
-                    stored.status != ApprovalContinuationStatus.CLAIMED -> {
-                        "approval '${request.approvalId}' is not in CLAIMED status (was ${stored.status})"
-                    }
-
-                    stored.version != request.continuationVersion -> {
-                        "approval '${request.approvalId}' continuation version mismatch: store has ${stored.version}, request claimed ${request.continuationVersion}"
-                    }
-
-                    stored.workflowRunId != request.checkpointBinding.workflowId -> {
-                        "approval '${request.approvalId}' workflowRunId mismatch: store has ${stored.workflowRunId}, request claimed ${request.checkpointBinding.workflowId}"
-                    }
-
-                    stored.toolName != request.toolName -> {
-                        "approval '${request.approvalId}' tool mismatch: store has ${stored.toolName}, request claimed ${request.toolName}"
-                    }
-
-                    else -> {
-                        null
-                    }
-                }
-            if (rejectionReason != null) {
-                throw ApprovalResumeAdmissionRefusedException(rejectionReason)
-            }
-        }
 
         // Case 1: Substituted / falsified claim version (store has 1L, request claims 7L) is refused fail-closed
         val forgedVersionRequest =
@@ -1100,12 +1110,7 @@ class WorkflowApprovalResumeEvidenceContractTest {
             }
         assertThat(legacyFailure.message).contains("continuationVersion must be positive")
 
-        // Case 5: Legacy unversioned request (version = 0L) succeeds when evidence tracking is disabled (runtime backward compatibility)
-        runBlocking {
-            validateClaimProvenance(fixture.continuationStore, legacyRequest, evidenceEnabled = false)
-        }
-
-        // Case 6: Authentic claimed version (1L) and matching tool/run passes validation and matches durable state
+        // Authentic claimed request (version = 1L)
         val authenticRequest =
             ContractApprovalResumeAdmissionRequest(
                 approvalId = suspended.approvalId,
@@ -1114,6 +1119,34 @@ class WorkflowApprovalResumeEvidenceContractTest {
                 checkpointBinding = binding,
                 continuationVersion = claimed.continuation.version,
             )
+
+        // Case 5a: Discriminating test 1 — Evidence disabled, claim version 1L, null handle remains fully compatible
+        runBlocking {
+            validateClaimProvenance(fixture.continuationStore, authenticRequest, evidenceEnabled = false)
+        }
+        verifyEngineDispatchPrecondition(
+            evidenceRequired = false,
+            permitEvidenceHandle = null,
+            approvalId = suspended.approvalId,
+        )
+
+        // Case 5b: Discriminating test 2 — Evidence required, claim version 1L, null handle refuses before executor invocation
+        val missingHandleFailure =
+            assertFailsWith<IllegalStateException> {
+                verifyEngineDispatchPrecondition(
+                    evidenceRequired = true,
+                    permitEvidenceHandle = null,
+                    approvalId = suspended.approvalId,
+                )
+            }
+        assertThat(missingHandleFailure.message).contains("requires durable evidence tracking")
+
+        // Case 5c: Legacy unversioned request (version = 0L) succeeds when evidence tracking is disabled (runtime backward compatibility)
+        runBlocking {
+            validateClaimProvenance(fixture.continuationStore, legacyRequest, evidenceEnabled = false)
+        }
+
+        // Case 6: Authentic claimed version (1L) and matching tool/run passes validation and matches durable state
         runBlocking {
             validateClaimProvenance(fixture.continuationStore, authenticRequest, evidenceEnabled = true)
         }

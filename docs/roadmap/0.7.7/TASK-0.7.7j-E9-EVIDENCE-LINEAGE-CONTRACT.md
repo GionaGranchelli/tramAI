@@ -267,20 +267,38 @@ class ApprovalResumePermit(
 }
 ```
 
-#### Runtime Compatibility, Misconfiguration Detection & Evidence Enforcement Policy
+#### Runtime Compatibility, Misconfiguration Detection & Explicit Evidence Enforcement Policy
 Compatibility is preserved at both binary and runtime levels, while strictly preventing unrecorded execution:
-1. **Evidence-Disabled Legacy Deployments (`evidenceStore == null`):**
-   - An admission request with `continuationVersion == 0L` (e.g. from the retained 4-argument constructor) is accepted and admitted against the checkpoint row as before, returning an `ApprovalResumePermit(evidenceHandle = null)`. Existing workflows without evidence tracking continue to function with zero behavioral regression.
-2. **Evidence-Enabled Deployments (`evidenceStore != null`):**
-   - The authority **fails closed** if `request.continuationVersion <= 0L`: missing continuation claim provenance cannot produce durable child evidence (`ApprovalResumeAdmissionRefusedException: cannot record approval resume evidence without authoritative continuation claim version`).
-   - In evidence-enabled configurations, `continuationStore` is **mandatory**; omission fails closed at admission time (`ApprovalResumeAdmissionRefusedException: cannot record approval resume evidence: continuationStore is required`).
-   - All 5 claim provenance checks (existence, CLAIMED status, version match, run ID match, tool name match) must pass before a permit is granted.
-   - The issued permit **must** carry a non-null `evidenceHandle`.
-3. **Engine-Side Enforcement Against Misconfiguration:**
-   - A nullable handle alone cannot distinguish a legitimate evidence-disabled deployment from a misconfigured deployment.
-   - Therefore, in governed workflow execution where evidence tracking is expected (or whenever `request.continuationVersion > 0L`), `ApprovalResumeCoordinator` in `tramai-engine` checks `permit.evidenceHandle`. If the authority returns `evidenceHandle == null`, the coordinator **fails closed** before dispatching the tool continuation:
-     `throw IllegalStateException("Approval resume for '${request.approvalId}' requires durable evidence tracking, but admission authority returned permit without evidenceHandle")`
-   - This prevents silent unrecorded tool execution if an evidence-tracking engine is accidentally wired to an evidence-disabled admission authority.
+
+1. **Claim Provenance Availability vs Evidence Requirement (Critical Architectural Invariant):**
+   - A claimed continuation *always* receives an incremented positive version (`version >= 1L`) from the underlying CAS claim in `ApprovalContinuationStore`.
+   - The presence of `continuationVersion > 0L` on `ApprovalResumeAdmissionRequest` proves that **authentic claim provenance is available** from the engine's claim result.
+   - A positive continuation version **must not** serve as the policy signal that durable evidence tracking is required. Conflating claim version availability with evidence policy would break legitimate evidence-disabled legacy deployments where a claimed continuation has `version == 1L` and `permit.evidenceHandle == null`.
+   - Whether durable evidence is required is governed strictly by an **explicit composition-time policy** configured on the engine/coordinator (e.g. `evidenceRequired: Boolean`, determined by whether workflow effect evidence tracking is enabled in this deployment).
+
+2. **Evidence-Disabled Legacy Deployments (`evidenceStore == null` / `evidenceRequired == false`):**
+   - The authority accepts admission requests regardless of whether `continuationVersion` is 0L (legacy callers) or positive (e.g. 1L from newer coordinators claiming continuations), admitting against the checkpoint row and returning `ApprovalResumePermit(evidenceHandle = null)`.
+   - The engine receives `permit.evidenceHandle == null`. Because the composition policy does not require evidence (`evidenceRequired == false`), the resume proceeds with tool execution normally.
+   - Existing workflows and evidence-disabled configurations function with zero behavioral regression.
+
+3. **Evidence-Enabled Deployments & Misconfiguration Defense:**
+   - **Authority Enforcement (`evidenceStore != null`):**
+     - The authority **fails closed** if `request.continuationVersion <= 0L`: missing continuation claim provenance cannot produce durable child evidence (`ApprovalResumeAdmissionRefusedException: cannot record approval resume evidence without authoritative continuation claim version`).
+     - In evidence-enabled configurations, `continuationStore` is **mandatory**; omission fails closed at admission time (`ApprovalResumeAdmissionRefusedException: cannot record approval resume evidence: continuationStore is required`).
+     - All 5 claim provenance checks (existence, CLAIMED status, version match, run ID match, tool name match) must pass before a permit is granted.
+     - The issued permit **must** carry a non-null `evidenceHandle`.
+   - **Engine-Side Enforcement Against Misconfiguration:**
+     - The engine requires a non-null `evidenceHandle` **only when its explicit composition policy requires evidence tracking** (`evidenceRequired == true`).
+     - If the composition policy requires evidence tracking and the admission authority returns `permit.evidenceHandle == null` (e.g. because an evidence-expecting engine is miswired to an evidence-disabled authority), the engine **fails closed** before dispatching the executor invocation:
+       `throw IllegalStateException("Approval resume for '${request.approvalId}' requires durable evidence tracking, but admission authority returned permit without evidenceHandle")`
+     - This prevents silent unrecorded tool execution while keeping evidence-disabled deployments fully compatible.
+
+4. **D7-E1 Discriminating Test Matrix:**
+   | Configuration | Claim Version | Permit Handle | Expected Behavior |
+   | --- | --- | --- | --- |
+   | **Evidence disabled** (`evidenceRequired = false`) | 1L | `null` | **Resume remains compatible** (dispatch succeeds without error) |
+   | **Evidence required** (`evidenceRequired = true`) | 1L | `null` | **Refuse before executor invocation** fail-closed (`IllegalStateException`) |
+   | **Evidence required** (`evidenceRequired = true`) | 1L | non-null | **Dispatch proceeds** with full child evidence recording |
 
 ### 6.3 Orchestration Implementation, Construction & Encapsulation
 Because `WorkflowApprovalResumeAdmission` is a `public` class while `WorkflowEffectEvidenceRecordStore` is `internal` to the `tramai-orchestration` module, a public constructor cannot accept `WorkflowEffectEvidenceRecordStore` without violating Kotlin encapsulation rules (`'public' constructor exposes its 'internal' parameter type`).
@@ -314,11 +332,15 @@ Existing databases contain E1–E8 evidence records. Adding a non-null column im
 
 2. **Deployment Compatibility Strategy:**
    - **Coordinated Application-and-Schema Upgrade:** The phased sequence below (Phases 1–4) can be executed as a coordinated upgrade during a planned application maintenance window (stop instances -> execute schema migration and backfill -> enforce constraint -> start upgraded instances).
-   - **Rolling Zero-Downtime Deployment (Expand / Dual-Write / Contract):** If a zero-downtime rolling restart across multiple nodes is required, the deployment must follow an expand/contract lifecycle across separate releases:
-     - **Step 1 (Expand - Schema):** Apply Phase 1 only (adding nullable `parent_kind`, `parent_id`, `parent_version` and relaxing `step_attempt_id`). Older instances continue writing legacy columns without interruption.
-     - **Step 2 (Dual-Write / Transition - Application):** Deploy D7-E1 across nodes. D7-E1 instances write `parent_id` (and for step attempts, dual-write `step_attempt_id` for backward-compatible readers).
-     - **Step 3 (Backfill - Data):** Run the Phase 2 backfill SQL to populate `parent_id` for any rows written by legacy instances during the rolling restart window.
-     - **Step 4 (Contract - Schema):** Only after all nodes are confirmed running D7-E1+ and validation (Phase 3) confirms 0 rows with `parent_id IS NULL`, apply Phase 4 (`parent_id SET NOT NULL`).
+   - **Rolling Zero-Downtime Deployment (Expand / Dual-Write / Safe-Enable / Contract):**
+     During a rolling upgrade, older TramAI instances running existing code expect `step_attempt_id` to be non-null when reading the evidence table. An E9 record under Option C legitimately has no step-attempt parent (`step_attempt_id == null`). If newer instances write E9 evidence records while older instances are still running, those older instances will fail when attempting to read or decode the evidence table.
+     Therefore, during a rolling upgrade, **E9 evidence writes must be prevented until every instance that can read the evidence table supports typed parent provenance**. A rolling zero-downtime deployment must follow a strict 6-step lifecycle across rollout stages:
+     - **Step 1 (Expand - Schema):** Apply Phase 1 DDL (add nullable `parent_kind`, `parent_id`, `parent_version` and drop NOT NULL from `step_attempt_id`). Older instances continue writing and reading legacy columns without interruption.
+     - **Step 2 (Deploy Compatible Readers & Dual-Writers with E9 Recording Disabled):** Roll out the new application version across cluster nodes with E9 evidence recording disabled (`approvalResumeEvidenceEnabled = false` or evidence store unconfigured for E9). New instances contain the updated JDBC reader capable of decoding typed parent provenance, and dual-write `parent_id` alongside `step_attempt_id` for E1–E8 effects. No E9 records with null `step_attempt_id` are written yet, so older instances never encounter undecodable records.
+     - **Step 3 (Retire Old Readers):** Confirm that 100% of cluster nodes are running the updated software and all old readers are retired.
+     - **Step 4 (Enable E9 Evidence Recording):** Enable E9 evidence recording (`approvalResumeEvidenceEnabled = true` or configure E9 evidence store). New E9 approval resume evidence records can now be safely written, as all active readers in the cluster understand typed parent provenance.
+     - **Step 5 (Backfill Historical Records - Data):** Run the Phase 2 backfill SQL to populate `parent_id` for any legacy rows written before or during the rolling transition window, and validate that `SELECT COUNT(*) WHERE parent_id IS NULL` returns 0 (Phase 3).
+     - **Step 6 (Contract - Schema):** Enforce `parent_id SET NOT NULL` (Phase 4).
 
 3. **Phased Schema Upgrade DDL:**
    - **Phase 1 (Column Addition & Nullability Relaxation):**
@@ -419,7 +441,8 @@ The subsequent implementation task (**D7-E1**) will realize this ratified contra
    - In `ApprovalResumeCoordinator`:
      - Thread authoritative `claimed.version` into `ApprovalResumeAdmissionRequest(continuationVersion = claimed.version)`.
      - Obtain `evidenceHandle` from `ApprovalResumePermit`.
-     - Enforce non-null `evidenceHandle` when evidence tracking is expected (fail closed with `IllegalStateException` on misconfigured admission authorities).
+     - Enforce non-null `evidenceHandle` only when engine composition policy requires evidence tracking (`evidenceRequired = true`), failing closed before executor invocation if the handle is absent.
+     - When evidence is disabled by composition policy (`evidenceRequired = false`), proceed with tool execution even if `continuationVersion` is positive and handle is null.
      - Call `handle.recordDispatched()` and `handle.recordCompleted()` upon normal tool return.
      - Call `handle.recordUncertain(error, category)` on exception or cancellation using safe diagnostic category.
 
@@ -436,10 +459,10 @@ To avoid confusing architectural intentions with qualified guarantees, the bound
 | **Continuation Version Transmission** | **RATIFIED** cross-module contract | Add `continuationVersion` to request & coordinator |
 | **Continuation Version Validation Boundary** | **CHARACTERIZED** in contract model discriminator (E9-L13) | **PRODUCTION ENFORCEMENT** in `WorkflowApprovalResumeAdmission` against mandatory `continuationStore` (5 dimensions) |
 | **Permit Single-Use & Non-Data Class** | **PROVEN** in characterization tests (E9-L05) | Retain class invariant, add generation and handle |
-| **Runtime Compatibility & Misconfiguration** | **RATIFIED** specification (E9-L13) | Enforce handle presence on engine side when evidence expected |
+| **Runtime Compatibility & Misconfiguration** | **RATIFIED** specification and E9-L13 characterization (distinguishing claim version availability from composition-time evidence enforcement policy) | **IMPLEMENT** composition-time evidence enforcement policy and qualify both discriminating tests (disabled vs required) |
 | **Diagnostic Category Typing** | **RATIFIED** specification | Implement `WorkflowEvidenceDiagnosticCategory` enum |
 | **Constructor Encapsulation** | **RATIFIED** design (public constructors clean; internal constructor binds store) | Implement internal constructor without leaking internal types |
 | **Module-Wide Bytecode Decoupling** | **PROVEN** across entire `tramai-engine` (E9-L12) | Preserve zero-dependency boundary |
 | **Outcome Separation (Tool vs Store)** | **PROVEN** through real engine resume (E9-L11) | Thread `evidenceHandle.recordCompleted()` before completion |
-| **JDBC Schema Upgrade & Backfill** | **RATIFIED** expand/contract DDL specification | **EXECUTE** migration script and **QUALIFY** with automated test against populated E1–E8 database |
+| **JDBC Schema Upgrade & Backfill** | **RATIFIED** expand/dual-write/safe-enable/contract rolling sequence and coordinated upgrade DDL | **EXECUTE** migration script, enforce safe E9 rollout sequence, and **QUALIFY** with automated test against populated E1–E8 database |
 | **Automatic Recovery Completion** | **DEFERRED** (operator reconciliation required) | Design dedicated authorized recovery path in future epic |
