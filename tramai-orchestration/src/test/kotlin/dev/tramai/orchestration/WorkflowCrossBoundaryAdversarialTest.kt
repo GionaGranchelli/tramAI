@@ -1,3 +1,4 @@
+@file:OptIn(dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi::class)
 @file:Suppress(
     "LargeClass",
     "MaxLineLength",
