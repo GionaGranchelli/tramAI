@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:max-line-length")
+
 package dev.tramai.orchestration
 
 import net.bytebuddy.jar.asm.ClassReader
@@ -33,17 +35,18 @@ import java.net.URI
  */
 class ReplayPolicyBoundaryArchitectureTest {
     private val replayPolicyInternalName = "dev/tramai/orchestration/ReplayPolicy"
-    private val allowedConsumers = setOf(
-        "dev/tramai/orchestration/ReplayPolicy",
-        "dev/tramai/orchestration/StepAttemptRecord",
-        "dev/tramai/orchestration/StepAttemptRecordCodec",
-        "dev/tramai/orchestration/JdbcStepAttemptRecordStore",
-        "dev/tramai/orchestration/ReplayPolicyCompatibilityKt",
-        "dev/tramai/orchestration/WorkflowBuilderKt",
-        "dev/tramai/orchestration/WorkflowBuilder",
-        "dev/tramai/orchestration/AbstractWorkflowBuilder",
-        "dev/tramai/orchestration/BranchWorkflowBuilder",
-    )
+    private val allowedConsumers =
+        setOf(
+            "dev/tramai/orchestration/ReplayPolicy",
+            "dev/tramai/orchestration/StepAttemptRecord",
+            "dev/tramai/orchestration/StepAttemptRecordCodec",
+            "dev/tramai/orchestration/JdbcStepAttemptRecordStore",
+            "dev/tramai/orchestration/ReplayPolicyCompatibilityKt",
+            "dev/tramai/orchestration/WorkflowBuilderKt",
+            "dev/tramai/orchestration/WorkflowBuilder",
+            "dev/tramai/orchestration/AbstractWorkflowBuilder",
+            "dev/tramai/orchestration/BranchWorkflowBuilder",
+        )
 
     @Test
     fun `ReplayPolicy is consumed only at the persistence and DSL boundary`() {
@@ -51,16 +54,16 @@ class ReplayPolicyBoundaryArchitectureTest {
         assertThat(scanned.size)
             .withFailMessage("ReplayPolicy boundary guard scanned zero classes — fail closed")
             .isGreaterThan(50)
-        val offenders = scanned
-            .filterNot(::isAllowedConsumer)
-            .filter(::referencesReplayPolicy)
+        val offenders =
+            scanned
+                .filterNot(::isAllowedConsumer)
+                .filter(::referencesReplayPolicy)
         assertThat(offenders)
             .withFailMessage(
                 "ReplayPolicy is the persistence-compatibility encoding of the two-dimensional " +
                     "replay model and must not be consumed by business logic; decode attempts via " +
                     "StepAttemptRecord.replayDescriptor instead. Offenders: $offenders",
-            )
-            .isEmpty()
+            ).isEmpty()
     }
 
     private fun isAllowedConsumer(className: String): Boolean =
@@ -68,99 +71,130 @@ class ReplayPolicyBoundaryArchitectureTest {
             allowedConsumers.any { allowed -> className.startsWith("$allowed$") }
 
     private fun productionClasses(): List<String> {
-        val mainClassesDir = File(
-            URI.create(checkNotNull(WorkflowRecoveryCoordinator::class.java.protectionDomain.codeSource.location.toString())),
-        )
+        val location =
+            checkNotNull(
+                WorkflowRecoveryCoordinator::class.java.protectionDomain.codeSource.location
+                    .toString(),
+            )
+        if (location.endsWith(".jar")) {
+            return java.util.jar.JarFile(File(URI.create(location))).use { jar ->
+                jar
+                    .entries()
+                    .asSequence()
+                    .filter { entry ->
+                        entry.name.startsWith("dev/tramai/orchestration/") &&
+                            entry.name.endsWith(".class") &&
+                            !entry.name.removePrefix("dev/tramai/orchestration/").contains('/')
+                    }.map { entry -> entry.name.removeSuffix(".class") }
+                    .toList()
+            }
+        }
+        val mainClassesDir = File(URI.create(location))
         val orchestrationDir = File(mainClassesDir, "dev/tramai/orchestration")
         check(orchestrationDir.isDirectory) {
             "Orchestration main classes directory unavailable: ${orchestrationDir.absolutePath}"
         }
-        return orchestrationDir.listFiles { file -> file.isFile && file.name.endsWith(".class") }
+        return orchestrationDir
+            .listFiles { file -> file.isFile && file.name.endsWith(".class") }
             .orEmpty()
             .map { file -> "dev/tramai/orchestration/${file.name.removeSuffix(".class")}" }
     }
 
     private fun referencesReplayPolicy(className: String): Boolean {
-        val resource = checkNotNull(
-            ReplayPolicyBoundaryArchitectureTest::class.java.getResourceAsStream("/$className.class"),
-        ) { "Unable to load bytecode for $className" }
+        val resource =
+            checkNotNull(
+                ReplayPolicyBoundaryArchitectureTest::class.java.getResourceAsStream("/$className.class"),
+            ) { "Unable to load bytecode for $className" }
         var references = false
-        ClassReader(resource).accept(object : ClassVisitor(Opcodes.ASM9) {
-            override fun visit(
-                version: Int,
-                access: Int,
-                name: String,
-                signature: String?,
-                superName: String?,
-                interfaces: Array<out String>?,
-            ) {
-                if (signature?.contains(replayPolicyInternalName) == true) references = true
-            }
-
-            override fun visitField(
-                access: Int,
-                name: String,
-                descriptor: String,
-                signature: String?,
-                value: Any?,
-            ): net.bytebuddy.jar.asm.FieldVisitor? {
-                if (descriptor.contains(replayPolicyInternalName) || signature?.contains(replayPolicyInternalName) == true) {
-                    references = true
+        ClassReader(resource).accept(
+            object : ClassVisitor(Opcodes.ASM9) {
+                override fun visit(
+                    version: Int,
+                    access: Int,
+                    name: String,
+                    signature: String?,
+                    superName: String?,
+                    interfaces: Array<out String>?,
+                ) {
+                    if (signature?.contains(replayPolicyInternalName) == true) references = true
                 }
-                return null
-            }
 
-            override fun visitMethod(
-                access: Int,
-                name: String,
-                descriptor: String,
-                signature: String?,
-                exceptions: Array<out String>?,
-            ): MethodVisitor {
-                if (descriptor.contains(replayPolicyInternalName) || signature?.contains(replayPolicyInternalName) == true) {
-                    references = true
-                }
-                return object : MethodVisitor(Opcodes.ASM9) {
-                    override fun visitTypeInsn(opcode: Int, type: String) {
-                        if (type == replayPolicyInternalName) references = true
+                override fun visitField(
+                    access: Int,
+                    name: String,
+                    descriptor: String,
+                    signature: String?,
+                    value: Any?,
+                ): net.bytebuddy.jar.asm.FieldVisitor? {
+                    if (descriptor.contains(replayPolicyInternalName) || signature?.contains(replayPolicyInternalName) == true) {
+                        references = true
                     }
+                    return null
+                }
 
-                    override fun visitFieldInsn(opcode: Int, owner: String, name: String, descriptor: String) {
-                        // owner catches direct enum access; descriptor catches type flow such as
-                        // GETFIELD StepAttemptRecord.replayPolicy (owner is StepAttemptRecord,
-                        // the value type is ReplayPolicy).
-                        if (owner == replayPolicyInternalName || descriptor.contains(replayPolicyInternalName)) {
-                            references = true
+                override fun visitMethod(
+                    access: Int,
+                    name: String,
+                    descriptor: String,
+                    signature: String?,
+                    exceptions: Array<out String>?,
+                ): MethodVisitor {
+                    if (descriptor.contains(replayPolicyInternalName) || signature?.contains(replayPolicyInternalName) == true) {
+                        references = true
+                    }
+                    return object : MethodVisitor(Opcodes.ASM9) {
+                        override fun visitTypeInsn(
+                            opcode: Int,
+                            type: String,
+                        ) {
+                            if (type == replayPolicyInternalName) references = true
+                        }
+
+                        override fun visitFieldInsn(
+                            opcode: Int,
+                            owner: String,
+                            name: String,
+                            descriptor: String,
+                        ) {
+                            // owner catches direct enum access; descriptor catches type flow such as
+                            // GETFIELD StepAttemptRecord.replayPolicy (owner is StepAttemptRecord,
+                            // the value type is ReplayPolicy).
+                            if (owner == replayPolicyInternalName || descriptor.contains(replayPolicyInternalName)) {
+                                references = true
+                            }
+                        }
+
+                        override fun visitMethodInsn(
+                            opcode: Int,
+                            owner: String,
+                            name: String,
+                            descriptor: String,
+                            isInterface: Boolean,
+                        ) {
+                            // owner catches static/synthetic enum access; descriptor catches type flow
+                            // such as INVOKEVIRTUAL StepAttemptRecord.getReplayPolicy ()L.../ReplayPolicy;
+                            // or passing the value into a sink: INVOKESTATIC sink (Ljava/lang/Object;)V.
+                            // The record's own construction/copy signatures and the compatibility
+                            // encoder necessarily carry the persisted type; they are the sanctioned
+                            // boundary, not semantic consumption.
+                            val sanctionedPlumbing =
+                                (owner == "dev/tramai/orchestration/StepAttemptRecord" && (name == "<init>" || name == "copy\$default")) ||
+                                    owner == "dev/tramai/orchestration/ReplayPolicyCompatibilityKt"
+                            if (owner == replayPolicyInternalName ||
+                                (descriptor.contains(replayPolicyInternalName) && !sanctionedPlumbing)
+                            ) {
+                                references = true
+                            }
+                        }
+
+                        override fun visitLdcInsn(value: Any?) {
+                            if (value is Type && value.internalName == replayPolicyInternalName) references = true
                         }
                     }
-
-                    override fun visitMethodInsn(
-                        opcode: Int,
-                        owner: String,
-                        name: String,
-                        descriptor: String,
-                        isInterface: Boolean,
-                    ) {
-                        // owner catches static/synthetic enum access; descriptor catches type flow
-                        // such as INVOKEVIRTUAL StepAttemptRecord.getReplayPolicy ()L.../ReplayPolicy;
-                        // or passing the value into a sink: INVOKESTATIC sink (Ljava/lang/Object;)V.
-                        // The record's own construction/copy signatures and the compatibility
-                        // encoder necessarily carry the persisted type; they are the sanctioned
-                        // boundary, not semantic consumption.
-                        val sanctionedPlumbing =
-                            (owner == "dev/tramai/orchestration/StepAttemptRecord" && (name == "<init>" || name == "copy\$default")) ||
-                                owner == "dev/tramai/orchestration/ReplayPolicyCompatibilityKt"
-                        if (owner == replayPolicyInternalName || (descriptor.contains(replayPolicyInternalName) && !sanctionedPlumbing)) {
-                            references = true
-                        }
-                    }
-
-                    override fun visitLdcInsn(value: Any?) {
-                        if (value is Type && value.internalName == replayPolicyInternalName) references = true
-                    }
                 }
-            }
-        }, 0)
+            },
+            0,
+        )
         return references
     }
 }

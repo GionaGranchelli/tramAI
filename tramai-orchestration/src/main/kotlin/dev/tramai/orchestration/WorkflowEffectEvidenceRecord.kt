@@ -41,22 +41,80 @@ internal data class WorkflowEffectEvidenceKey(
 }
 
 /**
- * Authoritative per-effect child record preserving run identity, step-attempt lineage,
+ * Authoritative parent lineage for an effect execution.
+ *
+ * Strict separation between step-attempt lineage (E1–E8, E11) and approval-continuation lineage (E9).
+ */
+internal sealed interface ParentProvenance {
+    data class StepAttempt(
+        val stepName: String,
+        val stepAttemptId: String,
+    ) : ParentProvenance {
+        init {
+            require(stepName.isNotBlank()) { "stepName must not be blank" }
+            require(stepAttemptId.isNotBlank()) { "stepAttemptId must not be blank" }
+        }
+    }
+
+    data class ApprovalContinuation(
+        val approvalId: String,
+        val continuationVersion: Long,
+        val toolName: String,
+    ) : ParentProvenance {
+        init {
+            require(approvalId.isNotBlank()) { "approvalId must not be blank" }
+            require(continuationVersion > 0L) { "continuationVersion must be positive: $continuationVersion" }
+            require(toolName.isNotBlank()) { "toolName must not be blank" }
+        }
+    }
+}
+
+/**
+ * Authoritative per-effect child record preserving run identity, parent lineage,
  * effect kind, and durable admission sequence.
  */
 internal data class WorkflowEffectEvidenceRecord(
     val key: WorkflowEffectEvidenceKey,
-    val stepName: String,
-    val stepAttemptId: String,
+    val parent: ParentProvenance,
     val effectKind: String,
     val state: WorkflowEffectEvidenceState,
     val createdAtEpochMillis: Long,
     val completedAtEpochMillis: Long? = null,
     val diagnosticSummary: String? = null,
 ) {
+    // Retained legacy constructor for compiling callers
+    constructor(
+        key: WorkflowEffectEvidenceKey,
+        stepName: String,
+        stepAttemptId: String,
+        effectKind: String,
+        state: WorkflowEffectEvidenceState,
+        createdAtEpochMillis: Long,
+        completedAtEpochMillis: Long? = null,
+        diagnosticSummary: String? = null,
+    ) : this(
+        key = key,
+        parent = ParentProvenance.StepAttempt(stepName, stepAttemptId),
+        effectKind = effectKind,
+        state = state,
+        createdAtEpochMillis = createdAtEpochMillis,
+        completedAtEpochMillis = completedAtEpochMillis,
+        diagnosticSummary = diagnosticSummary,
+    )
+
+    val stepName: String get() =
+        when (parent) {
+            is ParentProvenance.StepAttempt -> parent.stepName
+            is ParentProvenance.ApprovalContinuation -> parent.toolName
+        }
+
+    val stepAttemptId: String? get() =
+        when (parent) {
+            is ParentProvenance.StepAttempt -> parent.stepAttemptId
+            is ParentProvenance.ApprovalContinuation -> null
+        }
+
     init {
-        require(stepName.isNotBlank()) { "stepName must not be blank" }
-        require(stepAttemptId.isNotBlank()) { "stepAttemptId must not be blank" }
         require(effectKind.isNotBlank()) { "effectKind must not be blank" }
         require(createdAtEpochMillis > 0) { "createdAtEpochMillis must be positive" }
         if (state == WorkflowEffectEvidenceState.COMPLETED) {

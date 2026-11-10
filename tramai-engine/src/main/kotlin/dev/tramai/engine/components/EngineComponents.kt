@@ -93,6 +93,7 @@ internal data class ApprovalComponents(
     val resumeAdmission: ApprovalResumeAdmission? = null,
     /** The audited CLAIMED -> CANCELLED_UNCERTAIN transition used to close a refused resume. */
     val recoveryCoordinator: ApprovalRecoveryCoordinator? = null,
+    val approvalResumeEvidenceRequired: Boolean = false,
 )
 
 /** Runtime snapshot of persistence. Caller-supplied cache and memory remain caller-owned. */
