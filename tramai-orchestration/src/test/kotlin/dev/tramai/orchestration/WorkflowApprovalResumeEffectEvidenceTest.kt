@@ -2684,4 +2684,58 @@ class WorkflowApprovalResumeEffectEvidenceTest {
             )
         }
     }
+
+    @Test
+    fun `E9-E30 - Adversarial - secret-bearing secondary persistence failure never leaks onto primary cancellation`() {
+        val sensitiveSecret = "postgres://admin:SUPER_SECRET_PASSWORD_12345@prod-db.internal:5432/secrets_vault"
+        val failingStore =
+            object : WorkflowEffectEvidenceRecordStore {
+                override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
+                    throw SQLException("Connection refused: $sensitiveSecret")
+
+                override suspend fun getEvidence(key: WorkflowEffectEvidenceKey): WorkflowEffectEvidenceRecord =
+                    throw SQLException("Connection refused: $sensitiveSecret")
+
+                override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
+                    throw SQLException("Connection refused: $sensitiveSecret")
+
+                override suspend fun listEvidence(
+                    workflowName: String,
+                    workflowId: String,
+                ): List<WorkflowEffectEvidenceRecord> = emptyList()
+            }
+
+        val key = WorkflowEffectEvidenceKey("wf", "run-1", "gen-1", 1L)
+        val handleClass = Class.forName("dev.tramai.orchestration.WorkflowApprovalResumeEvidenceHandle")
+        val ctor = handleClass.declaredConstructors[0].apply { isAccessible = true }
+
+        @Suppress("UNCHECKED_CAST")
+        val handle =
+            ctor.newInstance(failingStore, key, Clock.systemUTC(), 1000L) as dev.tramai.core.approval.ApprovalResumeEvidenceHandle
+
+        val primaryCancellation = CancellationException("workflow cancelled by operator")
+        runBlocking {
+            handle.recordUncertain(
+                primaryCancellation,
+                WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_CANCELLED,
+            )
+        }
+
+        // Verify SanitizedEvidenceDiagnosticException is attached
+        assertThat(primaryCancellation.suppressed).anyMatch { it is SanitizedEvidenceDiagnosticException }
+        assertThat(primaryCancellation.suppressed).noneMatch { it is SQLException }
+
+        val fullDiagnosticString =
+            java.io
+                .StringWriter()
+                .also { sw ->
+                    java.io.PrintWriter(sw).use { pw ->
+                        primaryCancellation.printStackTrace(pw)
+                    }
+                }.toString()
+
+        assertThat(fullDiagnosticString).doesNotContain("SUPER_SECRET_PASSWORD")
+        assertThat(fullDiagnosticString).doesNotContain("secrets_vault")
+        assertThat(fullDiagnosticString).doesNotContain(sensitiveSecret)
+    }
 }

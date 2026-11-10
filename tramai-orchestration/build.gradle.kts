@@ -1,6 +1,7 @@
 
 plugins {
     `java-library`
+    id("tramai.test-fixtures")
     alias(libs.plugins.kotlin.jvm)
     id("tramai.kotlin-library")
     id("tramai.testing")
@@ -17,7 +18,11 @@ dependencies {
     testImplementation(project(":tramai-engine"))
     testImplementation(project(":tramai-testing"))
     testImplementation(testFixtures(project(":tramai-testing")))
-                testImplementation(libs.mcp.sdk.server)
+    testImplementation(libs.mcp.sdk.server)
     testImplementation(libs.h2database)
+
+    testFixturesApi(project(":tramai-core"))
+    testFixturesImplementation(libs.coroutines.core)
+    testFixturesImplementation(libs.assertj.core)
 }
 

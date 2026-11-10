@@ -336,8 +336,14 @@ internal class ApprovalResumeCoordinator(
         } catch (
             @Suppress("TooGenericExceptionCaught") suppressed: Throwable,
         ) {
-            if (error !== suppressed) {
-                error.addSuppressed(suppressed)
+            if (error is CancellationException) {
+                if (error.suppressed.none { it is SanitizedEvidenceDiagnosticException }) {
+                    error.addSuppressed(SanitizedEvidenceDiagnosticException())
+                }
+            } else {
+                if (error !== suppressed && error.suppressed.none { it === suppressed }) {
+                    error.addSuppressed(suppressed)
+                }
             }
         }
     }
@@ -654,3 +660,12 @@ internal class ApprovalResumeCoordinator(
         return resolvedTool
     }
 }
+
+/**
+ * Cause-free, fixed-text diagnostic marker attached to a primary [CancellationException]
+ * when secondary evidence persistence/cleanup encounters a failure or diagnostic.
+ *
+ * This ensures that database messages, connection strings, filesystem paths, or other sensitive
+ * details from secondary persistence subsystems never leak onto cancellation control flow.
+ */
+internal class SanitizedEvidenceDiagnosticException : RuntimeException("Evidence persistence had diagnostics")

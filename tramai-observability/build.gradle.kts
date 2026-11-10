@@ -28,6 +28,7 @@ dependencies {
     // port. The seeder is test-only because the projection writer is internal to :tramai-security, and the
     // reverse edge (:tramai-security -> :tramai-observability) would be a cycle. Test scope only.
     testImplementation(testFixtures(project(":tramai-security")))
+    testImplementation(testFixtures(project(":tramai-orchestration")))
     testImplementation(platform(libs.testcontainers.bom))
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.junit.jupiter)

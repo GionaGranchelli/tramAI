@@ -1275,7 +1275,59 @@ class ApprovalResumeCoordinatorTest {
                 .isSameAs(primaryCancellation)
                 .hasMessage("tool cancelled")
             assertThat(unwrapped).isNotSameAs(secondaryCancellation)
-            assertThat(primaryCancellation.suppressedExceptions).contains(secondaryCancellation)
+            assertThat(primaryCancellation.suppressedExceptions).anyMatch { it is SanitizedEvidenceDiagnosticException }
+            assertThat(primaryCancellation.suppressedExceptions).noneMatch { it === secondaryCancellation }
+        }
+
+    @Test
+    fun `adversarial - secret-bearing secondary persistence failure never leaks onto primary cancellation`() =
+        runTest {
+            val sensitiveSecret = "postgres://admin:SUPER_SECRET_PASSWORD_12345@prod-db.internal:5432/secrets_vault"
+            val primaryCancellation = CancellationException("workflow cancelled by operator")
+            val secondarySecretException = java.sql.SQLException("Connection refused: $sensitiveSecret")
+            val failingHandle =
+                object : ApprovalResumeEvidenceHandle {
+                    override suspend fun recordDispatched() = Unit
+
+                    override suspend fun recordCompleted() = Unit
+
+                    override suspend fun recordUncertain(
+                        error: Throwable,
+                        category: WorkflowEvidenceDiagnosticCategory,
+                    ): Unit = throw secondarySecretException
+                }
+            val h =
+                governedHarness(
+                    provenance = SuspensionBindingProvenance.WORKFLOW_BOUND,
+                    evidenceHandle = failingHandle,
+                    executorThrowWith = primaryCancellation,
+                )
+
+            val thrown = runCatching { h.coordinator.resume(command) }.exceptionOrNull()
+            assertThat(thrown).isNotNull
+            val unwrapped = if (thrown?.cause === primaryCancellation) thrown.cause else thrown
+            assertThat(unwrapped)
+                .isSameAs(primaryCancellation)
+                .hasMessage("workflow cancelled by operator")
+            assertThat(unwrapped).isNotSameAs(secondarySecretException)
+
+            // Verify sanitized marker is attached
+            assertThat(primaryCancellation.suppressedExceptions).anyMatch { it is SanitizedEvidenceDiagnosticException }
+            assertThat(primaryCancellation.suppressedExceptions).noneMatch { it === secondarySecretException }
+
+            // Prove that the sensitive message and secret are completely absent from the propagated exception's entire representation
+            val fullDiagnosticString =
+                java.io
+                    .StringWriter()
+                    .also { sw ->
+                        java.io.PrintWriter(sw).use { pw ->
+                            thrown?.printStackTrace(pw)
+                        }
+                    }.toString()
+
+            assertThat(fullDiagnosticString).doesNotContain("SUPER_SECRET_PASSWORD")
+            assertThat(fullDiagnosticString).doesNotContain("secrets_vault")
+            assertThat(fullDiagnosticString).doesNotContain(sensitiveSecret)
         }
 
     class RecordingSuspendedStore(

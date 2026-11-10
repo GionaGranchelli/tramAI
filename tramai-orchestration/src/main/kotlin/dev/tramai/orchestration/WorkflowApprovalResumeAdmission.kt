@@ -273,7 +273,7 @@ class WorkflowApprovalResumeAdmission internal constructor(
             ex.rethrowIfCancellation()
             throw ApprovalResumeEvidencePersistenceException(
                 "approval '${request.approvalId}' admitted against checkpoint (sequence $admissionSequence) " +
-                    "but failed to record initial evidence: ${ex.message}",
+                    "but failed to record initial evidence",
                 ex,
             )
         }
@@ -305,7 +305,7 @@ private class WorkflowApprovalResumeEvidenceHandle(
                 ) {
                     ex.rethrowIfCancellation()
                     throw ApprovalResumeEvidencePersistenceException(
-                        "Failed to record DISPATCHED evidence for key $evidenceKey: ${ex.message}",
+                        "Failed to record DISPATCHED evidence for key: $evidenceKey",
                         ex,
                     )
                 }
@@ -340,7 +340,7 @@ private class WorkflowApprovalResumeEvidenceHandle(
                 ) {
                     ex.rethrowIfCancellation()
                     throw ApprovalResumeEvidencePersistenceException(
-                        "Failed to record COMPLETED evidence for key $evidenceKey: ${ex.message}",
+                        "Failed to record COMPLETED evidence for key: $evidenceKey",
                         ex,
                     )
                 }
@@ -377,9 +377,7 @@ private class WorkflowApprovalResumeEvidenceHandle(
         } catch (
             @Suppress("TooGenericExceptionCaught") suppressed: Throwable,
         ) {
-            if (error !== suppressed) {
-                error.addSuppressed(suppressed)
-            }
+            error.suppressEvidenceDiagnostic(suppressed)
         }
     }
 }
