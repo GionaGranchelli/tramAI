@@ -129,6 +129,10 @@ internal class ApprovalResumeCoordinator(
         } catch (e: ApprovalResumeAdmissionRefusedException) {
             // Not an uncertain outcome: nothing was dispatched. Reporting it as one would claim a tool may have run.
             throw e
+        } catch (e: dev.tramai.core.exception.ApprovalResumeEvidencePersistenceException) {
+            // Checkpoint admission committed, but child evidence persistence failed. The executor was not dispatched,
+            // and the continuation remains CLAIMED for reconciliation rather than falsely treated as a refusal.
+            throw e
         } catch (e: StructuredOutputException) {
             emitResumeUncertainOutcomeOnce(
                 uncertainOutcome,

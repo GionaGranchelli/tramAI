@@ -356,6 +356,10 @@ private fun resolveEvidenceParent(
 
     return when (parentKind) {
         "APPROVAL_CONTINUATION" -> {
+            check(stepAttemptId == null) {
+                "Contradictory parent provenance: APPROVAL_CONTINUATION record " +
+                    "has non-null step_attempt_id '$stepAttemptId'"
+            }
             checkNotNull(parentId) { "parent_id must not be null for APPROVAL_CONTINUATION" }
             checkNotNull(parentVersion) { "parent_version must not be null for APPROVAL_CONTINUATION" }
             ParentProvenance.ApprovalContinuation(
@@ -366,6 +370,11 @@ private fun resolveEvidenceParent(
         }
 
         "STEP_ATTEMPT" -> {
+            if (parentId != null && stepAttemptId != null) {
+                check(parentId == stepAttemptId) {
+                    "Contradictory STEP_ATTEMPT parentage: parent_id '$parentId' != step_attempt_id '$stepAttemptId'"
+                }
+            }
             val effectiveAttemptId = parentId ?: stepAttemptId
             checkNotNull(effectiveAttemptId) { "Both parent_id and step_attempt_id are null for STEP_ATTEMPT" }
             ParentProvenance.StepAttempt(

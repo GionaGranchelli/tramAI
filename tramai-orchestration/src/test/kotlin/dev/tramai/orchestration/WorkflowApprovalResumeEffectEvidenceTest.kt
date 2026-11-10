@@ -34,6 +34,7 @@ import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.approval.WorkflowEvidenceDiagnosticCategory
 import dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException
+import dev.tramai.core.exception.ApprovalResumeEvidencePersistenceException
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.identity.ConfigurationId
 import dev.tramai.core.identity.ConfigurationVersion
@@ -86,6 +87,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.h2.jdbcx.JdbcConnectionPool
 import org.junit.jupiter.api.Test
 import java.io.File
+import java.sql.SQLException
 import java.time.Clock
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -273,7 +275,7 @@ class WorkflowApprovalResumeEffectEvidenceTest {
         val checkpoints: InMemoryWorkflowCheckpointStore,
         val suspendedStore: RecordingSuspendedStore,
         val continuationStore: ApprovalContinuationStore,
-        val evidenceStore: InMemoryWorkflowEffectEvidenceRecordStore,
+        val evidenceStore: WorkflowEffectEvidenceRecordStore,
         val tool: CountingTool,
         val engine: TramaiEngine,
         val identity: GovernedRunIdentity,
@@ -283,7 +285,7 @@ class WorkflowApprovalResumeEffectEvidenceTest {
         identity: GovernedRunIdentity = testIdentity(),
         checkpoints: InMemoryWorkflowCheckpointStore = InMemoryWorkflowCheckpointStore(),
         continuations: ApprovalContinuationStore = InMemoryApprovalContinuationStore(clock = Clock.systemUTC()),
-        evidenceStore: InMemoryWorkflowEffectEvidenceRecordStore = InMemoryWorkflowEffectEvidenceRecordStore(),
+        evidenceStore: WorkflowEffectEvidenceRecordStore = InMemoryWorkflowEffectEvidenceRecordStore(),
         tool: CountingTool = CountingTool(),
         evidenceRequired: Boolean = true,
         customAdmission: WorkflowApprovalResumeAdmission? = null,
@@ -295,6 +297,7 @@ class WorkflowApprovalResumeEffectEvidenceTest {
                 checkpointStore = checkpoints,
                 continuationStore = continuations,
                 evidenceStore = evidenceStore,
+                approvalResumeEvidenceEnabled = evidenceRequired,
             )
 
         val engine =
@@ -2113,5 +2116,470 @@ class WorkflowApprovalResumeEffectEvidenceTest {
         // Assert no copy method exists
         val copyMethod = ApprovalResumePermit::class.java.methods.find { it.name == "copy" }
         assertThat(copyMethod).isNull()
+    }
+
+    @Test
+    fun `E9-E07b - Public constructor with checkpoint evidence enabled but E9 disabled writes zero E9 records`() {
+        val evidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        val checkpoints =
+            InMemoryWorkflowCheckpointStore().apply {
+                this.evidenceStore = evidenceStore
+            }
+        val continuations = InMemoryApprovalContinuationStore(clock = Clock.systemUTC())
+
+        // Use real public constructor without E9 evidence enabled (defaults to false)
+        val admission = WorkflowApprovalResumeAdmission(checkpointStore = checkpoints, continuationStore = continuations)
+
+        val fixture =
+            createFixture(
+                checkpoints = checkpoints,
+                continuations = continuations,
+                evidenceStore = evidenceStore,
+                evidenceRequired = false,
+                customAdmission = admission,
+            )
+        val suspended = suspendWorkflow(fixture)
+
+        val resumeCommand =
+            ResumeApprovalCommand(
+                approvalId = suspended.approvalId,
+                approvalExpectedVersion = 0L,
+                continuationExpectedVersion = 0L,
+                presentedToken = suspended.challenge.token,
+                resumedBy = "operator-alice",
+            )
+
+        val outcome = runBlocking { fixture.engine.resumeApproval(resumeCommand) }
+        assertThat(outcome).isNotNull
+        assertThat(fixture.tool.executions.get()).isEqualTo(1)
+        assertThat(runBlocking { evidenceStore.listEvidence(WORKFLOW_NAME, RUN_ID) }).isEmpty()
+    }
+
+    @Test
+    fun `E9-E07c - Public constructor with E9 explicitly enabled records E9 evidence`() {
+        val evidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        val checkpoints =
+            InMemoryWorkflowCheckpointStore().apply {
+                this.evidenceStore = evidenceStore
+            }
+        val continuations = InMemoryApprovalContinuationStore(clock = Clock.systemUTC())
+
+        // Use real public constructor with approvalResumeEvidenceEnabled = true
+        val admission =
+            WorkflowApprovalResumeAdmission(
+                checkpointStore = checkpoints,
+                continuationStore = continuations,
+                approvalResumeEvidenceEnabled = true,
+            )
+
+        val fixture =
+            createFixture(
+                checkpoints = checkpoints,
+                continuations = continuations,
+                evidenceStore = evidenceStore,
+                evidenceRequired = true,
+                customAdmission = admission,
+            )
+        val suspended = suspendWorkflow(fixture)
+
+        val resumeCommand =
+            ResumeApprovalCommand(
+                approvalId = suspended.approvalId,
+                approvalExpectedVersion = 0L,
+                continuationExpectedVersion = 0L,
+                presentedToken = suspended.challenge.token,
+                resumedBy = "operator-alice",
+            )
+
+        val outcome = runBlocking { fixture.engine.resumeApproval(resumeCommand) }
+        assertThat(outcome).isNotNull
+        assertThat(fixture.tool.executions.get()).isEqualTo(1)
+        val records = runBlocking { evidenceStore.listEvidence(WORKFLOW_NAME, RUN_ID) }
+        assertThat(records).hasSize(1)
+        assertThat(records[0].state).isEqualTo(WorkflowEffectEvidenceState.COMPLETED)
+    }
+
+    @Test
+    fun `E9-E25 - Post-admission initial evidence failure throws typed PersistenceException and leaves continuation CLAIMED`() {
+        val failingEvidenceStore =
+            object : WorkflowEffectEvidenceRecordStore {
+                override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
+                    throw SQLException("Disk write failure")
+
+                override suspend fun getEvidence(key: WorkflowEffectEvidenceKey): WorkflowEffectEvidenceRecord? = null
+
+                override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord = record
+
+                override suspend fun listEvidence(
+                    workflowName: String,
+                    workflowId: String,
+                ): List<WorkflowEffectEvidenceRecord> = emptyList()
+            }
+        val checkpoints =
+            InMemoryWorkflowCheckpointStore().apply {
+                this.evidenceStore = failingEvidenceStore
+            }
+        val continuations = InMemoryApprovalContinuationStore(clock = Clock.systemUTC())
+        val admission =
+            WorkflowApprovalResumeAdmission(
+                checkpointStore = checkpoints,
+                continuationStore = continuations,
+                approvalResumeEvidenceEnabled = true,
+            )
+        val fixture =
+            createFixture(
+                checkpoints = checkpoints,
+                continuations = continuations,
+                evidenceStore = failingEvidenceStore,
+                evidenceRequired = true,
+                customAdmission = admission,
+            )
+        val suspended = suspendWorkflow(fixture)
+
+        val resumeCommand =
+            ResumeApprovalCommand(
+                approvalId = suspended.approvalId,
+                approvalExpectedVersion = 0L,
+                continuationExpectedVersion = 0L,
+                presentedToken = suspended.challenge.token,
+                resumedBy = "operator-alice",
+            )
+
+        val exception =
+            assertFailsWith<ApprovalResumeEvidencePersistenceException> {
+                runBlocking { fixture.engine.resumeApproval(resumeCommand) }
+            }
+        assertThat(exception.message).contains("failed to record initial evidence")
+        assertThat(exception.cause).isInstanceOf(SQLException::class.java)
+
+        // 1. Tool was never executed
+        assertThat(fixture.tool.executions.get()).isEqualTo(0)
+
+        // 2. Continuation remains in CLAIMED status (NOT cancelled or refused)
+        val storedContinuation = runBlocking { continuations.get(suspended.approvalId) }
+        assertThat(storedContinuation).isNotNull
+        assertThat(storedContinuation?.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+
+        // 3. Checkpoint admission sequence was committed
+        val checkpoint = runBlocking { checkpoints.load(WORKFLOW_NAME, RUN_ID) }
+        assertThat(checkpoint).isNotNull
+        assertThat(checkpoint?.stepExecutions).isEqualTo(1)
+
+        // 4. Zero child evidence records written
+        val records = runBlocking { failingEvidenceStore.listEvidence(WORKFLOW_NAME, RUN_ID) }
+        assertThat(records).isEmpty()
+    }
+
+    @Test
+    fun `E9-E26 - Contradictory parent decoding in JDBC evidence store fails closed`() {
+        val pool =
+            JdbcConnectionPool.create(
+                "jdbc:h2:mem:e9_contradictory_${UUID.randomUUID()};MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1",
+                "sa",
+                "",
+            )
+        try {
+            val recordedFailures = mutableListOf<Throwable>()
+            val observer =
+                PersistenceFailureDiagnosticObserver { event ->
+                    recordedFailures.add(event.failure)
+                }
+            val store = JdbcWorkflowEffectEvidenceRecordStore(pool, observer = observer)
+            store.createSchemaSql().forEach { sql ->
+                pool.connection.use { conn -> conn.createStatement().use { it.execute(sql) } }
+            }
+
+            // Case 1: APPROVAL_CONTINUATION with non-null step_attempt_id
+            pool.connection.use { conn ->
+                conn
+                    .prepareStatement(
+                        """
+                        INSERT INTO tramai_workflow_effect_evidence
+                        (workflow_name, workflow_id, checkpoint_generation, admission_seq, step_name, step_attempt_id, effect_kind, state, created_at_epoch_millis, parent_kind, parent_id, parent_version)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """.trimIndent(),
+                    ).use { stmt ->
+                        stmt.setString(1, "wf-contra")
+                        stmt.setString(2, "run-1")
+                        stmt.setString(3, "gen-1")
+                        stmt.setLong(4, 1L)
+                        stmt.setString(5, "my_tool")
+                        stmt.setString(6, "att-illegal")
+                        stmt.setString(7, APPROVAL_RESUME_EFFECT_KIND)
+                        stmt.setString(8, "ADMITTED")
+                        stmt.setLong(9, 1000L)
+                        stmt.setString(10, "APPROVAL_CONTINUATION")
+                        stmt.setString(11, "appr-1")
+                        stmt.setLong(12, 1L)
+                        stmt.executeUpdate()
+                    }
+            }
+
+            val ex1 =
+                assertFailsWith<WorkflowPersistenceFailureException> {
+                    runBlocking { store.listEvidence("wf-contra", "run-1") }
+                }
+            assertThat(ex1.message).isNotBlank()
+            assertThat(recordedFailures).hasSize(1)
+            assertThat(recordedFailures[0]).isInstanceOf(IllegalStateException::class.java)
+            assertThat(recordedFailures[0].message).contains("Contradictory parent provenance")
+
+            // Case 2: STEP_ATTEMPT with mismatched parent_id and step_attempt_id
+            pool.connection.use { conn ->
+                conn
+                    .prepareStatement(
+                        """
+                        INSERT INTO tramai_workflow_effect_evidence
+                        (workflow_name, workflow_id, checkpoint_generation, admission_seq, step_name, step_attempt_id, effect_kind, state, created_at_epoch_millis, parent_kind, parent_id, parent_version)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """.trimIndent(),
+                    ).use { stmt ->
+                        stmt.setString(1, "wf-contra")
+                        stmt.setString(2, "run-2")
+                        stmt.setString(3, "gen-1")
+                        stmt.setLong(4, 2L)
+                        stmt.setString(5, "my_tool")
+                        stmt.setString(6, "att-1")
+                        stmt.setString(7, "STEP_EXECUTION")
+                        stmt.setString(8, "ADMITTED")
+                        stmt.setLong(9, 1000L)
+                        stmt.setString(10, "STEP_ATTEMPT")
+                        stmt.setString(11, "att-2")
+                        stmt.setNull(12, java.sql.Types.BIGINT)
+                        stmt.executeUpdate()
+                    }
+            }
+
+            val ex2 =
+                assertFailsWith<WorkflowPersistenceFailureException> {
+                    runBlocking { store.listEvidence("wf-contra", "run-2") }
+                }
+            assertThat(ex2.message).isNotBlank()
+            assertThat(recordedFailures).hasSize(2)
+            assertThat(recordedFailures[1]).isInstanceOf(IllegalStateException::class.java)
+            assertThat(recordedFailures[1].message).contains("Contradictory STEP_ATTEMPT parentage")
+        } finally {
+            pool.dispose()
+        }
+    }
+
+    @Test
+    fun `E9-E27 - Engine resume round-trip with real JDBC stores verifies all 14 database columns`() {
+        val pool =
+            JdbcConnectionPool.create(
+                "jdbc:h2:mem:e9_e2e_jdbc_${UUID.randomUUID()};MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1",
+                "sa",
+                "",
+            )
+        try {
+            val jdbcEvidenceStore = JdbcWorkflowEffectEvidenceRecordStore(pool)
+            val jdbcCheckpoints =
+                JdbcWorkflowCheckpointStore(pool).apply {
+                    this.evidenceStore = jdbcEvidenceStore
+                }
+            pool.connection.use { conn ->
+                conn.createStatement().use { stmt ->
+                    stmt.execute(jdbcCheckpoints.createTableSql())
+                    jdbcEvidenceStore.createSchemaSql().forEach { stmt.execute(it) }
+                }
+            }
+
+            val continuations = InMemoryApprovalContinuationStore(clock = Clock.systemUTC())
+            val admission =
+                WorkflowApprovalResumeAdmission(
+                    checkpointStore = jdbcCheckpoints,
+                    continuationStore = continuations,
+                    approvalResumeEvidenceEnabled = true,
+                )
+
+            val identity = testIdentity()
+            val suspendedStore = RecordingSuspendedStore(identity)
+            val tool = CountingTool()
+            val engine =
+                TramaiEngine(
+                    providerRegistry = ProviderRegistry.singleProvider(RecordingProvider(tool)),
+                    toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                    policyEngine = ApprovalPolicyEngine(),
+                    suspendedInvocationStore = suspendedStore,
+                    approvalContinuationStore = continuations,
+                    toolArgumentsDigester = Sha256ToolArgumentsDigester(),
+                    approvalGateCoordinator = PermitGate(),
+                    approvalResumeAdmission = admission,
+                    approvalRecoveryCoordinator =
+                        InMemoryApprovalRecoveryCoordinator(continuations, NoOpApprovalLifecycleAuditEmitter),
+                    approvalResumeEvidenceRequired = true,
+                    engineEventObserver = NoOpEngineEventObserver,
+                )
+
+            val service = engine.create(ApprovalService::class)
+            val wf =
+                workflow<String>(WORKFLOW_NAME) {
+                    localStep("step-1") { state, _ -> state }
+                    localStep("step-2") { state, _ ->
+                        service.answer("invoke")
+                        state
+                    }
+                }.build { it }
+
+            val thrown =
+                runCatching {
+                    runBlocking {
+                        wf.run(
+                            "init",
+                            GovernedRun(WorkflowContext(workflowId = RUN_ID), identity),
+                            NoOpWorkflowObserver,
+                            WorkflowPersistence(
+                                checkpointStore = jdbcCheckpoints,
+                                stateCodec = StringCodec,
+                                evidenceStore = jdbcEvidenceStore,
+                            ),
+                        )
+                    }
+                }.exceptionOrNull() ?: error("Expected workflow to suspend")
+
+            var cur: Throwable? = thrown
+            var suspended: ApprovalSuspendedException? = null
+            while (cur != null) {
+                if (cur is ApprovalSuspendedException) {
+                    suspended = cur
+                    break
+                }
+                cur = cur.cause
+            }
+            val suspension = checkNotNull(suspended) { "ApprovalSuspendedException not found" }
+
+            val resumeCommand =
+                ResumeApprovalCommand(
+                    approvalId = suspension.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = suspension.challenge.token,
+                    resumedBy = "operator-alice",
+                )
+
+            val outcome = runBlocking { engine.resumeApproval(resumeCommand) }
+            assertThat(outcome).isNotNull
+            assertThat(tool.executions.get()).isEqualTo(1)
+
+            pool.connection.use { conn ->
+                conn
+                    .prepareStatement(
+                        """
+                        SELECT workflow_name, workflow_id, checkpoint_generation, admission_seq,
+                               step_name, step_attempt_id, effect_kind, state,
+                               created_at_epoch_millis, completed_at_epoch_millis, diagnostic_summary,
+                               parent_kind, parent_id, parent_version
+                        FROM tramai_workflow_effect_evidence
+                        WHERE workflow_name = ? AND workflow_id = ?
+                        """.trimIndent(),
+                    ).use { stmt ->
+                        stmt.setString(1, WORKFLOW_NAME)
+                        stmt.setString(2, RUN_ID)
+                        stmt.executeQuery().use { rs ->
+                            assertThat(rs.next()).isTrue()
+                            assertThat(rs.getString("workflow_name")).isEqualTo(WORKFLOW_NAME)
+                            assertThat(rs.getString("workflow_id")).isEqualTo(RUN_ID)
+                            assertThat(rs.getString("checkpoint_generation")).isNotBlank()
+                            assertThat(rs.getLong("admission_seq")).isGreaterThan(0L)
+                            assertThat(rs.getString("step_name")).isEqualTo(TOOL_NAME)
+                            assertThat(rs.getString("step_attempt_id")).isNull()
+                            assertThat(rs.getString("effect_kind")).isEqualTo(APPROVAL_RESUME_EFFECT_KIND)
+                            assertThat(rs.getString("state")).isEqualTo("COMPLETED")
+                            val createdAt = rs.getLong("created_at_epoch_millis")
+                            assertThat(createdAt).isGreaterThan(0L)
+                            val completedAt = rs.getLong("completed_at_epoch_millis")
+                            assertThat(completedAt).isGreaterThanOrEqualTo(createdAt)
+                            assertThat(rs.getString("diagnostic_summary")).isNull()
+                            assertThat(rs.getString("parent_kind")).isEqualTo("APPROVAL_CONTINUATION")
+                            assertThat(rs.getString("parent_id")).isEqualTo(suspension.approvalId)
+                            assertThat(rs.getLong("parent_version")).isEqualTo(1L)
+                            assertThat(rs.next()).isFalse()
+                        }
+                    }
+            }
+        } finally {
+            pool.dispose()
+        }
+    }
+
+    @Test
+    fun `E9-E28 - Evidence handle bounded execution with stalling store`() {
+        val slowStore =
+            object : WorkflowEffectEvidenceRecordStore {
+                override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord = record
+
+                override suspend fun getEvidence(key: WorkflowEffectEvidenceKey): WorkflowEffectEvidenceRecord? {
+                    kotlinx.coroutines.delay(200)
+                    return WorkflowEffectEvidenceRecord(
+                        key = key,
+                        parent = ParentProvenance.ApprovalContinuation("appr-1", 1L, "tool"),
+                        effectKind = APPROVAL_RESUME_EFFECT_KIND,
+                        state = WorkflowEffectEvidenceState.ADMITTED,
+                        createdAtEpochMillis = 1000L,
+                    )
+                }
+
+                override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord {
+                    kotlinx.coroutines.delay(200)
+                    return record
+                }
+
+                override suspend fun listEvidence(
+                    workflowName: String,
+                    workflowId: String,
+                ): List<WorkflowEffectEvidenceRecord> = emptyList()
+            }
+
+        val key = WorkflowEffectEvidenceKey("wf", "run-1", "gen-1", 1L)
+        val handleClass = Class.forName("dev.tramai.orchestration.WorkflowApprovalResumeEvidenceHandle")
+        val ctor = handleClass.declaredConstructors[0].apply { isAccessible = true }
+
+        @Suppress("UNCHECKED_CAST")
+        val handle =
+            ctor.newInstance(slowStore, key, Clock.systemUTC(), 50L) as dev.tramai.core.approval.ApprovalResumeEvidenceHandle
+
+        val elapsed =
+            kotlin.system.measureTimeMillis {
+                runBlocking {
+                    handle.recordDispatched()
+                    handle.recordCompleted()
+                }
+            }
+        assertThat(elapsed).isLessThan(350L)
+    }
+
+    @Test
+    fun `E9-E29 - Evidence handle recordUncertain safely swallows secondary update errors`() {
+        val failingStore =
+            object : WorkflowEffectEvidenceRecordStore {
+                override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
+                    throw SQLException("Store failure")
+
+                override suspend fun getEvidence(key: WorkflowEffectEvidenceKey): WorkflowEffectEvidenceRecord =
+                    throw SQLException("Store failure")
+
+                override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
+                    throw SQLException("Store failure")
+
+                override suspend fun listEvidence(
+                    workflowName: String,
+                    workflowId: String,
+                ): List<WorkflowEffectEvidenceRecord> = emptyList()
+            }
+
+        val key = WorkflowEffectEvidenceKey("wf", "run-1", "gen-1", 1L)
+        val handleClass = Class.forName("dev.tramai.orchestration.WorkflowApprovalResumeEvidenceHandle")
+        val ctor = handleClass.declaredConstructors[0].apply { isAccessible = true }
+
+        @Suppress("UNCHECKED_CAST")
+        val handle =
+            ctor.newInstance(failingStore, key, Clock.systemUTC(), 1000L) as dev.tramai.core.approval.ApprovalResumeEvidenceHandle
+
+        runBlocking {
+            handle.recordUncertain(
+                RuntimeException("Primary execution failure"),
+                WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_FAILED,
+            )
+        }
     }
 }

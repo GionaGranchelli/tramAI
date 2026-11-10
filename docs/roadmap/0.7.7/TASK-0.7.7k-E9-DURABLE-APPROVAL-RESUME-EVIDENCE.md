@@ -23,11 +23,11 @@ Every evidence-enabled, workflow-bound approval resume must:
 
 ---
 
-## 2. Implemented Architecture
+## 2. Implemented Architecture & Review Resolutions
 
 ### 2.1 Option C: Typed Parent Provenance (`ParentProvenance.ApprovalContinuation`)
 
-In `tramai-orchestration`, `WorkflowEffectEvidenceRecord` was enhanced with the sealed hierarchy `ParentProvenance`:
+In `tramai-orchestration`, `WorkflowEffectEvidenceRecord` provides typed parentage through the sealed hierarchy `ParentProvenance`:
 
 ```kotlin
 sealed interface ParentProvenance {
@@ -63,9 +63,38 @@ sealed interface ParentProvenance {
 - Backward compatibility is maintained for existing call sites via primary constructor defaults and secondary constructor overloads.
 - Immutability of `parent` is defended across both `InMemoryWorkflowEffectEvidenceRecordStore` and `JdbcWorkflowEffectEvidenceRecordStore`.
 
-### 2.2 5-Dimension Fail-Closed Claim Verification
+### 2.2 Explicit Rollout Control at Orchestration Composition
 
-In `WorkflowApprovalResumeAdmission`, durable claim verification is mandatory whenever evidence tracking is enabled (`evidenceStore != null`):
+To prevent E9 evidence records from being written prematurely during rolling deployments where E1–E8 evidence is enabled on the checkpoint store:
+- `WorkflowApprovalResumeAdmission` provides explicit constructors taking `approvalResumeEvidenceEnabled: Boolean`.
+- The public 1-argument `(WorkflowCheckpointStore)` and 2-argument `(WorkflowCheckpointStore, ApprovalContinuationStore)` constructors explicitly default `approvalResumeEvidenceEnabled = false`.
+- Callers must pass `approvalResumeEvidenceEnabled = true` to activate E9 recording. When disabled, `evidenceHandle` remains `null` and zero E9 records are written, preserving compatibility with legacy readers.
+
+### 2.3 Post-Admission Initial Evidence Failure (`ApprovalResumeEvidencePersistenceException`)
+
+Initial evidence write occurs *after* `checkpointStore.admitEffect()` has committed an admission slot. Therefore:
+- Failures during initial evidence persistence are **not** misclassified as admission refusals.
+- `ApprovalResumeEvidencePersistenceException` is introduced in `tramai-core` (implementing `CopyableThrowable`).
+- `WorkflowApprovalResumeAdmission` wraps initial persistence failures into this typed exception (rethrowing `CancellationException` directly).
+- `ApprovalResumeCoordinator` catches `ApprovalResumeEvidencePersistenceException` and rethrows without invoking `refuseClaimedResume()` or emitting an uncertain execution outcome. The continuation remains in `CLAIMED` status, marking an unresolved gap for operator reconciliation rather than falsely treating it as a refused admission or an executed tool.
+- Cross-store semantics: Checkpoint admission and evidence write are distinct operations; post-admission evidence persistence failure leaves an unresolved admission sequence for reconciliation rather than asserting distributed rollback across separate stores.
+
+### 2.4 Bounded Evidence Operations & Non-Masking Uncertain Recording
+
+`WorkflowApprovalResumeEvidenceHandle`:
+- Bounds all store updates (`recordDispatched()`, `recordCompleted()`, `recordUncertain()`) using `withContext(NonCancellable) { withTimeoutOrNull(timeoutMillis) { ... } }` (defaulting to 5,000ms).
+- In `recordUncertain()`, safely catches secondary update failures (rethrowing cancellation) so that underlying tool execution or cancellation failures are never masked by evidence store downtime.
+
+### 2.5 JDBC Contradictory Parent Provenance Validation
+
+In `JdbcWorkflowEffectEvidenceRecordStore.resolveEvidenceParent`:
+- Records declaring `parentKind == "APPROVAL_CONTINUATION"` must have `step_attempt_id == null`. Non-null legacy attempt IDs are rejected with `IllegalStateException`.
+- Records declaring `parentKind == "STEP_ATTEMPT"` with both `parent_id` and `step_attempt_id` present must have `parent_id == step_attempt_id`. Contradictory attempt IDs are rejected with `IllegalStateException`.
+- Reading operations wrapped in `persistenceBoundary` report `WorkflowPersistenceFailureException` while delivering the underlying invariant violation to `PersistenceFailureDiagnosticObserver`.
+
+### 2.6 5-Dimension Fail-Closed Claim Verification
+
+In `WorkflowApprovalResumeAdmission`, durable claim verification is mandatory whenever evidence tracking is enabled (`approvalResumeEvidenceEnabled == true`):
 1. **Continuation existence:** `continuationStore.get(request.approvalId)` must return a non-null record.
 2. **CLAIMED status:** `stored.status == ApprovalContinuationStatus.CLAIMED`.
 3. **Continuation version match:** `stored.version == request.continuationVersion`.
@@ -74,41 +103,6 @@ In `WorkflowApprovalResumeAdmission`, durable claim verification is mandatory wh
 
 If any of these conditions fails, admission is refused immediately with `ApprovalResumeAdmissionRefusedException`. If `continuationStore` is null when evidence is enabled, admission fails closed.
 
-### 2.3 Evidence Policy Separation from Claim Version
-
-`TramaiEngine` and `ApprovalResumeCoordinator` distinguish between claim provenance being available and durable evidence being enforced:
-- Resumes always carry `continuationVersion` from the claimed continuation.
-- `TramaiEngine` exposes `approvalResumeEvidenceRequired: Boolean = false` (configurable via `EngineComponents`).
-- When `approvalResumeEvidenceRequired == true`, `ApprovalResumeCoordinator` validates `requireNotNull(permit.evidenceHandle)`; if the handle is missing, it refuses to dispatch and fails closed.
-- When `approvalResumeEvidenceRequired == false`, resumes proceed normally even if the permit has no evidence handle (preserving legacy runtime compatibility).
-
-### 2.4 Cross-Module Evidence Handle
-
-`tramai-core` defines the narrow `ApprovalResumeEvidenceHandle` interface:
-```kotlin
-interface ApprovalResumeEvidenceHandle {
-    suspend fun recordDispatched()
-    suspend fun recordCompleted()
-    suspend fun recordUncertain(
-        category: WorkflowEvidenceDiagnosticCategory,
-        diagnostic: String? = null,
-    )
-}
-```
-
-`WorkflowApprovalResumeEvidenceHandle` in `tramai-orchestration`:
-- Guards transitions using atomic terminal-state CAS flags.
-- Executes persistence updates inside `withContext(NonCancellable)` so cancellation does not abort terminal evidence recording.
-- Uses fixed, safe diagnostic categories (`WorkflowEvidenceDiagnosticCategory`) with sanitized summaries, preventing secret or payload leakage.
-
-### 2.5 Phased JDBC Schema Migration & Dual-Writing
-
-`JdbcWorkflowEffectEvidenceRecordStore` supports rolling schema upgrades:
-- Phase 1: Add columns `parent_kind`, `parent_id`, `parent_version`, and drop `NOT NULL` from `step_attempt_id`.
-- Phase 2: Dual-writing inserts and backfills `parent_id = step_attempt_id` for existing records.
-- Phase 3: Reads prioritize `parent_kind` and `parent_id`, falling back to `step_attempt_id` if missing.
-- Phase 4: Enforce `NOT NULL` constraint on `parent_id`.
-
 ---
 
 ## 3. Crash Semantics & Lifecycle Windows
@@ -116,13 +110,13 @@ interface ApprovalResumeEvidenceHandle {
 | Window | Timing | Conservative Observable Guarantee |
 | --- | --- | --- |
 | **W1** | Crash before admission | No checkpoint admission, no evidence record created. |
-| **W2** | Crash after checkpoint admission, before initial evidence write | Checkpoint admission rolls back; no orphan evidence record. |
+| **W2** | Crash after checkpoint admission, before initial evidence write | Checkpoint sequence consumed; initial evidence absent; continuation remains `CLAIMED` for reconciliation. |
 | **W3** | Crash after initial evidence write (`ADMITTED`), before executor dispatch | Evidence remains `ADMITTED`. Recovery treats tool execution as unknown. |
 | **W4** | Tool execution begins; worker crashes | Evidence remains `ADMITTED` or `DISPATCHED`. Recovery treats tool execution as uncertain. |
 | **W5** | Tool execution succeeds; worker crashes before `recordCompleted()` | Evidence remains `DISPATCHED`. Recovery treats tool execution as completed externally but outcome unrecorded. |
 | **W6** | `recordCompleted()` succeeds; worker crashes before continuation completion | Evidence is `COMPLETED`. Recovery knows the external effect completed safely and avoids re-execution. |
 | **W7** | Tool throws unhandled exception | Evidence transitions to `UNCERTAIN` with `TOOL_EXECUTION_FAILED`. Exception rethrown. |
-| **W8** | Coroutine cancelled before executor returns | Evidence transitions to `UNCERTAIN` with `COROUTINE_CANCELLED`. `CancellationException` preserved and rethrown. |
+| **W8** | Coroutine cancelled before executor returns | Evidence transitions to `UNCERTAIN` with `TOOL_EXECUTION_CANCELLED`. `CancellationException` preserved and rethrown. |
 | **W9** | Continuation reclamation under recovery | New claim increments version; new resume creates distinct evidence record. Prior evidence record untouched. |
 | **W10** | Permitted replay with identical admission sequence | Duplicate write rejected fail-closed; state machine immutability preserved. |
 
@@ -130,62 +124,69 @@ interface ApprovalResumeEvidenceHandle {
 
 ## 4. Verification & Qualification Results
 
-All 49 comprehensive qualification tests pass in `WorkflowApprovalResumeEffectEvidenceTest.kt`:
+All 56 comprehensive qualification tests pass in `WorkflowApprovalResumeEffectEvidenceTest.kt`, plus 2 integration tests in `E9WorkflowEngineResumeIntegrationTest.kt` and 9 tests in `WorkflowApprovalResumeAdmissionTest.kt`.
 
-### 4.1 End-to-End Scenarios (E9-E01 to E9-E24)
-- **E9-E01:** Full happy-path lifecycle: `ADMITTED -> DISPATCHED -> COMPLETED`.
-- **E9-E02:** Option C lineage verification: typed `ParentProvenance.ApprovalContinuation`.
-- **E9-E03:** 5-dimension claim verification: continuation must exist in store.
-- **E9-E04:** 5-dimension claim verification: continuation must be `CLAIMED`.
-- **E9-E05:** 5-dimension claim verification: version mismatch rejected fail-closed.
-- **E9-E06:** 5-dimension claim verification: workflowRunId mismatch rejected fail-closed.
-- **E9-E07:** 5-dimension claim verification: toolName mismatch rejected fail-closed.
-- **E9-E08:** Missing `continuationStore` fails closed when evidence enabled.
-- **E9-E09:** Tool execution failure transitions record to `UNCERTAIN` (`TOOL_EXECUTION_FAILED`).
-- **E9-E10:** Coroutine cancellation transitions record to `UNCERTAIN` (`COROUTINE_CANCELLED`).
-- **E9-E11:** Timeout cancellation transitions record to `UNCERTAIN` (`TIMEOUT`).
-- **E9-E12:** Standalone resumes (ungoverned) execute without evidence recording.
-- **E9-E13:** Evidence policy disabled (`evidenceRequired == false`) allows resume with null handle.
-- **E9-E14:** Evidence policy enabled (`evidenceRequired == true`) rejects resume with null handle.
-- **E9-E15:** Checkpoint cancellation causes admission refusal; no evidence recorded.
-- **E9-E16:** Single-use permit: permit cannot be re-admitted or reused.
-- **E9-E17:** Non-data-class invariant on `ApprovalResumePermit`.
-- **E9-E18:** Diagnostic summary sanitization: zero secret leakage in diagnostics.
-- **E9-E19:** Terminal state idempotency on `ApprovalResumeEvidenceHandle`.
-- **E9-E20:** Phased JDBC migration Phase 1 DDL validity.
-- **E9-E21:** Phased JDBC migration Phase 2 backfill SQL validity.
-- **E9-E22:** Phased JDBC migration Phase 3 dual-write & read compatibility.
-- **E9-E23:** Phased JDBC migration Phase 4 constraint enforcement.
-- **E9-E24:** Binary compatibility preserved on public constructors.
+### 4.1 End-to-End Scenarios (E9-E01 to E9-E29)
+- **E9-E01:** Happy path approval resume produces authoritative ADMITTED-DISPATCHED-COMPLETED evidence with Option C ParentProvenance.
+- **E9-E02:** Tool execution failure records UNCERTAIN evidence with TOOL_EXECUTION_FAILED category.
+- **E9-E03:** Tool execution cancellation records UNCERTAIN evidence with TOOL_EXECUTION_CANCELLED category.
+- **E9-E04:** Tool execution timeout records UNCERTAIN evidence with TOOL_EXECUTION_TIMEOUT category.
+- **E9-E05:** Outcome separation — Continuation completion store failure preserves COMPLETED evidence without degrading to UNCERTAIN.
+- **E9-E06:** Cancelled checkpoint refuses resume admission, tool never executed, and no evidence written.
+- **E9-E07:** Evidence disabled deployment remains fully compatible without writing evidence.
+- **E9-E07b:** Public constructor with checkpoint evidence enabled but E9 disabled writes zero E9 records.
+- **E9-E07c:** Public constructor with E9 explicitly enabled records E9 evidence.
+- **E9-E08:** Misconfiguration — evidenceRequired is true but admission authority has null handle fails closed before tool execution.
+- **E9-E09:** Evidence enabled but continuationStore missing from authority fails closed at admission.
+- **E9-E10:** Evidence enabled but continuationVersion is non-positive fails closed at admission.
+- **E9-E11:** 5-dimension validation — forged continuation version (e.g. 7 vs 1) refused fail-closed.
+- **E9-E12:** 5-dimension validation — mismatched tool name refused fail-closed.
+- **E9-E13:** 5-dimension validation — mismatched workflow run ID refused fail-closed.
+- **E9-E14:** 5-dimension validation — continuation not in CLAIMED status refused fail-closed.
+- **E9-E15:** 5-dimension validation — continuation not found in store refused fail-closed.
+- **E9-E16:** Standalone suspension executes without workflow admission or evidence.
+- **E9-E17:** Single-use permit — second consume throws IllegalStateException.
+- **E9-E18:** Concurrent resume mutual exclusion — exactly one claim succeeds and exactly one tool execution occurs.
+- **E9-E19:** JDBC persistence round-trip preserves Option C dedicated parent columns and deserializes typed ParentProvenance.
+- **E9-E20:** JDBC phased schema migration, backfill, and mixed reading of legacy E1-E8 step attempts and new E9 records.
+- **E9-E21:** Monotonicity — invalid state transitions are rejected by store.
+- **E9-E22:** Immutability — key, parent, and createdAt are immutable during update.
+- **E9-E23:** Non-data-class permit — ApprovalResumePermit does not expose copy() method.
+- **E9-E24:** Module boundary decoupling — tramai-engine contains zero bytecode references to tramai-orchestration.
+- **E9-E25:** Post-admission initial evidence failure throws typed PersistenceException and leaves continuation CLAIMED.
+- **E9-E26:** Contradictory parent decoding in JDBC evidence store fails closed.
+- **E9-E27:** Engine resume round-trip with real JDBC stores verifies all 14 database columns (H2 in PostgreSQL mode).
+- **E9-E28:** Evidence handle bounded execution with stalling store.
+- **E9-E29:** Evidence handle recordUncertain safely swallows secondary update errors.
 
-### 4.2 Crash Window & Lifecycle Scenarios (E9-W1 to E9-W10)
-- **E9-W1:** Crash before admission leaves zero store side effects.
-- **E9-W2:** Crash between checkpoint admission and evidence write rolls back.
-- **E9-W3:** Crash after `ADMITTED` leaves conservative `ADMITTED` record.
-- **E9-W4:** Worker crash during tool execution leaves conservative record.
-- **E9-W5:** Tool success before completion record leaves `DISPATCHED` record.
-- **E9-W6:** Completion recorded before continuation store update prevents re-execution.
-- **E9-W7:** Tool exception records `UNCERTAIN` and rethrows.
-- **E9-W8:** Cancellation records `UNCERTAIN` in `NonCancellable` context and rethrows.
-- **E9-W9:** Reclaimed continuation uses incremented version and creates distinct child record.
-- **E9-W10:** Duplicate admission sequence write rejected fail-closed.
+### 4.2 Lifecycle & Crash Scenarios (E9-W1 to E9-W10)
+- **E9-W1:** Crash before continuation claim — continuation remains PENDING and evidence is absent.
+- **E9-W2:** Claim succeeds, crash before admission — continuation is CLAIMED and evidence is absent.
+- **E9-W3:** Admission succeeds, crash before tool dispatch — evidence is ADMITTED, tool never executed.
+- **E9-W4:** Crash during tool execution — evidence remains ADMITTED when process dies before uncertain handler.
+- **E9-W5:** Tool execution throws exception — evidence transitions to UNCERTAIN.
+- **E9-W6:** Tool succeeds, crash before continuation complete — evidence is COMPLETED and continuation is CLAIMED.
+- **E9-W7:** Continuation completion fails — operator reconciliation required, tool executed once.
+- **E9-W8:** Checkpoint cancelled while waiting for approval — admitResume refuses and tool never dispatched.
+- **E9-W9:** Checkpoint generation rotated by retry or recovery — admission against current row succeeds.
+- **E9-W10:** Concurrent resume claims — exactly one claim succeeds, loser fails closed with conflict.
 
-### 4.3 Adversarial Mutation Kills (M01 to M15)
-- **M01 (Kill):** Bypass 5-dimension validation $\implies$ killed by version mismatch discriminator.
-- **M02 (Kill):** Omit initial `ADMITTED` persistence $\implies$ killed by existence check before dispatch.
-- **M03 (Kill):** Skip `recordDispatched()` transition $\implies$ killed by state verification before execution.
-- **M04 (Kill):** Mask cancellation exception on failure $\implies$ killed by `assertFailsWith<CancellationException>`.
-- **M05 (Kill):** Mask timeout exception on failure $\implies$ killed by `assertFailsWith<TimeoutCancellationException>`.
-- **M06 (Kill):** Omit `NonCancellable` in handle $\implies$ killed by cancelled context persistence test.
-- **M07 (Kill):** Swap `stepAttemptId` for synthetic attempt ID $\implies$ killed by `parent` type discriminator.
-- **M08 (Kill):** Relax `evidenceRequired` policy check $\implies$ killed by null handle rejection discriminator.
-- **M09 (Kill):** Duplicate permit consumption $\implies$ killed by single-use permit consumption discriminator.
-- **M10 (Kill):** Allow direct `ADMITTED -> COMPLETED` jump without `DISPATCHED` $\implies$ killed by state machine validator.
-- **M11 (Kill):** Mutate `parent` provenance during update $\implies$ killed by parent immutability validator.
-- **M12 (Kill):** Leak raw error message into diagnostic summary $\implies$ killed by sanitization discriminator.
-- **M13 (Kill):** Omit rollback on initial evidence failure $\implies$ killed by transactional boundary check.
-- **M14 (Kill):** Permit negative or zero continuation version $\implies$ killed by version precondition check.
-- **M15 (Kill):** Misattribute workflow run ID $\implies$ killed by binding mismatch discriminator.
+### 4.3 Regression Discriminators (M01 to M15)
+- **M01 (Discriminator):** Bypassing continuation store validation when evidence is enabled fails closed.
+- **M02 (Discriminator):** Forged continuation claim version cannot bypass validation.
+- **M03 (Discriminator):** Mismatched tool name cannot bypass validation.
+- **M04 (Discriminator):** Mismatched workflow run ID cannot bypass validation.
+- **M05 (Discriminator):** Non-CLAIMED continuation cannot be admitted.
+- **M06 (Discriminator):** Missing continuation cannot be admitted.
+- **M07 (Discriminator):** Non-positive continuationVersion fails closed before checkpoint write.
+- **M08 (Discriminator):** Engine with evidenceRequired fails closed when permit has null evidenceHandle.
+- **M09 (Discriminator):** Evidence handle records ADMITTED before tool execution begins.
+- **M10 (Discriminator):** Tool execution records DISPATCHED before tool returns.
+- **M11 (Discriminator):** Tool failure cannot record COMPLETED evidence.
+- **M12 (Discriminator):** completeClaimedResume failure does not overwrite COMPLETED evidence to UNCERTAIN.
+- **M13 (Discriminator):** Cancelled checkpoint refuses before tool execution or evidence write.
+- **M14 (Discriminator):** Standalone suspension never requires workflow evidence.
+- **M15 (Discriminator):** ApprovalResumePermit is strictly single-use and cannot be cloned or re-consumed.
 
 ---
 
@@ -194,6 +195,8 @@ All 49 comprehensive qualification tests pass in `WorkflowApprovalResumeEffectEv
 1. **Option C Lineage Preserved:** Resumes produce child evidence with `ParentProvenance.ApprovalContinuation`. No synthetic step attempt IDs are invented.
 2. **5-Dimension Fail-Closed Admission:** In evidence-enabled configurations, every approval continuation claim is verified against durable storage before admission is granted.
 3. **Fail-Closed Evidence Policy:** When `approvalResumeEvidenceRequired == true`, dispatch without an evidence handle is impossible.
-4. **Cancellation Safety Preserved:** Cancellation exceptions are never swallowed, caught as general exceptions, or converted into permanent tool failures.
-5. **Static Safety Guards Compliant:** `SupervisorJob` and `CoroutineScope` invocations remain within approved static analysis thresholds.
-6. **Binary & JVM Compatibility Preserved:** Existing constructors on `ApprovalResumeAdmissionRequest`, `ApprovalResumePermit`, and `TramaiEngine` are preserved.
+4. **Post-Admission Persistence Failure Separation:** Initial evidence persistence failure throws `ApprovalResumeEvidencePersistenceException` leaving continuation in `CLAIMED` status without dispatching the tool.
+5. **Bounded Execution:** Evidence handle operations are bounded by timeout and do not mask primary execution or cancellation errors.
+6. **Cancellation Safety Preserved:** Cancellation exceptions are never swallowed, caught as general exceptions, or converted into permanent tool failures.
+7. **Static Safety Guards Compliant:** Detekt baseline unchanged (0 added, 0 removed; ceiling respected).
+8. **Binary & JVM Compatibility Preserved:** Public constructors on `WorkflowApprovalResumeAdmission`, `ApprovalResumeAdmissionRequest`, `ApprovalResumePermit`, and `TramaiEngine` are preserved and verified via `apiCheck`.
