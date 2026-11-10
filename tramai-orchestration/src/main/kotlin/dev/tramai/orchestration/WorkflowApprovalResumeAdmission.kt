@@ -377,8 +377,9 @@ private class WorkflowApprovalResumeEvidenceHandle(
         } catch (
             @Suppress("TooGenericExceptionCaught") suppressed: Throwable,
         ) {
-            suppressed.rethrowIfCancellation()
-            // Do not mask primary execution or cancellation failure
+            if (error !== suppressed) {
+                error.addSuppressed(suppressed)
+            }
         }
     }
 }

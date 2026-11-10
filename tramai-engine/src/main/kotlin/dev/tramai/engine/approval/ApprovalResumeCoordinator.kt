@@ -306,10 +306,6 @@ internal class ApprovalResumeCoordinator(
                     recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_CANCELLED)
                 }
 
-                is Exception -> {
-                    recordUncertainAndSuppress(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_FAILED)
-                }
-
                 else -> {
                     recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_FAILED)
                 }
@@ -325,7 +321,6 @@ internal class ApprovalResumeCoordinator(
         } catch (
             @Suppress("TooGenericExceptionCaught") e: Throwable,
         ) {
-            e.rethrowIfCancellation()
             recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.PERSISTENCE_FAILED)
             throw e
         }
@@ -341,22 +336,6 @@ internal class ApprovalResumeCoordinator(
         } catch (
             @Suppress("TooGenericExceptionCaught") suppressed: Throwable,
         ) {
-            suppressed.rethrowIfCancellation()
-            // Cancellation must never be suppressed or obscured
-        }
-    }
-
-    private suspend fun recordUncertainAndSuppress(
-        handle: ApprovalResumeEvidenceHandle?,
-        error: Exception,
-        category: WorkflowEvidenceDiagnosticCategory,
-    ) {
-        try {
-            handle?.recordUncertain(error, category)
-        } catch (
-            @Suppress("TooGenericExceptionCaught") suppressed: Throwable,
-        ) {
-            suppressed.rethrowIfCancellation()
             if (error !== suppressed) {
                 error.addSuppressed(suppressed)
             }

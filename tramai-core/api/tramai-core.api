@@ -275,6 +275,8 @@ public final class dev/tramai/core/approval/ApprovalResumeAdmissionRequest {
 	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/WorkflowCheckpointBinding;J)Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;
 	public static synthetic fun copy$default (Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/WorkflowCheckpointBinding;ILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;
 	public static synthetic fun copy$default (Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/WorkflowCheckpointBinding;JILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;
+	public final fun copyWithContinuationVersion (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/WorkflowCheckpointBinding;J)Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;
+	public static synthetic fun copyWithContinuationVersion$default (Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/WorkflowCheckpointBinding;JILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getApprovalId ()Ljava/lang/String;
 	public final fun getCheckpointBinding ()Ldev/tramai/core/identity/WorkflowCheckpointBinding;
@@ -283,6 +285,7 @@ public final class dev/tramai/core/approval/ApprovalResumeAdmissionRequest {
 	public final fun getToolName ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+	public final fun withContinuationVersion (J)Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;
 }
 
 public abstract interface class dev/tramai/core/approval/ApprovalResumeEvidenceHandle {

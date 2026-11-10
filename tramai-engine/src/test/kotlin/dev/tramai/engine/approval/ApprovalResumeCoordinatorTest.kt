@@ -13,6 +13,7 @@ import dev.tramai.core.approval.ApprovalChallenge
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalResumeEvidenceHandle
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.ApprovalValidation
 import dev.tramai.core.approval.AuthorizeResumeCommand
@@ -21,6 +22,7 @@ import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.ValidateResumeCommand
+import dev.tramai.core.approval.WorkflowEvidenceDiagnosticCategory
 import dev.tramai.core.exception.ApprovalNotFoundException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
 import dev.tramai.core.exception.ConfigurationException
@@ -816,6 +818,7 @@ class ApprovalResumeCoordinatorTest {
     inner class RecordingAdmission(
         private val events: MutableList<String>,
         private val refuse: Boolean = false,
+        private val evidenceHandle: ApprovalResumeEvidenceHandle? = null,
     ) : dev.tramai.core.approval.ApprovalResumeAdmission {
         var requests = 0
         var lastPermit: dev.tramai.core.approval.ApprovalResumePermit? = null
@@ -834,6 +837,7 @@ class ApprovalResumeCoordinatorTest {
                     approvalId = request.approvalId,
                     checkpointBinding = request.checkpointBinding,
                     admissionSequence = 1L,
+                    evidenceHandle = evidenceHandle,
                 ).also { lastPermit = it }
         }
     }
@@ -917,6 +921,8 @@ class ApprovalResumeCoordinatorTest {
         recovery: Boolean = true,
         recoveryFails: Boolean = false,
         suspendedOverride: ((MutableList<String>) -> SuspendedInvocationStore)? = null,
+        evidenceHandle: ApprovalResumeEvidenceHandle? = null,
+        executorThrowWith: Throwable? = null,
     ): GovernedHarness {
         val events = mutableListOf<String>()
         val store = RecordingContinuationStore(events, continuation())
@@ -928,7 +934,7 @@ class ApprovalResumeCoordinatorTest {
                     prepared.envelope,
                     governedSuspension(provenance),
                 )
-        val executor = RecordingExecutor(events)
+        val executor = RecordingExecutor(events, executorThrowWith)
         val registry = ResumeOperationRegistry().also { it.register(service, operation, executor) }
         val gate = RecordingGate(events)
         val policy =
@@ -942,7 +948,7 @@ class ApprovalResumeCoordinatorTest {
             )
         val audit = RecordingAuditEmitter(events)
         val observer = RecordingObserver(events)
-        val recordingAdmission = if (admission) RecordingAdmission(events, refuse) else null
+        val recordingAdmission = if (admission) RecordingAdmission(events, refuse, evidenceHandle) else null
         val recoveryFailure = if (recoveryFails) IllegalStateException("audit down") else null
         val recordingRecovery = if (recovery) RecordingRecovery(events, recoveryFailure) else null
         val coordinator =
@@ -1202,6 +1208,74 @@ class ApprovalResumeCoordinatorTest {
                     .single()
                     .reasonCode,
             ).isEqualTo("resume-admission-authority-missing")
+        }
+
+    @Test
+    fun `tool error is never masked when secondary evidence cleanup throws CancellationException`() =
+        runTest {
+            val primaryError = IllegalStateException("tool failure")
+            val secondaryCancellation = CancellationException("persistence cancelled")
+            val failingHandle =
+                object : ApprovalResumeEvidenceHandle {
+                    override suspend fun recordDispatched() = Unit
+
+                    override suspend fun recordCompleted() = Unit
+
+                    override suspend fun recordUncertain(
+                        error: Throwable,
+                        category: WorkflowEvidenceDiagnosticCategory,
+                    ): Unit = throw secondaryCancellation
+                }
+            val h =
+                governedHarness(
+                    provenance = SuspensionBindingProvenance.WORKFLOW_BOUND,
+                    evidenceHandle = failingHandle,
+                    executorThrowWith = primaryError,
+                )
+
+            val thrown = runCatching { h.coordinator.resume(command) }.exceptionOrNull()
+            assertThat(thrown).isNotNull
+            // Coroutine stack trace recovery across withContext(GovernedRunScope) preserves the original exception as cause
+            val unwrapped = if (thrown?.cause === primaryError) thrown.cause else thrown
+            assertThat(unwrapped)
+                .isSameAs(primaryError)
+                .hasMessage("tool failure")
+            assertThat(unwrapped).isNotSameAs(secondaryCancellation)
+            assertThat(primaryError.suppressedExceptions).contains(secondaryCancellation)
+        }
+
+    @Test
+    fun `primary tool cancellation retains its exact exception identity when secondary persistence cancellation occurs`() =
+        runTest {
+            val primaryCancellation = CancellationException("tool cancelled")
+            val secondaryCancellation = CancellationException("evidence cleanup cancelled")
+            val failingHandle =
+                object : ApprovalResumeEvidenceHandle {
+                    override suspend fun recordDispatched() = Unit
+
+                    override suspend fun recordCompleted() = Unit
+
+                    override suspend fun recordUncertain(
+                        error: Throwable,
+                        category: WorkflowEvidenceDiagnosticCategory,
+                    ): Unit = throw secondaryCancellation
+                }
+            val h =
+                governedHarness(
+                    provenance = SuspensionBindingProvenance.WORKFLOW_BOUND,
+                    evidenceHandle = failingHandle,
+                    executorThrowWith = primaryCancellation,
+                )
+
+            val thrown = runCatching { h.coordinator.resume(command) }.exceptionOrNull()
+            assertThat(thrown).isNotNull
+            // Coroutine stack trace recovery across withContext(GovernedRunScope) preserves the original exception as cause
+            val unwrapped = if (thrown?.cause === primaryCancellation) thrown.cause else thrown
+            assertThat(unwrapped)
+                .isSameAs(primaryCancellation)
+                .hasMessage("tool cancelled")
+            assertThat(unwrapped).isNotSameAs(secondaryCancellation)
+            assertThat(primaryCancellation.suppressedExceptions).contains(secondaryCancellation)
         }
 
     class RecordingSuspendedStore(
