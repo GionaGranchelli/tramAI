@@ -11,12 +11,15 @@ import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ApprovalRecoveryCoordinator
 import dev.tramai.core.approval.ApprovalResumeAdmission
 import dev.tramai.core.approval.ApprovalResumeAdmissionRequest
+import dev.tramai.core.approval.ApprovalResumeEvidenceHandle
+import dev.tramai.core.approval.ApprovalResumePermit
 import dev.tramai.core.approval.ClaimedApprovalContinuation
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.ForceCancelClaimedCommand
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.approval.WorkflowEvidenceDiagnosticCategory
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ApprovalNotFoundException
 import dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException
@@ -35,6 +38,7 @@ import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.GovernedSuspendedInvocation
 import dev.tramai.engine.GovernedSuspendedInvocationStore
+import dev.tramai.engine.RehydratedReplayPayload
 import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.ReplayEnvelopeFactory
 import dev.tramai.engine.ReplayPayload
@@ -86,6 +90,7 @@ internal class ApprovalResumeCoordinator(
      * and then refused; without it the claim is left for the operator recovery sweep, and said so out loud.
      */
     private val approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
+    private val evidenceRequired: Boolean = false,
 ) {
     suspend fun resume(command: ResumeApprovalCommand): Any? {
         val prepared = prepareResume(command)
@@ -222,22 +227,92 @@ internal class ApprovalResumeCoordinator(
         val emitter: suspend (String) -> Unit = { reason ->
             emitResumeUncertainOutcomeOnce(context.uncertainOutcome, command, metadata, reason)
         }
-        admitResumeBeforeDispatch(context, claimed)
+        val permit = admitResumeBeforeDispatch(context, claimed)
+        val handle = permit?.evidenceHandle
+        if (evidenceRequired && permit != null && handle == null) {
+            error(
+                "Approval resume for '${context.command.approvalId}' requires durable evidence tracking, " +
+                    "but admission authority returned permit without evidenceHandle",
+            )
+        }
         val result =
-            context.registered.resumeExecutor.execute(
-                ClaimedResumeExecutionRequest(
-                    command,
-                    metadata,
-                    context.registered,
-                    context.resolvedTool,
-                    rehydratedPayload,
-                    validatedInput,
-                    expectedArgsDigest,
-                    emitter,
-                ),
+            dispatchClaimedResume(
+                context = context,
+                rehydratedPayload = rehydratedPayload,
+                validatedInput = validatedInput,
+                expectedArgsDigest = expectedArgsDigest,
+                emitter = emitter,
+                handle = handle,
             )
         completeClaimedResume(command, metadata, claimed, store)
         return result
+    }
+
+    private suspend fun dispatchClaimedResume(
+        context: ResumeExecutionContext,
+        rehydratedPayload: RehydratedReplayPayload,
+        validatedInput: String,
+        expectedArgsDigest: Sha256Digest,
+        emitter: suspend (String) -> Unit,
+        handle: ApprovalResumeEvidenceHandle?,
+    ): Any? =
+        try {
+            val executed =
+                context.registered.resumeExecutor.execute(
+                    ClaimedResumeExecutionRequest(
+                        context.command,
+                        context.metadata,
+                        context.registered,
+                        context.resolvedTool,
+                        rehydratedPayload,
+                        validatedInput,
+                        expectedArgsDigest,
+                        emitter,
+                    ),
+                )
+            handle?.recordDispatched()
+            handle?.recordCompleted()
+            executed
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_TIMEOUT)
+            throw e
+        } catch (e: CancellationException) {
+            recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_CANCELLED)
+            throw e
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            recordUncertainAndSuppress(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_FAILED)
+            throw e
+        }
+
+    private suspend fun recordUncertainSafely(
+        handle: ApprovalResumeEvidenceHandle?,
+        error: Throwable,
+        category: WorkflowEvidenceDiagnosticCategory,
+    ) {
+        try {
+            handle?.recordUncertain(error, category)
+        } catch (
+            @Suppress("TooGenericExceptionCaught") _: Throwable,
+        ) {
+            // Cancellation must never be suppressed or obscured
+        }
+    }
+
+    private suspend fun recordUncertainAndSuppress(
+        handle: ApprovalResumeEvidenceHandle?,
+        error: Exception,
+        category: WorkflowEvidenceDiagnosticCategory,
+    ) {
+        try {
+            handle?.recordUncertain(error, category)
+        } catch (
+            @Suppress("TooGenericExceptionCaught") suppressed: Throwable,
+        ) {
+            if (error !== suppressed) {
+                error.addSuppressed(suppressed)
+            }
+        }
     }
 
     /**
@@ -256,19 +331,16 @@ internal class ApprovalResumeCoordinator(
     private suspend fun admitResumeBeforeDispatch(
         context: ResumeExecutionContext,
         claimed: ClaimedApprovalContinuation,
-    ) {
+    ): ApprovalResumePermit? {
         val suspension =
             (suspendedInvocationStore as? GovernedSuspendedInvocationStore)
                 ?.governedSuspension(context.command.approvalId)
-        // A store written against the older SPI answers governedRunIdentity() and leaves governedSuspension() at its
-        // null default. The identity recovered before the claim is the same fact, already read once; the record simply
-        // states no provenance, which is unknown, never permission to skip admission.
-        val runIdentity = suspension?.runIdentity ?: context.persistedGovernedRunIdentity ?: return
+        val runIdentity = suspension?.runIdentity ?: context.persistedGovernedRunIdentity ?: return null
         requireAdmissionIdentityContinuity(context, claimed, runIdentity)
         val authority = approvalResumeAdmission
-        when (suspension?.provenance ?: SuspensionBindingProvenance.LEGACY_UNKNOWN) {
+        return when (suspension?.provenance ?: SuspensionBindingProvenance.LEGACY_UNKNOWN) {
             SuspensionBindingProvenance.STANDALONE -> {
-                Unit
+                null
             }
 
             SuspensionBindingProvenance.WORKFLOW_BOUND -> {
@@ -276,13 +348,16 @@ internal class ApprovalResumeCoordinator(
             }
 
             SuspensionBindingProvenance.LEGACY_UNKNOWN -> {
-                if (authority == null) return
-                refuseClaimedResume(
-                    context,
-                    claimed,
-                    REASON_LEGACY_PROVENANCE,
-                    "the suspension records no binding provenance, so workflow authority cannot be established",
-                )
+                if (authority == null) {
+                    null
+                } else {
+                    refuseClaimedResume(
+                        context,
+                        claimed,
+                        REASON_LEGACY_PROVENANCE,
+                        "the suspension records no binding provenance, so workflow authority cannot be established",
+                    )
+                }
             }
         }
     }
@@ -313,7 +388,7 @@ internal class ApprovalResumeCoordinator(
         authority: ApprovalResumeAdmission?,
         checkpointBinding: WorkflowCheckpointBinding?,
         runIdentity: GovernedRunIdentity,
-    ) {
+    ): ApprovalResumePermit {
         if (authority == null) {
             refuseClaimedResume(
                 context,
@@ -333,6 +408,7 @@ internal class ApprovalResumeCoordinator(
                         toolName = context.metadata.toolName,
                         runIdentity = runIdentity,
                         checkpointBinding = checkpointBinding,
+                        continuationVersion = claimed.continuation.version,
                     ),
                 )
             } catch (refused: ApprovalResumeAdmissionRefusedException) {
@@ -341,6 +417,7 @@ internal class ApprovalResumeCoordinator(
                 refuseClaimedResume(context, claimed, REASON_AUTHORITY_REFUSED, refused.message ?: "refused")
             }
         permit.tryConsume()
+        return permit
     }
 
     /**

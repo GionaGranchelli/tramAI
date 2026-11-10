@@ -2,10 +2,17 @@
 
 package dev.tramai.orchestration
 
+import dev.tramai.core.approval.ApprovalContinuationStatus
+import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalResumeAdmission
 import dev.tramai.core.approval.ApprovalResumeAdmissionRequest
+import dev.tramai.core.approval.ApprovalResumeEvidenceHandle
 import dev.tramai.core.approval.ApprovalResumePermit
+import dev.tramai.core.approval.WorkflowEvidenceDiagnosticCategory
 import dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import java.time.Clock
 
 /**
  * E9: the workflow-side authority for approval continuations, over the same durable row that governs cancellation
@@ -21,9 +28,40 @@ import dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException
  *
  * @param checkpointStore the durable authority. Same store the workflow itself checkpoints into.
  */
-class WorkflowApprovalResumeAdmission(
+class WorkflowApprovalResumeAdmission internal constructor(
     private val checkpointStore: WorkflowCheckpointStore,
+    private val continuationStore: ApprovalContinuationStore?,
+    private val evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    private val clock: Clock,
 ) : ApprovalResumeAdmission {
+    constructor(checkpointStore: WorkflowCheckpointStore) : this(
+        checkpointStore = checkpointStore,
+        continuationStore = null,
+        evidenceStore = checkpointStore.resolveEvidenceStore(),
+        clock = Clock.systemUTC(),
+    )
+
+    constructor(
+        checkpointStore: WorkflowCheckpointStore,
+        continuationStore: ApprovalContinuationStore,
+    ) : this(
+        checkpointStore = checkpointStore,
+        continuationStore = continuationStore,
+        evidenceStore = checkpointStore.resolveEvidenceStore(),
+        clock = Clock.systemUTC(),
+    )
+
+    internal constructor(
+        checkpointStore: WorkflowCheckpointStore,
+        continuationStore: ApprovalContinuationStore?,
+        evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    ) : this(
+        checkpointStore = checkpointStore,
+        continuationStore = continuationStore,
+        evidenceStore = evidenceStore,
+        clock = Clock.systemUTC(),
+    )
+
     override suspend fun admitResume(request: ApprovalResumeAdmissionRequest): ApprovalResumePermit {
         val binding = request.checkpointBinding
         val checkpoint =
@@ -47,6 +85,11 @@ class WorkflowApprovalResumeAdmission(
                 "approval '${request.approvalId}' cannot be admitted: ${mismatch.message}",
             ).apply { initCause(mismatch) }
         }
+
+        if (evidenceStore != null) {
+            validateEvidencePreconditions(request, binding)
+        }
+
         val admission =
             try {
                 checkpointStore.admitEffect(
@@ -71,11 +114,168 @@ class WorkflowApprovalResumeAdmission(
                         "admission (${unsupported.message})",
                 ).apply { initCause(unsupported) }
             }
+
+        val evidenceHandle =
+            if (evidenceStore != null) {
+                recordInitialEvidence(request, binding, checkpoint.checkpointGeneration.orEmpty(), admission.sequence)
+            } else {
+                null
+            }
+
         return ApprovalResumePermit(
             approvalId = request.approvalId,
             checkpointBinding = binding,
             admissionSequence = admission.sequence,
+            checkpointGeneration = checkpoint.checkpointGeneration,
+            evidenceHandle = evidenceHandle,
         )
+    }
+
+    private suspend fun validateEvidencePreconditions(
+        request: ApprovalResumeAdmissionRequest,
+        binding: dev.tramai.core.identity.WorkflowCheckpointBinding,
+    ) {
+        val refusal = checkEvidencePreconditions(request, binding)
+        if (refusal != null) {
+            throw ApprovalResumeAdmissionRefusedException(refusal)
+        }
+    }
+
+    private suspend fun checkEvidencePreconditions(
+        request: ApprovalResumeAdmissionRequest,
+        binding: dev.tramai.core.identity.WorkflowCheckpointBinding,
+    ): String? {
+        val store = continuationStore
+        val stored = store?.get(request.approvalId)
+        return when {
+            store == null -> {
+                "approval '${request.approvalId}' cannot be admitted: " +
+                    "continuationStore is required when evidence tracking is enabled"
+            }
+
+            request.continuationVersion <= 0L -> {
+                "approval '${request.approvalId}' cannot record evidence: continuationVersion must be positive"
+            }
+
+            stored == null -> {
+                "approval '${request.approvalId}' not found"
+            }
+
+            stored.status != ApprovalContinuationStatus.CLAIMED -> {
+                "approval '${request.approvalId}' is not in CLAIMED status (was ${stored.status})"
+            }
+
+            stored.version != request.continuationVersion -> {
+                "approval '${request.approvalId}' continuation version mismatch: " +
+                    "store has ${stored.version}, request claimed ${request.continuationVersion}"
+            }
+
+            stored.workflowRunId != binding.workflowId -> {
+                "approval '${request.approvalId}' workflowRunId mismatch: " +
+                    "store has ${stored.workflowRunId}, request claimed ${binding.workflowId}"
+            }
+
+            stored.toolName != request.toolName -> {
+                "approval '${request.approvalId}' tool mismatch: " +
+                    "store has ${stored.toolName}, request claimed ${request.toolName}"
+            }
+
+            else -> {
+                null
+            }
+        }
+    }
+
+    private suspend fun recordInitialEvidence(
+        request: ApprovalResumeAdmissionRequest,
+        binding: dev.tramai.core.identity.WorkflowCheckpointBinding,
+        checkpointGeneration: String,
+        admissionSequence: Long,
+    ): ApprovalResumeEvidenceHandle {
+        val evidenceKey =
+            WorkflowEffectEvidenceKey(
+                workflowName = binding.workflowName,
+                workflowId = binding.workflowId,
+                checkpointGeneration = checkpointGeneration,
+                admissionSeq = admissionSequence,
+            )
+        val initialRecord =
+            WorkflowEffectEvidenceRecord(
+                key = evidenceKey,
+                parent =
+                    ParentProvenance.ApprovalContinuation(
+                        approvalId = request.approvalId,
+                        continuationVersion = request.continuationVersion,
+                        toolName = request.toolName,
+                    ),
+                effectKind = APPROVAL_RESUME_EFFECT_KIND,
+                state = WorkflowEffectEvidenceState.ADMITTED,
+                createdAtEpochMillis = clock.millis(),
+            )
+        try {
+            checkNotNull(evidenceStore).recordEvidence(initialRecord)
+        } catch (
+            @Suppress("TooGenericExceptionCaught") ex: Exception,
+        ) {
+            throw ApprovalResumeAdmissionRefusedException(
+                "approval '${request.approvalId}' admitted against checkpoint but " +
+                    "failed to record initial evidence: ${ex.message}",
+            ).apply { initCause(ex) }
+        }
+        return WorkflowApprovalResumeEvidenceHandle(evidenceStore, evidenceKey, clock)
+    }
+}
+
+private class WorkflowApprovalResumeEvidenceHandle(
+    private val evidenceStore: WorkflowEffectEvidenceRecordStore,
+    private val evidenceKey: WorkflowEffectEvidenceKey,
+    private val clock: Clock,
+) : ApprovalResumeEvidenceHandle {
+    override suspend fun recordDispatched() {
+        withContext(NonCancellable) {
+            val existing =
+                checkNotNull(evidenceStore.getEvidence(evidenceKey)) {
+                    "Evidence record missing for key: $evidenceKey"
+                }
+            val updated = existing.copy(state = WorkflowEffectEvidenceState.DISPATCHED)
+            evidenceStore.updateEvidence(updated)
+        }
+    }
+
+    override suspend fun recordCompleted() {
+        withContext(NonCancellable) {
+            val existing =
+                checkNotNull(evidenceStore.getEvidence(evidenceKey)) {
+                    "Evidence record missing for key: $evidenceKey"
+                }
+            val updated =
+                existing.copy(
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    completedAtEpochMillis = clock.millis(),
+                )
+            evidenceStore.updateEvidence(updated)
+        }
+    }
+
+    override suspend fun recordUncertain(
+        error: Throwable,
+        category: WorkflowEvidenceDiagnosticCategory,
+    ) {
+        withContext(NonCancellable) {
+            val existing = evidenceStore.getEvidence(evidenceKey)
+            if (existing != null &&
+                existing.state != WorkflowEffectEvidenceState.UNCERTAIN &&
+                existing.state != WorkflowEffectEvidenceState.COMPLETED
+            ) {
+                val updated =
+                    existing.copy(
+                        state = WorkflowEffectEvidenceState.UNCERTAIN,
+                        completedAtEpochMillis = clock.millis(),
+                        diagnosticSummary = category.name,
+                    )
+                evidenceStore.updateEvidence(updated)
+            }
+        }
     }
 }
 

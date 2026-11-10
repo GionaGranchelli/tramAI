@@ -78,6 +78,7 @@ internal object EngineComponentFactory {
         clock: Clock,
         approvalResumeAdmission: ApprovalResumeAdmission? = null,
         approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
+        approvalResumeEvidenceRequired: Boolean = false,
         retryJitterSource: RetryJitterSource = DefaultRetryJitterSource,
         identitySource: EngineIdentitySource = DefaultEngineIdentitySource,
         structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
@@ -106,6 +107,7 @@ internal object EngineComponentFactory {
                 capability,
                 approvalResumeAdmission,
                 approvalRecoveryCoordinator,
+                approvalResumeEvidenceRequired,
             ),
             PersistenceComponents(responseCache, chatMemory, conversationIdProvider),
             ObservationComponents(

@@ -19,7 +19,44 @@ data class ApprovalResumeAdmissionRequest(
     val toolName: String,
     val runIdentity: GovernedRunIdentity,
     val checkpointBinding: WorkflowCheckpointBinding,
-)
+    val continuationVersion: Long = 0L,
+) {
+    // Retained for binary compatibility with compiled callers
+    constructor(
+        approvalId: String,
+        toolName: String,
+        runIdentity: GovernedRunIdentity,
+        checkpointBinding: WorkflowCheckpointBinding,
+    ) : this(approvalId, toolName, runIdentity, checkpointBinding, 0L)
+}
+
+/**
+ * Fixed diagnostic categories for durable evidence.
+ * Raw exception messages, sensitive paths, or arbitrary strings must NEVER enter durable evidence.
+ */
+enum class WorkflowEvidenceDiagnosticCategory {
+    TOOL_EXECUTION_FAILED,
+    TOOL_EXECUTION_TIMEOUT,
+    TOOL_EXECUTION_CANCELLED,
+    PERSISTENCE_FAILED,
+    RECONCILIATION_REQUIRED,
+}
+
+/**
+ * Callback handle for recording evidence during approval resume execution.
+ * Passed via [ApprovalResumePermit] to bridge orchestration evidence storage
+ * across the engine execution boundary without violating module dependencies.
+ */
+interface ApprovalResumeEvidenceHandle {
+    suspend fun recordDispatched()
+
+    suspend fun recordCompleted()
+
+    suspend fun recordUncertain(
+        error: Throwable,
+        category: WorkflowEvidenceDiagnosticCategory,
+    )
+}
 
 /**
  * Workflow-bound approval continuation admission (E9) as a capability distinct from approval authorization.
@@ -57,8 +94,17 @@ class ApprovalResumePermit(
     val approvalId: String,
     val checkpointBinding: WorkflowCheckpointBinding,
     val admissionSequence: Long,
+    val checkpointGeneration: String? = null,
+    val evidenceHandle: ApprovalResumeEvidenceHandle? = null,
 ) {
     private val consumed = AtomicBoolean(false)
+
+    // Retained 3-parameter constructor for binary compatibility
+    constructor(
+        approvalId: String,
+        checkpointBinding: WorkflowCheckpointBinding,
+        admissionSequence: Long,
+    ) : this(approvalId, checkpointBinding, admissionSequence, null, null)
 
     /**
      * Consume the permit: true exactly once. A second call is a programming error and fails rather than re-dispatching,

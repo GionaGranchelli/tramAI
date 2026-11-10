@@ -1200,6 +1200,7 @@ public final class dev/tramai/orchestration/WorkflowAdmissionRequest {
 
 public final class dev/tramai/orchestration/WorkflowApprovalResumeAdmission : dev/tramai/core/approval/ApprovalResumeAdmission {
 	public fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;)V
+	public fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/core/approval/ApprovalContinuationStore;)V
 	public fun admitResume (Ldev/tramai/core/approval/ApprovalResumeAdmissionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 

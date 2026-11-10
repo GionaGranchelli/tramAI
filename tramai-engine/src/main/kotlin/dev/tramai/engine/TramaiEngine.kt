@@ -211,8 +211,77 @@ class TramaiEngine internal constructor(
     private val approvalLifecycleAuditEmitter = components.approvals.approvalLifecycleAuditEmitter
     private val approvalResumeAdmission = components.approvals.resumeAdmission
     private val approvalRecoveryCoordinator = components.approvals.recoveryCoordinator
+    private val approvalResumeEvidenceRequired = components.approvals.approvalResumeEvidenceRequired
     private val clock = components.execution.clock
     private val structuredOutputFailureDiagnosticObserver = components.observation.structuredOutputFailureDiagnosticObserver
+
+    constructor(
+        providerRegistry: ProviderRegistry,
+        structuredOutputHandler: StructuredOutputHandler?,
+        toolRegistry: ToolRegistry,
+        operationObserver: OperationObserver,
+        operationInterceptor: OperationInterceptor,
+        responseCache: OperationResponseCache,
+        modelRegistry: ModelRegistry,
+        modelRegistrySettings: ModelRegistrySettings,
+        circuitBreakerSettings: CircuitBreakerSettings,
+        retryPolicySettings: RetryPolicySettings,
+        tokenBudgetSettings: TokenBudgetSettings,
+        promptSanitizer: PromptSanitizer?,
+        chatMemory: ChatMemory?,
+        conversationIdProvider: ConversationIdProvider,
+        job: Job,
+        scope: CoroutineScope,
+        policyEngine: dev.tramai.core.policy.PolicyEngine?,
+        dlpInterceptor: DlpInterceptor,
+        dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
+        toolResultFilteringSettings: ToolResultFilteringSettings,
+        engineEventObserver: EngineEventObserver,
+        toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver,
+        policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
+        // Approval suspension dependencies
+        suspendedInvocationStore: SuspendedInvocationStore,
+        approvalContinuationStore: ApprovalContinuationStore?,
+        toolArgumentsDigester: ToolArgumentsDigester?,
+        approvalGateCoordinator: ApprovalGateCoordinator?,
+        approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter,
+        approvalResumeAdmission: ApprovalResumeAdmission?,
+        approvalRecoveryCoordinator: ApprovalRecoveryCoordinator?,
+        clock: Clock,
+    ) : this(
+        providerRegistry = providerRegistry,
+        structuredOutputHandler = structuredOutputHandler,
+        toolRegistry = toolRegistry,
+        operationObserver = operationObserver,
+        operationInterceptor = operationInterceptor,
+        responseCache = responseCache,
+        modelRegistry = modelRegistry,
+        modelRegistrySettings = modelRegistrySettings,
+        circuitBreakerSettings = circuitBreakerSettings,
+        retryPolicySettings = retryPolicySettings,
+        tokenBudgetSettings = tokenBudgetSettings,
+        promptSanitizer = promptSanitizer,
+        chatMemory = chatMemory,
+        conversationIdProvider = conversationIdProvider,
+        job = job,
+        scope = scope,
+        policyEngine = policyEngine,
+        dlpInterceptor = dlpInterceptor,
+        dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
+        toolResultFilteringSettings = toolResultFilteringSettings,
+        engineEventObserver = engineEventObserver,
+        toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+        policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+        suspendedInvocationStore = suspendedInvocationStore,
+        approvalContinuationStore = approvalContinuationStore,
+        toolArgumentsDigester = toolArgumentsDigester,
+        approvalGateCoordinator = approvalGateCoordinator,
+        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+        approvalResumeAdmission = approvalResumeAdmission,
+        approvalRecoveryCoordinator = approvalRecoveryCoordinator,
+        approvalResumeEvidenceRequired = false,
+        clock = clock,
+    )
 
     constructor(
         providerRegistry: ProviderRegistry,
@@ -246,6 +315,7 @@ class TramaiEngine internal constructor(
         approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
         approvalResumeAdmission: ApprovalResumeAdmission? = null,
         approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
+        approvalResumeEvidenceRequired: Boolean = false,
         clock: Clock = Clock.systemUTC(),
     ) : this(
         EngineComponentFactory.create(
@@ -278,6 +348,7 @@ class TramaiEngine internal constructor(
             clock,
             approvalResumeAdmission,
             approvalRecoveryCoordinator,
+            approvalResumeEvidenceRequired,
         ),
     )
 
@@ -320,6 +391,7 @@ class TramaiEngine internal constructor(
             engineEventObserver = engineEventObserver,
             claimService = continuationClaimService,
             authorizationService = replayAuthorizationService,
+            evidenceRequired = approvalResumeEvidenceRequired,
         )
     private val closed =
         java.util.concurrent.atomic

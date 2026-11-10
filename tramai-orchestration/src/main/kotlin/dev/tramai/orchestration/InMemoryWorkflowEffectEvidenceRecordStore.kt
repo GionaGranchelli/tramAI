@@ -55,6 +55,9 @@ internal class InMemoryWorkflowEffectEvidenceRecordStore : WorkflowEffectEvidenc
         check(existing.key == updated.key) {
             "Evidence key is immutable: expected ${existing.key}, got ${updated.key}"
         }
+        check(existing.parent == updated.parent) {
+            "parent is immutable: expected '${existing.parent}', got '${updated.parent}'"
+        }
         check(existing.stepName == updated.stepName) {
             "stepName is immutable: expected '${existing.stepName}', got '${updated.stepName}'"
         }
