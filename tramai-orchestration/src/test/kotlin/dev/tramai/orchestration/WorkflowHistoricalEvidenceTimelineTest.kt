@@ -180,6 +180,15 @@ class WorkflowHistoricalEvidenceTimelineTest {
         runBlocking {
             val saved = checkpointStore.save(sampleCheckpoint())
             val gen = saved.checkpointGeneration ?: "gen-1"
+            val adm =
+                checkpointStore.admitEffect(
+                    workflowName,
+                    workflowId,
+                    saved.revision,
+                    gen,
+                    "transfer_funds",
+                    APPROVAL_RESUME_EFFECT_KIND,
+                )
 
             val continuationStore = InMemoryApprovalContinuationStore()
             val sensitiveArgs = SensitiveToolArguments.of("{}")
@@ -209,7 +218,7 @@ class WorkflowHistoricalEvidenceTimelineTest {
             // Persist completed E9 child evidence
             evidenceStore.recordEvidence(
                 WorkflowEffectEvidenceRecord(
-                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, 1L),
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, adm.sequence),
                     parent = ParentProvenance.ApprovalContinuation("app-recon-check", claimed.continuation.version, "transfer_funds"),
                     effectKind = APPROVAL_RESUME_EFFECT_KIND,
                     state = WorkflowEffectEvidenceState.COMPLETED,
@@ -413,15 +422,13 @@ class WorkflowHistoricalEvidenceTimelineTest {
     @Test
     fun `readTimeline preserves completed historical effects across multiple checkpoint generations`() {
         runBlocking {
-            val saved = checkpointStore.save(sampleCheckpoint())
-            val gen = saved.checkpointGeneration ?: "gen-1"
-            val adm1 = checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-1", HTTP_EFFECT_KIND)
-            val adm2 = checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-2", HTTP_EFFECT_KIND)
-
-            // Generation 1 evidence
+            // 1. Generation 1
+            val saved1 = checkpointStore.save(sampleCheckpoint())
+            val gen1 = checkNotNull(saved1.checkpointGeneration)
+            val adm1 = checkpointStore.admitEffect(workflowName, workflowId, saved1.revision, gen1, "step-1", HTTP_EFFECT_KIND)
             evidenceStore.recordEvidence(
                 WorkflowEffectEvidenceRecord(
-                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, adm1.sequence),
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen1, adm1.sequence),
                     parent = ParentProvenance.StepAttempt("step-1", "att-1"),
                     effectKind = HTTP_EFFECT_KIND,
                     state = WorkflowEffectEvidenceState.COMPLETED,
@@ -430,8 +437,27 @@ class WorkflowHistoricalEvidenceTimelineTest {
                 ),
             )
 
-            // Generation 2 evidence (e.g. from an earlier generation or rotated generation)
-            val rotatedGen = "gen-rotated-2"
+            // 2. Perform genuine generation transition in store
+            val rotatedGen = UUID.randomUUID().toString()
+            pool.connection.use { conn ->
+                val sql =
+                    """
+                    UPDATE tramai_workflow_checkpoint
+                    SET checkpoint_generation = ?
+                    WHERE workflow_name = ? AND workflow_id = ?
+                    """.trimIndent()
+                conn.prepareStatement(sql).use { stmt ->
+                    stmt.setString(1, rotatedGen)
+                    stmt.setString(2, workflowName)
+                    stmt.setString(3, workflowId)
+                    stmt.executeUpdate()
+                }
+            }
+
+            val loaded = checkNotNull(checkpointStore.load(workflowName, workflowId))
+            assertThat(loaded.checkpointGeneration).isEqualTo(rotatedGen)
+
+            val adm2 = checkpointStore.admitEffect(workflowName, workflowId, loaded.revision, rotatedGen, "step-2", HTTP_EFFECT_KIND)
             evidenceStore.recordEvidence(
                 WorkflowEffectEvidenceRecord(
                     key = WorkflowEffectEvidenceKey(workflowName, workflowId, rotatedGen, adm2.sequence),
@@ -447,13 +473,97 @@ class WorkflowHistoricalEvidenceTimelineTest {
 
             assertThat(timeline.records).hasSize(2)
             assertThat(timeline.completedEffects).hasSize(2)
-            assertThat(timeline.records[0].key.checkpointGeneration).isEqualTo(gen)
+            assertThat(timeline.records[0].key.checkpointGeneration).isEqualTo(gen1)
             assertThat(timeline.records[0].key.admissionSeq).isEqualTo(1L)
             assertThat(timeline.records[1].key.checkpointGeneration).isEqualTo(rotatedGen)
             assertThat(timeline.records[1].key.admissionSeq).isEqualTo(2L)
             assertThat(timeline.completeness).isEqualTo(TimelineCompleteness.COMPLETE)
             assertThat(timeline.admissionGaps).isEmpty()
             assertThat(timeline.requiresReconciliation).isFalse()
+        }
+    }
+
+    @Test
+    fun `readTimeline with committed admissions, zero child evidence, and wrapped store requires reconciliation`() {
+        runBlocking {
+            val saved = checkpointStore.save(sampleCheckpoint())
+            val gen = checkNotNull(saved.checkpointGeneration)
+
+            // Commit admissions directly on the underlying store
+            checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-1", HTTP_EFFECT_KIND)
+            checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-2", HTTP_EFFECT_KIND)
+
+            // Wrap store so currentAdmissionSequence cannot be derived
+            val wrappedStore = object : WorkflowCheckpointStore by checkpointStore {}
+
+            // Zero child evidence written to evidenceStore
+            val timeline = WorkflowHistoricalEvidenceReader.readTimeline(wrappedStore, evidenceStore, workflowName, workflowId)
+
+            assertThat(timeline.records).isEmpty()
+            assertThat(timeline.completeness).isEqualTo(TimelineCompleteness.UNKNOWN)
+            assertThat(timeline.requiresReconciliation).isTrue()
+        }
+    }
+
+    @Test
+    fun `readTimeline flags evidence beyond authoritative counter as integrity violation requiring reconciliation`() {
+        runBlocking {
+            val saved = checkpointStore.save(sampleCheckpoint())
+            val gen = checkNotNull(saved.checkpointGeneration)
+
+            // 1. Authoritative counter is 0, but an evidence record exists with seq 1
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, 1L),
+                    parent = ParentProvenance.StepAttempt("step-1", "att-1"),
+                    effectKind = HTTP_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1100L,
+                ),
+            )
+
+            var timeline = WorkflowHistoricalEvidenceReader.readTimeline(checkpointStore, evidenceStore, workflowName, workflowId)
+            assertThat(timeline.completeness).isEqualTo(TimelineCompleteness.INTEGRITY_VIOLATION)
+            assertThat(timeline.requiresReconciliation).isTrue()
+
+            // 2. Authoritative counter is 1, but evidence has seq 2
+            checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-1", HTTP_EFFECT_KIND)
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, 2L),
+                    parent = ParentProvenance.StepAttempt("step-2", "att-2"),
+                    effectKind = HTTP_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1200L,
+                    completedAtEpochMillis = 1300L,
+                ),
+            )
+
+            timeline = WorkflowHistoricalEvidenceReader.readTimeline(checkpointStore, evidenceStore, workflowName, workflowId)
+            assertThat(timeline.completeness).isEqualTo(TimelineCompleteness.INTEGRITY_VIOLATION)
+            assertThat(timeline.requiresReconciliation).isTrue()
+        }
+    }
+
+    @Test
+    fun `readTimeline bounds gap enumeration to prevent memory exhaustion on large counters`() {
+        runBlocking {
+            val sequences = emptyList<Long>()
+            val authoritativeMaxSeq = 1_000_000_000L
+            val limit = 50
+
+            val result =
+                WorkflowHistoricalEvidenceReader.computeAdmissionGaps(
+                    sequences = sequences,
+                    authoritativeMaxSeq = authoritativeMaxSeq,
+                    maxGapLimit = limit,
+                )
+
+            assertThat(result.gaps).hasSize(limit)
+            assertThat(result.gaps).containsExactlyElementsOf((1L..50L).toList())
+            assertThat(result.isTruncated).isTrue()
+            assertThat(result.completeness).isEqualTo(TimelineCompleteness.GAPS_DETECTED)
         }
     }
 }

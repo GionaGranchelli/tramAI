@@ -15,7 +15,18 @@ internal enum class TimelineCompleteness {
 
     /** The authoritative admission sequence counter cannot be derived; completeness cannot be guaranteed. */
     UNKNOWN,
+
+    /** Evidence sequences are out-of-bounds or conflict with the authoritative checkpoint admission counter. */
+    INTEGRITY_VIOLATION,
 }
+
+internal const val DEFAULT_MAX_GAP_LIMIT = 1000
+
+internal data class BoundedGapsResult(
+    val gaps: List<Long>,
+    val completeness: TimelineCompleteness,
+    val isTruncated: Boolean = false,
+)
 
 /**
  * Historical evidence timeline for one workflow run (D7-F).
@@ -37,6 +48,7 @@ internal data class WorkflowHistoricalEvidenceTimeline(
     val admissionGaps: List<Long>,
     val requiresReconciliation: Boolean,
     val completeness: TimelineCompleteness = TimelineCompleteness.COMPLETE,
+    val isGapsTruncated: Boolean = false,
 ) {
     val isCancelled: Boolean get() = lifecycle != null
 
@@ -72,13 +84,12 @@ internal object WorkflowHistoricalEvidenceReader {
 
         val authoritativeMaxSeq = resolveAuthoritativeAdmissionSequence(checkpointStore, workflowName, workflowId)
         val sequences = records.map { it.key.admissionSeq }
-        val (gaps, completeness) = computeAdmissionGaps(sequences, authoritativeMaxSeq)
+        val boundedResult = computeAdmissionGaps(sequences, authoritativeMaxSeq)
         val reconciliationRequired =
             checkReconciliationRequired(
                 lifecycle = lifecycle,
                 records = records,
-                gaps = gaps,
-                completeness = completeness,
+                completeness = boundedResult.completeness,
                 continuationStore = continuationStore,
             )
 
@@ -87,9 +98,10 @@ internal object WorkflowHistoricalEvidenceReader {
             workflowId = workflowId,
             lifecycle = lifecycle,
             records = records,
-            admissionGaps = gaps,
+            admissionGaps = boundedResult.gaps,
             requiresReconciliation = reconciliationRequired,
-            completeness = completeness,
+            completeness = boundedResult.completeness,
+            isGapsTruncated = boundedResult.isTruncated,
         )
     }
 
@@ -104,51 +116,98 @@ internal object WorkflowHistoricalEvidenceReader {
             else -> null
         }
 
-    private fun computeAdmissionGaps(
+    internal fun computeAdmissionGaps(
         sequences: List<Long>,
         authoritativeMaxSeq: Long?,
-    ): Pair<List<Long>, TimelineCompleteness> {
+        maxGapLimit: Int = DEFAULT_MAX_GAP_LIMIT,
+    ): BoundedGapsResult {
         if (authoritativeMaxSeq == null) {
-            if (sequences.isEmpty()) {
-                return Pair(emptyList(), TimelineCompleteness.UNKNOWN)
-            }
-            val maxSeq = sequences.last()
-            val presentSeqs = sequences.toSet()
-            val gaps = (1L..maxSeq).filter { it !in presentSeqs }
-            return Pair(gaps, TimelineCompleteness.UNKNOWN)
+            return computeGapsWithoutAuthority(sequences, maxGapLimit)
         }
+        return computeGapsWithAuthority(sequences, authoritativeMaxSeq, maxGapLimit)
+    }
 
-        if (authoritativeMaxSeq == 0L) {
-            return Pair(emptyList(), TimelineCompleteness.COMPLETE)
+    private fun computeGapsWithoutAuthority(
+        sequences: List<Long>,
+        maxGapLimit: Int,
+    ): BoundedGapsResult {
+        if (sequences.isEmpty()) {
+            return BoundedGapsResult(emptyList(), TimelineCompleteness.UNKNOWN, false)
         }
-
-        val presentSeqs = sequences.toSet()
-        val gaps = (1L..authoritativeMaxSeq).filter { it !in presentSeqs }
+        val outOfBounds = sequences.any { it < 1L }
         val completeness =
-            if (gaps.isEmpty()) TimelineCompleteness.COMPLETE else TimelineCompleteness.GAPS_DETECTED
-        return Pair(gaps, completeness)
+            if (outOfBounds) TimelineCompleteness.INTEGRITY_VIOLATION else TimelineCompleteness.UNKNOWN
+        val (gaps, isTruncated) =
+            if (outOfBounds) {
+                Pair(emptyList(), false)
+            } else {
+                collectGaps(sequences, sequences.last(), maxGapLimit)
+            }
+        return BoundedGapsResult(gaps, completeness, isTruncated)
+    }
+
+    private fun computeGapsWithAuthority(
+        sequences: List<Long>,
+        authoritativeMaxSeq: Long,
+        maxGapLimit: Int,
+    ): BoundedGapsResult {
+        val outOfBounds =
+            sequences.any { it < 1L || it > authoritativeMaxSeq } ||
+                (authoritativeMaxSeq == 0L && sequences.isNotEmpty())
+        if (outOfBounds) {
+            return BoundedGapsResult(emptyList(), TimelineCompleteness.INTEGRITY_VIOLATION, false)
+        }
+        val (gaps, isTruncated) = collectGaps(sequences, authoritativeMaxSeq, maxGapLimit)
+        val completeness =
+            if (gaps.isEmpty() && !isTruncated) TimelineCompleteness.COMPLETE else TimelineCompleteness.GAPS_DETECTED
+        return BoundedGapsResult(gaps, completeness, isTruncated)
+    }
+
+    private fun collectGaps(
+        sequences: List<Long>,
+        targetMaxSeq: Long,
+        maxGapLimit: Int,
+    ): Pair<List<Long>, Boolean> {
+        var expected = 1L
+        var truncated = false
+        val gaps =
+            buildList {
+                for (seq in sequences) {
+                    while (expected < seq && size < maxGapLimit) {
+                        add(expected)
+                        expected++
+                    }
+                    if (size >= maxGapLimit) {
+                        truncated = expected < seq || expected <= targetMaxSeq
+                        break
+                    }
+                    expected = seq + 1L
+                }
+                if (size < maxGapLimit) {
+                    while (expected <= targetMaxSeq && size < maxGapLimit) {
+                        add(expected)
+                        expected++
+                    }
+                    if (expected <= targetMaxSeq) {
+                        truncated = true
+                    }
+                }
+            }
+        return Pair(gaps, truncated)
     }
 
     private suspend fun checkReconciliationRequired(
         lifecycle: WorkflowLifecycleState?,
         records: List<WorkflowEffectEvidenceRecord>,
-        gaps: List<Long>,
         completeness: TimelineCompleteness,
         continuationStore: ApprovalContinuationStore?,
     ): Boolean {
-        if (lifecycle?.status == WorkflowLifecycleStatus.CANCELLED_UNCERTAIN) {
+        if (completeness != TimelineCompleteness.COMPLETE) {
             return true
         }
-        if (gaps.isNotEmpty()) {
-            return true
-        }
-        if (completeness == TimelineCompleteness.UNKNOWN && records.isNotEmpty()) {
-            return true
-        }
-        if (records.any { isRecordUnresolved(it) }) {
-            return true
-        }
-        return checkE9Continuations(records, continuationStore)
+        return lifecycle?.status == WorkflowLifecycleStatus.CANCELLED_UNCERTAIN ||
+            records.any { isRecordUnresolved(it) } ||
+            hasUnreconciledE9(records, continuationStore)
     }
 
     private fun isRecordUnresolved(record: WorkflowEffectEvidenceRecord): Boolean =
@@ -162,21 +221,19 @@ internal object WorkflowHistoricalEvidenceReader {
             WorkflowEffectEvidenceState.COMPLETED -> false
         }
 
-    private suspend fun checkE9Continuations(
+    private suspend fun hasUnreconciledE9(
         records: List<WorkflowEffectEvidenceRecord>,
         continuationStore: ApprovalContinuationStore?,
     ): Boolean {
         val e9Records = records.filter { it.parent is ParentProvenance.ApprovalContinuation }
-        if (e9Records.isEmpty()) return false
-        if (continuationStore == null) return true
-
-        for (record in e9Records) {
-            val parent = record.parent as ParentProvenance.ApprovalContinuation
-            val continuation = continuationStore.get(parent.approvalId) ?: return true
-            if (continuation.status != ApprovalContinuationStatus.COMPLETED) {
-                return true
-            }
+        if (e9Records.isEmpty()) {
+            return false
         }
-        return false
+        return continuationStore == null ||
+            e9Records.any { record ->
+                val parent = record.parent as ParentProvenance.ApprovalContinuation
+                val continuation = continuationStore.get(parent.approvalId)
+                continuation == null || continuation.status != ApprovalContinuationStatus.COMPLETED
+            }
     }
 }

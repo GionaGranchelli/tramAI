@@ -134,6 +134,7 @@ All 16 scenarios were verified and passed cleanly:
   - *Setup:* GovernedRun workflow step with real step admission and E9 approval resume coordination.
   - *Action:* Cancellation commits on workflow checkpoint; worker attempts E9 approval resume admission.
   - *Outcome:* E9 admission refused with `ApprovalResumeAdmissionRefusedException`; tool executor never invoked; zero E9 child evidence persisted; checkpoint records terminal `WorkflowLifecycleStatus.CANCELLED_UNCERTAIN`; timeline reader reconstructs exact state.
+  - *Scope Distinction:* D7-F16 exercises targeted admission fencing of a `GovernedRun` workflow step under terminal cancellation, while complementary full engine-to-executor resume paths with `ApprovalResumeCoordinator` are validated in `E9WorkflowEngineResumeIntegrationTest` and `WorkflowApprovalResumeEvidenceContractTest`.
 
 ---
 
@@ -166,14 +167,12 @@ Implemented in `WorkflowHistoricalEvidenceTimeline.kt` and tested in `WorkflowHi
 internal data class WorkflowHistoricalEvidenceTimeline(
     val workflowName: String,
     val workflowId: String,
-    val lifecycleState: WorkflowLifecycleState,
-    val revision: Long,
-    val lastAdmissionSeq: Long,
-    val cancellationReason: String?,
-    val cancelledAtEpochMillis: Long?,
+    val lifecycle: WorkflowLifecycleState?,
     val records: List<WorkflowEffectEvidenceRecord>,
     val admissionGaps: List<Long>,
-    val reconciliationRequired: Boolean,
+    val requiresReconciliation: Boolean,
+    val completeness: TimelineCompleteness = TimelineCompleteness.COMPLETE,
+    val isGapsTruncated: Boolean = false,
 )
 ```
 
@@ -214,10 +213,10 @@ Implemented and verified in `WorkflowCrossBoundaryAdversarialTest.kt`. Each test
 | Criterion | Status | Required evidence |
 |---|---|---|
 | **Authoritative cancellation** | **MET** | Real checkpoint and cancel path (D7-F01, D7-F02, D7-F05, ADV-01). Real `JdbcWorkflowCheckpointStore` sets terminal `WorkflowLifecycleStatus.CANCELLED` or `WorkflowLifecycleStatus.CANCELLED_UNCERTAIN`; subsequent admission fails closed with `WorkflowAdmissionRefusedException`. |
-| **Effect admission fencing** | **MET** | E1–E9 and E11 coverage (D7-F01–D7-F04, D7-F08, D7-F12, D7-F16, ADV-01, ADV-12). Monotonic admission sequences committed atomically in checkpoint store. Post-cancel admissions refused fail-closed. |
+| **Effect admission fencing** | **MET** | E1–E9 and E11 coverage (D7-F01–D7-F04, D7-F08, D7-F12, D7-F16, ADV-01, ADV-12). Monotonic admission sequences committed atomically in checkpoint store. Post-cancel admissions refused fail-closed. D7-F16 exercises targeted admission fencing in `GovernedRun` under cancellation, complemented by end-to-end engine resume validation in `E9WorkflowEngineResumeIntegrationTest` and `WorkflowApprovalResumeEvidenceContractTest`. |
 | **Recovery lease fencing** | **MET** | E10 tests (D7-F06, ADV-07). `JdbcWorkflowLeaseStore` with `admitUnderLeaseFence`; expired lease presented by stale worker refused with `WorkflowAdmissionRefusedException`. |
 | **Restart survival** | **MET** | Persisted restart scenario (D7-F10, ADV-04). Re-instantiated store connected to existing JDBC database preserves terminal state and refuses execution. |
-| **Late approval exclusion** | **MET** | E9 real resume path (D7-F07, D7-F13, D7-F16, ADV-03). `WorkflowApprovalResumeAdmission` inspects checkpoint before issuing permit; rejects resume on cancelled run; expired continuation fails closed. |
+| **Late approval exclusion** | **MET** | E9 real resume path (D7-F07, D7-F13, D7-F16, ADV-03). `WorkflowApprovalResumeAdmission` inspects checkpoint before issuing permit; rejects resume on cancelled run; expired continuation fails closed. (Note: D7-F16 exercises targeted admission fencing in `GovernedRun` under cancellation; full engine-to-executor resume paths with `ApprovalResumeCoordinator` are validated in `E9WorkflowEngineResumeIntegrationTest` and `WorkflowApprovalResumeEvidenceContractTest`.) |
 | **Cross-family evidence store correlation** | **MET** | Durable evidence records (Phase 3, `CrossFamilyEvidenceCorrelationTest`). HTTP (E1/E2), MCP (E3/E4), Process (E7), and Approval Resume (E9) records persist with correct run ID, generation, sequence, and typed parent provenance (`StepAttempt` vs `ApprovalContinuation`). |
 | **Cross-family multi-runtime composition** | **PARTIAL** | End-to-end integration across individual boundaries and pairwise compositions (E11 step admission with E9 approval resume, HTTP E1, MCP E3/E4, and process E7 under cancellation) verified in D7-F01–D7-F16. Full simultaneous multi-family runtime pipeline composition across all 9 families within a single active execution graph deferred to multi-family orchestration milestone. |
 | **Historical reconstruction truthfulness** | **MET** | Read-only reconstruction proof (Phase 4, `WorkflowHistoricalEvidenceTimelineTest`). `WorkflowHistoricalEvidenceReader.readTimeline` extracts exact lifecycle without side-effects or external tool execution; identifies admission gaps; flags `reconciliationRequired`. |
