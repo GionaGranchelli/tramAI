@@ -566,4 +566,229 @@ class WorkflowHistoricalEvidenceTimelineTest {
             assertThat(result.completeness).isEqualTo(TimelineCompleteness.GAPS_DETECTED)
         }
     }
+
+    @Test
+    fun `readTimeline exact-limit gap enumeration reports truncation accurately`() {
+        runBlocking {
+            val limit = 1000
+
+            // 1. Exactly the limit: 1000 missing sequences (1..1000) with sequence 1001 present
+            val exactResult =
+                WorkflowHistoricalEvidenceReader.computeAdmissionGaps(
+                    sequences = listOf(1001L),
+                    authoritativeMaxSeq = 1001L,
+                    maxGapLimit = limit,
+                )
+            assertThat(exactResult.gaps).hasSize(1000)
+            assertThat(exactResult.isTruncated).isFalse()
+            assertThat(exactResult.completeness).isEqualTo(TimelineCompleteness.GAPS_DETECTED)
+
+            // 2. One below the limit: 999 missing sequences (1..999) with sequence 1000 present
+            val belowResult =
+                WorkflowHistoricalEvidenceReader.computeAdmissionGaps(
+                    sequences = listOf(1000L),
+                    authoritativeMaxSeq = 1000L,
+                    maxGapLimit = limit,
+                )
+            assertThat(belowResult.gaps).hasSize(999)
+            assertThat(belowResult.isTruncated).isFalse()
+            assertThat(belowResult.completeness).isEqualTo(TimelineCompleteness.GAPS_DETECTED)
+
+            // 3. One above the limit: 1001 missing sequences (1..1000 and 1002) with sequence 1001 present
+            val aboveResult =
+                WorkflowHistoricalEvidenceReader.computeAdmissionGaps(
+                    sequences = listOf(1001L),
+                    authoritativeMaxSeq = 1002L,
+                    maxGapLimit = limit,
+                )
+            assertThat(aboveResult.gaps).hasSize(1000)
+            assertThat(aboveResult.isTruncated).isTrue()
+            assertThat(aboveResult.completeness).isEqualTo(TimelineCompleteness.GAPS_DETECTED)
+        }
+    }
+
+    @Test
+    fun `readTimeline rejects completed E9 evidence when continuation identity mismatches run, tool, or version lineage`() {
+        runBlocking {
+            val baseRunId = "e9-ident-test"
+            val continuationStore = InMemoryApprovalContinuationStore()
+            val sensitiveArgs = SensitiveToolArguments.of("{}")
+
+            // 1. Setup a completed continuation bound to baseRunId
+            val continuation =
+                ApprovalContinuation(
+                    approvalId = "app-ident-1",
+                    workflowRunId = baseRunId,
+                    correlationId = "corr-1",
+                    toolCallId = "call-1",
+                    toolName = "transfer_funds",
+                    argumentsDigest = digester.digest(sensitiveArgs),
+                    policyVersion = "p1",
+                    workflowDigest =
+                        dev.tramai.core.approval.Sha256Digest
+                            .of("sha256:" + "0".repeat(64)),
+                    status = ApprovalContinuationStatus.PENDING,
+                    createdAt = Instant.now(),
+                    approvalExpiresAt = Instant.now().plusSeconds(600),
+                    claimedBy = null,
+                    claimedAt = null,
+                    completedAt = null,
+                    version = 0L,
+                )
+            continuationStore.create(continuation, sensitiveArgs)
+            val claimed = continuationStore.claimForExecution("app-ident-1", 0L, "worker-1")
+            continuationStore.complete("app-ident-1", claimed.continuation.version, "worker-1")
+
+            // Discriminator 1: Mismatched tool name on completed continuation
+            val toolRunId = "$baseRunId-tool"
+            val toolSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = toolRunId))
+            val toolGen = checkNotNull(toolSaved.checkpointGeneration)
+            val toolAdm =
+                checkpointStore.admitEffect(
+                    workflowName,
+                    toolRunId,
+                    toolSaved.revision,
+                    toolGen,
+                    "unauthorized_tool",
+                    APPROVAL_RESUME_EFFECT_KIND,
+                )
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, toolRunId, toolGen, toolAdm.sequence),
+                    parent =
+                        ParentProvenance.ApprovalContinuation(
+                            "app-ident-1",
+                            claimed.continuation.version,
+                            "unauthorized_tool",
+                        ),
+                    effectKind = APPROVAL_RESUME_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1200L,
+                ),
+            )
+            var timeline =
+                WorkflowHistoricalEvidenceReader.readTimeline(
+                    checkpointStore = checkpointStore,
+                    evidenceStore = evidenceStore,
+                    workflowName = workflowName,
+                    workflowId = toolRunId,
+                    continuationStore = continuationStore,
+                )
+            assertThat(timeline.requiresReconciliation).isTrue()
+
+            // Discriminator 2: Mismatched claim version on completed continuation
+            val versionRunId = "$baseRunId-version"
+            val verSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = versionRunId))
+            val verGen = checkNotNull(verSaved.checkpointGeneration)
+            val verAdm =
+                checkpointStore.admitEffect(
+                    workflowName,
+                    versionRunId,
+                    verSaved.revision,
+                    verGen,
+                    "transfer_funds",
+                    APPROVAL_RESUME_EFFECT_KIND,
+                )
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, versionRunId, verGen, verAdm.sequence),
+                    parent =
+                        ParentProvenance.ApprovalContinuation(
+                            "app-ident-1",
+                            999L,
+                            "transfer_funds",
+                        ),
+                    effectKind = APPROVAL_RESUME_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1200L,
+                ),
+            )
+            timeline =
+                WorkflowHistoricalEvidenceReader.readTimeline(
+                    checkpointStore = checkpointStore,
+                    evidenceStore = evidenceStore,
+                    workflowName = workflowName,
+                    workflowId = versionRunId,
+                    continuationStore = continuationStore,
+                )
+            assertThat(timeline.requiresReconciliation).isTrue()
+
+            // Discriminator 3: Mismatched workflow run ID on completed continuation
+            val otherRunId = "$baseRunId-other"
+            val otherSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = otherRunId))
+            val otherGen = checkNotNull(otherSaved.checkpointGeneration)
+            val otherAdm =
+                checkpointStore.admitEffect(
+                    workflowName,
+                    otherRunId,
+                    otherSaved.revision,
+                    otherGen,
+                    "transfer_funds",
+                    APPROVAL_RESUME_EFFECT_KIND,
+                )
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, otherRunId, otherGen, otherAdm.sequence),
+                    parent =
+                        ParentProvenance.ApprovalContinuation(
+                            "app-ident-1",
+                            claimed.continuation.version,
+                            "transfer_funds",
+                        ),
+                    effectKind = APPROVAL_RESUME_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1200L,
+                ),
+            )
+            timeline =
+                WorkflowHistoricalEvidenceReader.readTimeline(
+                    checkpointStore = checkpointStore,
+                    evidenceStore = evidenceStore,
+                    workflowName = workflowName,
+                    workflowId = otherRunId,
+                    continuationStore = continuationStore,
+                )
+            assertThat(timeline.requiresReconciliation).isTrue()
+
+            // Matching: legitimate completed record with matching tool, run ID, and incremented version lineage
+            val validSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = baseRunId))
+            val validGen = checkNotNull(validSaved.checkpointGeneration)
+            val validAdm =
+                checkpointStore.admitEffect(
+                    workflowName,
+                    baseRunId,
+                    validSaved.revision,
+                    validGen,
+                    "transfer_funds",
+                    APPROVAL_RESUME_EFFECT_KIND,
+                )
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, baseRunId, validGen, validAdm.sequence),
+                    parent =
+                        ParentProvenance.ApprovalContinuation(
+                            "app-ident-1",
+                            claimed.continuation.version,
+                            "transfer_funds",
+                        ),
+                    effectKind = APPROVAL_RESUME_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1200L,
+                ),
+            )
+            timeline =
+                WorkflowHistoricalEvidenceReader.readTimeline(
+                    checkpointStore = checkpointStore,
+                    evidenceStore = evidenceStore,
+                    workflowName = workflowName,
+                    workflowId = baseRunId,
+                    continuationStore = continuationStore,
+                )
+            assertThat(timeline.requiresReconciliation).isFalse()
+        }
+    }
 }

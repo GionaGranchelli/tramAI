@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
 
@@ -168,8 +169,10 @@ internal object WorkflowHistoricalEvidenceReader {
         targetMaxSeq: Long,
         maxGapLimit: Int,
     ): Pair<List<Long>, Boolean> {
+        val presentSeqs = sequences.toSet()
+        val totalGaps = targetMaxSeq - presentSeqs.size
+        val isTruncated = totalGaps > maxGapLimit
         var expected = 1L
-        var truncated = false
         val gaps =
             buildList {
                 for (seq in sequences) {
@@ -177,23 +180,15 @@ internal object WorkflowHistoricalEvidenceReader {
                         add(expected)
                         expected++
                     }
-                    if (size >= maxGapLimit) {
-                        truncated = expected < seq || expected <= targetMaxSeq
-                        break
-                    }
+                    if (size >= maxGapLimit) break
                     expected = seq + 1L
                 }
-                if (size < maxGapLimit) {
-                    while (expected <= targetMaxSeq && size < maxGapLimit) {
-                        add(expected)
-                        expected++
-                    }
-                    if (expected <= targetMaxSeq) {
-                        truncated = true
-                    }
+                while (expected <= targetMaxSeq && size < maxGapLimit) {
+                    add(expected)
+                    expected++
                 }
             }
-        return Pair(gaps, truncated)
+        return Pair(gaps, isTruncated)
     }
 
     private suspend fun checkReconciliationRequired(
@@ -233,7 +228,21 @@ internal object WorkflowHistoricalEvidenceReader {
             e9Records.any { record ->
                 val parent = record.parent as ParentProvenance.ApprovalContinuation
                 val continuation = continuationStore.get(parent.approvalId)
-                continuation == null || continuation.status != ApprovalContinuationStatus.COMPLETED
+                continuation == null || !isContinuationReconciled(record, parent, continuation)
             }
+    }
+
+    private fun isContinuationReconciled(
+        record: WorkflowEffectEvidenceRecord,
+        parent: ParentProvenance.ApprovalContinuation,
+        continuation: ApprovalContinuation,
+    ): Boolean {
+        if (continuation.status != ApprovalContinuationStatus.COMPLETED) return false
+        val lineageCompatible =
+            continuation.version == parent.continuationVersion + 1L ||
+                continuation.version == parent.continuationVersion
+        return continuation.workflowRunId == record.key.workflowId &&
+            continuation.toolName == parent.toolName &&
+            lineageCompatible
     }
 }

@@ -179,13 +179,16 @@ internal data class WorkflowHistoricalEvidenceTimeline(
 ### 5.2 Reconstruction Guarantees
 
 1. **Chronological Event Ordering:** `WorkflowHistoricalEvidenceReader.readTimeline` reconstructs the complete lifecycle history from the authoritative checkpoint store and evidence store.
-2. **Gap Detection:** Detects any sequence disparity where `admission_seq` was committed in the checkpoint store but no corresponding evidence record was written (e.g., due to post-admission crash or store outage).
-3. **Reconciliation Flagging (`reconciliationRequired`):** Automatically evaluates to `true` if:
+2. **Gap Detection:** Detects any sequence disparity where `admission_seq` was committed in the checkpoint store but no corresponding evidence record was written (e.g., due to post-admission crash or store outage). Gap enumeration is bounded (`DEFAULT_MAX_GAP_LIMIT = 1000`) with accurate truncation metadata evaluated at exact limit, one below, and one above.
+3. **Reconciliation Flagging (`reconciliationRequired`):** Automatically evaluates to `true` (fail-closed) if:
    - The workflow lifecycle state is `CANCELLED_UNCERTAIN`.
+   - The completeness classification is not `COMPLETE` (`UNKNOWN`, `GAPS_DETECTED`, or `INTEGRITY_VIOLATION`).
    - Any evidence record remains in `ADMITTED`, `DISPATCHED`, or `UNCERTAIN` state.
    - Any admission gaps exist.
-   - Any associated approval continuation is in `CLAIMED` state.
-4. **Read-Only Non-Invasive Adapter:** Kept strictly `internal` in `tramai-orchestration`, preserving binary API compatibility (`apiCheck` unchanged).
+   - Any associated approval continuation is in `CLAIMED` state or has missing continuation store authority.
+   - Any completed E9 evidence mismatches the authoritative continuation identity (workflow run ID, tool name, or compatible claim-version lineage).
+4. **Read-Only Non-Invasive Adapter:** Kept strictly `internal` in `tramai-orchestration`, preserving binary API compatibility (`apiCheck` unchanged). Verified side-effect free using write-throwing store decorators.
+5. **Multi-Generation Effect Preservation:** Multi-generation historical effect preservation is qualified via controlled database-fixture testing in `WorkflowHistoricalEvidenceTimelineTest` demonstrating cross-generation timeline reading without record loss; generation authenticity and incarnation fencing are maintained by store-level recovery authority rather than inferred by the timeline reader.
 
 ---
 
@@ -219,9 +222,9 @@ Implemented and verified in `WorkflowCrossBoundaryAdversarialTest.kt`. Each test
 | **Late approval exclusion** | **MET** | E9 real resume path (D7-F07, D7-F13, D7-F16, ADV-03). `WorkflowApprovalResumeAdmission` inspects checkpoint before issuing permit; rejects resume on cancelled run; expired continuation fails closed. (Note: D7-F16 exercises targeted admission fencing in `GovernedRun` under cancellation; full engine-to-executor resume paths with `ApprovalResumeCoordinator` are validated in `E9WorkflowEngineResumeIntegrationTest` and `WorkflowApprovalResumeEvidenceContractTest`.) |
 | **Cross-family evidence store correlation** | **MET** | Durable evidence records (Phase 3, `CrossFamilyEvidenceCorrelationTest`). HTTP (E1/E2), MCP (E3/E4), Process (E7), and Approval Resume (E9) records persist with correct run ID, generation, sequence, and typed parent provenance (`StepAttempt` vs `ApprovalContinuation`). |
 | **Cross-family multi-runtime composition** | **PARTIAL** | End-to-end integration across individual boundaries and pairwise compositions (E11 step admission with E9 approval resume, HTTP E1, MCP E3/E4, and process E7 under cancellation) verified in D7-F01–D7-F16. Full simultaneous multi-family runtime pipeline composition across all 9 families within a single active execution graph deferred to multi-family orchestration milestone. |
-| **Historical reconstruction truthfulness** | **MET** | Read-only reconstruction proof (Phase 4, `WorkflowHistoricalEvidenceTimelineTest`). `WorkflowHistoricalEvidenceReader.readTimeline` extracts exact lifecycle without side-effects or external tool execution; identifies admission gaps; flags `reconciliationRequired`. |
+| **Historical reconstruction truthfulness** | **MET** | Read-only reconstruction proof (Phase 4, `WorkflowHistoricalEvidenceTimelineTest`). `WorkflowHistoricalEvidenceReader.readTimeline` extracts exact lifecycle without side-effects or external tool execution; identifies admission gaps with bounded enumeration and exact-limit truncation accuracy; flags `reconciliationRequired` fail-closed on unknown completeness, sequence integrity violation, or continuation identity mismatch. Multi-generation effect preservation is verified via controlled database-fixture qualification, with generation incarnation authenticity governed by store-level recovery fences. |
 | **Sensitive-data protection** | **MET** | Adversarial canary evidence (Phase 3, ADV-11). Canary secret strings in arguments, headers, and environment variables are never committed in plaintext to evidence stores or exception messages; SHA256 digests used. |
-| **Integration and release gates** | **MET** | Exact-head qualification. CI suite runs clean on head `0c4e5b62` (all 16 jobs in `CI` green: `tests`, `consumer-smoke`, `static-safety`, `static-analysis`, `compiler-warnings`, `governance-integration`, `hygiene`, `formatting`, `api-check`, `zero-egress`). Base-red proven for pre-existing `verify060Architecture` failure. |
+| **Integration and release gates** | **MET** | Exact-head qualification. CI suite runs clean on head `d07b94cf` (all 16 jobs in `CI` green: `tests`, `consumer-smoke`, `static-safety`, `static-analysis`, `compiler-warnings`, `governance-integration`, `hygiene`, `formatting`, `api-check`, `zero-egress`). Base-red disposition adjudicated for pre-existing `verify060Architecture` failure: 9 of 10 checks green; the 3 `API_COMPATIBILITY_FAILED` diagnostics on `:tramai-core` migration hashes are verified identical to pristine base commit `13ae6583a9272922b7a75fcd632ad94c3e8f75a3`. |
 
 ---
 
@@ -244,4 +247,10 @@ Implemented and verified in `WorkflowCrossBoundaryAdversarialTest.kt`. Each test
    - Inspect the historical timeline using `WorkflowHistoricalEvidenceReader.readTimeline`.
    - Cross-reference external systems (e.g. payment gateway, HTTP server logs, process manager) using the recorded `idempotentKey` and `admissionSeq`.
    - Manually reconcile or compensate as appropriate; TramAI does not perform automated external compensation.
-3. **Merge Authorization Hold:** Per `AGENTS.md` and repository instructions, this integration milestone is placed under **STRICT MERGE HOLD**. No pull request targeting `release/0.7.0` may be merged autonomously.
+3. **Architecture Authority Gate Disposition:** The single failing architecture check (`api-architecture`) exhibits 3 exact diagnostic identities:
+   - Module: `:tramai-core`
+   - Hash transition 1: `86add99d12d4d989cbfa7599cb84f67ff4691452a8e7e727581fb1849a62372c → e3d294b2dcba1450a6e4dffabde0a256958b4382c448bb994c6326e0b04bc5f1`
+   - Hash transition 2: `bbb2b420eaee60100aa749666014e768f760161479261ffcbb8cf263d91cfbd8 → ef6c0c685b5c9285038ec10d48a129033e54b6d5c52c2089408ecda44a95fb82`
+   - Hash transition 3: `e3d294b2dcba1450a6e4dffabde0a256958b4382c448bb994c6326e0b04bc5f1 → bbb2b420eaee60100aa749666014e768f760161479261ffcbb8cf263d91cfbd8`
+   All 3 diagnostics are verified identical to the pristine base commit `13ae6583a9272922b7a75fcd632ad94c3e8f75a3`. D7-F introduces zero modifications to `:tramai-core` or its public API; formal baseline exception disposition is deferred to the owning track.
+4. **Merge Authorization Hold:** Per `AGENTS.md` and repository instructions, this integration milestone is placed under **STRICT MERGE HOLD**. No pull request targeting `release/0.7.0` may be merged autonomously.
