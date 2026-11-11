@@ -125,6 +125,34 @@ class JdbcWorkflowCheckpointStore(
         request: WorkflowAdmissionRequest,
     ): WorkflowAdmission = admissions.admitInConnection(conn, request)
 
+    internal suspend fun currentAdmissionSequence(
+        workflowName: String,
+        workflowId: String,
+    ): Long? =
+        persistenceBoundary(
+            PersistenceResourceKind.CHECKPOINT,
+            PersistenceOperation.LOAD,
+            persistenceFailureDiagnosticObserver,
+            classify = ::classifyCheckpointFailure,
+        ) {
+            executeJdbcCancellable(dataSource) { conn ->
+                val sql =
+                    """
+                    SELECT ${table.admissionSequenceColumn}
+                    FROM ${table.tableName}
+                    WHERE ${table.workflowNameColumn} = ?
+                        AND ${table.workflowIdColumn} = ?
+                    """.trimIndent()
+                conn.prepareStatement(sql).use { statement ->
+                    statement.setString(1, workflowName)
+                    statement.setString(2, workflowId)
+                    statement.executeQuery().use { rs ->
+                        if (rs.next()) rs.getLong(1) else null
+                    }
+                }
+            }
+        }
+
     override suspend fun listCheckpoints(): List<WorkflowCheckpoint> =
         persistenceBoundary(
             PersistenceResourceKind.CHECKPOINT,

@@ -243,4 +243,217 @@ class WorkflowHistoricalEvidenceTimelineTest {
             assertThat(timeline.requiresReconciliation).isFalse()
         }
     }
+
+    @Test
+    fun `readTimeline detects trailing admission sequence gaps against authoritative checkpoint sequence`() {
+        runBlocking {
+            val saved = checkpointStore.save(sampleCheckpoint())
+            val gen = saved.checkpointGeneration ?: "gen-1"
+
+            // Admit 4 effects
+            val adm1 = checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-1", HTTP_EFFECT_KIND)
+            val adm2 = checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-2", HTTP_EFFECT_KIND)
+            val adm3 = checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-3", HTTP_EFFECT_KIND)
+            val adm4 = checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-4", HTTP_EFFECT_KIND)
+            assertThat(adm4.sequence).isEqualTo(4L)
+
+            // Evidence only written for 1 and 2; 3 and 4 were unwritten (crashed before evidence commit)
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, adm1.sequence),
+                    parent = ParentProvenance.StepAttempt("step-1", "att-1"),
+                    effectKind = HTTP_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1100L,
+                ),
+            )
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, adm2.sequence),
+                    parent = ParentProvenance.StepAttempt("step-2", "att-2"),
+                    effectKind = HTTP_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1200L,
+                    completedAtEpochMillis = 1300L,
+                ),
+            )
+
+            val timeline = WorkflowHistoricalEvidenceReader.readTimeline(checkpointStore, evidenceStore, workflowName, workflowId)
+
+            assertThat(timeline.completeness).isEqualTo(TimelineCompleteness.GAPS_DETECTED)
+            assertThat(timeline.admissionGaps).containsExactly(3L, 4L)
+            assertThat(timeline.requiresReconciliation).isTrue()
+        }
+    }
+
+    @Test
+    fun `readTimeline detects entirely missing evidence when admissions were committed`() {
+        runBlocking {
+            val saved = checkpointStore.save(sampleCheckpoint())
+            val gen = saved.checkpointGeneration ?: "gen-1"
+
+            // Admit 2 effects, but write zero evidence
+            checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-1", HTTP_EFFECT_KIND)
+            checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-2", HTTP_EFFECT_KIND)
+
+            val timeline = WorkflowHistoricalEvidenceReader.readTimeline(checkpointStore, evidenceStore, workflowName, workflowId)
+
+            assertThat(timeline.records).isEmpty()
+            assertThat(timeline.completeness).isEqualTo(TimelineCompleteness.GAPS_DETECTED)
+            assertThat(timeline.admissionGaps).containsExactly(1L, 2L)
+            assertThat(timeline.requiresReconciliation).isTrue()
+        }
+    }
+
+    @Test
+    fun `readTimeline handles custom checkpoint store where authoritative sequence is unknown`() {
+        runBlocking {
+            // A delegating store that doesn't expose internal currentAdmissionSequence
+            val customStore = object : WorkflowCheckpointStore by checkpointStore {}
+            val saved = checkpointStore.save(sampleCheckpoint())
+            val gen = saved.checkpointGeneration ?: "gen-1"
+
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, 1L),
+                    parent = ParentProvenance.StepAttempt("step-1", "att-1"),
+                    effectKind = HTTP_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1100L,
+                ),
+            )
+
+            val timeline = WorkflowHistoricalEvidenceReader.readTimeline(customStore, evidenceStore, workflowName, workflowId)
+
+            assertThat(timeline.completeness).isEqualTo(TimelineCompleteness.UNKNOWN)
+            assertThat(timeline.requiresReconciliation).isTrue()
+        }
+    }
+
+    @Test
+    fun `readTimeline conservative reconciliation triggers on UNCERTAIN or ADMITTED evidence states`() {
+        runBlocking {
+            val saved = checkpointStore.save(sampleCheckpoint())
+            val gen = saved.checkpointGeneration ?: "gen-1"
+
+            val adm = checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-1", HTTP_EFFECT_KIND)
+
+            // 1. ADMITTED state
+            val record =
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, adm.sequence),
+                    parent = ParentProvenance.StepAttempt("step-1", "att-1"),
+                    effectKind = HTTP_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.ADMITTED,
+                    createdAtEpochMillis = 1000L,
+                )
+            evidenceStore.recordEvidence(record)
+
+            var timeline = WorkflowHistoricalEvidenceReader.readTimeline(checkpointStore, evidenceStore, workflowName, workflowId)
+            assertThat(timeline.requiresReconciliation).isTrue()
+
+            // 2. DISPATCHED state
+            evidenceStore.updateEvidence(record.copy(state = WorkflowEffectEvidenceState.DISPATCHED))
+            timeline = WorkflowHistoricalEvidenceReader.readTimeline(checkpointStore, evidenceStore, workflowName, workflowId)
+            assertThat(timeline.requiresReconciliation).isTrue()
+
+            // 3. UNCERTAIN state
+            evidenceStore.updateEvidence(record.copy(state = WorkflowEffectEvidenceState.UNCERTAIN))
+            timeline = WorkflowHistoricalEvidenceReader.readTimeline(checkpointStore, evidenceStore, workflowName, workflowId)
+            assertThat(timeline.requiresReconciliation).isTrue()
+            assertThat(timeline.uncertainEffects).hasSize(1)
+        }
+    }
+
+    @Test
+    fun `readTimeline requires reconciliation when E9 record has missing continuation in store or null store`() {
+        runBlocking {
+            val saved = checkpointStore.save(sampleCheckpoint())
+            val gen = saved.checkpointGeneration ?: "gen-1"
+
+            val adm = checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-1", APPROVAL_RESUME_EFFECT_KIND)
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, adm.sequence),
+                    parent = ParentProvenance.ApprovalContinuation("nonexistent-approval", 1L, "tool-x"),
+                    effectKind = APPROVAL_RESUME_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1100L,
+                ),
+            )
+
+            // Null continuation store -> missing authority -> reconciliation required
+            var timeline =
+                WorkflowHistoricalEvidenceReader.readTimeline(
+                    checkpointStore = checkpointStore,
+                    evidenceStore = evidenceStore,
+                    workflowName = workflowName,
+                    workflowId = workflowId,
+                    continuationStore = null,
+                )
+            assertThat(timeline.requiresReconciliation).isTrue()
+
+            // Empty continuation store (approval ID not present) -> missing authority -> reconciliation required
+            val emptyContinuationStore = InMemoryApprovalContinuationStore()
+            timeline =
+                WorkflowHistoricalEvidenceReader.readTimeline(
+                    checkpointStore = checkpointStore,
+                    evidenceStore = evidenceStore,
+                    workflowName = workflowName,
+                    workflowId = workflowId,
+                    continuationStore = emptyContinuationStore,
+                )
+            assertThat(timeline.requiresReconciliation).isTrue()
+        }
+    }
+
+    @Test
+    fun `readTimeline preserves completed historical effects across multiple checkpoint generations`() {
+        runBlocking {
+            val saved = checkpointStore.save(sampleCheckpoint())
+            val gen = saved.checkpointGeneration ?: "gen-1"
+            val adm1 = checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-1", HTTP_EFFECT_KIND)
+            val adm2 = checkpointStore.admitEffect(workflowName, workflowId, saved.revision, gen, "step-2", HTTP_EFFECT_KIND)
+
+            // Generation 1 evidence
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, gen, adm1.sequence),
+                    parent = ParentProvenance.StepAttempt("step-1", "att-1"),
+                    effectKind = HTTP_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1100L,
+                ),
+            )
+
+            // Generation 2 evidence (e.g. from an earlier generation or rotated generation)
+            val rotatedGen = "gen-rotated-2"
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, workflowId, rotatedGen, adm2.sequence),
+                    parent = ParentProvenance.StepAttempt("step-2", "att-2"),
+                    effectKind = HTTP_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 2000L,
+                    completedAtEpochMillis = 2100L,
+                ),
+            )
+
+            val timeline = WorkflowHistoricalEvidenceReader.readTimeline(checkpointStore, evidenceStore, workflowName, workflowId)
+
+            assertThat(timeline.records).hasSize(2)
+            assertThat(timeline.completedEffects).hasSize(2)
+            assertThat(timeline.records[0].key.checkpointGeneration).isEqualTo(gen)
+            assertThat(timeline.records[0].key.admissionSeq).isEqualTo(1L)
+            assertThat(timeline.records[1].key.checkpointGeneration).isEqualTo(rotatedGen)
+            assertThat(timeline.records[1].key.admissionSeq).isEqualTo(2L)
+            assertThat(timeline.completeness).isEqualTo(TimelineCompleteness.COMPLETE)
+            assertThat(timeline.admissionGaps).isEmpty()
+            assertThat(timeline.requiresReconciliation).isFalse()
+        }
+    }
 }

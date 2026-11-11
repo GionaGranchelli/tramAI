@@ -900,4 +900,120 @@ class WorkflowCrossBoundaryIntegrationTest {
             assertThat(e9Rec.key.admissionSeq).isEqualTo(3L)
         }
     }
+
+    // =========================================================================
+    // D7-F16: Real GovernedRun workflow step with E9 approval resume coordination under cancellation
+    // =========================================================================
+    @Test
+    fun `D7-F16 - representative GovernedRun workflow step composition with E9 approval resume under cancellation`() {
+        val store = InMemoryWorkflowCheckpointStore()
+        val evidenceStore = InMemoryWorkflowEffectEvidenceRecordStore()
+        val continuationStore = InMemoryApprovalContinuationStore()
+        val sensitiveArgs = SensitiveToolArguments.of("""{"amount": 100}""")
+        val executedTool = AtomicBoolean(false)
+
+        val admission =
+            WorkflowApprovalResumeAdmission(
+                checkpointStore = store,
+                continuationStore = continuationStore,
+                evidenceStore = evidenceStore,
+                approvalResumeEvidenceEnabled = true,
+                clock = clock,
+            )
+
+        val wf =
+            workflow<String>(workflowName) {
+                branchStep("pipeline", select = { "main" }) {
+                    branch("main") {
+                        localStep("step-1-produce-continuation") { s, _ ->
+                            val cont =
+                                sampleContinuation(
+                                    approvalId = "app-live-1",
+                                    toolName = "execute_transfer",
+                                    arguments = sensitiveArgs,
+                                )
+                            runBlocking {
+                                continuationStore.create(cont, sensitiveArgs)
+                            }
+                            "$s:step1"
+                        }
+                        localStep("step-2-cancel-and-attempt-resume") { s, _ ->
+                            val current = runBlocking { store.load(workflowName, workflowId) }!!
+                            // Cancellation arrives and commits mid-workflow
+                            runBlocking {
+                                store.cancel(
+                                    WorkflowCancellationRequest(
+                                        workflowName = workflowName,
+                                        workflowId = workflowId,
+                                        expectedRevision = current.revision,
+                                        expectedGeneration = current.checkpointGeneration,
+                                        actor = "operator-cancel",
+                                        reason = "abort pipeline",
+                                        cancelledAtEpochMillis = clock.millis(),
+                                    ),
+                                )
+                            }
+
+                            // Worker attempts to claim and admit approval resume on the cancelled run
+                            val claimed =
+                                runBlocking {
+                                    continuationStore.claimForExecution("app-live-1", 0L, "worker-1")
+                                }
+
+                            // E9 admission must fail closed
+                            val req =
+                                ApprovalResumeAdmissionRequest(
+                                    approvalId = "app-live-1",
+                                    toolName = "execute_transfer",
+                                    runIdentity = governedIdentity,
+                                    checkpointBinding = WorkflowCheckpointBinding(workflowName, workflowId),
+                                    continuationVersion = claimed.continuation.version,
+                                )
+                            try {
+                                runBlocking { admission.admitResume(req) }
+                                executedTool.set(true)
+                            } catch (e: ApprovalResumeAdmissionRefusedException) {
+                                // Expected: admission refused, tool must not execute
+                            }
+                            "$s:step2"
+                        }
+                    }
+                }
+            }.build { it }
+
+        assertThatThrownBy {
+            runBlocking {
+                wf.run(
+                    initialState = "start",
+                    run = GovernedRun(WorkflowContext(workflowId = workflowId), governedIdentity),
+                    observer = NoOpWorkflowObserver,
+                    persistence = WorkflowPersistence(checkpointStore = store, stateCodec = PlainStateCodec),
+                )
+            }
+        }.isInstanceOf(WorkflowCheckpointConflictException::class.java)
+
+        // Proved:
+        // 1. Tool execution never ran
+        assertThat(executedTool.get()).isFalse()
+        // 2. No E9 child evidence records were persisted
+        val evidenceList = runBlocking { evidenceStore.listEvidence(workflowName, workflowId) }
+        assertThat(evidenceList).isEmpty()
+        // 3. Workflow checkpoint reflects cancellation
+        val lifecycle = runBlocking { store.lifecycle(workflowName, workflowId) }
+        assertThat(lifecycle?.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED_UNCERTAIN)
+        // 4. Timeline reconstruction confirms the terminal cancelled state
+        val timeline =
+            runBlocking {
+                WorkflowHistoricalEvidenceReader.readTimeline(
+                    checkpointStore = store,
+                    evidenceStore = evidenceStore,
+                    workflowName = workflowName,
+                    workflowId = workflowId,
+                    continuationStore = continuationStore,
+                )
+            }
+        assertThat(timeline.isCancelled).isTrue()
+        assertThat(timeline.isUncertainCancellation).isTrue()
+        assertThat(timeline.requiresReconciliation).isTrue()
+    }
 }

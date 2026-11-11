@@ -300,7 +300,7 @@ class CrossFamilyEvidenceCorrelationTest {
             assertThat(timeline.isCancelled).isTrue()
             assertThat(timeline.isUncertainCancellation).isTrue()
             assertThat(timeline.admissionGaps).isEmpty()
-            assertThat(timeline.requiresReconciliation).isFalse()
+            assertThat(timeline.requiresReconciliation).isTrue()
             assertThat(timeline.records).hasSize(4)
         }
     }

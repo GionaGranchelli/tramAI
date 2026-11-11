@@ -4,6 +4,20 @@ import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
 
 /**
+ * Historical evidence timeline completeness classification (D7-F).
+ */
+internal enum class TimelineCompleteness {
+    /** All committed admissions have corresponding child evidence records. */
+    COMPLETE,
+
+    /** One or more committed admission sequence slots lack child evidence records. */
+    GAPS_DETECTED,
+
+    /** The authoritative admission sequence counter cannot be derived; completeness cannot be guaranteed. */
+    UNKNOWN,
+}
+
+/**
  * Historical evidence timeline for one workflow run (D7-F).
  *
  * Correlates durable checkpoint lifecycle state ([WorkflowLifecycleState]) and durable child
@@ -22,6 +36,7 @@ internal data class WorkflowHistoricalEvidenceTimeline(
     val records: List<WorkflowEffectEvidenceRecord>,
     val admissionGaps: List<Long>,
     val requiresReconciliation: Boolean,
+    val completeness: TimelineCompleteness = TimelineCompleteness.COMPLETE,
 ) {
     val isCancelled: Boolean get() = lifecycle != null
 
@@ -55,9 +70,17 @@ internal object WorkflowHistoricalEvidenceReader {
                 .listEvidence(workflowName, workflowId)
                 .sortedBy { it.key.admissionSeq }
 
+        val authoritativeMaxSeq = resolveAuthoritativeAdmissionSequence(checkpointStore, workflowName, workflowId)
         val sequences = records.map { it.key.admissionSeq }
-        val gaps = computeAdmissionGaps(sequences)
-        val reconciliationRequired = checkReconciliationRequired(records, continuationStore)
+        val (gaps, completeness) = computeAdmissionGaps(sequences, authoritativeMaxSeq)
+        val reconciliationRequired =
+            checkReconciliationRequired(
+                lifecycle = lifecycle,
+                records = records,
+                gaps = gaps,
+                completeness = completeness,
+                continuationStore = continuationStore,
+            )
 
         return WorkflowHistoricalEvidenceTimeline(
             workflowName = workflowName,
@@ -66,39 +89,94 @@ internal object WorkflowHistoricalEvidenceReader {
             records = records,
             admissionGaps = gaps,
             requiresReconciliation = reconciliationRequired,
+            completeness = completeness,
         )
     }
 
-    private fun computeAdmissionGaps(sequences: List<Long>): List<Long> {
-        if (sequences.isEmpty()) return emptyList()
-        val maxSeq = sequences.last()
-        val presentSeqs = sequences.toSet()
-        val gaps = mutableListOf<Long>()
-        for (seq in 1L..maxSeq) {
-            if (seq !in presentSeqs) {
-                gaps.add(seq)
-            }
+    private suspend fun resolveAuthoritativeAdmissionSequence(
+        checkpointStore: WorkflowCheckpointStore,
+        workflowName: String,
+        workflowId: String,
+    ): Long? =
+        when (checkpointStore) {
+            is JdbcWorkflowCheckpointStore -> checkpointStore.currentAdmissionSequence(workflowName, workflowId)
+            is InMemoryWorkflowCheckpointStore -> checkpointStore.currentAdmissionSequence(workflowName, workflowId)
+            else -> null
         }
-        return gaps
+
+    private fun computeAdmissionGaps(
+        sequences: List<Long>,
+        authoritativeMaxSeq: Long?,
+    ): Pair<List<Long>, TimelineCompleteness> {
+        if (authoritativeMaxSeq == null) {
+            if (sequences.isEmpty()) {
+                return Pair(emptyList(), TimelineCompleteness.UNKNOWN)
+            }
+            val maxSeq = sequences.last()
+            val presentSeqs = sequences.toSet()
+            val gaps = (1L..maxSeq).filter { it !in presentSeqs }
+            return Pair(gaps, TimelineCompleteness.UNKNOWN)
+        }
+
+        if (authoritativeMaxSeq == 0L) {
+            return Pair(emptyList(), TimelineCompleteness.COMPLETE)
+        }
+
+        val presentSeqs = sequences.toSet()
+        val gaps = (1L..authoritativeMaxSeq).filter { it !in presentSeqs }
+        val completeness =
+            if (gaps.isEmpty()) TimelineCompleteness.COMPLETE else TimelineCompleteness.GAPS_DETECTED
+        return Pair(gaps, completeness)
     }
 
     private suspend fun checkReconciliationRequired(
+        lifecycle: WorkflowLifecycleState?,
+        records: List<WorkflowEffectEvidenceRecord>,
+        gaps: List<Long>,
+        completeness: TimelineCompleteness,
+        continuationStore: ApprovalContinuationStore?,
+    ): Boolean {
+        if (lifecycle?.status == WorkflowLifecycleStatus.CANCELLED_UNCERTAIN) {
+            return true
+        }
+        if (gaps.isNotEmpty()) {
+            return true
+        }
+        if (completeness == TimelineCompleteness.UNKNOWN && records.isNotEmpty()) {
+            return true
+        }
+        if (records.any { isRecordUnresolved(it) }) {
+            return true
+        }
+        return checkE9Continuations(records, continuationStore)
+    }
+
+    private fun isRecordUnresolved(record: WorkflowEffectEvidenceRecord): Boolean =
+        when (record.state) {
+            WorkflowEffectEvidenceState.UNCERTAIN -> true
+
+            WorkflowEffectEvidenceState.ADMITTED,
+            WorkflowEffectEvidenceState.DISPATCHED,
+            -> true
+
+            WorkflowEffectEvidenceState.COMPLETED -> false
+        }
+
+    private suspend fun checkE9Continuations(
         records: List<WorkflowEffectEvidenceRecord>,
         continuationStore: ApprovalContinuationStore?,
     ): Boolean {
-        if (continuationStore == null) return false
-        return records.any { isUnreconciled(it, continuationStore) }
-    }
+        val e9Records = records.filter { it.parent is ParentProvenance.ApprovalContinuation }
+        if (e9Records.isEmpty()) return false
+        if (continuationStore == null) return true
 
-    private suspend fun isUnreconciled(
-        record: WorkflowEffectEvidenceRecord,
-        store: ApprovalContinuationStore,
-    ): Boolean {
-        val parent = record.parent as? ParentProvenance.ApprovalContinuation
-        if (parent == null || record.state != WorkflowEffectEvidenceState.COMPLETED) {
-            return false
+        for (record in e9Records) {
+            val parent = record.parent as ParentProvenance.ApprovalContinuation
+            val continuation = continuationStore.get(parent.approvalId) ?: return true
+            if (continuation.status != ApprovalContinuationStatus.COMPLETED) {
+                return true
+            }
         }
-        val continuation = store.get(parent.approvalId)
-        return continuation != null && continuation.status != ApprovalContinuationStatus.COMPLETED
+        return false
     }
 }

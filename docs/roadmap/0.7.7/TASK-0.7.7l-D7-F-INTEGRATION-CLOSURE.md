@@ -24,7 +24,7 @@ cancelled(run) != already-produced external effects compensated or reversed
 Specifically:
 1. **Absolute Post-Cancellation Admission Fence:** Once cancellation commits durably in `WorkflowCheckpointStore`, no subsequent step admission (E11), outbound effect admission (E1–E8), approval continuation claim (E9), or workflow resume attempt may succeed. All future admission attempts fail closed with `WorkflowAdmissionRefusedException`.
 2. **Honest In-Flight Accounting:** TramAI never claims that cancelling a workflow magically rolls back, recalls, or compensates an external side effect (e.g. HTTP POST, CLI subprocess execution, database commit) that was already admitted and in-flight before the cancellation linearized.
-3. **Deterministic Uncertainty Triaging:** If any outbound effect was admitted (`admission_seq > 0`) before cancellation committed, the workflow transitions to `WorkflowLifecycleState.CANCELLED_UNCERTAIN`. Such runs require operator reconciliation. Conversely, if cancellation commits prior to any effect admission, the workflow transitions to `WorkflowLifecycleState.CANCELLED_CLEAN`.
+3. **Deterministic Uncertainty Triaging:** If any outbound effect was admitted (`admission_seq > 0`) before cancellation committed, the workflow transitions to `WorkflowLifecycleStatus.CANCELLED_UNCERTAIN`. Such runs require operator reconciliation. Conversely, if cancellation commits prior to any effect admission, the workflow transitions to `WorkflowLifecycleStatus.CANCELLED`.
 4. **Non-Data-Class Single-Use Permits:** Admission permits (`WorkflowAdmissionPermit`) are strictly single-use reference tokens that cannot be copied or replayed.
 5. **No Synthetic Attempt Identities:** Approval resume records (E9) carry authentic `ParentProvenance.ApprovalContinuation` linking directly to the durable `ClaimedApprovalContinuation`, preventing synthetic attempt pollution.
 
@@ -36,32 +36,29 @@ The following matrix documents the interaction across all governed boundaries, t
 
 | Boundary | Name | Authority Component | Enforcement Point | Evidence Schema & Parent | Cancellation Impact | Reconciliation Required? |
 |---|---|---|---|---|---|---|
-| **E1** | HTTP Outbound | `WorkflowCheckpointStore` | `admitEffect(HTTP, idempotentKey)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | If admitted prior to cancel: run commits `CANCELLED_UNCERTAIN`. HTTP call may finish or timeout. Evidence marked `UNCERTAIN` or `COMPLETED`. | Yes, if admitted |
-| **E2** | Model Invocation | `WorkflowCheckpointStore` | `admitEffect(MODEL, modelName)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | Admitted invocation may finish or abort; subsequent token generation or tool dispatch rejected. | Yes, if unverified tokens generated |
-| **E3** | MCP Tool Call | `WorkflowCheckpointStore` | `admitEffect(MCP, toolCallId)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | Admitted MCP call may complete externally. Evidence marked `UNCERTAIN` on cancellation timeout. Subsequent MCP calls refused. | Yes, if admitted |
-| **E4** | Database Mutation | `WorkflowCheckpointStore` | `admitEffect(DATABASE, txId)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | Non-checkpoint DB tx admitted before cancel may commit. Checkpoint CAS rejects post-cancel commits. | Yes, if admitted |
-| **E5** | Message / Event | `WorkflowCheckpointStore` | `admitEffect(MESSAGE, messageId)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | Outbound message published if already dispatched; post-cancel publication refused. | Yes, if admitted |
-| **E6** | Filesystem Mutation | `WorkflowCheckpointStore` | `admitEffect(FILESYSTEM, path)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | File write started before cancel may complete; subsequent writes rejected. | Yes, if admitted |
-| **E7** | Process / CLI | `WorkflowCheckpointStore` | `admitEffect(PROCESS, pid/key)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | Subprocess spawned before cancel may terminate or run to completion. Subprocess manager marks `UNCERTAIN`. Subsequent spawn refused. | Yes, if admitted |
-| **E8** | Generic Side Effect | `WorkflowCheckpointStore` | `admitEffect(CUSTOM, effectKey)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | Effect admitted before cancel proceeds; post-cancel admission refused. | Yes, if admitted |
+| **E1/E2** | HTTP Client / Stream | `WorkflowCheckpointStore` | `admitEffect(HTTP, idempotentKey)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | If admitted prior to cancel: run commits `CANCELLED_UNCERTAIN`. HTTP call may finish or timeout. Evidence marked `UNCERTAIN` or `COMPLETED`. | Yes, if admitted |
+| **E3/E4** | MCP Client / Tool Call | `WorkflowCheckpointStore` | `admitEffect(MCP, toolCallId)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | Admitted MCP call may complete externally. Evidence marked `UNCERTAIN` on cancellation timeout. Subsequent MCP calls refused. | Yes, if admitted |
+| **E5/E6** | Agent CLI / Process Invocation | `WorkflowCheckpointStore` | `admitEffect(PROCESS, pid/key)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | Subprocess spawned before cancel may terminate or run to completion. Process manager marks `UNCERTAIN`. Subsequent spawn refused. | Yes, if admitted |
+| **E7** | Process Execution | `WorkflowCheckpointStore` | `admitEffect(PROCESS, pid/key)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | Subprocess spawned before cancel may terminate or run to completion. Evidence marked `UNCERTAIN` on timeout. Subsequent spawn refused. | Yes, if admitted |
+| **E8** | External Executor | `WorkflowCheckpointStore` | `admitEffect(CUSTOM, effectKey)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.StepAttempt` | Effect admitted before cancel proceeds; post-cancel admission refused. | Yes, if admitted |
 | **E9** | Approval Resume | `ApprovalContinuationStore` + `WorkflowCheckpointStore` | 5-dimension claim check + `admitEffect(APPROVAL_RESUME)` | `WorkflowEffectEvidenceRecord`<br>`ParentProvenance.ApprovalContinuation` | Claimed continuation before cancel transitions run to `CANCELLED_UNCERTAIN`. Post-cancel resume claim refused. | Yes, if claimed & admitted |
-| **E10** | Recovery Re-execution | `WorkflowLeaseStore` | `admitUnderLeaseFence(lease)` | Transactional lease verification | Stale worker presenting expired lease rejected with `WorkflowAdmissionRefusedException`. Fencing survives process restart. | No (fenced cleanly) |
+| **E10** | Recovery Lease | `WorkflowLeaseStore` | `admitUnderLeaseFence(lease)` | Transactional lease verification | Stale worker presenting expired lease rejected with `WorkflowAdmissionRefusedException`. Fencing survives process restart. | No (fenced cleanly) |
 | **E11** | Step Admission | `WorkflowCheckpointStore` | `admit(request)` | Checkpoint revision & `admission_seq` | Post-cancel step admission rejected with `WorkflowAdmissionRefusedException`. Run state remains terminal. | No (fenced cleanly) |
 
 ---
 
-## 3. Phase 2 — End-to-End Scenarios Qualification (D7-F01 – D7-F15)
+## 3. Phase 2 — End-to-End Scenarios Qualification (D7-F01 – D7-F16)
 
 The qualification suite is implemented in `WorkflowCrossBoundaryIntegrationTest.kt` using real database persistence (`JdbcWorkflowCheckpointStore`, `JdbcWorkflowEffectEvidenceRecordStore`, `JdbcWorkflowLeaseStore` against an in-memory MySQL/PostgreSQL schema backed by HikariCP).
 
-All 15 scenarios were verified and passed cleanly:
+All 16 scenarios were verified and passed cleanly:
 
 ### Scenario Results
 
 - **D7-F01: Pre-Execution Cancellation**
   - *Setup:* Workflow created in `PENDING` state with zero effects admitted (`admission_seq = 0`).
   - *Action:* `checkpointStore.cancel(...)` executed before first step admission.
-  - *Outcome:* Workflow transitions directly to `WorkflowLifecycleState.CANCELLED_CLEAN`. First step admission attempt fails immediately with `WorkflowAdmissionRefusedException`. Zero evidence records or side effects emitted.
+  - *Outcome:* Workflow transitions directly to `WorkflowLifecycleStatus.CANCELLED`. First step admission attempt fails immediately with `WorkflowAdmissionRefusedException`. Zero evidence records or side effects emitted.
 
 - **D7-F02: Mid-Execution Step Boundary Cancellation**
   - *Setup:* Step 1 completes normally. Before Step 2 admission is requested, `cancel(...)` commits.
@@ -71,7 +68,7 @@ All 15 scenarios were verified and passed cleanly:
 - **D7-F03: Concurrently Admitted Effect During Cancellation**
   - *Setup:* Outbound effect (E1 HTTP) admits successfully (`admission_seq = 1`).
   - *Action:* Concurrently, `cancel(...)` is invoked with `expectedRevision == saved.revision`.
-  - *Outcome:* Because `admission_seq > 0`, the store transitions to `WorkflowLifecycleState.CANCELLED_UNCERTAIN`. The admitted effect evidence transitions to `UNCERTAIN`. Subsequent admissions refused.
+  - *Outcome:* Because `admission_seq > 0`, the store transitions to `WorkflowLifecycleStatus.CANCELLED_UNCERTAIN`. The admitted effect evidence transitions to `UNCERTAIN`. Subsequent admissions refused.
 
 - **D7-F04: In-Flight Effect Timeout During Cancellation**
   - *Setup:* Effect admitted and dispatched. Tool coroutine experiences timeout during cancellation.
@@ -79,7 +76,7 @@ All 15 scenarios were verified and passed cleanly:
   - *Outcome:* Evidence state committed as `UNCERTAIN` without replacing or masking the primary cancellation exception.
 
 - **D7-F05: Cancelled Run Resume Attempt**
-  - *Setup:* Workflow reaches terminal cancellation (`CANCELLED_CLEAN`).
+  - *Setup:* Workflow reaches terminal cancellation (`WorkflowLifecycleStatus.CANCELLED`).
   - *Action:* Worker attempts `tramaiWorkflow(engine).resume(...)` using governed identity and attribution metadata.
   - *Outcome:* Resume fails closed with `WorkflowAdmissionRefusedException`. No step body executed.
 
@@ -96,27 +93,27 @@ All 15 scenarios were verified and passed cleanly:
 - **D7-F08: Concurrently Admitted Approval Resume (E9) During Cancellation**
   - *Setup:* Approval continuation claimed and E9 effect admitted (`admission_seq = 1`).
   - *Action:* Cancellation arrives concurrently and commits.
-  - *Outcome:* Run transitions to `CANCELLED_UNCERTAIN`. Continuation evidence marked `UNCERTAIN`. No unverified execution inferred.
+  - *Outcome:* Run transitions to `WorkflowLifecycleStatus.CANCELLED_UNCERTAIN`. Continuation evidence marked `UNCERTAIN`. No unverified execution inferred.
 
 - **D7-F09: Repeated Idempotent Cancellation**
-  - *Setup:* Workflow cancelled to `CANCELLED_CLEAN` at revision 1.
+  - *Setup:* Workflow cancelled to `WorkflowLifecycleStatus.CANCELLED` at revision 1.
   - *Action:* Repeated `checkpointStore.cancel(...)` called with current revision.
-  - *Outcome:* Idempotent success returned. State remains `CANCELLED_CLEAN`. Revision remains stable.
+  - *Outcome:* Idempotent success returned. State remains `WorkflowLifecycleStatus.CANCELLED`. Revision remains stable.
 
 - **D7-F10: Process Restart Preserves Terminal State**
   - *Setup:* Workflow cancelled using `store1`.
   - *Action:* Process restarts: fresh `store2` connected to the same underlying JDBC database.
-  - *Outcome:* `store2.load(...)` returns `CANCELLED_CLEAN`. Subsequent admissions via `store2` are refused.
+  - *Outcome:* `store2.load(...)` returns `WorkflowLifecycleStatus.CANCELLED`. Subsequent admissions via `store2` are refused.
 
 - **D7-F11: Checkpoint Removal After Cancellation**
-  - *Setup:* Workflow cancelled to `CANCELLED_CLEAN`. Checkpoint row removed or migrated. Evidence records preserved.
+  - *Setup:* Workflow cancelled to `WorkflowLifecycleStatus.CANCELLED`. Checkpoint row removed or migrated. Evidence records preserved.
   - *Action:* Admission attempted on missing checkpoint.
   - *Outcome:* Fails closed with `WorkflowAdmissionRefusedException`. Historical evidence remains auditable.
 
 - **D7-F12: Multiple Concurrent Heterogeneous Effects (E1, E3, E7, E9)**
   - *Setup:* Workflow concurrently admits HTTP (E1), MCP (E3), Process (E7), and Approval Resume (E9).
   - *Action:* Cancellation commits while effects are in various states (`COMPLETED`, `DISPATCHED`, `ADMITTED`).
-  - *Outcome:* Run transitions to `CANCELLED_UNCERTAIN`. Evidence records reflect distinct execution phases. Gaps are preserved.
+  - *Outcome:* Run transitions to `WorkflowLifecycleStatus.CANCELLED_UNCERTAIN`. Evidence records reflect distinct execution phases. Gaps are preserved.
 
 - **D7-F13: Approval Continuation Expiry During Cancellation Window**
   - *Setup:* Approval continuation expires (`approvalExpiresAt` in the past).
@@ -132,6 +129,11 @@ All 15 scenarios were verified and passed cleanly:
   - *Setup:* Evidence store throws persistence exception on `recordAdmitted()`.
   - *Action:* `WorkflowApprovalResumeAdmission.admitApprovalResume(...)` invoked.
   - *Outcome:* Throws `ApprovalResumeEvidencePersistenceException`. No single-use permit leaked. Continuation remains in `CLAIMED` status for operator triage.
+
+- **D7-F16: Real GovernedRun Workflow Step Composition with E9 Approval Resume Under Cancellation**
+  - *Setup:* GovernedRun workflow step with real step admission and E9 approval resume coordination.
+  - *Action:* Cancellation commits on workflow checkpoint; worker attempts E9 approval resume admission.
+  - *Outcome:* E9 admission refused with `ApprovalResumeAdmissionRefusedException`; tool executor never invoked; zero E9 child evidence persisted; checkpoint records terminal `WorkflowLifecycleStatus.CANCELLED_UNCERTAIN`; timeline reader reconstructs exact state.
 
 ---
 
@@ -211,12 +213,13 @@ Implemented and verified in `WorkflowCrossBoundaryAdversarialTest.kt`. Each test
 
 | Criterion | Status | Required evidence |
 |---|---|---|
-| **Authoritative cancellation** | **MET** | Real checkpoint and cancel path (D7-F01, D7-F02, D7-F05, ADV-01). Real `JdbcWorkflowCheckpointStore` sets terminal `CANCELLED_CLEAN` or `CANCELLED_UNCERTAIN`; subsequent admission fails closed with `WorkflowAdmissionRefusedException`. |
-| **Effect admission fencing** | **MET** | E1–E9 and E11 coverage (D7-F01–D7-F04, D7-F08, D7-F12, ADV-01, ADV-12). Monotonic admission sequences committed atomically in checkpoint store. Post-cancel admissions refused fail-closed. |
+| **Authoritative cancellation** | **MET** | Real checkpoint and cancel path (D7-F01, D7-F02, D7-F05, ADV-01). Real `JdbcWorkflowCheckpointStore` sets terminal `WorkflowLifecycleStatus.CANCELLED` or `WorkflowLifecycleStatus.CANCELLED_UNCERTAIN`; subsequent admission fails closed with `WorkflowAdmissionRefusedException`. |
+| **Effect admission fencing** | **MET** | E1–E9 and E11 coverage (D7-F01–D7-F04, D7-F08, D7-F12, D7-F16, ADV-01, ADV-12). Monotonic admission sequences committed atomically in checkpoint store. Post-cancel admissions refused fail-closed. |
 | **Recovery lease fencing** | **MET** | E10 tests (D7-F06, ADV-07). `JdbcWorkflowLeaseStore` with `admitUnderLeaseFence`; expired lease presented by stale worker refused with `WorkflowAdmissionRefusedException`. |
 | **Restart survival** | **MET** | Persisted restart scenario (D7-F10, ADV-04). Re-instantiated store connected to existing JDBC database preserves terminal state and refuses execution. |
-| **Late approval exclusion** | **MET** | E9 real resume path (D7-F07, D7-F13, ADV-03). `WorkflowApprovalResumeAdmission` inspects checkpoint before issuing permit; rejects resume on cancelled run; expired continuation fails closed. |
-| **Cross-family evidence integrity** | **MET** | Durable evidence records (Phase 3, `CrossFamilyEvidenceCorrelationTest`). HTTP (E1), MCP (E3), Process (E7), and Approval Resume (E9) records persist with correct run ID, generation, sequence, and typed parent provenance (`StepAttempt` vs `ApprovalContinuation`). |
+| **Late approval exclusion** | **MET** | E9 real resume path (D7-F07, D7-F13, D7-F16, ADV-03). `WorkflowApprovalResumeAdmission` inspects checkpoint before issuing permit; rejects resume on cancelled run; expired continuation fails closed. |
+| **Cross-family evidence store correlation** | **MET** | Durable evidence records (Phase 3, `CrossFamilyEvidenceCorrelationTest`). HTTP (E1/E2), MCP (E3/E4), Process (E7), and Approval Resume (E9) records persist with correct run ID, generation, sequence, and typed parent provenance (`StepAttempt` vs `ApprovalContinuation`). |
+| **Cross-family multi-runtime composition** | **PARTIAL** | End-to-end integration across individual boundaries and pairwise compositions (E11 step admission with E9 approval resume, HTTP E1, MCP E3/E4, and process E7 under cancellation) verified in D7-F01–D7-F16. Full simultaneous multi-family runtime pipeline composition across all 9 families within a single active execution graph deferred to multi-family orchestration milestone. |
 | **Historical reconstruction truthfulness** | **MET** | Read-only reconstruction proof (Phase 4, `WorkflowHistoricalEvidenceTimelineTest`). `WorkflowHistoricalEvidenceReader.readTimeline` extracts exact lifecycle without side-effects or external tool execution; identifies admission gaps; flags `reconciliationRequired`. |
 | **Sensitive-data protection** | **MET** | Adversarial canary evidence (Phase 3, ADV-11). Canary secret strings in arguments, headers, and environment variables are never committed in plaintext to evidence stores or exception messages; SHA256 digests used. |
 | **Integration and release gates** | **MET** | Exact-head qualification. CI suite runs clean on head `0c4e5b62` (all 16 jobs in `CI` green: `tests`, `consumer-smoke`, `static-safety`, `static-analysis`, `compiler-warnings`, `governance-integration`, `hygiene`, `formatting`, `api-check`, `zero-egress`). Base-red proven for pre-existing `verify060Architecture` failure. |

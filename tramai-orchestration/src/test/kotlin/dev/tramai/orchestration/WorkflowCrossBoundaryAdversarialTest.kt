@@ -390,8 +390,8 @@ class WorkflowCrossBoundaryAdversarialTest {
                     continuationStore = continuationStore,
                 )
 
-            // Timeline reconciliation rejects unassociated/forged continuations
-            assertThat(timeline.requiresReconciliation).isFalse()
+            // Timeline reconciliation flags unassociated/forged continuations as requiring reconciliation
+            assertThat(timeline.requiresReconciliation).isTrue()
         }
     }
 
@@ -451,8 +451,6 @@ class WorkflowCrossBoundaryAdversarialTest {
             val saved = checkpointStore.save(sampleCheckpoint())
             val gen = saved.checkpointGeneration ?: "gen-1"
 
-            val externalToolCalls = AtomicInteger(0)
-
             // Record some evidence
             evidenceStore.recordEvidence(
                 WorkflowEffectEvidenceRecord(
@@ -465,14 +463,63 @@ class WorkflowCrossBoundaryAdversarialTest {
                 ),
             )
 
-            // Reconstruct timeline multiple times
+            // Trap stores that throw AssertionError on any mutating or dispatch operation
+            val trapCheckpointStore =
+                object : WorkflowCheckpointStore by checkpointStore {
+                    override suspend fun save(
+                        checkpoint: WorkflowCheckpoint,
+                        expectedRevision: Long?,
+                    ): WorkflowCheckpoint = throw AssertionError("Trap: save called during read-only inspection")
+
+                    override suspend fun delete(
+                        workflowName: String,
+                        workflowId: String,
+                        expectedRevision: Long?,
+                        expectedGeneration: String?,
+                    ): Unit = throw AssertionError("Trap: delete called during read-only inspection")
+
+                    override suspend fun cancel(request: WorkflowCancellationRequest): WorkflowLifecycleState =
+                        throw AssertionError("Trap: cancel called during read-only inspection")
+
+                    override suspend fun admit(request: WorkflowAdmissionRequest): WorkflowAdmission =
+                        throw AssertionError("Trap: admit called during read-only inspection")
+
+                    override suspend fun requireRecovery(
+                        workflowName: String,
+                        workflowId: String,
+                        expectedRevision: Long,
+                        record: WorkflowRecoveryRecord,
+                        expectedGeneration: String?,
+                    ): WorkflowCheckpoint = throw AssertionError("Trap: requireRecovery called during read-only inspection")
+
+                    override suspend fun clearRecovery(
+                        workflowName: String,
+                        workflowId: String,
+                        expectedRevision: Long,
+                        expectedGeneration: String?,
+                    ): WorkflowCheckpoint = throw AssertionError("Trap: clearRecovery called during read-only inspection")
+                }
+
+            val trapEvidenceStore =
+                object : WorkflowEffectEvidenceRecordStore by evidenceStore {
+                    override suspend fun recordEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
+                        throw AssertionError("Trap: recordEvidence called during read-only inspection")
+
+                    override suspend fun updateEvidence(record: WorkflowEffectEvidenceRecord): WorkflowEffectEvidenceRecord =
+                        throw AssertionError("Trap: updateEvidence called during read-only inspection")
+                }
+
+            // Reconstruct timeline multiple times through trap wrappers
             repeat(10) {
-                val timeline = WorkflowHistoricalEvidenceReader.readTimeline(checkpointStore, evidenceStore, workflowName, workflowId)
+                val timeline =
+                    WorkflowHistoricalEvidenceReader.readTimeline(
+                        trapCheckpointStore,
+                        trapEvidenceStore,
+                        workflowName,
+                        workflowId,
+                    )
                 assertThat(timeline.records).hasSize(1)
             }
-
-            // Proven: Zero side effects triggered
-            assertThat(externalToolCalls.get()).isEqualTo(0)
         }
     }
 
