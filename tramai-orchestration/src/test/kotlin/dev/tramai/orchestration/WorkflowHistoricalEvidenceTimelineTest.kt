@@ -15,6 +15,7 @@ package dev.tramai.orchestration
 
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
+import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
 import dev.tramai.security.approval.Sha256ToolArgumentsDigester
@@ -610,37 +611,11 @@ class WorkflowHistoricalEvidenceTimelineTest {
     @Test
     fun `readTimeline rejects completed E9 evidence when continuation identity mismatches run, tool, or version lineage`() {
         runBlocking {
-            val baseRunId = "e9-ident-test"
             val continuationStore = InMemoryApprovalContinuationStore()
-            val sensitiveArgs = SensitiveToolArguments.of("{}")
 
-            // 1. Setup a completed continuation bound to baseRunId
-            val continuation =
-                ApprovalContinuation(
-                    approvalId = "app-ident-1",
-                    workflowRunId = baseRunId,
-                    correlationId = "corr-1",
-                    toolCallId = "call-1",
-                    toolName = "transfer_funds",
-                    argumentsDigest = digester.digest(sensitiveArgs),
-                    policyVersion = "p1",
-                    workflowDigest =
-                        dev.tramai.core.approval.Sha256Digest
-                            .of("sha256:" + "0".repeat(64)),
-                    status = ApprovalContinuationStatus.PENDING,
-                    createdAt = Instant.now(),
-                    approvalExpiresAt = Instant.now().plusSeconds(600),
-                    claimedBy = null,
-                    claimedAt = null,
-                    completedAt = null,
-                    version = 0L,
-                )
-            continuationStore.create(continuation, sensitiveArgs)
-            val claimed = continuationStore.claimForExecution("app-ident-1", 0L, "worker-1")
-            continuationStore.complete("app-ident-1", claimed.continuation.version, "worker-1")
-
-            // Discriminator 1: Mismatched tool name on completed continuation
-            val toolRunId = "$baseRunId-tool"
+            // Discriminator 1: Mismatched tool name ONLY (run and claim version lineage match)
+            val toolRunId = "e9-tool-mismatch"
+            val toolClaimVer = setupContinuation(continuationStore, "app-tool-1", toolRunId, "transfer_funds")
             val toolSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = toolRunId))
             val toolGen = checkNotNull(toolSaved.checkpointGeneration)
             val toolAdm =
@@ -657,8 +632,8 @@ class WorkflowHistoricalEvidenceTimelineTest {
                     key = WorkflowEffectEvidenceKey(workflowName, toolRunId, toolGen, toolAdm.sequence),
                     parent =
                         ParentProvenance.ApprovalContinuation(
-                            "app-ident-1",
-                            claimed.continuation.version,
+                            "app-tool-1",
+                            toolClaimVer,
                             "unauthorized_tool",
                         ),
                     effectKind = APPROVAL_RESUME_EFFECT_KIND,
@@ -677,8 +652,49 @@ class WorkflowHistoricalEvidenceTimelineTest {
                 )
             assertThat(timeline.requiresReconciliation).isTrue()
 
-            // Discriminator 2: Mismatched claim version on completed continuation
-            val versionRunId = "$baseRunId-version"
+            // Discriminator 2A: Version lineage mismatch ONLY — Equal version (completed.version == parent.continuationVersion)
+            // Completed continuation is at version 2; evidence parent claims version 2 (rejected: must be 2 == 1 + 1)
+            val verEqualRunId = "e9-ver-equal"
+            val verEqualClaimVer = setupContinuation(continuationStore, "app-ver-eq", verEqualRunId, "transfer_funds")
+            val verEqSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = verEqualRunId))
+            val verEqGen = checkNotNull(verEqSaved.checkpointGeneration)
+            val verEqAdm =
+                checkpointStore.admitEffect(
+                    workflowName,
+                    verEqualRunId,
+                    verEqSaved.revision,
+                    verEqGen,
+                    "transfer_funds",
+                    APPROVAL_RESUME_EFFECT_KIND,
+                )
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, verEqualRunId, verEqGen, verEqAdm.sequence),
+                    parent =
+                        ParentProvenance.ApprovalContinuation(
+                            "app-ver-eq",
+                            verEqualClaimVer + 1L,
+                            "transfer_funds",
+                        ),
+                    effectKind = APPROVAL_RESUME_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1200L,
+                ),
+            )
+            timeline =
+                WorkflowHistoricalEvidenceReader.readTimeline(
+                    checkpointStore = checkpointStore,
+                    evidenceStore = evidenceStore,
+                    workflowName = workflowName,
+                    workflowId = verEqualRunId,
+                    continuationStore = continuationStore,
+                )
+            assertThat(timeline.requiresReconciliation).isTrue()
+
+            // Discriminator 2B: Version lineage mismatch ONLY — Arbitrary version
+            val versionRunId = "e9-ver-arbitrary"
+            setupContinuation(continuationStore, "app-ver-arb", versionRunId, "transfer_funds")
             val verSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = versionRunId))
             val verGen = checkNotNull(verSaved.checkpointGeneration)
             val verAdm =
@@ -695,7 +711,7 @@ class WorkflowHistoricalEvidenceTimelineTest {
                     key = WorkflowEffectEvidenceKey(workflowName, versionRunId, verGen, verAdm.sequence),
                     parent =
                         ParentProvenance.ApprovalContinuation(
-                            "app-ident-1",
+                            "app-ver-arb",
                             999L,
                             "transfer_funds",
                         ),
@@ -715,26 +731,28 @@ class WorkflowHistoricalEvidenceTimelineTest {
                 )
             assertThat(timeline.requiresReconciliation).isTrue()
 
-            // Discriminator 3: Mismatched workflow run ID on completed continuation
-            val otherRunId = "$baseRunId-other"
-            val otherSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = otherRunId))
-            val otherGen = checkNotNull(otherSaved.checkpointGeneration)
-            val otherAdm =
+            // Discriminator 3: Mismatched workflow run ID ONLY (tool and version lineage match)
+            val originalRunId = "e9-run-original"
+            val impostorRunId = "e9-run-impostor"
+            val origClaimVer = setupContinuation(continuationStore, "app-run-mismatch", originalRunId, "transfer_funds")
+            val impSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = impostorRunId))
+            val impGen = checkNotNull(impSaved.checkpointGeneration)
+            val impAdm =
                 checkpointStore.admitEffect(
                     workflowName,
-                    otherRunId,
-                    otherSaved.revision,
-                    otherGen,
+                    impostorRunId,
+                    impSaved.revision,
+                    impGen,
                     "transfer_funds",
                     APPROVAL_RESUME_EFFECT_KIND,
                 )
             evidenceStore.recordEvidence(
                 WorkflowEffectEvidenceRecord(
-                    key = WorkflowEffectEvidenceKey(workflowName, otherRunId, otherGen, otherAdm.sequence),
+                    key = WorkflowEffectEvidenceKey(workflowName, impostorRunId, impGen, impAdm.sequence),
                     parent =
                         ParentProvenance.ApprovalContinuation(
-                            "app-ident-1",
-                            claimed.continuation.version,
+                            "app-run-mismatch",
+                            origClaimVer,
                             "transfer_funds",
                         ),
                     effectKind = APPROVAL_RESUME_EFFECT_KIND,
@@ -748,18 +766,20 @@ class WorkflowHistoricalEvidenceTimelineTest {
                     checkpointStore = checkpointStore,
                     evidenceStore = evidenceStore,
                     workflowName = workflowName,
-                    workflowId = otherRunId,
+                    workflowId = impostorRunId,
                     continuationStore = continuationStore,
                 )
             assertThat(timeline.requiresReconciliation).isTrue()
 
             // Matching: legitimate completed record with matching tool, run ID, and incremented version lineage
-            val validSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = baseRunId))
+            val validRunId = "e9-valid-run"
+            val validClaimVer = setupContinuation(continuationStore, "app-valid-1", validRunId, "transfer_funds")
+            val validSaved = checkpointStore.save(sampleCheckpoint().copy(workflowId = validRunId))
             val validGen = checkNotNull(validSaved.checkpointGeneration)
             val validAdm =
                 checkpointStore.admitEffect(
                     workflowName,
-                    baseRunId,
+                    validRunId,
                     validSaved.revision,
                     validGen,
                     "transfer_funds",
@@ -767,11 +787,11 @@ class WorkflowHistoricalEvidenceTimelineTest {
                 )
             evidenceStore.recordEvidence(
                 WorkflowEffectEvidenceRecord(
-                    key = WorkflowEffectEvidenceKey(workflowName, baseRunId, validGen, validAdm.sequence),
+                    key = WorkflowEffectEvidenceKey(workflowName, validRunId, validGen, validAdm.sequence),
                     parent =
                         ParentProvenance.ApprovalContinuation(
-                            "app-ident-1",
-                            claimed.continuation.version,
+                            "app-valid-1",
+                            validClaimVer,
                             "transfer_funds",
                         ),
                     effectKind = APPROVAL_RESUME_EFFECT_KIND,
@@ -785,10 +805,119 @@ class WorkflowHistoricalEvidenceTimelineTest {
                     checkpointStore = checkpointStore,
                     evidenceStore = evidenceStore,
                     workflowName = workflowName,
-                    workflowId = baseRunId,
+                    workflowId = validRunId,
                     continuationStore = continuationStore,
                 )
             assertThat(timeline.requiresReconciliation).isFalse()
         }
+    }
+
+    @Test
+    fun `readTimeline with ReadOnlyApprovalContinuationLookup preserves expired pending continuation without mutation`() {
+        runBlocking {
+            val runId = "read-only-exp-test"
+            val now = Instant.now()
+            val sensitiveArgs = SensitiveToolArguments.of("{}")
+            val expiredPending =
+                ApprovalContinuation(
+                    approvalId = "app-expired-pending",
+                    workflowRunId = runId,
+                    correlationId = "corr-exp",
+                    toolCallId = "call-exp",
+                    toolName = "transfer_funds",
+                    argumentsDigest = digester.digest(sensitiveArgs),
+                    policyVersion = "p1",
+                    workflowDigest =
+                        dev.tramai.core.approval.Sha256Digest
+                            .of("sha256:" + "0".repeat(64)),
+                    status = ApprovalContinuationStatus.PENDING,
+                    createdAt = now.minusSeconds(120),
+                    approvalExpiresAt = now.minusSeconds(60),
+                    claimedBy = null,
+                    claimedAt = null,
+                    completedAt = null,
+                    version = 0L,
+                )
+
+            val durableState = mutableMapOf("app-expired-pending" to expiredPending)
+            val readOnlyLookup = ReadOnlyApprovalContinuationLookup { approvalId -> durableState[approvalId] }
+
+            val saved = checkpointStore.save(sampleCheckpoint().copy(workflowId = runId))
+            val gen = checkNotNull(saved.checkpointGeneration)
+            val adm =
+                checkpointStore.admitEffect(
+                    workflowName,
+                    runId,
+                    saved.revision,
+                    gen,
+                    "transfer_funds",
+                    APPROVAL_RESUME_EFFECT_KIND,
+                )
+            evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = WorkflowEffectEvidenceKey(workflowName, runId, gen, adm.sequence),
+                    parent =
+                        ParentProvenance.ApprovalContinuation(
+                            "app-expired-pending",
+                            1L,
+                            "transfer_funds",
+                        ),
+                    effectKind = APPROVAL_RESUME_EFFECT_KIND,
+                    state = WorkflowEffectEvidenceState.COMPLETED,
+                    createdAtEpochMillis = 1000L,
+                    completedAtEpochMillis = 1200L,
+                ),
+            )
+
+            val timeline =
+                WorkflowHistoricalEvidenceReader.readTimeline(
+                    checkpointStore = checkpointStore,
+                    evidenceStore = evidenceStore,
+                    workflowName = workflowName,
+                    workflowId = runId,
+                    continuationLookup = readOnlyLookup,
+                )
+
+            // PENDING continuation is not completed -> reconciliation required
+            assertThat(timeline.requiresReconciliation).isTrue()
+
+            // Crucial assertion: the stored continuation was NOT lazily mutated to EXPIRED or version incremented!
+            val storedAfter = checkNotNull(durableState["app-expired-pending"])
+            assertThat(storedAfter.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+            assertThat(storedAfter.version).isEqualTo(0L)
+        }
+    }
+
+    private suspend fun setupContinuation(
+        continuationStore: ApprovalContinuationStore,
+        approvalId: String,
+        workflowRunId: String,
+        toolName: String,
+    ): Long {
+        val sensitiveArgs = SensitiveToolArguments.of("{}")
+        val continuation =
+            ApprovalContinuation(
+                approvalId = approvalId,
+                workflowRunId = workflowRunId,
+                correlationId = "corr-$approvalId",
+                toolCallId = "call-$approvalId",
+                toolName = toolName,
+                argumentsDigest = digester.digest(sensitiveArgs),
+                policyVersion = "p1",
+                workflowDigest =
+                    dev.tramai.core.approval.Sha256Digest
+                        .of("sha256:" + "0".repeat(64)),
+                status = ApprovalContinuationStatus.PENDING,
+                createdAt = Instant.now(),
+                approvalExpiresAt = Instant.now().plusSeconds(600),
+                claimedBy = null,
+                claimedAt = null,
+                completedAt = null,
+                version = 0L,
+            )
+        continuationStore.create(continuation, sensitiveArgs)
+        val claimed = continuationStore.claimForExecution(approvalId, 0L, "worker-1")
+        continuationStore.complete(approvalId, claimed.continuation.version, "worker-1")
+        return claimed.continuation.version
     }
 }

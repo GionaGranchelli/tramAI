@@ -186,8 +186,8 @@ internal data class WorkflowHistoricalEvidenceTimeline(
    - Any evidence record remains in `ADMITTED`, `DISPATCHED`, or `UNCERTAIN` state.
    - Any admission gaps exist.
    - Any associated approval continuation is in `CLAIMED` state or has missing continuation store authority.
-   - Any completed E9 evidence mismatches the authoritative continuation identity (workflow run ID, tool name, or compatible claim-version lineage).
-4. **Read-Only Non-Invasive Adapter:** Kept strictly `internal` in `tramai-orchestration`, preserving binary API compatibility (`apiCheck` unchanged). Verified side-effect free using write-throwing store decorators.
+   - Any completed E9 evidence mismatches the authoritative continuation identity: requires matching workflow run ID, matching tool name, and strict lineage compatibility where `continuation.version == parent.continuationVersion + 1L` (equal-version completion is rejected, reflecting the mandatory version increment on claim completion across all supported stores).
+4. **Read-Only Non-Invasive Adapter & Forensic Inspection:** Kept strictly `internal` in `tramai-orchestration`, preserving binary API compatibility (`apiCheck` unchanged). Provides `ReadOnlyApprovalContinuationLookup` for authoritative side-effect-free forensic inspection, ensuring that evaluating an expired `PENDING` continuation does not trigger lazy expiry mutations, version increments, or payload scrubbing on durable continuation state. When callers pass an `ApprovalContinuationStore` directly, inspection delegates to `store.get`, which is subject to the store's lazy expiry lifecycle contract. Verified side-effect free using write-throwing store decorators and unmutated-pending tests.
 5. **Multi-Generation Effect Preservation:** Multi-generation historical effect preservation is qualified via controlled database-fixture testing in `WorkflowHistoricalEvidenceTimelineTest` demonstrating cross-generation timeline reading without record loss; generation authenticity and incarnation fencing are maintained by store-level recovery authority rather than inferred by the timeline reader.
 
 ---
@@ -252,5 +252,5 @@ Implemented and verified in `WorkflowCrossBoundaryAdversarialTest.kt`. Each test
    - Hash transition 1: `86add99d12d4d989cbfa7599cb84f67ff4691452a8e7e727581fb1849a62372c → e3d294b2dcba1450a6e4dffabde0a256958b4382c448bb994c6326e0b04bc5f1`
    - Hash transition 2: `bbb2b420eaee60100aa749666014e768f760161479261ffcbb8cf263d91cfbd8 → ef6c0c685b5c9285038ec10d48a129033e54b6d5c52c2089408ecda44a95fb82`
    - Hash transition 3: `e3d294b2dcba1450a6e4dffabde0a256958b4382c448bb994c6326e0b04bc5f1 → bbb2b420eaee60100aa749666014e768f760161479261ffcbb8cf263d91cfbd8`
-   All 3 diagnostics are verified identical to the pristine base commit `13ae6583a9272922b7a75fcd632ad94c3e8f75a3`. D7-F introduces zero modifications to `:tramai-core` or its public API; formal baseline exception disposition is deferred to the owning track.
+   All 3 diagnostics are verified identical to the pristine base commit `13ae6583a9272922b7a75fcd632ad94c3e8f75a3`. D7-F introduces zero modifications to `:tramai-core` or its public API; formal baseline exception disposition is deferred to the owning track. The architecture check is NOT suppressed or weakened.
 4. **Merge Authorization Hold:** Per `AGENTS.md` and repository instructions, this integration milestone is placed under **STRICT MERGE HOLD**. No pull request targeting `release/0.7.0` may be merged autonomously.

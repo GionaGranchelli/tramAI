@@ -30,6 +30,17 @@ internal data class BoundedGapsResult(
 )
 
 /**
+ * Authoritative non-mutating continuation lookup mechanism for forensic inspection (D7-F).
+ *
+ * Guarantees zero side effects on durable continuation state: inspection of an expired
+ * [ApprovalContinuationStatus.PENDING] continuation must NOT trigger lazy expiry, CAS updates,
+ * version increments, or payload scrubbing.
+ */
+internal fun interface ReadOnlyApprovalContinuationLookup {
+    suspend fun getContinuation(approvalId: String): ApprovalContinuation?
+}
+
+/**
  * Historical evidence timeline for one workflow run (D7-F).
  *
  * Correlates durable checkpoint lifecycle state ([WorkflowLifecycleState]) and durable child
@@ -38,6 +49,11 @@ internal data class BoundedGapsResult(
  *
  * Core invariants:
  * - Read-only: never invokes external transports, processes, tools, or workflow steps.
+ *   Callers seeking strict side-effect-free continuation inspection can provide a
+ *   [ReadOnlyApprovalContinuationLookup] to inspect continuation metadata without triggering
+ *   lazy lifecycle mutations. Passing an [ApprovalContinuationStore] directly delegates to the
+ *   store's [ApprovalContinuationStore.get] contract, which may perform lazy expiry on expired
+ *   pending continuations.
  * - Truthful: missing evidence is reported as gaps, never fabricated or synthesized.
  * - Conservative: committed admissions lacking child evidence are classified as unclassified/uncertain outcomes.
  */
@@ -76,6 +92,24 @@ internal object WorkflowHistoricalEvidenceReader {
         workflowName: String,
         workflowId: String,
         continuationStore: ApprovalContinuationStore? = null,
+    ): WorkflowHistoricalEvidenceTimeline =
+        readTimeline(
+            checkpointStore = checkpointStore,
+            evidenceStore = evidenceStore,
+            workflowName = workflowName,
+            workflowId = workflowId,
+            continuationLookup =
+                continuationStore?.let { store ->
+                    ReadOnlyApprovalContinuationLookup { store.get(it) }
+                },
+        )
+
+    suspend fun readTimeline(
+        checkpointStore: WorkflowCheckpointStore,
+        evidenceStore: WorkflowEffectEvidenceRecordStore,
+        workflowName: String,
+        workflowId: String,
+        continuationLookup: ReadOnlyApprovalContinuationLookup?,
     ): WorkflowHistoricalEvidenceTimeline {
         val lifecycle = checkpointStore.lifecycle(workflowName, workflowId)
         val records =
@@ -91,7 +125,7 @@ internal object WorkflowHistoricalEvidenceReader {
                 lifecycle = lifecycle,
                 records = records,
                 completeness = boundedResult.completeness,
-                continuationStore = continuationStore,
+                continuationLookup = continuationLookup,
             )
 
         return WorkflowHistoricalEvidenceTimeline(
@@ -195,39 +229,27 @@ internal object WorkflowHistoricalEvidenceReader {
         lifecycle: WorkflowLifecycleState?,
         records: List<WorkflowEffectEvidenceRecord>,
         completeness: TimelineCompleteness,
-        continuationStore: ApprovalContinuationStore?,
+        continuationLookup: ReadOnlyApprovalContinuationLookup?,
     ): Boolean {
         if (completeness != TimelineCompleteness.COMPLETE) {
             return true
         }
         return lifecycle?.status == WorkflowLifecycleStatus.CANCELLED_UNCERTAIN ||
-            records.any { isRecordUnresolved(it) } ||
-            hasUnreconciledE9(records, continuationStore)
+            records.any { it.state != WorkflowEffectEvidenceState.COMPLETED } ||
+            hasUnreconciledE9(records, continuationLookup)
     }
-
-    private fun isRecordUnresolved(record: WorkflowEffectEvidenceRecord): Boolean =
-        when (record.state) {
-            WorkflowEffectEvidenceState.UNCERTAIN -> true
-
-            WorkflowEffectEvidenceState.ADMITTED,
-            WorkflowEffectEvidenceState.DISPATCHED,
-            -> true
-
-            WorkflowEffectEvidenceState.COMPLETED -> false
-        }
 
     private suspend fun hasUnreconciledE9(
         records: List<WorkflowEffectEvidenceRecord>,
-        continuationStore: ApprovalContinuationStore?,
+        continuationLookup: ReadOnlyApprovalContinuationLookup?,
     ): Boolean {
         val e9Records = records.filter { it.parent is ParentProvenance.ApprovalContinuation }
-        if (e9Records.isEmpty()) {
-            return false
-        }
-        return continuationStore == null ||
+        if (e9Records.isEmpty()) return false
+
+        return continuationLookup == null ||
             e9Records.any { record ->
                 val parent = record.parent as ParentProvenance.ApprovalContinuation
-                val continuation = continuationStore.get(parent.approvalId)
+                val continuation = continuationLookup.getContinuation(parent.approvalId)
                 continuation == null || !isContinuationReconciled(record, parent, continuation)
             }
     }
@@ -238,9 +260,7 @@ internal object WorkflowHistoricalEvidenceReader {
         continuation: ApprovalContinuation,
     ): Boolean {
         if (continuation.status != ApprovalContinuationStatus.COMPLETED) return false
-        val lineageCompatible =
-            continuation.version == parent.continuationVersion + 1L ||
-                continuation.version == parent.continuationVersion
+        val lineageCompatible = continuation.version == parent.continuationVersion + 1L
         return continuation.workflowRunId == record.key.workflowId &&
             continuation.toolName == parent.toolName &&
             lineageCompatible
