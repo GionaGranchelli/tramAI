@@ -815,6 +815,11 @@ class WorkflowHistoricalEvidenceTimelineTest {
     @Test
     fun `readTimeline with ReadOnlyApprovalContinuationLookup preserves expired pending continuation without mutation`() {
         runBlocking {
+            // Exercises the ReadOnlyApprovalContinuationLookup interface contract proving that a non-mutating
+            // adapter allows readTimeline to inspect continuation metadata and trigger reconciliation without
+            // mutating the underlying stored status or version.
+            // Note: Native non-mutating peek against durable JdbcApprovalContinuationStore without lazy expiry
+            // transitions requires cross-module SPI changes and is classified as PARTIAL / deferred.
             val runId = "read-only-exp-test"
             val now = Instant.now()
             val sensitiveArgs = SensitiveToolArguments.of("{}")
