@@ -84,10 +84,12 @@ class AuditEngineSovereignOpsAuditEmitter(
         val metadata =
             buildMap {
                 put(METADATA_APPROVAL_ID_DIGEST, bounded(record.aggregateIdDigest))
-                record.approvalStatus?.let { put(METADATA_APPROVAL_STATUS, bounded(it)) }
-                record.approvalVersion?.let { put(METADATA_APPROVAL_VERSION, it.toString()) }
-                record.previousApprovalStatus?.let { put(METADATA_PREVIOUS_APPROVAL_STATUS, bounded(it)) }
-                record.previousApprovalVersion?.let { put(METADATA_PREVIOUS_APPROVAL_VERSION, it.toString()) }
+                if (evidence.kind != SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL) {
+                    record.approvalStatus?.let { put(METADATA_APPROVAL_STATUS, bounded(it)) }
+                    record.approvalVersion?.let { put(METADATA_APPROVAL_VERSION, it.toString()) }
+                    record.previousApprovalStatus?.let { put(METADATA_PREVIOUS_APPROVAL_STATUS, bounded(it)) }
+                    record.previousApprovalVersion?.let { put(METADATA_PREVIOUS_APPROVAL_VERSION, it.toString()) }
+                }
                 put(METADATA_REASON_DIGEST, bounded(record.reasonDigest))
                 put(METADATA_REASON_LENGTH, record.reasonLength.toString())
                 // Correlation back to exactly one outbox record.
