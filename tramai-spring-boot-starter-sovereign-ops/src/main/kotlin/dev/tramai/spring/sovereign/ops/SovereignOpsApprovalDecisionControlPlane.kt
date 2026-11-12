@@ -13,6 +13,7 @@ import dev.tramai.spring.sovereign.ops.outbox.RefusalEvidence
 import dev.tramai.spring.sovereign.ops.outbox.RefusalOperation
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsRefusalRecorder
@@ -364,4 +365,9 @@ private fun auditIntentFor(
         actorIdentityDigest = ActorIdentityDigest.of(authority.issuer, authority.subject),
         previousApprovalStatus = approval.status.name,
         previousApprovalVersion = approval.version,
+        evidenceKind =
+            when (decisionType) {
+                ApprovalDecisionType.APPROVE -> SovereignOpsAuditEvidenceKind.APPROVAL_APPROVED
+                ApprovalDecisionType.DENY -> SovereignOpsAuditEvidenceKind.APPROVAL_DENIED
+            },
     )

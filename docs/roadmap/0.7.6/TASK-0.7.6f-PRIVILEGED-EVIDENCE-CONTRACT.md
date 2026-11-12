@@ -1,7 +1,7 @@
 # 0.7.6f — Privileged Evidence & Durable Attribution Provenance
 
-**Status:** Contract for review, revision 6. No implementation until accepted.
-**Base:** `release/0.7.0` at `d4bde521` (0.7.6e delivered as `440d63fc`).
+**Status:** ✅ Ratified & Delivered (Revision 6, amended per owner ratification — PRs #564, #565, #566, #567, #569, #570, and final gap-closure PR).
+**Base:** `release/0.7.0` at `d4bde521` (0.7.6e delivered as `440d63fc`; 0.7.6f baseline merged through `b97e4179`).
 **Scope:** attribution and evidence for privileged approval decisions and their authorization refusals.
 
 ## 1. Why this task exists
@@ -47,13 +47,16 @@ then `PENDING`; a failed transition marks the intent `FAILED_PERMANENT`. R4 pres
 
 **R1 — Durable identity is `(issuer, subject)`, sourced only from `OperatorAuthority`.** No caller-supplied actor
 string reaches durable state. The issuer is persisted beside the existing subject digest, and one identity digest
-binds both.
+binds both. Durable operator provenance is reconstructed from the authoritative persistence and audit surfaces
+(`approvals.decision_actor_issuer` / `approvals.decision_actor_identity_digest`, `SovereignOpsAuditOutboxRecord`, and
+emitted `AuditEvent` metadata); `ApprovalRequest`, `SovereignApprovalSummary`, and `ApprovalDecisionResult` are not
+extended in this milestone (§4.1).
 
 **R2 — A completed decision is reconstructable from durable evidence alone.** For each successful approve/deny the
 durable set answers: operation, actor `(issuer, subject)`, authorization outcome, **previous status and version as
 recorded at decision time**, resulting status and version, workflow/run correlation, and the audit correlation that
 ties the outbox record to the emitted event. Previous state is *recorded evidence*, not derived from the final
-approval row.
+approval row, and is carried in both `SovereignOpsAuditOutboxRecord` and emitted `AuditEvent` metadata.
 
 **R3 — Refusals are durable and are not mutations.** A refused decision writes evidence recording the operation, the
 actor `(issuer, subject)`, the refusal reason from the closed `ApprovalUnauthorizedReason` set, the policy version
@@ -108,10 +111,22 @@ tell which encoding it is holding. Byte-level encodings elsewhere in this docume
 never persisted.
 
 **Legacy rows.** `NULL` issuer means "recorded before 0.7.6f; issuer unknown". It must never be read as the current
-issuer, and no consumer may treat a legacy row as verified provenance.
+issuer, and no consumer may treat a legacy row as verified provenance. In emitted `AuditEvent` metadata, records with
+`actorIssuer == null` carry `issuerAttribution = "legacy-absent"` and omit `actorIssuer` and `actorIdentityDigest`.
 
 **Migration.** Additive `V10` DDL: two nullable columns, no backfill, no constraint that legacy rows could violate,
 no new unique index (duplicate decisions are prevented by the version fence, not a digest index).
+
+### 4.1 Provenance reconstruction boundary (ratified amendment)
+
+Per owner ratification of revision 6:
+
+1. **Authoritative provenance surfaces:** Durable operator provenance is persisted and reconstructed from:
+   - `approvals` table columns `decision_actor_issuer` and `decision_actor_identity_digest` (alongside `decision_actor_hash` and `decidedBy`);
+   - `SovereignOpsAuditOutboxRecord` V3 payload fields `actorIssuer`, `actorIdentityDigest`, `previousApprovalStatus`, `previousApprovalVersion`, `refusalPolicyVersion`, and `refusalExpectedVersion`;
+   - Emitted `AuditEvent` metadata produced by `AuditEngineSovereignOpsAuditEmitter.evidenceFromOutbox`: `actorIssuer`, `actorIdentityDigest` (or `issuerAttribution = "legacy-absent"` when `actorIssuer == null`), `previousApprovalStatus`, `previousApprovalVersion` on decision events, and `refusalPolicyVersion`, `refusalExpectedVersion` on `AUTHORIZATION_REFUSAL` events when present.
+2. **Domain & summary DTO boundary preserved:** `ApprovalRequest`, `SovereignApprovalSummary`, and `ApprovalDecisionResult` are intentionally not widened with issuer or identity-digest fields in 0.7.6f.
+3. **Explicit `evidenceKind` population:** All supported new decision records (`SovereignOpsApprovalDecisionControlPlane` and `DefaultSovereignApprovalOperations.denyApproval`) explicitly populate `SovereignOpsAuditEvidenceKind.APPROVAL_APPROVED` or `SovereignOpsAuditEvidenceKind.APPROVAL_DENIED`; `evidenceKind = null` is reserved strictly for genuinely historical legacy records.
 
 ## 5. Decision B — refusal evidence with no mutation transaction
 
@@ -446,3 +461,4 @@ helper that reimplements the rule.
 | File-backend `outboxId`/`eventKey` for undecodable records | Permanently unrecoverable (the file name is a one-way digest and the values live in the ciphertext). Recorded as nullable in the summary, never synthesised. |
 | Mass corruption | If every dispatchable record is genuinely corrupt, the control requirement makes quarantine refuse to act (§6.1). Intentional: manual intervention over mass-quarantining evidence. |
 | Decision event keys embedding raw approval ids (§1.4) | Recorded finding; correction is a separate change with its own migration. |
+| Domain / summary DTO provenance fields (`ApprovalRequest`, `SovereignApprovalSummary`, `ApprovalDecisionResult`) | Ratified Option 1: not widened in 0.7.6f. Durable operator provenance is reconstructed from `approvals` V10 columns, `audit_outbox` V3 payload, and emitted `AuditEvent` metadata (§4.1). |

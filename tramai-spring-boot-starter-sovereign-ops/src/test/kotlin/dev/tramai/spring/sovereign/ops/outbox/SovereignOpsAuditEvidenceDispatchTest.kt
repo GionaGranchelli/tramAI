@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.ops.outbox
 
+import dev.tramai.core.operator.ActorIdentityDigest
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.InMemoryAuditStore
 import dev.tramai.spring.sovereign.ops.AuditEngineSovereignOpsAuditEmitter
@@ -154,6 +155,147 @@ class SovereignOpsAuditEvidenceDispatchTest {
             assertThat(byOutboxId.getValue(legacyDenied).decision).isEqualTo("DENIED")
             assertThat(byOutboxId.getValue(legacyDenied).metadata).containsEntry(META_LEGACY, "true")
         }
+
+    @Test
+    fun `emitted metadata carries verified provenance, previous state, refusal inputs and legacy-absent`() =
+        runBlocking<Unit> {
+            val stores = stores()
+            val issuer = "https://idp.sovereign.example"
+            val digest = ActorIdentityDigest.of(issuer, ACTOR)
+            val attributedApproved =
+                stores.seed(
+                    decision("attr-approved", APPROVED, "APPROVED").copy(
+                        actorIssuer = issuer,
+                        actorIdentityDigest = digest,
+                        previousApprovalStatus = "PENDING",
+                        previousApprovalVersion = 0L,
+                    ),
+                )
+            val attributedDenied =
+                stores.seed(
+                    decision("attr-denied", DENIED, "DENIED").copy(
+                        actorIssuer = issuer,
+                        actorIdentityDigest = digest,
+                        previousApprovalStatus = "PENDING",
+                        previousApprovalVersion = 0L,
+                    ),
+                )
+            val attributedRefusal =
+                stores.seed(
+                    refusal("attr-refused", reason = "role-not-permitted").copy(
+                        actorIssuer = issuer,
+                        actorIdentityDigest = digest,
+                        refusalPolicyVersion = "v1-medical",
+                        refusalExpectedVersion = 0L,
+                    ),
+                )
+            val legacyDenied =
+                stores.seed(
+                    decision("legacy-no-issuer", null, "DENIED").copy(
+                        previousApprovalStatus = "PENDING",
+                        previousApprovalVersion = 0L,
+                    ),
+                )
+
+            val result = stores.dispatcher.dispatchPending(limit = 10)
+            assertThat(result).isEqualTo(SovereignOpsAuditOutboxDispatchResult(4, 4, 0, 0))
+
+            val byOutboxId = stores.audit.readStream(stream).associateBy { it.metadata.getValue(META_OUTBOX_ID) }
+            assertAttributedDecision(byOutboxId.getValue(attributedApproved), "APPROVED", issuer, digest)
+            assertAttributedDecision(byOutboxId.getValue(attributedDenied), "DENIED", issuer, digest)
+            assertLegacyDecision(byOutboxId.getValue(legacyDenied))
+            assertRefusalMetadata(byOutboxId.getValue(attributedRefusal), issuer, digest)
+        }
+
+    @Test
+    fun `malformed refusal with populated decision-only fields does not leak approval state into emitted event`() =
+        runBlocking<Unit> {
+            val stores = stores()
+            val issuer = "https://idp.sovereign.example"
+            val digest = ActorIdentityDigest.of(issuer, ACTOR)
+            val malformedRefusal =
+                stores.seed(
+                    refusal("malformed-refusal", reason = "role-not-permitted").copy(
+                        actorIssuer = issuer,
+                        actorIdentityDigest = digest,
+                        approvalStatus = "APPROVED",
+                        approvalVersion = 1L,
+                        previousApprovalStatus = "PENDING",
+                        previousApprovalVersion = 0L,
+                        refusalPolicyVersion = "v1-medical",
+                        refusalExpectedVersion = 0L,
+                    ),
+                )
+
+            val result = stores.dispatcher.dispatchPending(limit = 10)
+            assertThat(result).isEqualTo(SovereignOpsAuditOutboxDispatchResult(1, 1, 0, 0))
+
+            val byOutboxId = stores.audit.readStream(stream).associateBy { it.metadata.getValue(META_OUTBOX_ID) }
+            val refusalEvent = byOutboxId.getValue(malformedRefusal)
+            assertThat(refusalEvent.enforcementPoint).isEqualTo("sovereign-ops.approval.authorization")
+            assertThat(refusalEvent.decision).isEqualTo("DENIED")
+            assertThat(refusalEvent.reasonCode).isEqualTo("sovereign-ops-authorization-refused")
+            assertThat(refusalEvent.metadata)
+                .containsEntry("actorIssuer", issuer)
+                .containsEntry("actorIdentityDigest", digest)
+                .containsEntry("refusalReason", "role-not-permitted")
+                .containsEntry("refusalPolicyVersion", "v1-medical")
+                .containsEntry("refusalExpectedVersion", "0")
+                .doesNotContainKey("approvalStatus")
+                .doesNotContainKey("approvalVersion")
+                .doesNotContainKey("previousApprovalStatus")
+                .doesNotContainKey("previousApprovalVersion")
+                .doesNotContainKey("issuerAttribution")
+                .doesNotContainKey(META_LEGACY)
+        }
+
+    private fun assertAttributedDecision(
+        event: dev.tramai.security.audit.AuditEvent,
+        expectedStatus: String,
+        issuer: String,
+        digest: String,
+    ) {
+        assertThat(event.metadata)
+            .containsEntry("actorIssuer", issuer)
+            .containsEntry("actorIdentityDigest", digest)
+            .containsEntry("previousApprovalStatus", "PENDING")
+            .containsEntry("previousApprovalVersion", "0")
+            .containsEntry("approvalStatus", expectedStatus)
+            .containsEntry("approvalVersion", "1")
+            .doesNotContainKey("issuerAttribution")
+            .doesNotContainKey(META_LEGACY)
+    }
+
+    private fun assertLegacyDecision(event: dev.tramai.security.audit.AuditEvent) {
+        assertThat(event.metadata)
+            .containsEntry(META_LEGACY, "true")
+            .containsEntry("issuerAttribution", "legacy-absent")
+            .containsEntry("previousApprovalStatus", "PENDING")
+            .containsEntry("previousApprovalVersion", "0")
+            .containsEntry("approvalStatus", "DENIED")
+            .containsEntry("approvalVersion", "1")
+            .doesNotContainKey("actorIssuer")
+            .doesNotContainKey("actorIdentityDigest")
+    }
+
+    private fun assertRefusalMetadata(
+        event: dev.tramai.security.audit.AuditEvent,
+        issuer: String,
+        digest: String,
+    ) {
+        assertThat(event.metadata)
+            .containsEntry("actorIssuer", issuer)
+            .containsEntry("actorIdentityDigest", digest)
+            .containsEntry("refusalReason", "role-not-permitted")
+            .containsEntry("refusalPolicyVersion", "v1-medical")
+            .containsEntry("refusalExpectedVersion", "0")
+            .doesNotContainKey("issuerAttribution")
+            .doesNotContainKey(META_LEGACY)
+            .doesNotContainKey("approvalStatus")
+            .doesNotContainKey("approvalVersion")
+            .doesNotContainKey("previousApprovalStatus")
+            .doesNotContainKey("previousApprovalVersion")
+    }
 
     // --- discriminator 13 -----------------------------------------------------------------------
 

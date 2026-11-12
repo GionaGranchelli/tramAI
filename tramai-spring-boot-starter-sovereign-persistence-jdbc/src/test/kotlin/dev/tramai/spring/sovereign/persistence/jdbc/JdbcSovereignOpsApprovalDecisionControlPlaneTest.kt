@@ -14,6 +14,7 @@ import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
+import dev.tramai.core.operator.ActorIdentityDigest
 import dev.tramai.core.operator.OperatorCapability
 import dev.tramai.core.operator.OperatorPrincipal
 import dev.tramai.engine.EngineExecutionIdentity
@@ -33,6 +34,7 @@ import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
 import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.SovereignOpsApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -176,13 +178,11 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             assertThat(approvalOutbox.correlationId).isEqualTo("corr-approve-evidence")
             assertThat(approvalOutbox.approvalStatus).isEqualTo(ApprovalStatus.APPROVED.name)
             assertThat(approvalOutbox.approvalVersion).isEqualTo(1L)
-            assertThat(approvalOutbox.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
-            // Digest shape — evidence is sanitised, not raw text
-            assertThat(approvalOutbox.aggregateIdDigest).startsWith("sha256:")
-            assertThat(approvalOutbox.aggregateIdDigest).hasSize(71)
-            assertThat(approvalOutbox.reasonDigest).startsWith("sha256:")
-            assertThat(approvalOutbox.reasonDigest).hasSize(71)
-            assertThat(approvalOutbox.reasonLength).isEqualTo("Medical necessity established".length)
+            assertDecisionOutboxProvenanceAndDigests(
+                record = approvalOutbox,
+                expectedKind = SovereignOpsAuditEvidenceKind.APPROVAL_APPROVED,
+                expectedReasonLength = "Medical necessity established".length,
+            )
         }
     }
 
@@ -243,14 +243,32 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             assertThat(denialOutbox.correlationId).isEqualTo("corr-deny-evidence")
             assertThat(denialOutbox.approvalStatus).isEqualTo(ApprovalStatus.DENIED.name)
             assertThat(denialOutbox.approvalVersion).isEqualTo(1L)
-            assertThat(denialOutbox.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
-            // Digest shape — evidence is sanitised, not raw text
-            assertThat(denialOutbox.aggregateIdDigest).startsWith("sha256:")
-            assertThat(denialOutbox.aggregateIdDigest).hasSize(71)
-            assertThat(denialOutbox.reasonDigest).startsWith("sha256:")
-            assertThat(denialOutbox.reasonDigest).hasSize(71)
-            assertThat(denialOutbox.reasonLength).isEqualTo("Denied because evidence is incomplete".length)
+            assertDecisionOutboxProvenanceAndDigests(
+                record = denialOutbox,
+                expectedKind = SovereignOpsAuditEvidenceKind.APPROVAL_DENIED,
+                expectedReasonLength = "Denied because evidence is incomplete".length,
+            )
         }
+    }
+
+    private fun assertDecisionOutboxProvenanceAndDigests(
+        record: dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord,
+        expectedKind: SovereignOpsAuditEvidenceKind,
+        expectedReasonLength: Int,
+    ) {
+        assertThat(record.previousApprovalStatus).isEqualTo(ApprovalStatus.PENDING.name)
+        assertThat(record.previousApprovalVersion).isEqualTo(0L)
+        assertThat(record.evidenceKind).isEqualTo(expectedKind)
+        assertThat(record.actorIssuer).isEqualTo("https://issuer.example")
+        assertThat(record.actorIdentityDigest)
+            .isEqualTo(ActorIdentityDigest.of("https://issuer.example", "medical-ops-reviewer"))
+        assertThat(record.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+        // Digest shape — evidence is sanitised, not raw text
+        assertThat(record.aggregateIdDigest).startsWith("sha256:")
+        assertThat(record.aggregateIdDigest).hasSize(71)
+        assertThat(record.reasonDigest).startsWith("sha256:")
+        assertThat(record.reasonDigest).hasSize(71)
+        assertThat(record.reasonLength).isEqualTo(expectedReasonLength)
     }
 
     @Test
