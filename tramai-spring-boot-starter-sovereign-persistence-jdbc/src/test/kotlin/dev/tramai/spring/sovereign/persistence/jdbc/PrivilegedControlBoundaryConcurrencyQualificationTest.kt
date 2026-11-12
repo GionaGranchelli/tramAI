@@ -139,7 +139,7 @@ class PrivilegedControlBoundaryConcurrencyQualificationTest {
                     ?.bufferedReader()
                     ?.readText()
                     ?: error("Migration not found: $resource")
-            runCatching { jdbcTemplate.execute(sql) }
+            jdbcTemplate.execute(sql)
         }
     }
 
@@ -298,6 +298,73 @@ class PrivilegedControlBoundaryConcurrencyQualificationTest {
                 pool.shutdownNow()
             }
         }
+    }
+
+    @Test
+    fun `G2-12 - outbox failure in PostgreSQL rolls back mutation transaction and outbox`() {
+        runBlocking {
+            val approvalId = suspendApproval("rollback-adv-g212", "wf-adv-g212")
+            val controlPlane = createControlPlane()
+
+            installFailingOutboxUpdateTrigger()
+            try {
+                val cmd = ApprovalDecisionCommand(approvalId, 0L, "should-rollback", "corr-rollback-test")
+                val result = controlPlane.approve(cmd, approverAuthority)
+
+                assertThat(result).isInstanceOf(ApprovalDecisionResult.Conflict::class.java)
+                val conflict = result as ApprovalDecisionResult.Conflict
+                assertThat(conflict.reason).contains("tramai-sovereign-ops-approval-mutation-database-failure")
+
+                // Authoritative approval row in PostgreSQL: MUST BE UNMUTATED (PENDING, version 0, no decider)
+                val row =
+                    jdbcTemplate.queryForMap(
+                        "SELECT status, version, decision_actor_hash, decided_at FROM approvals WHERE approval_id = ?",
+                        approvalId.value,
+                    )
+                assertThat(row["status"]).isEqualTo("PENDING")
+                assertThat((row["version"] as Number).toLong()).isZero()
+                assertThat(row["decision_actor_hash"]).isNull()
+                assertThat(row["decided_at"]).isNull()
+
+                val persisted = requireNotNull(approvalStore.get(approvalId.value))
+                assertThat(persisted.status).isEqualTo(ApprovalStatus.PENDING)
+                assertThat(persisted.version).isZero()
+                assertThat(persisted.decidedBy).isNull()
+                assertThat(persisted.decidedAt).isNull()
+
+                // Authoritative audit_outbox in PostgreSQL: MUST BE EMPTY (rolled back)
+                val outboxCount =
+                    jdbcTemplate.queryForObject("SELECT count(*) FROM audit_outbox", Long::class.java) ?: 0L
+                assertThat(outboxCount).isZero()
+            } finally {
+                dropFailingOutboxUpdateTrigger()
+            }
+        }
+    }
+
+    private fun installFailingOutboxUpdateTrigger() {
+        jdbcTemplate.execute(
+            """
+            CREATE OR REPLACE FUNCTION fail_audit_outbox_update() RETURNS trigger AS $$
+            BEGIN
+                RAISE EXCEPTION 'injected-outbox-storage-disk-failure';
+            END;
+            $$ LANGUAGE plpgsql;
+
+            CREATE TRIGGER trg_fail_outbox_update
+            BEFORE UPDATE ON audit_outbox
+            FOR EACH ROW EXECUTE FUNCTION fail_audit_outbox_update();
+            """.trimIndent(),
+        )
+    }
+
+    private fun dropFailingOutboxUpdateTrigger() {
+        jdbcTemplate.execute(
+            """
+            DROP TRIGGER IF EXISTS trg_fail_outbox_update ON audit_outbox;
+            DROP FUNCTION IF EXISTS fail_audit_outbox_update();
+            """.trimIndent(),
+        )
     }
 
     companion object {

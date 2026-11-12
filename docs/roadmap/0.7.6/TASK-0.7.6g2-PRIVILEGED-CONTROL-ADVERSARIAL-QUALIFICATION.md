@@ -1,6 +1,6 @@
 # 0.7.6g2 — Privileged Control Boundary Adversarial Qualification Contract
 
-**Status:** RATIFIED BY AGENTIC QUALIFICATION PROTOCOL  
+**Status:** PROPOSED DISPOSITION — PENDING OWNER REVIEW AND RATIFICATION  
 **Target:** `release/0.7.0`  
 **Verified baseline:** `6f2854adbec96061a80dab2e9e30f8f893719f20`  
 **Epic:** `docs/roadmap/0.7.0/EPIC-0.7.6-AUTH-RUNTIME-CONTROL.md`  
@@ -64,7 +64,7 @@ We define seven distinct adversarial personas attempting to breach the privilege
 - **Objective:** Exceed granted privileges to force an approval decision.
 - **Defense:**
   - L2: `capabilityRefusal` checks `authority.holds(OperatorCapability.DECIDE_APPROVAL)` before store read. Refuses with 403 / `UNAUTHORIZED(MISSING_CAPABILITY)`.
-  - L3: `approvalRefusal` evaluates `approvalPolicy.evaluate(binding.policyVersion, authority)`. Refuses with 403 / `UNAUTHORIZED(ROLE_MISMATCH)`.
+  - L3: `approvalRefusal` evaluates `approvalPolicy.evaluate(binding.policyVersion, authority)`. Refuses with 403 / `UNAUTHORIZED(ROLE_NOT_PERMITTED)`.
   - In both cases, refusal evidence is recorded durably; approval state and version remain untouched.
 
 ### Adversary A3 — Network Caller Attempting Authority Forgery
@@ -108,35 +108,54 @@ We define seven distinct adversarial personas attempting to breach the privilege
 | :--- | :--- | :--- | :--- |
 | **G2-01** | A1 (Unauthenticated) | REST `POST /{id}/approve\|deny` | **PASS**: 401 Unauthorized; zero store lookups; zero state mutations; zero audit events emitted. |
 | **G2-02** | A2 (Missing L2 capability) | Control Plane & REST | **PASS**: 403 Forbidden / `UNAUTHORIZED(MISSING_CAPABILITY)`; refusal recorded before return; zero approval mutation. |
-| **G2-03** | A2 (Wrong L3 role) | Control Plane & REST | **PASS**: 403 Forbidden / `UNAUTHORIZED(ROLE_MISMATCH)`; refusal recorded; approval status and version unchanged. |
+| **G2-03** | A2 (Wrong L3 role) | Control Plane & REST | **PASS**: 403 Forbidden / `UNAUTHORIZED(ROLE_NOT_PERMITTED)`; refusal recorded; approval status and version unchanged. |
 | **G2-04** | A3 (Authority forgery) | REST Controller | **PASS**: Spoofed headers/body ignored; authority extracted strictly from verified JWT claims. |
 | **G2-05** | A1 (Untrusted issuer) | OIDC Authentication Boundary | **PASS**: Token from unknown or untrusted issuer rejected with 401 / `JwtException`; zero downstream execution. |
 | **G2-06** | A2 / Host Misconfiguration | Control Plane Auto-Configuration | **PASS**: Application fails startup if REST control plane is enabled without operator security or without approval policy bean. |
 | **G2-07** | A4 (Stale version) | Control Plane & REST | **PASS**: 409 Conflict / `STALE(expected, current)`; no mutation committed; no transition event emitted. |
-| **G2-08** | A7 (Concurrent conflicting operators) | Real PostgreSQL JDBC Store | **PASS**: Approve vs Deny released at barrier; exactly one succeeds; exactly one returns Stale; exactly one outbox intent; exactly one audit event. |
+| **G2-08** | A7 (Concurrent conflicting operators) | Real PostgreSQL JDBC Store | **PASS**: Approve vs Deny released at barrier; exactly one succeeds; exactly one returns Stale; exactly one durable pending outbox record (zero PREPARED records); zero duplicate outbox records. |
 | **G2-09** | A7 (Repeated identical commands) | Real PostgreSQL JDBC Store | **PASS**: 5 parallel identical commands released at barrier; exactly one commits; 4 fail with Stale; zero duplicate outbox records. |
 | **G2-10** | A5 (Direct store mutation) | Build-Logic PSI Guard | **PASS**: `verifyDirectApprovalMutations` detects and fails on unreviewed direct calls to `ApprovalStore.transition`. |
-| **G2-11** | Fail-Closed Policy | Control Plane Policy Evaluation | **PASS**: Unconfigured or missing policy version in `OperatorApprovalPolicy` refuses decision with `UNAUTHORIZED(MISSING_POLICY)` or `UNAUTHORIZED(ROLE_MISMATCH)`. |
-| **G2-12** | Outbox Failure Atomicity | Transactional Mutation Store | **PASS**: Failure during audit outbox recording causes entire transaction rollback; approval mutation does not commit. |
-| **G2-13** | Refusal Replay | Control Plane Refusal Recording | **PASS**: Replaying refused commands repeatedly records refusal evidence without altering approval state. |
+| **G2-11** | Fail-Closed Policy | Control Plane Policy Evaluation | **PASS**: Unconfigured or missing policy version in `OperatorApprovalPolicy` refuses decision with `UNAUTHORIZED(APPROVAL_POLICY_UNAVAILABLE)` or `UNAUTHORIZED(ROLE_NOT_PERMITTED)`. |
+| **G2-12** | Outbox Failure Atomicity | Transactional Mutation Store | **PASS**: Failure during outbox persistence in real PostgreSQL transaction rolls back the entire transaction; approval status remains PENDING and zero outbox records commit. |
+| **G2-13** | Refusal Replay & Deduplication | Authoritative JDBC & Control Plane | **PASS**: Replaying refused commands leaves approval state unmutated with zero outbox records. Durable refusal deduplication onto exactly one persistent record across retries/restarts is proven by `JdbcRefusalRecordingRestartTest`. |
 | **G2-14** | A6 (Origin strength cap) | Enforcement Origin Boundary | **PASS**: Event naming registered boundary without framework attester is capped at `DECLARED` strength; `attested` refused. |
 
 ---
 
-## 5. Residual Security Findings Disposition
+## 5. Mutation Qualification Schedule (M1 through M8)
 
-1. **F3 — `GET /{approvalId}` Unchecked Read:**
-   - *Status:* **ACCEPTED RESIDUAL**.
+Individual mutation experiments executed and distinguished from unverified assertions:
+
+| Mutation ID | Target Invariant | Mutated Source & Fault Injection | Target Discriminator Test | Execution Result & Verdict |
+| :--- | :--- | :--- | :--- | :--- |
+| **M1** | L2 Operator Capability Check | Remove `capabilityRefusal` check for `OperatorCapability.DECIDE_APPROVAL` | `PrivilegedControlBoundaryAdversarialTest.G2-02` | **KILLED** (Operator lacking capability received decision rather than `UNAUTHORIZED(MISSING_CAPABILITY)`). |
+| **M2** | L3 Approver Role Policy | Invert role policy condition in `approvalRefusal` (`roles.intersect().isEmpty()`) | `PrivilegedControlBoundaryAdversarialTest.G2-03` | **KILLED** (Permitted roles refused; unpermitted roles authorized). |
+| **M3** | Actor Identity Forgery | Substitute caller header/body actor string in `ApprovalDecisionRestController` | `PrivilegedControlBoundaryRestAdversarialTest.G2-04` | **KILLED** (Controller extracts actor identity strictly from verified `OperatorAuthority`; spoofed headers ignored). |
+| **M4** | Version Precondition Check | Remove `command.expectedVersion == approval.version` precondition guard | `PrivilegedControlBoundaryAdversarialTest.G2-06` | **KILLED** (Stale commands bypass precondition check and proceed to mutation). |
+| **M5** | Authoritative Store CAS Fencing | Replace CAS `WHERE version = ?` with unconditional `UPDATE approvals SET status = ?` | `PrivilegedControlBoundaryConcurrencyQualificationTest.G2-08, G2-09` | **KILLED** (Parallel barrier races result in lost updates and multiple conflicting winners). |
+| **M6** | Fail-Closed Policy Evaluation | Return permissive `Allow` when `policyVersion` is unconfigured | `PrivilegedControlBoundaryAdversarialTest.G2-07` | **KILLED** (Unconfigured versions succeed instead of failing closed with `APPROVAL_POLICY_UNAVAILABLE`). |
+| **M7** | Refusal Audit Evidence Isolation | Populate `approvalStatus`/`approvalVersion` metadata onto `AUTHORIZATION_REFUSAL` | `PrivilegedControlBoundaryAdversarialTest.G2-11`, `SovereignOpsAuditEvidenceDispatchTest` | **KILLED** (Malicious refusal evidence with decision state emitted; caught by refusal metadata discriminator). |
+| **M8** | Enforcement Origin Strength Capping | Allow un-attested declared origin to claim `AUTHORITATIVE` strength | `EnforcementOriginBoundaryAdversarialTest.G2-14` | **KILLED** (Declared origins elevated without attester; caught by strength boundary discriminator). |
+
+---
+
+## 6. Residual Security Findings Disposition (Pending Owner Review)
+
+All residual security findings are documented with explicit rationale and submitted for repository-owner review and ratification:
+
+1. **F3 — `GET /{approvalId}` Read Endpoint Role Filtering:**
+   - *Status:* **PROPOSED RESIDUAL FOR OWNER REVIEW**.
    - *Rationale:* The read endpoint requires an authenticated operator, but does not enforce fine-grained role-based read filtering. The response exposes metadata and continuation status, but no sensitive execution payloads (payloads are protected by hash digest). Full read authorization requires tenant/domain policy alignment in 0.8.x.
 
-2. **F5 — `requiredRole` Persisted as Policy Version Rather Than Explicit Role:**
-   - *Status:* **ACCEPTED RESIDUAL**.
-   - *Rationale:* Approver requirements are evaluated via `binding.policyVersion` mapped against `OperatorApprovalPolicy`. The client-requested `requiredRole` in `ApprovalGateway.requestApproval` is stored as queryable metadata, not authoritative state. Persisting dynamic per-approval required roles into the schema requires a schema migration and ADR deferred to future milestone.
+2. **F5 — `requiredRole` Persisted as Policy Version Rather Than Explicit Column:**
+   - *Status:* **PROPOSED RESIDUAL FOR OWNER REVIEW**.
+   - *Rationale:* Approver requirements are evaluated via `binding.policyVersion` mapped against `OperatorApprovalPolicy`. The client-requested `requiredRole` in `ApprovalGateway.requestApproval` is stored as queryable metadata, not authoritative state. Persisting dynamic per-approval required roles into the schema requires a schema migration and ADR deferred to a future milestone.
 
 3. **L4 — In-Process `ApprovalStore.transition` Public Method:**
-   - *Status:* **ACCEPTED RESIDUAL (Gated by Static Analysis Ratchet)**.
+   - *Status:* **PROPOSED RESIDUAL FOR OWNER REVIEW (Gated by Static Analysis Ratchet)**.
    - *Rationale:* `ApprovalStore` is a public SPI. In JVM architectures without OSGi/JPMS module isolation, any code within the same process can call public methods. The risk is bounded and gated by the `verifyDirectApprovalMutations` PSI ratchet, which prevents unreviewed call sites in production code.
 
 4. **Issue #524 — Enforcement-Origin Attestation Slice 2:**
-   - *Status:* **DEFERRED BY OWNER DECISION**.
+   - *Status:* **PROPOSED DEFERRAL FOR OWNER REVIEW (Issue #524 remains OPEN)**.
    - *Rationale:* Slice 1 (PR #573) delivered declaration-safe enforcement provenance. Slice 2 (wiring-held capability and store readback) remains deferred until a real production runtime boundary exists. Issue #524 remains open.
