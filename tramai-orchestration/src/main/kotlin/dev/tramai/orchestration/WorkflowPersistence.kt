@@ -624,6 +624,15 @@ class InMemoryWorkflowCheckpointStore(
             }
         }
 
+    internal suspend fun currentAdmissionSequence(
+        workflowName: String,
+        workflowId: String,
+    ): Long? =
+        synchronized(monitor) {
+            val key = CheckpointKey(workflowName, workflowId)
+            if (key !in checkpoints && key !in cancellations) null else admissions[key] ?: 0L
+        }
+
     override suspend fun listCheckpoints(): List<WorkflowCheckpoint> =
         persistenceBoundary(
             PersistenceResourceKind.CHECKPOINT,

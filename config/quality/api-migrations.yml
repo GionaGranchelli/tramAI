@@ -507,3 +507,17 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "D7-E1 adds approvalResumeEvidenceEnabled constructors on WorkflowApprovalResumeAdmission."
     migration: "Additive. Defaults to false for existing constructors; callers explicitly pass true to enable E9 recording."
+  - module: ":tramai-core"
+    fromSha256: "ef6c0c685bf14369fe5cb161420e44b30950fb8c8f4d4a9a0b177d19c55b2fb8"
+    toSha256: "b563848390d70ef2999c8ce5d856a767678fd1af56760376ebbef2c8e4a28845"
+    targetVersion: "0.7.0"
+    rationale: >-
+      D7-E1 (0.7.7k) landed ApprovalResumeEvidenceHandle, WorkflowEvidenceDiagnosticCategory,
+      ApprovalResumeEvidencePersistenceException, and additive continuationVersion helpers on
+      ApprovalResumeAdmissionRequest in tramai-core without appending the link this ledger needs,
+      so the chain from the previous entry's toSha256 no longer reached the current base dump.
+      Additive only: all existing declarations and binary-compatible descriptors are preserved.
+      This entry records that transition so the ledger stays reachable; it authorizes nothing new.
+    migration: >-
+      No consumer action required: additive public API only. Existing 4-argument constructors and
+      copy descriptors on ApprovalResumeAdmissionRequest remain binary-compatible.
