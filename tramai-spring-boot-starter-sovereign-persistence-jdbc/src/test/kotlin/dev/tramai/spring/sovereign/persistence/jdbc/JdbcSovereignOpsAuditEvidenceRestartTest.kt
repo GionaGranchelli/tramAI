@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.persistence.jdbc
 
+import dev.tramai.core.operator.ActorIdentityDigest
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.InMemoryAuditStore
 import dev.tramai.spring.sovereign.ops.AuditEngineSovereignOpsAuditEmitter
@@ -115,7 +116,21 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
                     "sovereign-ops.approval.authorization",
                 )
             // The refusal's reason wire name came back out of the ciphertext, not out of memory.
-            assertThat(events.last().metadata).containsEntry("refusalReason", "missing-capability")
+            assertThat(events.last().metadata)
+                .containsEntry("refusalReason", "missing-capability")
+                .containsEntry("refusalPolicyVersion", "v1-policy")
+                .containsEntry("refusalExpectedVersion", "3")
+                .containsEntry("actorIssuer", ISSUER)
+                .containsEntry("actorIdentityDigest", ACTOR_DIGEST)
+                .doesNotContainKey("legacyEvidence")
+                .doesNotContainKey("issuerAttribution")
+            assertThat(events.first().metadata)
+                .containsEntry("actorIssuer", ISSUER)
+                .containsEntry("actorIdentityDigest", ACTOR_DIGEST)
+                .containsEntry("previousApprovalStatus", "PENDING")
+                .containsEntry("previousApprovalVersion", "1")
+                .doesNotContainKey("legacyEvidence")
+                .doesNotContainKey("issuerAttribution")
 
             // And the payload itself round-trips through decode(): reading each row back must return the
             // evidence the writer encrypted, which is only true if decode() inverts encode().
@@ -191,6 +206,10 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
             reasonLength = 11,
             createdAt = clock.instant(),
             status = SovereignOpsAuditOutboxStatus.PREPARED,
+            actorIssuer = ISSUER,
+            actorIdentityDigest = ACTOR_DIGEST,
+            previousApprovalStatus = "PENDING",
+            previousApprovalVersion = 1L,
             evidenceKind = kind,
         )
 
@@ -210,8 +229,13 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
             reasonLength = 11,
             createdAt = clock.instant(),
             status = SovereignOpsAuditOutboxStatus.PENDING,
+            actorIssuer = ISSUER,
+            actorIdentityDigest = ACTOR_DIGEST,
+            previousApprovalStatus = "PENDING",
+            previousApprovalVersion = 3L,
             evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
             refusalReason = "missing-capability",
+            refusalPolicyVersion = "v1-policy",
             refusalExpectedVersion = 3,
         )
 
@@ -259,6 +283,8 @@ class JdbcSovereignOpsAuditEvidenceRestartTest {
                 MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
         private val AGGREGATE_DIGEST = "sha256:" + "a".repeat(64)
+        private const val ISSUER = "https://issuer.restart.example"
+        private val ACTOR_DIGEST = ActorIdentityDigest.of(ISSUER, "operator-1")
         private val APPROVED = SovereignOpsAuditEvidenceKind.APPROVAL_APPROVED
         private val DENIED = SovereignOpsAuditEvidenceKind.APPROVAL_DENIED
         private val REFUSAL = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL

@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.ops.outbox
 
+import dev.tramai.core.operator.ActorIdentityDigest
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.InMemoryAuditStore
 import dev.tramai.spring.sovereign.ops.AuditEngineSovereignOpsAuditEmitter
@@ -153,6 +154,72 @@ class SovereignOpsAuditEvidenceDispatchTest {
             assertThat(byOutboxId.getValue(persistedDenied).metadata).doesNotContainKey(META_LEGACY)
             assertThat(byOutboxId.getValue(legacyDenied).decision).isEqualTo("DENIED")
             assertThat(byOutboxId.getValue(legacyDenied).metadata).containsEntry(META_LEGACY, "true")
+        }
+
+    @Test
+    fun `emitted metadata carries verified provenance, previous state, refusal inputs and legacy-absent`() =
+        runBlocking<Unit> {
+            val stores = stores()
+            val issuer = "https://idp.sovereign.example"
+            val digest = ActorIdentityDigest.of(issuer, ACTOR)
+            val attributedApproved =
+                stores.seed(
+                    decision("attr-approved", APPROVED, "APPROVED").copy(
+                        actorIssuer = issuer,
+                        actorIdentityDigest = digest,
+                        previousApprovalStatus = "PENDING",
+                        previousApprovalVersion = 0L,
+                    ),
+                )
+            val attributedRefusal =
+                stores.seed(
+                    refusal("attr-refused", reason = "role-not-permitted").copy(
+                        actorIssuer = issuer,
+                        actorIdentityDigest = digest,
+                        previousApprovalStatus = "PENDING",
+                        previousApprovalVersion = 0L,
+                        refusalPolicyVersion = "v1-medical",
+                        refusalExpectedVersion = 0L,
+                    ),
+                )
+            val legacyDenied = stores.seed(decision("legacy-no-issuer", null, "DENIED"))
+
+            val result = stores.dispatcher.dispatchPending(limit = 10)
+            assertThat(result).isEqualTo(SovereignOpsAuditOutboxDispatchResult(3, 3, 0, 0))
+
+            val byOutboxId = stores.audit.readStream(stream).associateBy { it.metadata.getValue(META_OUTBOX_ID) }
+
+            val approvedMeta = byOutboxId.getValue(attributedApproved).metadata
+            assertThat(approvedMeta)
+                .containsEntry("actorIssuer", issuer)
+                .containsEntry("actorIdentityDigest", digest)
+                .containsEntry("previousApprovalStatus", "PENDING")
+                .containsEntry("previousApprovalVersion", "0")
+                .containsEntry("approvalStatus", "APPROVED")
+                .containsEntry("approvalVersion", "1")
+                .doesNotContainKey("issuerAttribution")
+                .doesNotContainKey(META_LEGACY)
+
+            val refusalMeta = byOutboxId.getValue(attributedRefusal).metadata
+            assertThat(refusalMeta)
+                .containsEntry("actorIssuer", issuer)
+                .containsEntry("actorIdentityDigest", digest)
+                .containsEntry("previousApprovalStatus", "PENDING")
+                .containsEntry("previousApprovalVersion", "0")
+                .containsEntry("refusalReason", "role-not-permitted")
+                .containsEntry("refusalPolicyVersion", "v1-medical")
+                .containsEntry("refusalExpectedVersion", "0")
+                .doesNotContainKey("issuerAttribution")
+                .doesNotContainKey(META_LEGACY)
+                .doesNotContainKey("approvalStatus")
+                .doesNotContainKey("approvalVersion")
+
+            val legacyMeta = byOutboxId.getValue(legacyDenied).metadata
+            assertThat(legacyMeta)
+                .containsEntry(META_LEGACY, "true")
+                .containsEntry("issuerAttribution", "legacy-absent")
+                .doesNotContainKey("actorIssuer")
+                .doesNotContainKey("actorIdentityDigest")
         }
 
     // --- discriminator 13 -----------------------------------------------------------------------

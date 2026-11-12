@@ -8,11 +8,19 @@ import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApproverRole
+import dev.tramai.core.operator.ActorIdentityDigest
 import dev.tramai.core.operator.OperatorCapability
 import dev.tramai.core.operator.OperatorPrincipal
+import dev.tramai.security.audit.AuditEngine
+import dev.tramai.security.audit.InMemoryAuditStore
+import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -117,9 +125,16 @@ class AuthorizationAttributionTest {
         assertThat((result as ApprovalDecisionResult.Approved).decidedBy).isEqualTo(VERIFIED_SUBJECT)
         assertThat(store.stored()?.decidedBy).isEqualTo(VERIFIED_SUBJECT)
 
-        // Sink 2 — the audit outbox record's actor.
+        // Sink 2 — the audit outbox record's actor, provenance, previous state, and explicit evidenceKind.
         assertThat(mutationStore.recordedAuditActor).isEqualTo(VERIFIED_SUBJECT)
-        assertThat(mutationStore.recordedAuditRecord?.actor).isEqualTo(VERIFIED_SUBJECT)
+        val recordedAudit = requireNotNull(mutationStore.recordedAuditRecord)
+        assertThat(recordedAudit.actor).isEqualTo(VERIFIED_SUBJECT)
+        assertThat(recordedAudit.actorIssuer).isEqualTo(VERIFIED_ISSUER)
+        assertThat(recordedAudit.actorIdentityDigest)
+            .isEqualTo(ActorIdentityDigest.of(VERIFIED_ISSUER, VERIFIED_SUBJECT))
+        assertThat(recordedAudit.previousApprovalStatus).isEqualTo(ApprovalStatus.PENDING.name)
+        assertThat(recordedAudit.previousApprovalVersion).isEqualTo(0L)
+        assertThat(recordedAudit.evidenceKind).isEqualTo(SovereignOpsAuditEvidenceKind.APPROVAL_APPROVED)
 
         // Sink 3 — the authoritative mutation store's actor argument.
         assertThat(mutationStore.recordedActor).isEqualTo(VERIFIED_SUBJECT)
@@ -127,6 +142,132 @@ class AuthorizationAttributionTest {
         // None of the sinks may carry a value that is not the verified subject.
         assertThat(listOf(store.stored()?.decidedBy, mutationStore.recordedActor, mutationStore.recordedAuditActor))
             .allMatch { it == VERIFIED_SUBJECT }
+    }
+
+    @Test
+    fun `deny decision populates APPROVAL_DENIED kind, previous state, and verified issuer attribution`() {
+        val store = AttributionApprovalStore(pendingApproval())
+        val mutationStore = AttributionMutationStore(store)
+        val controlPlane =
+            SovereignOpsApprovalDecisionControlPlane(
+                approvalStore = store,
+                mutationStore = mutationStore,
+                approvalPolicy = policy,
+                clock = clock,
+                refusalRecorder = RecordingRefusalRecorder(),
+            )
+
+        val result =
+            runBlocking {
+                controlPlane.deny(
+                    ApprovalDecisionCommand(
+                        approvalId = ApprovalId(APPROVAL_ID),
+                        expectedVersion = 0L,
+                        comment = "deny attribution check",
+                        correlationId = "corr-deny-attribution",
+                    ),
+                    authority(setOf(VERIFIED_ROLE)),
+                )
+            }
+
+        assertThat(result).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
+        val recordedAudit = requireNotNull(mutationStore.recordedAuditRecord)
+        assertThat(recordedAudit.actor).isEqualTo(VERIFIED_SUBJECT)
+        assertThat(recordedAudit.actorIssuer).isEqualTo(VERIFIED_ISSUER)
+        assertThat(recordedAudit.actorIdentityDigest)
+            .isEqualTo(ActorIdentityDigest.of(VERIFIED_ISSUER, VERIFIED_SUBJECT))
+        assertThat(recordedAudit.previousApprovalStatus).isEqualTo(ApprovalStatus.PENDING.name)
+        assertThat(recordedAudit.previousApprovalVersion).isEqualTo(0L)
+        assertThat(recordedAudit.approvalStatus).isEqualTo(ApprovalStatus.DENIED.name)
+        assertThat(recordedAudit.approvalVersion).isEqualTo(1L)
+        assertThat(recordedAudit.evidenceKind).isEqualTo(SovereignOpsAuditEvidenceKind.APPROVAL_DENIED)
+    }
+
+    @Test
+    fun `default approval operations denyApproval populates APPROVAL_DENIED kind and previous state`() {
+        val store = AttributionApprovalStore(pendingApproval())
+        val delegateOutbox = InMemorySovereignOpsAuditOutboxStore()
+        val outboxStore =
+            object : SovereignOpsAuditOutboxStore by delegateOutbox {
+                override fun isDurable(): Boolean = true
+            }
+        val auditStore = InMemoryAuditStore()
+        val emitter = AuditEngineSovereignOpsAuditEmitter(AuditEngine(auditStore, clock = clock))
+        val dispatcher = SovereignOpsAuditOutboxDispatcher(outboxStore, emitter, clock = clock)
+        val mutationStore =
+            object : SovereignOpsApprovalMutationStore {
+                var recordedIntent: SovereignOpsAuditOutboxRecord? = null
+
+                override suspend fun denyApprovalWithAuditIntent(
+                    approvalId: String,
+                    expectedVersion: Long,
+                    actor: String,
+                    reason: String,
+                    auditIntent: SovereignOpsAuditOutboxRecord,
+                ): SovereignOpsApprovalMutationResult {
+                    recordedIntent = auditIntent
+                    val prepared = auditIntent.copy(status = SovereignOpsAuditOutboxStatus.PREPARED)
+                    outboxStore.append(prepared)
+                    val updated =
+                        store.transition(
+                            approvalId,
+                            expectedVersion,
+                            dev.tramai.core.approval.ApprovalTransition
+                                .Deny(actor, reason),
+                        )
+                    outboxStore.markReadyForDispatch(prepared.outboxId, SovereignOpsAuditOutboxStatus.PREPARED)
+                    return SovereignOpsApprovalMutationResult(approval = updated, auditOutboxRecord = prepared)
+                }
+
+                override suspend fun approveApprovalWithAuditIntent(
+                    approvalId: String,
+                    expectedVersion: Long,
+                    actor: String,
+                    reason: String,
+                    auditIntent: SovereignOpsAuditOutboxRecord,
+                ): SovereignOpsApprovalMutationResult = throw UnsupportedOperationException()
+            }
+        val ops =
+            DefaultSovereignApprovalOperations(
+                approvalStore = store,
+                mutationStore = mutationStore,
+                properties = SovereignOpsProperties(mutationsEnabled = true),
+                outboxDispatcher = dispatcher,
+                outboxStore = outboxStore,
+            )
+
+        val summary =
+            runBlocking {
+                ops.denyApproval(
+                    approvalId = APPROVAL_ID,
+                    actor = "admin-cli-operator",
+                    reason = "emergency denial",
+                )
+            }
+
+        assertThat(summary.status).isEqualTo(ApprovalStatus.DENIED.name)
+        val intent = requireNotNull(mutationStore.recordedIntent)
+        assertThat(intent.evidenceKind).isEqualTo(SovereignOpsAuditEvidenceKind.APPROVAL_DENIED)
+        assertThat(intent.previousApprovalStatus).isEqualTo(ApprovalStatus.PENDING.name)
+        assertThat(intent.previousApprovalVersion).isEqualTo(0L)
+        assertThat(intent.actorIssuer).isNull()
+        assertThat(intent.actorIdentityDigest).isNull()
+
+        val events =
+            runBlocking {
+                auditStore.readStream("sovereign-ops-approval:${intent.aggregateIdDigest}")
+            }
+        assertThat(events).hasSize(1)
+        val event = events.single()
+        assertThat(event.decision).isEqualTo("DENIED")
+        assertThat(event.reasonCode).isEqualTo("sovereign-ops-admin-denial")
+        assertThat(event.metadata)
+            .containsEntry("previousApprovalStatus", "PENDING")
+            .containsEntry("previousApprovalVersion", "0")
+            .containsEntry("issuerAttribution", "legacy-absent")
+            .doesNotContainKey("legacyEvidence")
+            .doesNotContainKey("actorIssuer")
+            .doesNotContainKey("actorIdentityDigest")
     }
 
     @Test

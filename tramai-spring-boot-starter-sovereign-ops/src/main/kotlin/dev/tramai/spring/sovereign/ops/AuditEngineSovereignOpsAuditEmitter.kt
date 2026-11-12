@@ -86,13 +86,23 @@ class AuditEngineSovereignOpsAuditEmitter(
                 put(METADATA_APPROVAL_ID_DIGEST, bounded(record.aggregateIdDigest))
                 record.approvalStatus?.let { put(METADATA_APPROVAL_STATUS, bounded(it)) }
                 record.approvalVersion?.let { put(METADATA_APPROVAL_VERSION, it.toString()) }
+                record.previousApprovalStatus?.let { put(METADATA_PREVIOUS_APPROVAL_STATUS, bounded(it)) }
+                record.previousApprovalVersion?.let { put(METADATA_PREVIOUS_APPROVAL_VERSION, it.toString()) }
                 put(METADATA_REASON_DIGEST, bounded(record.reasonDigest))
                 put(METADATA_REASON_LENGTH, record.reasonLength.toString())
                 // Correlation back to exactly one outbox record.
                 put(METADATA_OUTBOX_ID, bounded(record.outboxId))
                 put(METADATA_EVENT_KEY, bounded(record.eventKey))
+                if (record.actorIssuer != null && record.actorIdentityDigest != null) {
+                    put(METADATA_ACTOR_ISSUER, bounded(record.actorIssuer))
+                    put(METADATA_ACTOR_IDENTITY_DIGEST, bounded(record.actorIdentityDigest))
+                } else {
+                    put(METADATA_ISSUER_ATTRIBUTION, ISSUER_ATTRIBUTION_LEGACY_ABSENT)
+                }
                 if (evidence.kind == SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL) {
                     record.refusalReason?.let { put(METADATA_REFUSAL_REASON, bounded(it)) }
+                    record.refusalPolicyVersion?.let { put(METADATA_REFUSAL_POLICY_VERSION, bounded(it)) }
+                    record.refusalExpectedVersion?.let { put(METADATA_REFUSAL_EXPECTED_VERSION, it.toString()) }
                 }
                 // legacyEvidence says one thing only: the source record carried NO evidenceKind, so its kind
                 // was reconstructed from persisted approvalStatus. It does not mean "this emitter took a
@@ -123,11 +133,19 @@ class AuditEngineSovereignOpsAuditEmitter(
         private const val METADATA_APPROVAL_ID_DIGEST = "approvalIdDigest"
         private const val METADATA_APPROVAL_STATUS = "approvalStatus"
         private const val METADATA_APPROVAL_VERSION = "approvalVersion"
+        private const val METADATA_PREVIOUS_APPROVAL_STATUS = "previousApprovalStatus"
+        private const val METADATA_PREVIOUS_APPROVAL_VERSION = "previousApprovalVersion"
         private const val METADATA_REASON_DIGEST = "reasonDigest"
         private const val METADATA_REASON_LENGTH = "reasonLength"
         private const val METADATA_OUTBOX_ID = "outboxId"
         private const val METADATA_EVENT_KEY = "eventKey"
+        private const val METADATA_ACTOR_ISSUER = "actorIssuer"
+        private const val METADATA_ACTOR_IDENTITY_DIGEST = "actorIdentityDigest"
+        private const val METADATA_ISSUER_ATTRIBUTION = "issuerAttribution"
+        private const val ISSUER_ATTRIBUTION_LEGACY_ABSENT = "legacy-absent"
         private const val METADATA_REFUSAL_REASON = "refusalReason"
+        private const val METADATA_REFUSAL_POLICY_VERSION = "refusalPolicyVersion"
+        private const val METADATA_REFUSAL_EXPECTED_VERSION = "refusalExpectedVersion"
         private const val METADATA_LEGACY_EVIDENCE = "legacyEvidence"
 
         /** What each kind is emitted as. Total by construction: the enum has exactly these members. */
