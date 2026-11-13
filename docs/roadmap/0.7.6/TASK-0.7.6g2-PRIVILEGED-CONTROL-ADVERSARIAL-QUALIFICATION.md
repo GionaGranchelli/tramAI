@@ -125,124 +125,244 @@ We define seven distinct adversarial personas attempting to breach the privilege
 
 ## 5. Mutation Qualification Schedule (M1 through M8)
 
-Individual mutation experiments executed and distinguished from unverified assertions:
+Individual mutation experiments executed and distinguished from unverified assertions. Tested baseline commit: `7b6c215a9c86b980528e35426aa4bc4b5212da37`.
 
-| Mutation ID | Target Invariant | Mutated Source & Fault Injection | Target Discriminator Test | Execution Result & Verdict |
+| Mutation ID | Target Invariant | Mutated Source & Fault Injection | Target Discriminator Test & Module | Execution Result & Verdict |
 | :--- | :--- | :--- | :--- | :--- |
-| **M1** | L2 Operator Capability Check | Remove `capabilityRefusal` check for `OperatorCapability.DECIDE_APPROVAL` in `SovereignOpsApprovalDecisionControlPlane.kt:76` | `PrivilegedControlBoundaryAdversarialTest.G2-02` | **KILLED** (`AssertionFailedError`: operator lacking capability received `Approved` instead of `UNAUTHORIZED(MISSING_CAPABILITY)`). |
-| **M2** | L3 Approver Role Policy | Bypass role policy evaluation in `SovereignOpsApprovalDecisionControlPlane.kt:81` (return `null`) | `PrivilegedControlBoundaryAdversarialTest.G2-03` | **KILLED** (`AssertionFailedError`: operator with wrong approver role received `Approved` instead of `UNAUTHORIZED(ROLE_NOT_PERMITTED)`). |
-| **M3** | Actor Identity Forgery | Substitute verified `authority` with synthetic/attacker authority in `ApprovalControlPlaneController.kt:95` | `PrivilegedControlBoundaryRestAdversarialTest.G2-04` | **KILLED** (`AssertionError`: controller passed forged authority; caught by `actorId` assertion). |
-| **M4** | Version Precondition Check | Disable `command.expectedVersion != approval.version` precondition guard in `SovereignOpsApprovalDecisionControlPlane.kt:254` | `PrivilegedControlBoundaryAdversarialTest.G2-07` | **KILLED** (`AssertionFailedError`: `[a stale command must never reach the mutation store] expected: 0 but was: 1` at `PrivilegedControlBoundaryAdversarialTest.kt:395`. The control-plane version check was bypassed, allowing the stale command to enter the mutation store before the store's second-line CAS fencing caught it). |
-| **M5** | Authoritative Store CAS Fencing | Remove `AND version = ?` from CAS `UPDATE approvals` in `JdbcSovereignOpsApprovalMutationStore.kt` | `PrivilegedControlBoundaryConcurrencyQualificationTest.G2-08, G2-09` | **NOT_EVALUATED** (Compound guard: under PostgreSQL row locking, the second transaction sees `status = 'APPROVED'`, causing `status = 'PENDING'` to reject the update even without `version = ?`. G2-08/G2-09 does not independently isolate the CAS version predicate from status fencing). |
-| **M6** | Fail-Closed Policy Evaluation | Return `null` instead of `APPROVAL_POLICY_UNAVAILABLE` when `policyVersion` is missing in `OperatorApprovalPolicy.kt:66` | `PrivilegedControlBoundaryAdversarialTest.G2-11` | **KILLED** (`AssertionFailedError`: unconfigured version succeeded; expected `UNAUTHORIZED(APPROVAL_POLICY_UNAVAILABLE)`, received `Approved`). |
-| **M7** | Refusal Audit Evidence Isolation | Remove refusal kind filter in `AuditEngineSovereignOpsAuditEmitter.kt:87`, emitting decision-only metadata unconditionally | `SovereignOpsAuditEvidenceDispatchTest.malformed refusal with populated decision-only fields does not leak approval state into emitted event` | **KILLED** (`AssertionError`: emitted refusal audit event leaked `approvalStatus` and `previousApprovalStatus` into metadata). |
-| **M8** | Enforcement Origin Strength Capping | Emit registered `boundary.strength` (`AUTHORITATIVE`) instead of `DECLARED` in `RuntimeBoundaryProvenance.kt:155` | `EnforcementOriginBoundaryAdversarialTest.G2-14` | **KILLED** (`AssertionFailedError`: declared origin claimed `AUTHORITATIVE` strength without attester; expected `DECLARED`). |
+| **M1** | L2 Operator Capability Check | Remove `capabilityRefusal` check for `OperatorCapability.DECIDE_APPROVAL` in `SovereignOpsApprovalDecisionControlPlane.kt:76` | `PrivilegedControlBoundaryAdversarialTest.'G2-02 negative - operator without DECIDE_APPROVAL capability is refused existence-blindly'` (`:tramai-spring-boot-starter-sovereign-ops`) | **KILLED** (`AssertionFailedError`: expected `Unauthorized(..., MISSING_CAPABILITY)` but was `Approved(...)` at line 138). |
+| **M2** | L3 Approver Role Policy | Bypass role policy evaluation in `SovereignOpsApprovalDecisionControlPlane.kt:81` (return `null`) | `PrivilegedControlBoundaryAdversarialTest.'G2-03 negative - operator with DECIDE_APPROVAL but wrong approver role is refused with refusal recorded'` (`:tramai-spring-boot-starter-sovereign-ops`) | **KILLED** (`AssertionFailedError`: expected `Unauthorized(..., ROLE_NOT_PERMITTED)` but was `Approved(...)` at line 220). |
+| **M3** | Actor Identity Forgery | Substitute verified `authority` with synthetic/attacker authority in `ApprovalControlPlaneController.kt:95` | `PrivilegedControlBoundaryRestAdversarialTest.'G2-04 - forged headers and body claims are ignored, authority is extracted strictly from verified JWT'` (`:tramai-spring-boot-starter-sovereign-ops-rest`) | **KILLED** (`AssertionError`: JSON path `$.actorId` expected `<legitimate-operator-42>` but was `<attacker-bob>` at line 258). |
+| **M4** | Version Precondition Check | Disable `command.expectedVersion != approval.version` precondition guard in `SovereignOpsApprovalDecisionControlPlane.kt:254` | `PrivilegedControlBoundaryAdversarialTest.'G2-07 negative - stale expectedVersion returns Stale and mutates nothing'` (`:tramai-spring-boot-starter-sovereign-ops`) | **KILLED** (`AssertionFailedError`: `[a stale command must never reach the mutation store] expected: 0 but was: 1` at line 395. The control-plane version check was bypassed, allowing the stale command to enter the mutation store before the store's second-line CAS fencing caught it). |
+| **M5** | Authoritative Store CAS Fencing | Remove `AND version = ?` from CAS `UPDATE approvals` in `JdbcSovereignOpsApprovalMutationStore.kt:358, 369` | `PrivilegedControlBoundaryConcurrencyQualificationTest.G2-08, G2-09` (`:tramai-spring-boot-starter-sovereign-ops`) | **NOT_EVALUATED** (Compound guard: under PostgreSQL row locking, the second transaction sees `status = 'APPROVED'`, causing `status = 'PENDING'` to reject the update even without `version = ?`. G2-08/G2-09 does not independently isolate the CAS version predicate from status fencing). |
+| **M6** | Fail-Closed Policy Evaluation | Return `null` instead of `APPROVAL_POLICY_UNAVAILABLE` when `policyVersion` is missing in `OperatorApprovalPolicy.kt:66` | `PrivilegedControlBoundaryAdversarialTest.'G2-11 negative - approval with unconfigured policy version fails closed and records refusal'` (`:tramai-spring-boot-starter-sovereign-ops`) | **KILLED** (`AssertionFailedError`: expected `Unauthorized(..., APPROVAL_POLICY_UNAVAILABLE)` but was `Approved(...)` at line 296). |
+| **M7** | Refusal Audit Evidence Isolation | Remove refusal kind filter in `AuditEngineSovereignOpsAuditEmitter.kt:87`, emitting decision-only metadata unconditionally | `SovereignOpsAuditEvidenceDispatchTest.'malformed refusal with populated decision-only fields does not leak approval state into emitted event'` (`:tramai-spring-boot-starter-sovereign-ops`) | **KILLED** (`AssertionError`: expecting actual metadata not to contain key `"approvalStatus"` at line 244). |
+| **M8** | Enforcement Origin Strength Capping | Emit registered `boundary.strength` (`AUTHORITATIVE`) instead of `DECLARED` in `RuntimeBoundaryProvenance.kt:155` | `EnforcementOriginBoundaryAdversarialTest.'G2-14 - declared provenance without attester is capped at DECLARED strength and declared origin'` (`:tramai-security`) | **KILLED** (`AssertionFailedError`: expected `"DECLARED"` but was `"AUTHORITATIVE"` at line 64). |
 
 ### 5.1 Matched Control and Mutant Execution Transcripts
 
-Each evaluated mutation was executed against its dedicated discriminator test using an exact control/mutant comparison protocol.
+Tested baseline SHA: `7b6c215a9c86b980528e35426aa4bc4b5212da37`. Each evaluated mutation was executed against its dedicated discriminator test using an exact control/mutant comparison protocol.
 
 #### Mutation M1 — L2 Operator Capability Check
 - **Mutated Source:** `tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt:76`
-- **Fault Injected:** Bypassed `capabilityRefusal` invocation (`// capabilityRefusal(...)`).
-- **Target Discriminator:** `PrivilegedControlBoundaryAdversarialTest.'G2-02 negative - operator without DECIDE_APPROVAL capability is refused existence-blindly'`
-- **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops:test --tests 'dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.G2-02 negative*'`
-- **Control Run:** **PASS** (operator lacking `DECIDE_APPROVAL` capability was refused existence-blindly with `ApprovalDecisionResult.Unauthorized(reason=MISSING_CAPABILITY, existenceBlind=true)`, zero store updates, and refusal recorded).
-- **Mutant Run:** **FAIL (KILLED)**
-  ```text
-  org.opentest4j.AssertionFailedError:
-  expected: dev.tramai.spring.sovereign.ops.ApprovalDecisionResult$Unauthorized(approvalId=null, reason=MISSING_CAPABILITY, existenceBlind=true)
-   but was: dev.tramai.spring.sovereign.ops.ApprovalDecisionResult$Approved(...)
+- **Gradle Module:** `:tramai-spring-boot-starter-sovereign-ops`
+- **Mutant Diff:**
+  ```diff
+  --- a/tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt
+  +++ b/tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt
+  @@ -76,1 +76,1 @@
+  -        capabilityRefusal(command, authority, refusals)?.let { return it }
+  +        // capabilityRefusal(command, authority, refusals)?.let { return it }
   ```
-- **Mechanism:** Disabling the capability gate allowed an unprivileged operator to execute approvals.
+- **Target Discriminator:** `dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.'G2-02 negative - operator without DECIDE_APPROVAL capability is refused existence-blindly'`
+- **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops:test --tests 'dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.G2-02 negative*'`
+- **Control Output:**
+  ```text
+  PrivilegedControlBoundaryAdversarialTest > G2-02 negative - operator without DECIDE_APPROVAL capability is refused existence-blindly() PASSED
+  BUILD SUCCESSFUL in 3s (1 test completed, 0 failed)
+  ```
+- **Mutant Output:** **FAIL (KILLED)**
+  Failing assertion at `PrivilegedControlBoundaryAdversarialTest.kt:138`:
+  ```text
+  org.opentest4j.AssertionFailedError: 
+  expected: Unauthorized(approvalId=ApprovalId(value=approval-adv-1), reason=MISSING_CAPABILITY)
+   but was: Approved(approvalId=ApprovalId(value=approval-adv-1), decidedBy=no-capability-operator, decidedAt=2026-11-13T14:27:06.901627007Z, version=1)
+  	at app//dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest$G2-02 negative - operator without DECIDE_APPROVAL capability is refused existence-blindly$1.invokeSuspend(PrivilegedControlBoundaryAdversarialTest.kt:138)
+  ```
+- **Mechanism:** Disabling the capability gate allowed an unprivileged operator lacking `DECIDE_APPROVAL` to execute approvals.
 
 #### Mutation M2 — L3 Approver Role Policy
 - **Mutated Source:** `tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt:81`
-- **Fault Injected:** Short-circuited `approvalRefusal` to always return `null`.
-- **Target Discriminator:** `PrivilegedControlBoundaryAdversarialTest.'G2-03 negative - operator with DECIDE_APPROVAL but wrong approver role is refused with refusal recorded'`
+- **Gradle Module:** `:tramai-spring-boot-starter-sovereign-ops`
+- **Mutant Diff:**
+  ```diff
+  --- a/tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt
+  +++ b/tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt
+  @@ -81,1 +81,1 @@
+  -            approvalRefusal(approval, approvalPolicy, authority, refusals)
+  +            null // approvalRefusal(approval, approvalPolicy, authority, refusals)
+  ```
+- **Target Discriminator:** `dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.'G2-03 negative - operator with DECIDE_APPROVAL but wrong approver role is refused with refusal recorded'`
 - **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops:test --tests 'dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.G2-03 negative*'`
-- **Control Run:** **PASS** (operator with wrong approver role refused with `ApprovalDecisionResult.Unauthorized(reason=ROLE_NOT_PERMITTED, existenceBlind=false)` and refusal recorded).
-- **Mutant Run:** **FAIL (KILLED)**
+- **Control Output:**
   ```text
-  org.opentest4j.AssertionFailedError:
-  expected: dev.tramai.spring.sovereign.ops.ApprovalDecisionResult$Unauthorized(approvalId=ApprovalId(value=approval-adv-1), reason=ROLE_NOT_PERMITTED, existenceBlind=false)
-   but was: dev.tramai.spring.sovereign.ops.ApprovalDecisionResult$Approved(...)
+  PrivilegedControlBoundaryAdversarialTest > G2-03 negative - operator with DECIDE_APPROVAL but wrong approver role is refused with refusal recorded() PASSED
+  BUILD SUCCESSFUL in 3s (1 test completed, 0 failed)
+  ```
+- **Mutant Output:** **FAIL (KILLED)**
+  Failing assertion at `PrivilegedControlBoundaryAdversarialTest.kt:220`:
+  ```text
+  org.opentest4j.AssertionFailedError: 
+  expected: Unauthorized(approvalId=ApprovalId(value=approval-adv-1), reason=ROLE_NOT_PERMITTED)
+   but was: Approved(approvalId=ApprovalId(value=approval-adv-1), decidedBy=unauthorized-finance-reviewer, decidedAt=2026-11-13T14:28:38.866117787Z, version=1)
+  	at app//dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest$G2-03 negative - operator with DECIDE_APPROVAL but wrong approver role is refused with refusal recorded$1.invokeSuspend(PrivilegedControlBoundaryAdversarialTest.kt:220)
   ```
 - **Mechanism:** Disabling the role policy check allowed an operator holding `DECIDE_APPROVAL` but lacking the required role to decide the approval.
 
 #### Mutation M3 — Actor Identity Forgery
-- **Mutated Source:** `tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/rest/ApprovalControlPlaneController.kt:95`
-- **Fault Injected:** Overrode verified JWT authority with attacker-controlled identity from payload or request header.
-- **Target Discriminator:** `PrivilegedControlBoundaryRestAdversarialTest.'G2-04 negative - spoofed actor headers and payload are ignored; authority is taken strictly from verified JWT'`
-- **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops:test --tests 'dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryRestAdversarialTest.G2-04*'`
-- **Control Run:** **PASS** (controller dispatches command strictly using the authenticated JWT operator identity `operator-alice`, ignoring spoofed headers).
-- **Mutant Run:** **FAIL (KILLED)**
-  ```text
-  java.lang.AssertionError:
-  expected: "operator-alice"
-   but was: "attacker-bob"
+- **Mutated Source:** `tramai-spring-boot-starter-sovereign-ops-rest/src/main/kotlin/dev/tramai/spring/sovereign/ops/rest/ApprovalControlPlaneController.kt:95`
+- **Gradle Module:** `:tramai-spring-boot-starter-sovereign-ops-rest`
+- **Mutant Diff:**
+  ```diff
+  --- a/tramai-spring-boot-starter-sovereign-ops-rest/src/main/kotlin/dev/tramai/spring/sovereign/ops/rest/ApprovalControlPlaneController.kt
+  +++ b/tramai-spring-boot-starter-sovereign-ops-rest/src/main/kotlin/dev/tramai/spring/sovereign/ops/rest/ApprovalControlPlaneController.kt
+  @@ -95,1 +95,9 @@
+  -                    authority,
+  +                    OperatorAuthority(
+  +                        dev.tramai.core.operator.OperatorPrincipal(
+  +                            subject = "attacker-bob",
+  +                            issuer = authority.issuer,
+  +                            authenticatedAt = authority.principal.authenticatedAt,
+  +                            capabilities = authority.principal.capabilities,
+  +                            approverRoles = authority.principal.approverRoles,
+  +                        ),
+  +                    ),
   ```
-- **Mechanism:** Controller accepted unverified caller-supplied identity, caught by discriminator asserting dispatched `actorId`.
+- **Target Discriminator:** `dev.tramai.spring.sovereign.ops.rest.PrivilegedControlBoundaryRestAdversarialTest.'G2-04 - forged headers and body claims are ignored, authority is extracted strictly from verified JWT'`
+- **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops-rest:test --tests 'dev.tramai.spring.sovereign.ops.rest.PrivilegedControlBoundaryRestAdversarialTest.G2-04*'`
+- **Control Output:**
+  ```text
+  PrivilegedControlBoundaryRestAdversarialTest > G2-04 - forged headers and body claims are ignored, authority is extracted strictly from verified JWT() PASSED
+  BUILD SUCCESSFUL in 2s (1 test completed, 0 failed)
+  ```
+- **Mutant Output:** **FAIL (KILLED)**
+  Failing assertion at `PrivilegedControlBoundaryRestAdversarialTest.kt:258`:
+  ```text
+  java.lang.AssertionError: JSON path "$.actorId" expected:<legitimate-operator-42> but was:<attacker-bob>
+  	at org.springframework.test.util.AssertionErrors.fail(AssertionErrors.java:61)
+  	at org.springframework.test.util.AssertionErrors.assertEquals(AssertionErrors.java:128)
+  	at org.springframework.test.util.JsonPathExpectationsHelper.assertValue(JsonPathExpectationsHelper.java:172)
+  	at org.springframework.test.web.servlet.result.JsonPathResultMatchers.lambda$value$2(JsonPathResultMatchers.java:112)
+  	at org.springframework.test.web.servlet.MockMvc$1.andExpect(MockMvc.java:214)
+  	at dev.tramai.spring.sovereign.ops.rest.PrivilegedControlBoundaryRestAdversarialTest.G2-04 - forged headers and body claims are ignored, authority is extracted strictly from verified JWT(PrivilegedControlBoundaryRestAdversarialTest.kt:258)
+  ```
+- **Mechanism:** Controller accepted unverified caller-supplied identity, caught by discriminator asserting dispatched `actorId` matches verified JWT subject.
 
 #### Mutation M4 — Version Precondition Check
 - **Mutated Source:** `tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt:254`
-- **Fault Injected:** Disabled `command.expectedVersion != approval.version` precondition guard (`false && ...`).
-- **Target Discriminator:** `PrivilegedControlBoundaryAdversarialTest.'G2-07 negative - stale expectedVersion is refused with Conflict'`
-- **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops:test --tests 'dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.G2-07*'`
-- **Control Run:** **PASS** (control-plane precondition guard returned `ApprovalDecisionResult.Stale(0, 1)` without calling mutation store; `mutationStoreCalls == 0`).
-- **Mutant Run:** **FAIL (KILLED)**
+- **Gradle Module:** `:tramai-spring-boot-starter-sovereign-ops`
+- **Mutant Diff:**
+  ```diff
+  --- a/tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt
+  +++ b/tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt
+  @@ -254,1 +254,1 @@
+  -        command.expectedVersion != approval.version -> {
+  +        false && command.expectedVersion != approval.version -> {
+  ```
+- **Target Discriminator:** `dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.'G2-07 negative - stale expectedVersion returns Stale and mutates nothing'`
+- **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops:test --tests 'dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.G2-07 negative*'`
+- **Control Output:**
   ```text
-  org.opentest4j.AssertionFailedError: [a stale command must never reach the mutation store]
+  PrivilegedControlBoundaryAdversarialTest > G2-07 negative - stale expectedVersion returns Stale and mutates nothing() PASSED
+  BUILD SUCCESSFUL in 3s (1 test completed, 0 failed)
+  ```
+- **Mutant Output:** **FAIL (KILLED)**
+  Failing assertion at `PrivilegedControlBoundaryAdversarialTest.kt:395`:
+  ```text
+  org.opentest4j.AssertionFailedError: [a stale command must never reach the mutation store] 
   expected: 0
    but was: 1
-  at dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest$G2_07_StaleVersionPrecondition.G2-07 negative - stale expectedVersion is refused with Conflict(PrivilegedControlBoundaryAdversarialTest.kt:395)
+  	at app//dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest$G2-07 negative - stale expectedVersion returns Stale and mutates nothing$1.invokeSuspend(PrivilegedControlBoundaryAdversarialTest.kt:395)
   ```
 - **Mechanism:** Disabling the control-plane version check bypassed the first-line precondition guard and dispatched the stale command to the mutation store (`mutationStoreCalls == 1`). While the mutation store's internal CAS fencing detected the conflict and returned `Stale(0, 1)`, G2-07's assertion discriminating control-plane defense-in-depth caught the leak into the mutation layer.
 
 #### Mutation M5 — Authoritative Store CAS Fencing
-- **Mutated Source:** `tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/jdbc/JdbcSovereignOpsApprovalMutationStore.kt`
+- **Mutated Source:** `tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalMutationStore.kt:358, 369`
+- **Gradle Module:** `:tramai-spring-boot-starter-sovereign-persistence-jdbc`
 - **Target Invariant:** Authoritative Store CAS Fencing (`AND version = ?`)
 - **Evaluation Status:** **NOT_EVALUATED**
-- **Formal Justification:** In PostgreSQL under row-level serialization, concurrent decision transactions against the same approval are ordered sequentially. The first transaction commits and updates `status = 'APPROVED'`. When the second transaction executes its `UPDATE approvals ... WHERE approval_id = ? AND status = 'PENDING' AND version = ?`, the `status = 'PENDING'` predicate alone rejects the update because the row is now `APPROVED`. Thus, G2-08/G2-09 cannot isolate the CAS `version = ?` predicate independently from status fencing without specialized synthetic fixtures.
+- **Formal Justification:** In PostgreSQL under row-level serialization, concurrent decision transactions against the same approval are ordered sequentially. The first transaction commits and updates `status = 'APPROVED'`. When the second transaction executes its `UPDATE approvals ... WHERE approval_id = ? AND status = 'PENDING' AND version = ?`, the `status = 'PENDING'` predicate alone rejects the update because the row is now `APPROVED`. Thus, G2-08/G2-09 cannot isolate the CAS `version = ?` predicate independently from status fencing without specialized synthetic fixtures decoupling status from version mutation.
 
 #### Mutation M6 — Fail-Closed Policy Evaluation
 - **Mutated Source:** `tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/OperatorApprovalPolicy.kt:66`
-- **Fault Injected:** Returned `null` instead of `APPROVAL_POLICY_UNAVAILABLE` when `policyVersion` is missing or unconfigured.
-- **Target Discriminator:** `PrivilegedControlBoundaryAdversarialTest.'G2-11 negative - unconfigured policy version fails closed'`
-- **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops:test --tests 'dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.G2-11*'`
-- **Control Run:** **PASS** (returned `ApprovalDecisionResult.Unauthorized(reason=APPROVAL_POLICY_UNAVAILABLE)`).
-- **Mutant Run:** **FAIL (KILLED)**
+- **Gradle Module:** `:tramai-spring-boot-starter-sovereign-ops`
+- **Mutant Diff:**
+  ```diff
+  --- a/tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/OperatorApprovalPolicy.kt
+  +++ b/tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/OperatorApprovalPolicy.kt
+  @@ -66,1 +66,1 @@
+  -        val accepted = requiredRoles[policyVersion] ?: return ApprovalUnauthorizedReason.APPROVAL_POLICY_UNAVAILABLE
+  +        val accepted = requiredRoles[policyVersion] ?: return null
+  ```
+- **Target Discriminator:** `dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.'G2-11 negative - approval with unconfigured policy version fails closed and records refusal'`
+- **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops:test --tests 'dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest.G2-11 negative*'`
+- **Control Output:**
   ```text
-  org.opentest4j.AssertionFailedError:
-  expected: dev.tramai.spring.sovereign.ops.ApprovalDecisionResult$Unauthorized(approvalId=ApprovalId(value=approval-adv-1), reason=APPROVAL_POLICY_UNAVAILABLE, existenceBlind=false)
-   but was: dev.tramai.spring.sovereign.ops.ApprovalDecisionResult$Approved(...)
+  PrivilegedControlBoundaryAdversarialTest > G2-11 negative - approval with unconfigured policy version fails closed and records refusal() PASSED
+  BUILD SUCCESSFUL in 3s (1 test completed, 0 failed)
+  ```
+- **Mutant Output:** **FAIL (KILLED)**
+  Failing assertion at `PrivilegedControlBoundaryAdversarialTest.kt:296`:
+  ```text
+  org.opentest4j.AssertionFailedError: 
+  expected: Unauthorized(approvalId=ApprovalId(value=approval-adv-1), reason=APPROVAL_POLICY_UNAVAILABLE)
+   but was: Approved(approvalId=ApprovalId(value=approval-adv-1), decidedBy=authorized-medical-reviewer, decidedAt=2026-11-13T14:31:17.741260877Z, version=1)
+  	at app//dev.tramai.spring.sovereign.ops.PrivilegedControlBoundaryAdversarialTest$G2-11 negative - approval with unconfigured policy version fails closed and records refusal$1.invokeSuspend(PrivilegedControlBoundaryAdversarialTest.kt:296)
   ```
 - **Mechanism:** Missing policy version failed open and permitted unverified approval execution.
 
 #### Mutation M7 — Refusal Audit Evidence Isolation
-- **Mutated Source:** `tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/audit/AuditEngineSovereignOpsAuditEmitter.kt:87`
-- **Fault Injected:** Removed `evidence.kind != SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL` filter, emitting `approvalStatus` and `previousApprovalStatus` unconditionally.
-- **Target Discriminator:** `SovereignOpsAuditEvidenceDispatchTest.'malformed refusal with populated decision-only fields does not leak approval state into emitted event'`
-- **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops:test --tests 'dev.tramai.spring.sovereign.ops.audit.SovereignOpsAuditEvidenceDispatchTest.malformed refusal*'`
-- **Control Run:** **PASS** (emitted audit event contains refusal metadata but zero `approvalStatus` or `previousApprovalStatus` keys).
-- **Mutant Run:** **FAIL (KILLED)**
-  ```text
-  java.lang.AssertionError: [metadata must not contain approval status for refusal events]
-  expected not to contain key "tramai.approval.status"
+- **Mutated Source:** `tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/AuditEngineSovereignOpsAuditEmitter.kt:87`
+- **Gradle Module:** `:tramai-spring-boot-starter-sovereign-ops`
+- **Mutant Diff:**
+  ```diff
+  --- a/tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/AuditEngineSovereignOpsAuditEmitter.kt
+  +++ b/tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/AuditEngineSovereignOpsAuditEmitter.kt
+  @@ -87,6 +87,0 @@
+  -                if (evidence.kind != SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL) {
+  -                    record.approvalStatus?.let { put(METADATA_APPROVAL_STATUS, bounded(it)) }
+  -                    record.approvalVersion?.let { put(METADATA_APPROVAL_VERSION, it.toString()) }
+  -                    record.previousApprovalStatus?.let { put(METADATA_PREVIOUS_APPROVAL_STATUS, bounded(it)) }
+  -                    record.previousApprovalVersion?.let { put(METADATA_PREVIOUS_APPROVAL_VERSION, it.toString()) }
+  -                }
+  +                record.approvalStatus?.let { put(METADATA_APPROVAL_STATUS, bounded(it)) }
+  +                record.approvalVersion?.let { put(METADATA_APPROVAL_VERSION, it.toString()) }
+  +                record.previousApprovalStatus?.let { put(METADATA_PREVIOUS_APPROVAL_STATUS, bounded(it)) }
+  +                record.previousApprovalVersion?.let { put(METADATA_PREVIOUS_APPROVAL_VERSION, it.toString()) }
   ```
-- **Mechanism:** Emitted refusal audit event leaked state-transition metadata.
+- **Target Discriminator:** `dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceDispatchTest.'malformed refusal with populated decision-only fields does not leak approval state into emitted event'`
+- **Command:** `./gradlew :tramai-spring-boot-starter-sovereign-ops:test --tests 'dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceDispatchTest.malformed refusal*'`
+- **Control Output:**
+  ```text
+  SovereignOpsAuditEvidenceDispatchTest > malformed refusal with populated decision-only fields does not leak approval state into emitted event() PASSED
+  BUILD SUCCESSFUL in 3s (1 test completed, 0 failed)
+  ```
+- **Mutant Output:** **FAIL (KILLED)**
+  Failing assertion at `SovereignOpsAuditEvidenceDispatchTest.kt:244`:
+  ```text
+  java.lang.AssertionError: 
+  Expecting actual:
+    {"actorIdentityDigest"="aad68a36a1a9d31e1b04815a98677b0ad9a1ed66a9a0115d470fb83ae147aa08", "actorIssuer"="https://idp.sovereign.example", "approvalIdDigest"="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "approvalStatus"="APPROVED", "approvalVersion"="1", "eventKey"="event-malformed-refusal", "outboxId"="malformed-refusal", "previousApprovalStatus"="PENDING", "previousApprovalVersion"="0", "reasonDigest"="sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "reasonLength"="11", "refusalExpectedVersion"="0", "refusalPolicyVersion"="v1-medical", "refusalReason"="role-not-permitted"}
+  not to contain key:
+    "approvalStatus"
+  	at dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceDispatchTest$malformed refusal with populated decision-only fields does not leak approval state into emitted event$1.invokeSuspend(SovereignOpsAuditEvidenceDispatchTest.kt:244)
+  ```
+- **Mechanism:** Emitted refusal audit event leaked state-transition metadata into emitted event.
 
 #### Mutation M8 — Enforcement Origin Strength Capping
-- **Mutated Source:** `tramai-core/src/main/kotlin/dev/tramai/core/enforcement/RuntimeBoundaryProvenance.kt:155`
-- **Fault Injected:** Emitted registered `boundary.strength` (`AUTHORITATIVE`) instead of capping at `DECLARED` when no framework attester is present.
-- **Target Discriminator:** `EnforcementOriginBoundaryAdversarialTest.'G2-14 negative - registered boundary without attester is capped at DECLARED strength'`
-- **Command:** `./gradlew :tramai-core:test --tests 'dev.tramai.core.enforcement.EnforcementOriginBoundaryAdversarialTest.G2-14*'`
-- **Control Run:** **PASS** (emitted audit event capped at `boundary.enforcementStrength=DECLARED`).
-- **Mutant Run:** **FAIL (KILLED)**
+- **Mutated Source:** `tramai-security/src/main/kotlin/dev/tramai/security/evidence/RuntimeBoundaryProvenance.kt:155`
+- **Gradle Module:** `:tramai-security`
+- **Mutant Diff:**
+  ```diff
+  --- a/tramai-security/src/main/kotlin/dev/tramai/security/evidence/RuntimeBoundaryProvenance.kt
+  +++ b/tramai-security/src/main/kotlin/dev/tramai/security/evidence/RuntimeBoundaryProvenance.kt
+  @@ -155,1 +155,1 @@
+  -            STRENGTH_KEY to DECLARED,
+  +            STRENGTH_KEY to boundary.strength,
+  ```
+- **Target Discriminator:** `dev.tramai.security.evidence.EnforcementOriginBoundaryAdversarialTest.'G2-14 - declared provenance without attester is capped at DECLARED strength and declared origin'`
+- **Command:** `./gradlew :tramai-security:test --tests 'dev.tramai.security.evidence.EnforcementOriginBoundaryAdversarialTest.G2-14 - declared*'`
+- **Control Output:**
   ```text
-  org.opentest4j.AssertionFailedError:
+  EnforcementOriginBoundaryAdversarialTest > G2-14 - declared provenance without attester is capped at DECLARED strength and declared origin() PASSED
+  BUILD SUCCESSFUL in 2s (1 test completed, 0 failed)
+  ```
+- **Mutant Output:** **FAIL (KILLED)**
+  Failing assertion at `EnforcementOriginBoundaryAdversarialTest.kt:64`:
+  ```text
+  org.opentest4j.AssertionFailedError: 
   expected: "DECLARED"
    but was: "AUTHORITATIVE"
+  	at dev.tramai.security.evidence.EnforcementOriginBoundaryAdversarialTest.G2-14 - declared provenance without attester is capped at DECLARED strength and declared origin(EnforcementOriginBoundaryAdversarialTest.kt:64)
   ```
 - **Mechanism:** Unattested origin successfully claimed authoritative enforcement strength without verification.
 
