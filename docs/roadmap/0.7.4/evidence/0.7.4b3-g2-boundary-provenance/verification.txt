@@ -1,0 +1,21 @@
+G2 verification - final bytes
+========================================================================
+Suites (fresh results, execution forced):
+  tramai-security                               tests=1078 failures=0 errors=0
+  examples/spring-ai-authority-boundary         tests=30   failures=0 errors=0
+  tramai-spring-boot-starter-sovereign-ops      tests=300  failures=0 errors=0
+
+Gates (base pinned to 7c823d05d47d6322802a894257cbcae49f4eb36c):
+  spotlessCheck                        BUILD SUCCESSFUL
+  verifyStaticAnalysis                 BUILD SUCCESSFUL, detekt findings 0
+  verifyChangePolicy                   BUILD SUCCESSFUL
+  :tramai-security:apiCheck            BUILD SUCCESSFUL
+  :tramai-spring-boot-starter-sovereign-ops:apiCheck  BUILD SUCCESSFUL
+
+Line-length note: detekt MaxLineLength is 120 while the formatter canonicalises a single-expression
+body back onto one line. Re-wrapping and block bodies with an explicit return did NOT survive
+spotlessApply; shortening the canonical single line did. Verified by scanning for >120 char lines
+AFTER spotlessApply.
+
+Canonical reports (post-fix):
+  build/reports/static-analysis/*.xml  detekt findings: 0

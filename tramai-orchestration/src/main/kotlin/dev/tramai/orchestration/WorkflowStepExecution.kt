@@ -1,5 +1,7 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
+import kotlinx.coroutines.CancellationException
 import java.time.Clock
 import java.util.concurrent.ConcurrentHashMap
 
@@ -43,6 +45,10 @@ internal data class WorkflowStepExecutionServices(
     val outboundNetworkPolicy: OutboundNetworkPolicy,
     val externalStepExecutorResolver: ExternalStepExecutorResolver,
     val failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
+    /** E11 admission capability, when the run claims durable cancellation authority. */
+    val stepAdmission: WorkflowStepAdmission? = null,
+    /** Synchronous step attempt authority, when the run claims authoritative attempt lineage. */
+    val stepAttemptAuthority: StepAttemptAuthority? = null,
 )
 
 /**
@@ -83,9 +89,7 @@ internal sealed interface InternalWorkflowStep<S> {
     val suspensionMode: WorkflowStepSuspensionMode
         get() = WorkflowStepSuspensionMode.NONE
 
-    suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S>
+    suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S>
 }
 
 // ─── Built-in step implementations (simple steps) ───────────────────────────
@@ -94,11 +98,10 @@ internal data class LocalWorkflowStep<S>(
     override val name: String,
     val transform: suspend (S, WorkflowContext) -> S,
 ) : InternalWorkflowStep<S> {
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
-        transform(request.state, request.context),
-    )
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
+        WorkflowStepExecutionResult.Completed(
+            transform(request.state, request.context),
+        )
 }
 
 internal data class AiWorkflowStep<S, I, O>(
@@ -113,20 +116,17 @@ internal data class AiWorkflowStep<S, I, O>(
         context: WorkflowContext,
     ): S = merge(state, invoke(input(state, context), context), context)
 
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
-        execute(request.state, request.context),
-    )
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
+        WorkflowStepExecutionResult.Completed(
+            execute(request.state, request.context),
+        )
 }
 
 internal data class GateWorkflowStep<S>(
     override val name: String,
     val decide: suspend (S, WorkflowContext) -> GateDecision,
 ) : InternalWorkflowStep<S> {
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> {
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> {
         val decision = decide(request.state, request.context)
         if (!decision.allowed) {
             throw WorkflowGateRejectedException(
@@ -152,26 +152,234 @@ internal data class PluginWorkflowStep<S>(
         require(type.isNotBlank()) {
             "Workflow '$workflowName' plugin step '$name' type must not be blank"
         }
-        val result = executorResolver.create(type).execute(config)
+        val externalAdmission = currentExternalAdmission()
+        val evidenceStore = currentEffectEvidenceStore()
+        val stepAttempt = currentStepAttempt()
+        if (evidenceStore != null) {
+            requireEvidenceLineageIfEnabled(
+                workflowName = workflowName,
+                workflowId = context.workflowId,
+                stepName = name,
+                admissionAvailable = externalAdmission != null,
+                stepAttempt = stepAttempt,
+            )
+        }
+
+        // No resolver callback runs before admission. `ExternalStepExecutorResolver` is a public interface, so
+        // `isRegistered` would be third-party code executing on a *denied* invocation, including after
+        // cancellation, and it would race the built-in registry's mutable map between the check and the
+        // factory. Admission therefore comes first and the resolver is consulted exactly once, afterwards.
+        //
+        // E8: one durable grant for one call into the executor, taken immediately before it and consumed at most once.
+        // It authorizes this invocation and nothing the executor does inside its own code -- `ExternalStepExecutor` is
+        // a third-party extension point, so its internal effects stay outside the enforcement claim. A refused
+        // invocation reaches no resolver code at all, so it cannot instantiate the executor either.
+        val permit = externalAdmission?.admitExternalStep(name, type)
+        val evidenceContext =
+            ExternalEvidenceContext(
+                workflowName = workflowName,
+                workflowId = context.workflowId,
+                stepName = name,
+                typeId = type,
+                evidenceStore = evidenceStore,
+                stepAttempt = stepAttempt,
+            )
+        val evidenceKey = ExternalEvidenceOps.recordAdmitted(permit, evidenceContext)
+
+        permit?.tryConsume()
+
+        val executor = ExternalEvidenceOps.resolveExecutor(executorResolver, type, evidenceKey, evidenceStore)
+        val result = ExternalEvidenceOps.executeSafely(executor, config, evidenceKey, evidenceStore)
+
+        ExternalEvidenceOps.updateState(
+            evidenceKey = evidenceKey,
+            evidenceStore = evidenceStore,
+            targetState = WorkflowEffectEvidenceState.DISPATCHED,
+        )
+        ExternalEvidenceOps.updateState(
+            evidenceKey = evidenceKey,
+            evidenceStore = evidenceStore,
+            targetState = WorkflowEffectEvidenceState.COMPLETED,
+        )
+
         return merge(state, result, context)
     }
 
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
-        execute(
-            workflowName = request.workflowName,
-            state = request.state,
-            context = request.context,
-            executorResolver = request.services.externalStepExecutorResolver,
-        ),
-    )
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
+        WorkflowStepExecutionResult.Completed(
+            execute(
+                workflowName = request.workflowName,
+                state = request.state,
+                context = request.context,
+                executorResolver = request.services.externalStepExecutorResolver,
+            ),
+        )
+}
+
+internal data class ExternalEvidenceContext(
+    val workflowName: String,
+    val workflowId: String,
+    val stepName: String,
+    val typeId: String,
+    val evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    val stepAttempt: PersistedStepAttempt?,
+)
+
+internal object ExternalEvidenceOps {
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun recordAdmitted(
+        permit: WorkflowExternalPermit?,
+        context: ExternalEvidenceContext,
+    ): WorkflowEffectEvidenceKey? {
+        val store = context.evidenceStore
+        val attempt = context.stepAttempt
+        if (permit == null || store == null || attempt == null) {
+            return null
+        }
+        val key =
+            WorkflowEffectEvidenceKey(
+                workflowName = context.workflowName,
+                workflowId = context.workflowId,
+                checkpointGeneration = permit.checkpointGeneration,
+                admissionSeq = permit.admissionSequence,
+            )
+        try {
+            store.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = key,
+                    stepName = context.stepName,
+                    stepAttemptId = attempt.attemptId,
+                    effectKind = externalEffectKind(context.typeId),
+                    state = WorkflowEffectEvidenceState.ADMITTED,
+                    createdAtEpochMillis =
+                        currentEffectEvidenceClockMillis() ?: attempt.startedAtEpochMillis,
+                ),
+            )
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            error.rethrowIfAuthoritativeRefusal()
+            throw ExternalEvidencePersistenceException(error)
+        }
+        return key
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun resolveExecutor(
+        resolver: ExternalStepExecutorResolver,
+        type: String,
+        evidenceKey: WorkflowEffectEvidenceKey?,
+        evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    ): ExternalStepExecutor =
+        try {
+            resolver.create(type)
+        } catch (cancelled: CancellationException) {
+            recordUncertainFailure(
+                evidenceKey = evidenceKey,
+                evidenceStore = evidenceStore,
+                error = cancelled,
+                diagnosticSummary = EXTERNAL_CANCELLED_DIAGNOSTIC,
+            )
+            throw cancelled
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            error.rethrowIfAuthoritativeRefusal()
+            recordUncertainFailure(
+                evidenceKey = evidenceKey,
+                evidenceStore = evidenceStore,
+                error = error,
+                diagnosticSummary = EXTERNAL_RESOLUTION_FAILED_DIAGNOSTIC,
+            )
+            throw error
+        }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun executeSafely(
+        executor: ExternalStepExecutor,
+        config: Map<String, Any?>,
+        evidenceKey: WorkflowEffectEvidenceKey?,
+        evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    ): Map<String, Any?> =
+        try {
+            executor.execute(config)
+        } catch (cancelled: CancellationException) {
+            recordUncertainFailure(
+                evidenceKey = evidenceKey,
+                evidenceStore = evidenceStore,
+                error = cancelled,
+                diagnosticSummary = EXTERNAL_CANCELLED_DIAGNOSTIC,
+            )
+            throw cancelled
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            error.rethrowIfAuthoritativeRefusal()
+            recordUncertainFailure(
+                evidenceKey = evidenceKey,
+                evidenceStore = evidenceStore,
+                error = error,
+                diagnosticSummary = EXTERNAL_EXECUTION_FAILED_DIAGNOSTIC,
+            )
+            throw error
+        }
+
+    @Suppress("TooGenericExceptionCaught", "ThrowsCount")
+    suspend fun updateState(
+        evidenceKey: WorkflowEffectEvidenceKey?,
+        evidenceStore: WorkflowEffectEvidenceRecordStore?,
+        targetState: WorkflowEffectEvidenceState,
+    ) {
+        if (evidenceKey == null || evidenceStore == null) return
+        val record =
+            try {
+                evidenceStore.getEvidence(evidenceKey)
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                error.rethrowIfAuthoritativeRefusal()
+                val persistenceError = ExternalEvidencePersistenceException(error)
+                recordUncertainFailure(
+                    evidenceKey = evidenceKey,
+                    evidenceStore = evidenceStore,
+                    error = persistenceError,
+                    diagnosticSummary = EXTERNAL_EVIDENCE_FAILED_DIAGNOSTIC,
+                )
+                throw persistenceError
+            } ?: throw WorkflowEvidenceResolutionException(
+                "Missing expected evidence record for key: $evidenceKey (target state: $targetState)",
+            )
+
+        val completedAt =
+            if (targetState == WorkflowEffectEvidenceState.COMPLETED) {
+                currentEffectEvidenceClockMillis() ?: record.createdAtEpochMillis
+            } else {
+                record.completedAtEpochMillis
+            }
+
+        try {
+            evidenceStore.updateEvidence(
+                record.copy(
+                    state = targetState,
+                    completedAtEpochMillis = completedAt,
+                ),
+            )
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            error.rethrowIfAuthoritativeRefusal()
+            val persistenceError = ExternalEvidencePersistenceException(error)
+            recordUncertainFailure(
+                evidenceKey = evidenceKey,
+                evidenceStore = evidenceStore,
+                error = persistenceError,
+                diagnosticSummary = EXTERNAL_EVIDENCE_FAILED_DIAGNOSTIC,
+            )
+            throw persistenceError
+        }
+    }
 }
 
 // ─── External step executor support (plugin steps) ──────────────────────────
 
 interface ExternalStepExecutorFactory {
     val typeId: String
+
     fun create(): ExternalStepExecutor
 }
 
@@ -185,7 +393,9 @@ class ExternalStepExecutorNotRegisteredException(
 
 interface ExternalStepExecutorResolver {
     fun isRegistered(typeId: String): Boolean
+
     fun registeredTypeIds(): Set<String>
+
     fun create(typeId: String): ExternalStepExecutor
 }
 
@@ -230,6 +440,5 @@ object NoOpExternalStepExecutorResolver : ExternalStepExecutorResolver {
 
     override fun registeredTypeIds(): Set<String> = emptySet()
 
-    override fun create(typeId: String): ExternalStepExecutor =
-        throw ExternalStepExecutorNotRegisteredException(typeId)
+    override fun create(typeId: String): ExternalStepExecutor = throw ExternalStepExecutorNotRegisteredException(typeId)
 }

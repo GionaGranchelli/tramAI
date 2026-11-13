@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariDataSource
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.persistence.jdbc.GovernedJdbcSuspendedInvocationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalContinuationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalStore
 import dev.tramai.persistence.jdbc.JdbcAuditStore
@@ -124,8 +125,12 @@ class JdbcSovereignRuntimeE2ETest {
                     .isExactlyInstanceOf(JdbcApprovalStore::class.java)
 
                 assertThat(ctx).hasSingleBean(SuspendedInvocationStore::class.java)
+                // The governed suspension capability composes ON TOP of the JDBC store (0.7.1d):
+                // one row, one transaction, whole-run identity inside that row's payload. The
+                // store is still PostgreSQL-backed, it is just wrapped.
                 assertThat(ctx.getBean(SuspendedInvocationStore::class.java))
-                    .isExactlyInstanceOf(JdbcSuspendedInvocationStore::class.java)
+                    .withFailMessage("the governed suspension capability must wrap the JDBC store, not replace it")
+                    .isExactlyInstanceOf(GovernedJdbcSuspendedInvocationStore::class.java)
 
                 assertThat(ctx).hasSingleBean(ApprovalContinuationStore::class.java)
                 assertThat(ctx.getBean(ApprovalContinuationStore::class.java))

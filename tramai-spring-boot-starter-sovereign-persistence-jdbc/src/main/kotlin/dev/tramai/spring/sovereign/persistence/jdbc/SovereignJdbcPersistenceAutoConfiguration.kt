@@ -3,24 +3,24 @@ package dev.tramai.spring.sovereign.persistence.jdbc
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
+import dev.tramai.core.observation.attempt.AttemptObservationStore
 import dev.tramai.engine.SuspendedInvocationStore
-import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueue
-import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueStatusStore
+import dev.tramai.persistence.jdbc.GovernedJdbcSuspendedInvocationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalContinuationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalStore
 import dev.tramai.persistence.jdbc.JdbcAuditPayloadCodec
 import dev.tramai.persistence.jdbc.JdbcAuditStore
 import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
+import dev.tramai.persistence.jdbc.JdbcModelAttemptObservationStore
 import dev.tramai.persistence.jdbc.JdbcReplayEnvelopeCodec
 import dev.tramai.persistence.jdbc.JdbcSuspendedInvocationStore
 import dev.tramai.security.audit.AuditStore
+import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueue
+import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueStatusStore
 import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
-import javax.crypto.SecretKey
-import javax.crypto.spec.SecretKeySpec
-import javax.sql.DataSource
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -28,6 +28,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
+import javax.crypto.SecretKey
+import javax.crypto.spec.SecretKeySpec
+import javax.sql.DataSource
 
 /**
  * Spring Boot auto-configuration for JDBC-backed sovereign persistence.
@@ -90,7 +93,6 @@ import org.springframework.context.annotation.Bean
     havingValue = "jdbc",
 )
 class SovereignJdbcPersistenceAutoConfiguration {
-
     // ── Fail-fast: missing DataSource ─────────────────────────────────
 
     /**
@@ -103,11 +105,10 @@ class SovereignJdbcPersistenceAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(DataSource::class)
-    fun missingJdbcDataSourceFailure(): Nothing {
+    fun missingJdbcDataSourceFailure(): Nothing =
         throw IllegalStateException(
             "tramai-sovereign-jdbc-persistence-missing-datasource",
         )
-    }
 
     // ── Encryption key ────────────────────────────────────────────────
 
@@ -119,9 +120,7 @@ class SovereignJdbcPersistenceAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(name = ["sovereignJdbcEncryptionKey"])
-    fun sovereignJdbcEncryptionKey(
-        properties: SovereignJdbcPersistenceProperties,
-    ): SecretKey {
+    fun sovereignJdbcEncryptionKey(properties: SovereignJdbcPersistenceProperties): SecretKey {
         val rawKey = SovereignJdbcKeyLoader.load(properties)
         return SecretKeySpec(rawKey, "AES")
     }
@@ -136,32 +135,28 @@ class SovereignJdbcPersistenceAutoConfiguration {
     fun jdbcAuditPayloadCodec(
         @Qualifier("sovereignJdbcEncryptionKey") key: SecretKey,
         properties: SovereignJdbcPersistenceProperties,
-    ): JdbcAuditPayloadCodec =
-        DefaultJdbcAuditPayloadCodec(key, properties.encryption.keyId)
+    ): JdbcAuditPayloadCodec = DefaultJdbcAuditPayloadCodec(key, properties.encryption.keyId)
 
     @Bean
     @ConditionalOnMissingBean
     fun jdbcReplayEnvelopeCodec(
         @Qualifier("sovereignJdbcEncryptionKey") key: SecretKey,
         properties: SovereignJdbcPersistenceProperties,
-    ): JdbcReplayEnvelopeCodec =
-        DefaultJdbcSuspendedInvocationPayloadCodec(key, properties.encryption.keyId)
+    ): JdbcReplayEnvelopeCodec = DefaultJdbcSuspendedInvocationPayloadCodec(key, properties.encryption.keyId)
 
     @Bean
     @ConditionalOnMissingBean
     fun jdbcContinuationArgumentsCodec(
         @Qualifier("sovereignJdbcEncryptionKey") key: SecretKey,
         properties: SovereignJdbcPersistenceProperties,
-    ): JdbcContinuationArgumentsCodec =
-        DefaultJdbcApprovalContinuationPayloadCodec(key, properties.encryption.keyId)
+    ): JdbcContinuationArgumentsCodec = DefaultJdbcApprovalContinuationPayloadCodec(key, properties.encryption.keyId)
 
     @Bean
     @ConditionalOnMissingBean
     fun jdbcOpsAuditOutboxPayloadCodec(
         @Qualifier("sovereignJdbcEncryptionKey") key: SecretKey,
         properties: SovereignJdbcPersistenceProperties,
-    ): JdbcOpsAuditOutboxPayloadCodec =
-        DefaultJdbcOpsAuditOutboxPayloadCodec(key, properties.encryption.keyId)
+    ): JdbcOpsAuditOutboxPayloadCodec = DefaultJdbcOpsAuditOutboxPayloadCodec(key, properties.encryption.keyId)
 
     // ── Store beans ───────────────────────────────────────────────────
     //
@@ -171,9 +166,7 @@ class SovereignJdbcPersistenceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean(DataSource::class)
-    fun approvalStore(
-        dataSource: DataSource,
-    ): ApprovalStore = JdbcApprovalStore(dataSource)
+    fun approvalStore(dataSource: DataSource): ApprovalStore = JdbcApprovalStore(dataSource)
 
     @Bean
     @ConditionalOnMissingBean
@@ -189,7 +182,11 @@ class SovereignJdbcPersistenceAutoConfiguration {
     fun suspendedInvocationStore(
         dataSource: DataSource,
         replayEnvelopeCodec: JdbcReplayEnvelopeCodec,
-    ): SuspendedInvocationStore = JdbcSuspendedInvocationStore(dataSource, replayEnvelopeCodec)
+    ): SuspendedInvocationStore =
+        run {
+            val store = JdbcSuspendedInvocationStore(dataSource, replayEnvelopeCodec)
+            GovernedJdbcSuspendedInvocationStore(store)
+        }
 
     @Bean
     @ConditionalOnMissingBean
@@ -198,6 +195,14 @@ class SovereignJdbcPersistenceAutoConfiguration {
         dataSource: DataSource,
         payloadCodec: JdbcAuditPayloadCodec,
     ): AuditStore = JdbcAuditStore(dataSource, payloadCodec)
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
+    fun modelAttemptObservationStore(dataSource: DataSource): AttemptObservationStore {
+        val store: AttemptObservationStore = JdbcModelAttemptObservationStore(dataSource)
+        return store
+    }
 
     @Bean
     @ConditionalOnMissingBean
@@ -222,8 +227,13 @@ class SovereignJdbcPersistenceAutoConfiguration {
     fun sovereignOpsApprovalMutationStore(
         dataSource: DataSource,
         outboxPayloadCodec: JdbcOpsAuditOutboxPayloadCodec,
+        suspendedInvocations: SuspendedInvocationStore,
     ): SovereignOpsApprovalMutationStore =
-        JdbcSovereignOpsApprovalMutationStore(dataSource, outboxPayloadCodec)
+        JdbcSovereignOpsApprovalMutationStore(
+            dataSource,
+            outboxPayloadCodec,
+            suspendedInvocations = suspendedInvocations,
+        )
 
     @Bean
     @ConditionalOnMissingBean
@@ -236,22 +246,29 @@ class SovereignJdbcPersistenceAutoConfiguration {
         @Qualifier("sovereignJdbcEncryptionKey") encryptionKey: SecretKey,
         properties: SovereignJdbcPersistenceProperties,
     ): SovereignOpsApprovalRequestMutationStore =
-        JdbcSovereignOpsApprovalRequestMutationStore(
-            dataSource = dataSource,
-            replayEnvelopeCodec = replayEnvelopeCodec,
-            continuationArgumentsCodec = continuationArgumentsCodec,
-            outboxPayloadCodec = outboxPayloadCodec,
-            encryptionKey = encryptionKey,
-            encryptionKeyId = properties.encryption.keyId,
+        // Exposed through the governed wrapper so the default wiring satisfies the governed
+        // capability the transactional gateway requires. The wrapper composes the same store and
+        // forwards into the same single transaction; the delegate still declares only the released
+        // SPI, so its analyzer identity is unchanged.
+        GovernedJdbcSovereignOpsApprovalRequestMutationStore(
+            JdbcSovereignOpsApprovalRequestMutationStore(
+                dataSource = dataSource,
+                replayEnvelopeCodec = replayEnvelopeCodec,
+                continuationArgumentsCodec = continuationArgumentsCodec,
+                outboxPayloadCodec = outboxPayloadCodec,
+                encryptionKey = encryptionKey,
+                encryptionKeyId = properties.encryption.keyId,
+            ),
         )
 
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean(DataSource::class)
-    fun sovereignOpsWorkerLeaseStore(
-        dataSource: DataSource,
-    ): SovereignOpsWorkerLeaseStore =
-        JdbcSovereignOpsWorkerLeaseStore(dataSource)
+    fun sovereignOpsWorkerLeaseStore(dataSource: DataSource): SovereignOpsWorkerLeaseStore =
+        run {
+            val store = JdbcSovereignOpsWorkerLeaseStore(dataSource)
+            store
+        }
 
     @Bean
     @ConditionalOnMissingBean
@@ -270,16 +287,12 @@ class SovereignJdbcPersistenceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean(DataSource::class)
-    fun approvedContinuationResumeQueue(
-        dataSource: DataSource,
-    ): ApprovedContinuationResumeQueue =
+    fun approvedContinuationResumeQueue(dataSource: DataSource): ApprovedContinuationResumeQueue =
         JdbcApprovedContinuationResumeQueue(dataSource)
 
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean(DataSource::class)
-    fun approvedContinuationResumeQueueStatusStore(
-        dataSource: DataSource,
-    ): ApprovedContinuationResumeQueueStatusStore =
+    fun approvedContinuationResumeQueueStatusStore(dataSource: DataSource): ApprovedContinuationResumeQueueStatusStore =
         JdbcApprovedContinuationResumeQueueStatusStore(dataSource)
 }

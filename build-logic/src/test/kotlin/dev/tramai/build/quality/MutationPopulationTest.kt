@@ -5,6 +5,7 @@ import org.gradle.api.GradleException
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class MutationPopulationTest {
     private val families =
@@ -30,8 +31,9 @@ class MutationPopulationTest {
         status: String = "KILLED",
         index: Int = 0,
         family: String = "routing",
+        module: String = ":engine",
     ) = MutationRecord(
-        module = ":engine",
+        module = module,
         family = family,
         status = status,
         sourceFile = "Router.kt",
@@ -43,7 +45,7 @@ class MutationPopulationTest {
         description = "d",
         identity =
             MutationIdentity(
-                ":engine",
+                module,
                 "dev.tramai.Router",
                 "route",
                 "()V",
@@ -55,6 +57,73 @@ class MutationPopulationTest {
         block = 0,
         index = index,
     )
+
+    @Test
+    fun `a configured module that reports nothing fails even when its family stays non-vacuous`() {
+        // The under-count scenario: the family total is non-zero, one configured module is missing
+        // entirely. Family-level non-emptiness alone accepts this and persists a shrunken population.
+        val twoModuleFamily =
+            mapOf(
+                "evidence" to
+                    MutationTargetFamily(
+                        modules = listOf(":engine", ":security"),
+                        targetClasses = listOf("dev.tramai.Router"),
+                        targetTests = listOf("dev.tramai.*"),
+                    ),
+            )
+        val failure =
+            assertFailsWith<GradleException> {
+                MutationPopulationAggregator.aggregate(
+                    listOf(
+                        ParsedMutationReport(
+                            ":engine",
+                            "evidence",
+                            listOf(record(family = "evidence", status = "KILLED")),
+                        ),
+                    ),
+                    twoModuleFamily,
+                    "abc",
+                    semantics,
+                )
+            }
+        assertTrue(
+            failure.message.orEmpty().contains(":security"),
+            "the unmeasured module must be named: ${failure.message}",
+        )
+    }
+
+    @Test
+    fun `every configured module reporting yields the configured module topology`() {
+        val twoModuleFamily =
+            mapOf(
+                "evidence" to
+                    MutationTargetFamily(
+                        modules = listOf(":engine", ":security"),
+                        targetClasses = listOf("dev.tramai.Router"),
+                        targetTests = listOf("dev.tramai.*"),
+                    ),
+            )
+        val baseline =
+            MutationPopulationAggregator.aggregate(
+                listOf(
+                    ParsedMutationReport(
+                        ":engine",
+                        "evidence",
+                        listOf(record(family = "evidence", status = "KILLED", index = 1)),
+                    ),
+                    ParsedMutationReport(
+                        ":security",
+                        "evidence",
+                        listOf(record(family = "evidence", status = "KILLED", index = 2, module = ":security")),
+                    ),
+                ),
+                twoModuleFamily,
+                "abc",
+                semantics,
+            )
+        assertEquals(listOf(":engine", ":security"), baseline.byFamily.getValue("evidence").modules)
+        assertEquals(2, baseline.byFamily.getValue("evidence").totalMutants)
+    }
 
     @Test
     fun `killed mutants are persisted not discarded`() {

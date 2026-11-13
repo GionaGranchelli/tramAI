@@ -3,6 +3,27 @@ package dev.tramai.core.observation
 import dev.tramai.core.model.ModelResponse
 
 /**
+ * Identity of the engine invocation an attempt belongs to (Epic 0.7.5b).
+ *
+ * The engine supplies these values; an observer never invents them. [invocationId] is unique per
+ * invocation, so `(invocationId, attempt)` is the attempt identity — an attempt number alone
+ * collides when one run invokes the same operation twice.
+ *
+ * Every field is nullable because the information is only available on the paths that have it:
+ * `null` means "not known here", never "absent at runtime".
+ */
+data class AttemptIdentity(
+    /** Unique identifier of one operation invocation, or `null` when the caller supplied none. */
+    val invocationId: String? = null,
+    /** Governed workflow run this invocation belongs to, when one exists. */
+    val workflowRunId: String? = null,
+    /** Correlation identifier propagated through the invocation, when one exists. */
+    val correlationId: String? = null,
+    /** Zero-based route index the attempt executed on, when the engine selected a route. */
+    val routeIndex: Int? = null,
+)
+
+/**
  * Immutable context describing one engine attempt for an operation call.
  */
 data class OperationCallContext(

@@ -1,17 +1,18 @@
 package dev.tramai.engine.approval
 
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.model.ToolCall
+import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.RehydratedReplayPayload
 import dev.tramai.engine.ResumeApprovalCommand
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.TokenBudgetTracker
-import dev.tramai.engine.OperationDefinition
-import dev.tramai.core.policy.PolicyDecision
 
 internal data class SuspendToolExecutionRequest(
     val tool: ResolvedTool,
@@ -30,7 +31,9 @@ internal data class SuspendToolExecutionRequest(
     val historySize: Int = 0,
 )
 
-internal class ResumeUncertainOutcome(var emitted: Boolean = false)
+internal class ResumeUncertainOutcome(
+    var emitted: Boolean = false,
+)
 
 internal data class ResumeExecutionContext(
     val command: ResumeApprovalCommand,
@@ -38,6 +41,8 @@ internal data class ResumeExecutionContext(
     val registered: RegisteredResumeOperation,
     val resolvedTool: ResolvedTool,
     val uncertainOutcome: ResumeUncertainOutcome,
+    /** The identity recovered from the store before the claim; E9 admission must not authorize a different one. */
+    val persistedGovernedRunIdentity: GovernedRunIdentity? = null,
 )
 
 internal data class ClaimedResumeExecutionRequest(
@@ -52,7 +57,13 @@ internal data class ClaimedResumeExecutionRequest(
 )
 
 internal sealed interface ReplayAuthorizationDecision {
-    data class Allowed(val replayed: Boolean) : ReplayAuthorizationDecision
-    data class Denied(val decision: PolicyDecision.Deny) : ReplayAuthorizationDecision
+    data class Allowed(
+        val replayed: Boolean,
+    ) : ReplayAuthorizationDecision
+
+    data class Denied(
+        val decision: PolicyDecision.Deny,
+    ) : ReplayAuthorizationDecision
+
     data object RequiresNestedApproval : ReplayAuthorizationDecision
 }

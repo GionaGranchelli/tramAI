@@ -40,15 +40,21 @@ data class ApiMigrationEntry(
     val rationale: String,
     val migration: String,
 ) {
-    /** Exact-transition authorization: both hashes AND the target version must match. */
+    /**
+     * Exact-transition authorization: both hashes *** AND the release target must match.
+     *
+     * [releaseVersion] is the release the project version belongs to
+     * ([TramaiVersions.releaseVersionOf]), not the raw development version: an entry written
+     * during a `0.7.0-SNAPSHOT` development line targets `0.7.0` and stays truthful after the cut.
+     */
     fun authorizes(
         module: String,
         baseContent: String,
         committedContent: String,
-        projectVersion: String,
+        releaseVersion: String,
     ): Boolean =
         this.module == module &&
-            this.targetVersion == projectVersion &&
+            this.targetVersion == releaseVersion &&
             this.fromSha256 == ApiCompatibilityVerifier.sha256(baseContent) &&
             this.toSha256 == ApiCompatibilityVerifier.sha256(committedContent)
 }
@@ -135,26 +141,37 @@ class ApiCompatibilityVerifier(
 
             when (stability) {
                 "stable" -> {
-                    diagnostics +=
-                        VerificationDiagnostic.failure(
-                            DiagnosticCode.API_COMPATIBILITY_FAILED,
-                            "Stable API module '$module' changed (breaking or additive); stable API is frozen for $projectVersion. " +
-                                "Migration entries cannot authorize stable changes.",
-                            modulePath = module,
-                            baselineValue = sha256(base),
-                            currentValue = sha256(committed),
-                        )
+                    // Stable means backward compatible, not byte-identical: a legitimately
+                    // additive stable release line must pass, while a removal or an altered
+                    // declaration must not. MIGRATION ENTRIES CANNOT AUTHORIZE STABLE BREAKAGE.
+                    val breakages = ApiDumpCompatibility.incompatibleDeclarations(base, committed)
+                    if (breakages.isNotEmpty()) {
+                        diagnostics +=
+                            VerificationDiagnostic.failure(
+                                DiagnosticCode.API_COMPATIBILITY_FAILED,
+                                "Stable API module '$module' changed incompatibly: " +
+                                    breakages.take(MAX_REPORTED_BREAKAGES).joinToString("; ") +
+                                    ". A stable API must keep existing consumers working, so additive changes are " +
+                                    "allowed and removals or signature changes are not; migration entries cannot " +
+                                    "authorize stable breakage.",
+                                modulePath = module,
+                                baselineValue = sha256(base),
+                                currentValue = sha256(committed),
+                            )
+                    }
                 }
 
                 "preview", "experimental" -> {
-                    val authorized = migrations.any { it.authorizes(module, base, committed, projectVersion) }
+                    val releaseVersion = TramaiVersions.releaseVersionOf(projectVersion)
+                    val authorized = migrations.any { it.authorizes(module, base, committed, releaseVersion) }
                     if (!authorized) {
                         diagnostics +=
                             VerificationDiagnostic.failure(
                                 DiagnosticCode.API_COMPATIBILITY_FAILED,
                                 "API module '$module' changed without an exact hash-bound migration entry; " +
                                     "add an entry binding fromSha256=${sha256(base)} toSha256=${sha256(committed)} " +
-                                    "for targetVersion=$projectVersion in config/quality/api-migrations.yml",
+                                    "for targetVersion=$releaseVersion in config/quality/api-migrations.yml " +
+                                    "(project version $projectVersion)",
                                 modulePath = module,
                                 baselineValue = sha256(base),
                                 currentValue = sha256(committed),
@@ -193,28 +210,41 @@ class ApiCompatibilityVerifier(
 
         // Entry lifecycle (D1): a registry entry is valid evidence in exactly
         // two states — ACTIVE (base→current transition it was written for is
-        // still the live one) or LANDED (its `to` hash has landed: either it is
-        // both base and current — the merged steady state — or it is the new
-        // base while a FURTHER change is in flight, so it is retained history
-        // that authorizes nothing). Any other state — orphan, stale, wrong
-        // hash, wrong version — FAILs. Authorization of a live base→current
-        // change is handled by Contract-2 (exact entry required); a landed
-        // entry must never block the next PR nor authorize a later change.
+        // still the live one) or RETAINED HISTORY (its target API state is
+        // transitively connected to the module's current base dump). Any other
+        // state — orphan, stale, wrong hash, wrong version, disconnected chain,
+        // cycle, ambiguous branching — FAILs. Authorization of a live
+        // base→current change is handled by Contract-2 (exact ACTIVE entry
+        // required); retained history authorizes nothing and must never block
+        // the next PR.
+        //
+        // The rule is reachability to the REAL base hash, not connectivity
+        // between registry entries: two fabricated entries could otherwise
+        // corroborate each other with no relation to any API state that ever
+        // landed.
         migrations.forEach { entry ->
             val realTransition = actualTransition(evidence, entry.module)
             val base = evidence.base[entry.module]
             val committed = evidence.committed[entry.module]
+            // ACTIVE requires the declared target release to match the release the current
+            // project version belongs to, so a `0.7.0` entry stays valid on a `0.7.0-SNAPSHOT`
+            // development line and after the cut.
+            val releaseVersion = TramaiVersions.releaseVersionOf(projectVersion)
             val active =
                 realTransition != null &&
                     realTransition.first == entry.fromSha256 &&
                     realTransition.second == entry.toSha256 &&
-                    entry.targetVersion == projectVersion
-            val landed =
-                base != null && committed != null && (
-                    (realTransition == null && sha256(committed) == entry.toSha256) ||
-                        (realTransition != null && sha256(base) == entry.toSha256)
-                )
-            if (!active && !landed) {
+                    entry.targetVersion == releaseVersion
+            val retainedHistory =
+                base != null &&
+                    committed != null &&
+                    reachesCurrentBase(
+                        module = entry.module,
+                        startHash = entry.toSha256,
+                        currentBaseHash = sha256(base),
+                        migrations = migrations,
+                    )
+            if (!active && !retainedHistory) {
                 diagnostics +=
                     VerificationDiagnostic.failure(
                         DiagnosticCode.API_COMPATIBILITY_FAILED,
@@ -228,6 +258,37 @@ class ApiCompatibilityVerifier(
                     )
             }
         }
+    }
+
+    /**
+     * Whether [startHash] reaches the module's current base API hash by following migration
+     * entries of that module as a SEQUENCE: exactly one successor per hash, no cycles.
+     *
+     * [currentBaseHash] is the only trust anchor — connectivity between entries is not evidence.
+     * A hash with two successors is ambiguous (a migration history describes a sequence of
+     * authoritative API states, not a branching graph), a hash that repeats is a cycle, and a
+     * hash with no successor is simply disconnected. All three are not history.
+     */
+    private fun reachesCurrentBase(
+        module: String,
+        startHash: String,
+        currentBaseHash: String,
+        migrations: List<ApiMigrationEntry>,
+    ): Boolean {
+        val successors =
+            migrations
+                .filter { it.module == module }
+                .groupBy { it.fromSha256 }
+                .mapValues { (_, entries) -> entries.map(ApiMigrationEntry::toSha256).distinct() }
+        val visited = mutableSetOf<String>()
+        var cursor = startHash
+        // Exactly two exits: reached the base, or stopped being a sequence (no successor,
+        // ambiguous successor, or a repeated hash).
+        while (cursor != currentBaseHash) {
+            val next = successors[cursor]?.takeIf { it.size == 1 && visited.add(cursor) } ?: return false
+            cursor = next.single()
+        }
+        return true
     }
 
     private fun actualTransition(
@@ -321,6 +382,9 @@ class ApiCompatibilityVerifier(
     private fun applicable(stability: String): Boolean = stability in setOf("stable", "preview", "experimental")
 
     companion object {
+        /** Bounded so a large incompatible change still yields a readable diagnostic. */
+        private const val MAX_REPORTED_BREAKAGES = 5
+
         private val OWNED_CLASS_REGEX = Regex("""\bclass\s+(dev/tramai/[\w/$]+)""")
 
         fun sha256(content: String): String =

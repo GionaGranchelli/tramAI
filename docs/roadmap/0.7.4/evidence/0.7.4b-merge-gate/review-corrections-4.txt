@@ -1,0 +1,59 @@
+Changed-path completeness correction — verification transcript
+Captured: 2026-10-12T14:15:18Z
+Task: 0.7.4b-merge-gate-safeguard, PR #519
+
+Addressed: gh pr view --json files truncates at 100 files, so a partial path list could look
+complete and let the gate conclude a path-filtered workflow was inapplicable. Paths now come from
+the paginated files endpoint, and the retrieved count is compared against GitHub's changedFiles.
+
+=== format (guarded)
+     M build-logic/src/main/kotlin/dev/tramai/build/quality/MergeGateVerifier.kt
+     M build-logic/src/main/kotlin/dev/tramai/build/release/MergeGateTask.kt
+     M build-logic/src/test/kotlin/dev/tramai/build/quality/MergeGateVerifierTest.kt
+     M docs/roadmap/0.7.4/0.7.4b-merge-gate-safeguard.md
+
+=== CI static form
+  EXIT=1
+  static-analysis: Detekt baseline OK: base 4792 -> current 4792; 0 removed, 0 added.
+  static-analysis: Detekt baseline OK: base 4792 -> current 4792; 0 removed, 0 added.----- End of the daemon log -----
+  findings:
+
+=== the suite
+  EXIT=0
+  BUILD SUCCESSFUL in 26s
+  tests="36" skipped="0" failures="0" errors="0"
+
+=== self-check
+    ok [unknown pull request]: refused with [checks-unavailable]
+    ok [wrong head]: refused with [head-mismatch]
+    ok [missing required check]: refused with [required-check-missing]
+    ok [empty override]: refused
+    ok [no properties]: refused
+    ok: merge gate PASSED at 5756679c4dfabfa5eb5c4095c627ffd066ecc634: checks complete and green, required workflows successful
+    ok: merge gate PASSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: checks complete and green, required workflows successful
+  SELF-CHECK PASSED: five named refusals hold, and both positive controls still pass.
+
+=== live: applicability from real changed paths
+--- #519's current head (5756679c4dfabfa5eb5c4095c627ffd066ecc634) matches build-logic/**/quality/** so the conditional check is required
+    matching paths: 1
+    merge gate PASSED at 5756679c4dfabfa5eb5c4095c627ffd066ecc634: checks complete and green, required workflows successful
+    VERIFIED: 5756679c4dfabfa5eb5c4095c627ffd066ecc634 is safe to merge. To merge it with that exact commit pinned:
+--- #518 matches no mutation filter, so that check is not demanded and the gate passes (measured)
+    matching paths: 0
+    merge gate PASSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: checks complete and green, required workflows successful
+    VERIFIED: 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3 is safe to merge. To merge it with that exact commit pinned:
+--- wrong head still refuses
+    > merge gate REFUSED at deadbeefdeadbeefdeadbeefdeadbeefdeadbeef: 5 violation(s)
+        - [head-mismatch] head moved from deadbeefdeadbeefdeadbeefdeadbeefdeadbeef to 5756679c4dfabfa5eb5c4095c627ffd066ecc634; every check below belongs to a commit nobody reviewed
+--- unreadable PR still refuses
+    > merge gate REFUSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: 3 violation(s)
+        - [head-unavailable] the API reported no head; merge evidence is unavailable, which is not a pass
+        - [checks-unavailable] no status checks were read; an empty result means the query failed, not that all checks passed
+
+=== NOTE on the static-gate section above
+That section shows EXIT=1 with no report and a Gradle daemon log dump: the daemon crashed mid-run,
+so the run produced no verdict and none is claimed from it. The same tree re-run:
+  attempt 1: exit=0, BUILD SUCCESSFUL, baseline base 4792 -> current 4792; 0 removed, 0 added
+  detekt report total: 0 findings
+The crash is environmental (this suite is known to die from daemon metaspace exhaustion), and the
+clean re-run at an unchanged tree is the evidence for that, not the absence of a finding.

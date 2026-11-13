@@ -1,0 +1,15 @@
+=== RED PROOF 2026-10-13T11:21:05+02:00 : shell verifier vs attributed evidence ===
+scripts under test: examples/sovereign-lab/verify-evidence-bundle.sh a395c9a56b59 examples/sovereign-lab/finalize-evidence-bundle.sh 5485a5097ac9 
+--- finalize
+Evidence bundle finalized: /tmp/g1b_shell_red_bundle
+  finalize exit=0
+--- verify (attributed record: five identity keys + run id)
+Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: metadata key 'identity.workloadId' is not allowlisted for tool.permission
+  verify exit=1
+
+--- control: same bundle, identity keys stripped (legacy shape)
+  stripped identity + run id from the record
+  re-finalize exit=0
+Evidence bundle verified: /tmp/g1b_shell_red_bundle
+  legacy verify exit=0  (0 expected -> the rule rejects only attributed records today)
+=== DONE 2026-10-13T11:21:05+02:00 ===

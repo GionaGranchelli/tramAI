@@ -1,3 +1,8 @@
+@file:Suppress("MaxLineLength", "ktlint:standard:max-line-length")
+
+// ktfmt (spotless) rejoins what detekt rejects at 120, and .editorconfig states no line length is enforced, so
+// the two formatters disagree on these lines; suppress for the file instead of reshaping on every apply.
+
 package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
@@ -14,8 +19,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.Clock
 import java.security.MessageDigest
+import java.time.Clock
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
@@ -74,11 +79,12 @@ internal class WorkflowExecutionSupervisor(
         lease: WorkflowLease,
     ) {
         val scope = workerScope ?: return
-        val handle = ActiveExecution(
-            workflowName = checkpoint.workflowName,
-            workflowId = checkpoint.workflowId,
-            lease = AtomicReference(lease),
-        )
+        val handle =
+            ActiveExecution(
+                workflowName = checkpoint.workflowName,
+                workflowId = checkpoint.workflowId,
+                lease = AtomicReference(lease),
+            )
         val previous = activeExecutions.putIfAbsent(checkpoint.workflowId, handle)
         if (previous != null) {
             scope.launch {
@@ -86,68 +92,85 @@ internal class WorkflowExecutionSupervisor(
             }
             return
         }
-        handle.executionJob = scope.launch {
-            try {
-                executeClaimedWorkflow(checkpoint, handle)
-            } finally {
-                handle.tracker?.close()
-                handle.renewalJob?.cancel()
-                activeExecutions.remove(checkpoint.workflowId, handle)
+        handle.executionJob =
+            scope.launch {
+                try {
+                    executeClaimedWorkflow(checkpoint, handle)
+                } finally {
+                    handle.tracker?.close()
+                    handle.renewalJob?.cancel()
+                    activeExecutions.remove(checkpoint.workflowId, handle)
+                }
             }
-        }
-        handle.renewalJob = scope.launch {
-            leaseRenewalLoop.renew(handle)
-        }
+        handle.renewalJob =
+            scope.launch {
+                leaseRenewalLoop.renew(handle)
+            }
+    }
+
+    /**
+     * Absent definition metadata means no worker can ever route this checkpoint. Unlike an
+     * unbound version (which another worker may implement), it must surface as a visible
+     * failure rather than a silent skip: record it so the stranded checkpoint stays
+     * diagnosable, release the lease, and fail. Never returns.
+     */
+    private suspend fun failMissingDefinitionMetadata(
+        checkpoint: WorkflowCheckpoint,
+        handle: ActiveExecution,
+    ): Nothing {
+        val error =
+            missingDefinitionMetadataException(
+                workflowName = checkpoint.workflowName,
+                workflowId = checkpoint.workflowId,
+                missingKey = WORKFLOW_DEFINITION_VERSION_METADATA_KEY,
+            )
+        executionFailures[checkpoint.workflowId] = error
+        releaseLease(handle)
+        throw error
     }
 
     private suspend fun executeClaimedWorkflow(
         checkpoint: WorkflowCheckpoint,
         handle: ActiveExecution,
     ) {
-        val definitionVersion = checkpoint.metadata[WORKFLOW_DEFINITION_VERSION_METADATA_KEY]
-            ?: run {
-                // Absent definition metadata means no worker can ever route this
-                // checkpoint. Unlike an unbound version (which another worker may
-                // implement), this must surface as a visible failure instead of a
-                // silent skip: release the lease and record latestFailure so the
-                // stranded checkpoint is diagnosable.
-                val error = missingDefinitionMetadataException(
-                    workflowName = checkpoint.workflowName,
-                    workflowId = checkpoint.workflowId,
-                    missingKey = WORKFLOW_DEFINITION_VERSION_METADATA_KEY,
-                )
-                executionFailures[checkpoint.workflowId] = error
+        val definitionVersion =
+            checkpoint.metadata[WORKFLOW_DEFINITION_VERSION_METADATA_KEY]
+                ?: failMissingDefinitionMetadata(checkpoint, handle)
+        val binding =
+            workflowBindings.resolve(checkpoint.workflowName, definitionVersion) ?: run {
                 releaseLease(handle)
-                throw error
+                return
             }
-        val binding = workflowBindings.resolve(checkpoint.workflowName, definitionVersion) ?: run {
-            releaseLease(handle)
-            return
-        }
         val typedWorkflow = binding.erased.workflow
         val context = WorkflowContext(workflowId = checkpoint.workflowId)
-        val tracker = ExecutionTracker(
-            workerId = config.workerId,
-            workflow = typedWorkflow,
-            binding = binding.erased,
-            context = context,
-            stepAttemptStore = stepAttemptStore,
-            observability = observability,
-            clock = typedWorkflow.clock,
-            leaseProvider = { handle.lease.get() },
-            stepAttemptIdentitySource = stepAttemptIdentitySource,
-        )
+        // Worker/recovery reconstruction (0.7.1d): attribution is restored from the
+        // durable checkpoint and never re-derived, so a resumed governed run keeps the
+        // exact identity it was created with.
+        val governedRunIdentity = decodeGovernedRunAttribution(checkpoint.workflowId, checkpoint.metadata)
+        val tracker =
+            ExecutionTracker(
+                workerId = config.workerId,
+                workflow = typedWorkflow,
+                binding = binding.erased,
+                context = context,
+                stepAttemptStore = stepAttemptStore,
+                observability = observability,
+                clock = typedWorkflow.clock,
+                leaseProvider = { handle.lease.get() },
+                stepAttemptIdentitySource = stepAttemptIdentitySource,
+            )
         handle.tracker = tracker
         tracker.prepareForCheckpoint(checkpoint)
         handle.lastRevision.set(checkpoint.revision)
 
-        val fencedCheckpointStore = LeaseFencedCheckpointStore(
-            delegate = checkpointStore,
-            leaseStore = leaseStore,
-            leaseProvider = { handle.lease.get() },
-            tracker = tracker,
-            revisionSink = { handle.lastRevision.set(it) },
-        )
+        val fencedCheckpointStore =
+            LeaseFencedCheckpointStore(
+                delegate = checkpointStore,
+                leaseStore = leaseStore,
+                leaseProvider = { handle.lease.get() },
+                tracker = tracker,
+                revisionSink = { handle.lastRevision.set(it) },
+            )
 
         val unknownAttempt = tracker.recoverAttemptIfNeeded(checkpoint)
         if (unknownAttempt != null) {
@@ -159,17 +182,31 @@ internal class WorkflowExecutionSupervisor(
             )
             try {
                 when (unknownAttempt.resolutionAction) {
-                    StepAttemptResolutionAction.RETRY_APPROVED -> recoveryCoordinator.consumeRetryApproval(
-                        checkpoint = checkpoint,
-                        expectedLease = handle.lease.get(),
-                        tracker = tracker,
-                        fencedCheckpointStore = fencedCheckpointStore,
-                        attempt = unknownAttempt,
-                    )
-                    StepAttemptResolutionAction.WORKFLOW_FAILED -> throw WorkflowRecoveryStateException(
-                        "Attempt '${unknownAttempt.attemptId}' is resolved as WORKFLOW_FAILED and cannot be executed",
-                    )
-                    null -> recoveryCoordinator.recoverUnknownAttempt(checkpoint, tracker, fencedCheckpointStore, unknownAttempt)
+                    StepAttemptResolutionAction.RETRY_APPROVED -> {
+                        recoveryCoordinator.consumeRetryApproval(
+                            checkpoint = checkpoint,
+                            expectedLease = handle.lease.get(),
+                            tracker = tracker,
+                            fencedCheckpointStore = fencedCheckpointStore,
+                            attempt = unknownAttempt,
+                        )
+                    }
+
+                    StepAttemptResolutionAction.WORKFLOW_FAILED -> {
+                        throw WorkflowRecoveryStateException(
+                            "Attempt '${unknownAttempt.attemptId}' is resolved as WORKFLOW_FAILED and cannot be " +
+                                "executed",
+                        )
+                    }
+
+                    null -> {
+                        recoveryCoordinator.recoverUnknownAttempt(
+                            checkpoint,
+                            tracker,
+                            fencedCheckpointStore,
+                            unknownAttempt,
+                        )
+                    }
                 }
             } catch (error: Throwable) {
                 // The recovery persistence paths throw NonReplayableStepStateUnknownException
@@ -184,23 +221,38 @@ internal class WorkflowExecutionSupervisor(
             }
         }
 
-        val persistence = WorkflowPersistence(
-            checkpointStore = fencedCheckpointStore,
-            stateCodec = binding.erased.stateCodec,
-            delayWakeupScheduler = binding.erased.delayWakeupScheduler,
-            deleteCheckpointOnCompletion = binding.erased.deleteCheckpointOnCompletion,
-        )
-        val observer = WorkerExecutionObserver(
-            workflowName = checkpoint.workflowName,
-            tracker = tracker,
-        )
+        val persistence =
+            WorkflowPersistence(
+                checkpointStore = fencedCheckpointStore,
+                stateCodec = binding.erased.stateCodec,
+                delayWakeupScheduler = binding.erased.delayWakeupScheduler,
+                deleteCheckpointOnCompletion = binding.erased.deleteCheckpointOnCompletion,
+                evidenceStore = resolveWorkerEvidenceStore(binding.erased, checkpointStore),
+            )
+        val observer =
+            WorkerExecutionObserver(
+                workflowName = checkpoint.workflowName,
+                tracker = tracker,
+            )
 
         try {
-            typedWorkflow.resume(
-                context = context,
-                observer = observer,
-                persistence = persistence,
-            )
+            // Worker/recovery reconstruction (0.7.1d): the canonical identity is restored
+            // from the durable checkpoint and never re-derived, so a resumed governed run
+            // keeps the exact identity it was created with. Ungoverned runs resume
+            // through the unchanged context-only path.
+            if (governedRunIdentity == null) {
+                typedWorkflow.resume(
+                    context = context,
+                    observer = observer,
+                    persistence = persistence,
+                )
+            } else {
+                typedWorkflow.resume(
+                    run = GovernedRun(context = context, identity = governedRunIdentity),
+                    observer = observer,
+                    persistence = persistence,
+                )
+            }
             executionFailures.remove(checkpoint.workflowId)
             releaseLease(handle)
         } catch (suspended: WorkflowSuspendedException) {
@@ -266,15 +318,17 @@ internal data class ActiveExecution(
 private class WorkerExecutionObserver(
     private val workflowName: String,
     private val tracker: ExecutionTracker,
-) : WorkflowObserver by NoOpWorkflowObserver {
-    override fun onStepStarted(
+) : WorkflowObserver by NoOpWorkflowObserver,
+    StepAttemptAuthority {
+    override suspend fun beginAttempt(
         workflowName: String,
+        workflowId: String,
         stepName: String,
-        context: WorkflowContext,
-    ) {
+    ): PersistedStepAttempt? {
         if (this.workflowName == workflowName) {
-            tracker.enqueueStartAttempt(stepName)
+            return tracker.startAttempt(stepName)
         }
+        return null
     }
 
     override fun onStepFailed(
@@ -309,9 +363,10 @@ internal class ExecutionTracker(
 ) {
     private val monitor = Any()
     private val observerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val completedObserverTransition = CompletableDeferred<Result<Unit>>().also {
-        it.complete(Result.success(Unit))
-    }
+    private val completedObserverTransition =
+        CompletableDeferred<Result<Unit>>().also {
+            it.complete(Result.success(Unit))
+        }
     private var observerTransitionTail: Deferred<Result<Unit>> = completedObserverTransition
     private val trackedStepNames = workflow.topLevelStepNames()
     private var inputFingerprint: String? = null
@@ -337,11 +392,14 @@ internal class ExecutionTracker(
             return latest
         }
         if (latest.status == StepAttemptStatus.STARTED) {
-            val unknown = latest.copy(
-                status = StepAttemptStatus.UNKNOWN,
-                completedAt = clock.millis(),
-                outputSummary = latest.outputSummary ?: "Lease expired before the step reached a durable checkpoint",
-            )
+            val unknown =
+                latest.copy(
+                    status = StepAttemptStatus.UNKNOWN,
+                    completedAt = clock.millis(),
+                    outputSummary =
+                        latest.outputSummary ?: "Lease expired before the step reached a durable " +
+                            "checkpoint",
+                )
             stepAttemptStore.updateStepAttempt(unknown)
             observability.onUnknownAttempt(
                 runId = unknown.runId,
@@ -354,44 +412,55 @@ internal class ExecutionTracker(
         return null
     }
 
-    suspend fun startAttempt(stepName: String) {
-        if (!trackedStepNames.contains(stepName)) {
-            return
-        }
-        val descriptor: WorkflowStepReplayDescriptor
-        val fingerprint: String?
-        synchronized(monitor) {
-            if (preparedStepName != stepName) {
-                return
-            }
-            descriptor = preparedReplayDescriptor
-                ?: WorkflowStepReplayDescriptor(
-                    WorkflowStepReplayability.NON_REPLAYABLE,
-                    WorkflowStepRepetitionSafety.UNSAFE,
-                )
-            fingerprint = inputFingerprint
-        }
-        val attempt = StepAttemptRecord(
-            runId = context.workflowId,
-            stepName = stepName,
-            attemptId = stepAttemptIdentitySource.newAttemptId().also { generated ->
-                require(generated.isNotBlank()) {
-                    "Step-attempt attemptId must not be blank (workflow '${context.workflowId}', step '$stepName', worker '$workerId')"
+    suspend fun startAttempt(stepName: String): PersistedStepAttempt? {
+        val (descriptor, fingerprint) =
+            if (!trackedStepNames.contains(stepName)) {
+                null
+            } else {
+                synchronized(monitor) {
+                    if (preparedStepName != stepName) {
+                        null
+                    } else {
+                        val desc =
+                            preparedReplayDescriptor
+                                ?: WorkflowStepReplayDescriptor(
+                                    WorkflowStepReplayability.NON_REPLAYABLE,
+                                    WorkflowStepRepetitionSafety.UNSAFE,
+                                )
+                        desc to inputFingerprint
+                    }
                 }
-            },
-            workerId = workerId,
-            leaseToken = leaseProvider()?.leaseId ?: "unknown",
-            status = StepAttemptStatus.STARTED,
-            startedAt = clock.millis(),
-            idempotencyKey = descriptor.idempotencyKey,
-            replayPolicy = descriptor.toPersistedReplayPolicy(),
-            inputFingerprint = fingerprint,
-        )
+            } ?: return null
+        val attempt =
+            StepAttemptRecord(
+                runId = context.workflowId,
+                stepName = stepName,
+                attemptId =
+                    stepAttemptIdentitySource.newAttemptId().also { generated ->
+                        require(generated.isNotBlank()) {
+                            "Step-attempt attemptId must not be blank (workflow '${context.workflowId}', step '$stepName', worker '$workerId')"
+                        }
+                    },
+                workerId = workerId,
+                leaseToken = leaseProvider()?.leaseId ?: "unknown",
+                status = StepAttemptStatus.STARTED,
+                startedAt = clock.millis(),
+                idempotencyKey = descriptor.idempotencyKey,
+                replayPolicy = descriptor.toPersistedReplayPolicy(),
+                inputFingerprint = fingerprint,
+            )
         stepAttemptStore.recordStepAttempt(attempt)
         synchronized(monitor) {
             activeAttempt = attempt
         }
         observability.onStepAttemptStarted(context.workflowId, stepName, attempt.attemptId, workerId)
+        return PersistedStepAttempt(
+            workflowName = workflow.name,
+            workflowId = context.workflowId,
+            stepName = stepName,
+            attemptId = attempt.attemptId,
+            startedAtEpochMillis = attempt.startedAt,
+        )
     }
 
     suspend fun consumeRetryApproval(attempt: StepAttemptRecord) {
@@ -400,10 +469,11 @@ internal class ExecutionTracker(
                 "Workflow '${workflow.name}' and workflowId='${context.workflowId}' has no active lease for retry-approval consumption",
             )
         }
-        val consumed = attempt.copy(
-            status = StepAttemptStatus.FAILED,
-            completedAt = attempt.completedAt ?: clock.millis(),
-        )
+        val consumed =
+            attempt.copy(
+                status = StepAttemptStatus.FAILED,
+                completedAt = attempt.completedAt ?: clock.millis(),
+            )
         // Atomic CAS: the approval is consumed exactly once. A concurrent writer (e.g. a
         // stale-approval void) between the recovery read and here must not be overwritten;
         // on failure the caller fails closed and the next worker re-evaluates.
@@ -414,27 +484,21 @@ internal class ExecutionTracker(
         }
     }
 
-    fun enqueueStartAttempt(stepName: String) {
-        enqueueObserverTransition {
-            startAttempt(stepName)
-        }
-    }
-
-    suspend fun completeAttempt(
-        persistedCheckpoint: WorkflowCheckpoint,
-    ) {
+    suspend fun completeAttempt(persistedCheckpoint: WorkflowCheckpoint) {
         awaitObserverTransitions()
-        val attempt = synchronized(monitor) {
-            activeAttempt?.takeIf { it.stepName == persistedCheckpoint.lastCompletedStepName }
-        } ?: run {
-            prepareForCheckpoint(persistedCheckpoint)
-            return
-        }
-        val completed = attempt.copy(
-            status = StepAttemptStatus.COMPLETED,
-            completedAt = clock.millis(),
-            outputSummary = "Checkpoint revision ${persistedCheckpoint.revision}",
-        )
+        val attempt =
+            synchronized(monitor) {
+                activeAttempt?.takeIf { it.stepName == persistedCheckpoint.lastCompletedStepName }
+            } ?: run {
+                prepareForCheckpoint(persistedCheckpoint)
+                return
+            }
+        val completed =
+            attempt.copy(
+                status = StepAttemptStatus.COMPLETED,
+                completedAt = clock.millis(),
+                outputSummary = "Checkpoint revision ${persistedCheckpoint.revision}",
+            )
         stepAttemptStore.updateStepAttempt(completed)
         synchronized(monitor) {
             activeAttempt = null
@@ -447,22 +511,34 @@ internal class ExecutionTracker(
         stepName: String,
         error: Throwable,
     ) {
-        val attempt = synchronized(monitor) {
-            activeAttempt?.takeIf { it.stepName == stepName }
-        } ?: return
+        val attempt =
+            synchronized(monitor) {
+                activeAttempt?.takeIf { it.stepName == stepName }
+            } ?: return
         // The persisted outputSummary must not carry raw persistence internals
         // (paths, SQL, payloads). Sanitize persistence-family failures; user
         // step-execution errors are not persistence internals and keep their
         // real message so the durable record stays diagnostically useful.
-        val observableFailure = when {
-            !error.isPersistenceFamilyFailure() -> error
-            else -> safeWorkerObservableFailure(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, error)
-        }
-        val failed = attempt.copy(
-            status = StepAttemptStatus.FAILED,
-            completedAt = clock.millis(),
-            outputSummary = summarize(observableFailure),
-        )
+        val observableFailure =
+            when {
+                !error.isPersistenceFamilyFailure() -> {
+                    error
+                }
+
+                else -> {
+                    safeWorkerObservableFailure(
+                        PersistenceResourceKind.STEP_ATTEMPT,
+                        PersistenceOperation.SAVE,
+                        error,
+                    )
+                }
+            }
+        val failed =
+            attempt.copy(
+                status = StepAttemptStatus.FAILED,
+                completedAt = clock.millis(),
+                outputSummary = summarize(observableFailure),
+            )
         stepAttemptStore.updateStepAttempt(failed)
         synchronized(monitor) {
             activeAttempt = null
@@ -485,11 +561,12 @@ internal class ExecutionTracker(
     suspend fun cancelActiveAttempt(summary: String) {
         awaitObserverTransitions()
         val attempt = synchronized(monitor) { activeAttempt } ?: return
-        val cancelled = attempt.copy(
-            status = StepAttemptStatus.CANCELLED,
-            completedAt = clock.millis(),
-            outputSummary = summary,
-        )
+        val cancelled =
+            attempt.copy(
+                status = StepAttemptStatus.CANCELLED,
+                completedAt = clock.millis(),
+                outputSummary = summary,
+            )
         stepAttemptStore.updateStepAttempt(cancelled)
         synchronized(monitor) {
             activeAttempt = null
@@ -509,21 +586,20 @@ internal class ExecutionTracker(
         observerScope.coroutineContext[Job]?.cancel()
     }
 
-    private fun enqueueObserverTransition(
-        block: suspend ExecutionTracker.() -> Unit,
-    ) {
+    private fun enqueueObserverTransition(block: suspend ExecutionTracker.() -> Unit) {
         synchronized(monitor) {
             val previous = observerTransitionTail
-            observerTransitionTail = observerScope.async {
-                previous.await().getOrThrow()
-                try {
-                    this@ExecutionTracker.block()
-                    Result.success(Unit)
-                } catch (error: Throwable) {
-                    error.rethrowIfCancellation()
-                    Result.failure(error)
+            observerTransitionTail =
+                observerScope.async {
+                    previous.await().getOrThrow()
+                    try {
+                        this@ExecutionTracker.block()
+                        Result.success(Unit)
+                    } catch (error: Throwable) {
+                        error.rethrowIfCancellation()
+                        Result.failure(error)
+                    }
                 }
-            }
         }
     }
 
@@ -550,22 +626,24 @@ private class LeaseFencedCheckpointStore(
     private val tracker: ExecutionTracker,
     private val revisionSink: (Long?) -> Unit,
 ) : WorkflowCheckpointStore by delegate {
-    private val leaseFence = leaseStore as? WorkflowLeaseCheckpointFence
-        ?: throw IllegalArgumentException(
-            "TramaiWorker requires a WorkflowLeaseStore that can atomically fence checkpoint mutations",
-        )
+    private val leaseFence =
+        leaseStore as? WorkflowLeaseCheckpointFence
+            ?: throw IllegalArgumentException(
+                "TramaiWorker requires a WorkflowLeaseStore that can atomically fence checkpoint mutations",
+            )
 
     override suspend fun save(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
     ): WorkflowCheckpoint {
         val expectedLease = expectedLease(checkpoint.workflowName, checkpoint.workflowId)
-        val persisted = leaseFence.saveCheckpointIfLeaseOwner(
-            checkpointStore = delegate,
-            checkpoint = checkpoint,
-            expectedRevision = expectedRevision,
-            expectedLease = expectedLease,
-        )
+        val persisted =
+            leaseFence.saveCheckpointIfLeaseOwner(
+                checkpointStore = delegate,
+                checkpoint = checkpoint,
+                expectedRevision = expectedRevision,
+                expectedLease = expectedLease,
+            )
         revisionSink(persisted.revision)
         tracker.completeAttempt(persisted)
         return persisted
@@ -588,6 +666,20 @@ private class LeaseFencedCheckpointStore(
         )
     }
 
+    // E10: an admission authorizes an external effect, so it is fenced like the checkpoint write rather than forwarded.
+    override suspend fun admit(request: WorkflowAdmissionRequest): WorkflowAdmission =
+        admitUnderLeaseFence(
+            fence = leaseFence,
+            delegate = delegate,
+            expectedLease = expectedLease(request.workflowName, request.workflowId),
+            request = request,
+        )
+
+    // `cancel` is deliberately NOT fenced. Terminal cancellation is the operator's authority over the run, not a
+    // worker effect: fencing it on lease ownership would make an operator's cancellation depend on which worker
+    // happens to hold the lease, and one arriving while a lease is being re-acquired would be lost. Recorded as a
+    // stated limit: a stale worker can still commit a cancellation it no longer owns.
+
     override suspend fun requireRecovery(
         workflowName: String,
         workflowId: String,
@@ -596,31 +688,58 @@ private class LeaseFencedCheckpointStore(
         expectedGeneration: String?,
     ): WorkflowCheckpoint {
         val expectedLease = expectedLease(workflowName, workflowId)
-        val current = delegate.load(workflowName, workflowId)
-            ?: throw WorkflowCheckpointConflictException("Cannot require recovery for '$workflowName'/'$workflowId': checkpoint does not exist")
-        return leaseFence.saveCheckpointIfLeaseOwner(
-            checkpointStore = delegate,
-            checkpoint = current.copy(
-                recoveryState = WorkflowRecoveryState.Required(record),
-                checkpointGeneration = expectedGeneration,
-            ),
-            expectedRevision = expectedRevision,
-            expectedLease = expectedLease,
-        ).also { revisionSink(it.revision) }
+        val current =
+            delegate.load(workflowName, workflowId)
+                ?: throw WorkflowCheckpointConflictException(
+                    "Cannot require recovery for '$workflowName'/'$workflowId': checkpoint does not exist",
+                )
+        return leaseFence
+            .saveCheckpointIfLeaseOwner(
+                checkpointStore = delegate,
+                checkpoint =
+                    current.copy(
+                        recoveryState = WorkflowRecoveryState.Required(record),
+                        checkpointGeneration = expectedGeneration,
+                    ),
+                expectedRevision = expectedRevision,
+                expectedLease = expectedLease,
+            ).also { revisionSink(it.revision) }
     }
 
     private fun expectedLease(
         workflowName: String,
         workflowId: String,
-    ): WorkflowLease = leaseProvider()
-        ?: throw StaleWorkflowLeaseException(
-            "Workflow '$workflowName' and workflowId='$workflowId' has no active lease for checkpoint mutation",
-        )
+    ): WorkflowLease =
+        leaseProvider()
+            ?: throw StaleWorkflowLeaseException(
+                "Workflow '$workflowName' and workflowId='$workflowId' has no active lease for checkpoint mutation",
+            )
 }
 
-private fun sha256Hex(value: String): String = MessageDigest.getInstance("SHA-256")
-    .digest(value.toByteArray(Charsets.UTF_8))
-    .joinToString("") { byte -> "%02x".format(byte) }
+/**
+ * E10: take a durable admission only while the presenting lease still owns the workflow.
+ *
+ * The ownership check and the counter advance are one fence operation; a `null` answer means the lease was superseded,
+ * and it becomes an authoritative refusal — never a grant a stale worker could dispatch with.
+ */
+internal suspend fun admitUnderLeaseFence(
+    fence: WorkflowLeaseCheckpointFence,
+    delegate: WorkflowCheckpointStore,
+    expectedLease: WorkflowLease,
+    request: WorkflowAdmissionRequest,
+): WorkflowAdmission =
+    fence.admitIfLeaseOwner(delegate, request, expectedLease)
+        ?: throw WorkflowAdmissionRefusedException(
+            "workflow '${request.workflowName}' run '${request.workflowId}' is not admitted: worker " +
+                "'${expectedLease.ownerId}' no longer owns its lease (ownership was superseded before the " +
+                "admission was taken)",
+        )
+
+private fun sha256Hex(value: String): String =
+    MessageDigest
+        .getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { byte -> "%02x".format(byte) }
 
 private suspend fun runCleanupPreservingCancellation(
     cancellation: CancellationException,
@@ -638,7 +757,6 @@ private suspend fun runCleanupPreservingCancellation(
         cancellation.addSuppressed(cleanupError)
     }
 }
-
 
 /**
  * Snapshot iteration that is safe under concurrent growth/shrinkage of a

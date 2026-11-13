@@ -162,6 +162,29 @@ class WorkerShutdownCoordinatorTest {
         }
     }
 
+    /** While the step is gated the drain cannot report and cannot have completed. */
+    private fun assertNoDrainProgressYet(observer: RecordingObserver) {
+        assertThat(observer.events.none { it.startsWith("drainProgress(") }).isTrue()
+        assertThat(observer.events).doesNotContain("shutdownComplete")
+    }
+
+    /**
+     * The drain reports exactly once with nothing pending, strictly between the attempt
+     * completing and shutdown finishing. `done` is not deterministic: the snapshot is taken
+     * after the poll job is cancelled, so an execution completing in that window is
+     * legitimately not captured (0) as well as captured (1). Both are drained to
+     * completion — the waiting property is asserted while the step is still gated.
+     */
+    private fun assertSingleDrainBeforeCompletion(events: List<String>) {
+        val drainEvents = events.filter { it.startsWith("drainProgress(") }
+        assertThat(drainEvents).hasSize(1)
+        assertThat(drainEvents.single()).isIn("drainProgress(0,0)", "drainProgress(1,0)")
+        val attemptCompletedAt = events.indexOf("attemptCompleted")
+        val drainProgressAt = events.indexOfFirst { it.startsWith("drainProgress(") }
+        val shutdownCompleteAt = events.indexOf("shutdownComplete")
+        assertThat(drainProgressAt).isGreaterThan(attemptCompletedAt).isLessThan(shutdownCompleteAt)
+    }
+
     @Test
     fun `shutdown drains a running execution to completion before finishing`() {
         val gate = CompletableDeferred<Unit>()
@@ -202,8 +225,13 @@ class WorkerShutdownCoordinatorTest {
             withTimeout(10_000) {
                 while (!h.observer.events.contains("shutdownStarted")) delay(5)
             }
-            // The drain must not have given up while the execution is still running.
-            assertThat(h.observer.events).doesNotContain("drainProgress(1,0)", "shutdownComplete")
+            // The step is still gated, so its job cannot complete and the drain cannot report.
+            assertNoDrainProgressYet(h.observer)
+            // And it must still be waiting rather than have given up: the drain timeout is
+            // 60s, so a drain that finishes here skipped the execution.
+            delay(300)
+            assertThat(shutdownJob.isCompleted).isFalse()
+
             gate.complete(Unit)
             withTimeout(10_000) { shutdownJob.join() }
         }
@@ -213,10 +241,10 @@ class WorkerShutdownCoordinatorTest {
         assertThat(h.observer.events).containsSubsequence(
             "shutdownStarted",
             "attemptCompleted",
-            "drainProgress(1,0)",
             "shutdownComplete",
             "workerStopped",
         )
+        assertSingleDrainBeforeCompletion(h.observer.events)
         assertThat(h.pollJob.isCancelled).isTrue()
         assertThat(h.heartbeatJob.isCancelled).isTrue()
         assertThat(h.rootSupervisor.isCancelled).isTrue()

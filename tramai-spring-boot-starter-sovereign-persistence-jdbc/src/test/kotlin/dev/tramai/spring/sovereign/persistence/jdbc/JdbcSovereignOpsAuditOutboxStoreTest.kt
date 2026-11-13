@@ -24,6 +24,7 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.concurrent.CancellationException
+import java.util.concurrent.TimeUnit.MILLISECONDS
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -33,61 +34,66 @@ import kotlin.test.assertSame
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JdbcSovereignOpsAuditOutboxStoreTest {
-
     companion object {
         private const val POSTGRES_IMAGE = "postgres:17-alpine"
 
-        private val postgres = PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("sovereign_ops_test")
-            .withUsername("test")
-            .withPassword("test")
+        private val postgres =
+            PostgreSQLContainer(POSTGRES_IMAGE)
+                .withDatabaseName("sovereign_ops_test")
+                .withUsername("test")
+                .withPassword("test")
 
-        private fun createDataSource(): DataSource = PGSimpleDataSource().apply {
-            setUrl(postgres.jdbcUrl)
-            user = postgres.username
-            password = postgres.password
-        }
+        private fun createDataSource(): DataSource =
+            PGSimpleDataSource().apply {
+                setUrl(postgres.jdbcUrl)
+                user = postgres.username
+                password = postgres.password
+            }
 
         private val BASE_NOW: Instant = Instant.parse("2026-01-01T00:00:00Z")
         private val AGGREGATE_DIGEST = "a".repeat(64)
         private val REASON_DIGEST = "b".repeat(64)
 
         private fun within(millis: Long) =
-            org.assertj.core.api.Assertions.within(java.time.Duration.ofMillis(millis))
+            org.assertj.core.api.Assertions
+                .within(java.time.Duration.ofMillis(millis))
     }
 
     private val testAesKey = ByteArray(16).also { SecureRandom().nextBytes(it) }
-    private val testCodec = object : JdbcOpsAuditOutboxPayloadCodec {
-        private val ALGORITHM = "AES/GCM/NoPadding"
-        private val TAG_LENGTH = 128
+    private val testCodec =
+        object : JdbcOpsAuditOutboxPayloadCodec {
+            private val ALGORITHM = "AES/GCM/NoPadding"
+            private val TAG_LENGTH = 128
 
-        override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload {
-            val cipher = Cipher.getInstance(ALGORITHM)
-            val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
-            val keySpec = SecretKeySpec(testAesKey, "AES")
-            val spec = GCMParameterSpec(TAG_LENGTH, nonce)
-            cipher.init(Cipher.ENCRYPT_MODE, keySpec, spec)
-            val ciphertext = cipher.doFinal(plaintext)
-            val digest = MessageDigest.getInstance("SHA-256")
-                .digest(plaintext)
-                .joinToString("") { "%02x".format(it) }
-            return JdbcEncryptedAuditOutboxPayload(
-                ciphertext = ciphertext,
-                keyId = "test-key-1",
-                algorithm = ALGORITHM,
-                nonce = nonce,
-                payloadDigest = "sha256:$digest",
-            )
-        }
+            override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload {
+                val cipher = Cipher.getInstance(ALGORITHM)
+                val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
+                val keySpec = SecretKeySpec(testAesKey, "AES")
+                val spec = GCMParameterSpec(TAG_LENGTH, nonce)
+                cipher.init(Cipher.ENCRYPT_MODE, keySpec, spec)
+                val ciphertext = cipher.doFinal(plaintext)
+                val digest =
+                    MessageDigest
+                        .getInstance("SHA-256")
+                        .digest(plaintext)
+                        .joinToString("") { "%02x".format(it) }
+                return JdbcEncryptedAuditOutboxPayload(
+                    ciphertext = ciphertext,
+                    keyId = "test-key-1",
+                    algorithm = ALGORITHM,
+                    nonce = nonce,
+                    payloadDigest = "sha256:$digest",
+                )
+            }
 
-        override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray {
-            val cipher = Cipher.getInstance(ALGORITHM)
-            val keySpec = SecretKeySpec(testAesKey, "AES")
-            val spec = GCMParameterSpec(TAG_LENGTH, envelope.nonce)
-            cipher.init(Cipher.DECRYPT_MODE, keySpec, spec)
-            return cipher.doFinal(envelope.ciphertext)
+            override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray {
+                val cipher = Cipher.getInstance(ALGORITHM)
+                val keySpec = SecretKeySpec(testAesKey, "AES")
+                val spec = GCMParameterSpec(TAG_LENGTH, envelope.nonce)
+                cipher.init(Cipher.DECRYPT_MODE, keySpec, spec)
+                return cipher.doFinal(envelope.ciphertext)
+            }
         }
-    }
 
     private lateinit var dataSource: DataSource
     private lateinit var store: JdbcSovereignOpsAuditOutboxStore
@@ -107,11 +113,12 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     @BeforeEach
     fun setUp() {
         truncateTables()
-        store = JdbcSovereignOpsAuditOutboxStore(
-            dataSource = dataSource,
-            payloadCodec = testCodec,
-            claimLeaseDuration = Duration.ofMinutes(5),
-        )
+        store =
+            JdbcSovereignOpsAuditOutboxStore(
+                dataSource = dataSource,
+                payloadCodec = testCodec,
+                claimLeaseDuration = Duration.ofMinutes(5),
+            )
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -229,10 +236,11 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     fun markReadyForDispatchTransitionsPreparedToPending() {
         runBlocking {
             store.append(record("lifecycle-ready"))
-            val result = store.markReadyForDispatch(
-                "lifecycle-ready",
-                SovereignOpsAuditOutboxStatus.PREPARED,
-            )
+            val result =
+                store.markReadyForDispatch(
+                    "lifecycle-ready",
+                    SovereignOpsAuditOutboxStatus.PREPARED,
+                )
             assertThat(result.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
             val stored = store.get("lifecycle-ready")
             assertThat(stored!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
@@ -272,12 +280,13 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.append(record("emit-me"))
             store.markReadyForDispatch("emit-me", SovereignOpsAuditOutboxStatus.PREPARED)
             store.claimPending("dispatcher", 10, BASE_NOW)
-            val result = store.markEmitted(
-                "emit-me",
-                SovereignOpsAuditOutboxStatus.EMITTING,
-                1,
-                emittedAt,
-            )
+            val result =
+                store.markEmitted(
+                    "emit-me",
+                    SovereignOpsAuditOutboxStatus.EMITTING,
+                    1,
+                    emittedAt,
+                )
             assertThat(result.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
             assertThat(result.emittedAt).isCloseTo(emittedAt, within(1000))
         }
@@ -302,13 +311,14 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.append(record("fail-retry"))
             store.markReadyForDispatch("fail-retry", SovereignOpsAuditOutboxStatus.PREPARED)
             store.claimPending("dispatcher", 10, BASE_NOW)
-            val result = store.markFailed(
-                "fail-retry",
-                SovereignOpsAuditOutboxStatus.EMITTING,
-                expectedAttemptCount = 1,
-                errorCode = "NETWORK_ERROR",
-                retryable = true,
-            )
+            val result =
+                store.markFailed(
+                    "fail-retry",
+                    SovereignOpsAuditOutboxStatus.EMITTING,
+                    expectedAttemptCount = 1,
+                    errorCode = "NETWORK_ERROR",
+                    retryable = true,
+                )
             assertThat(result.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE)
             assertThat(result.lastErrorCode).isEqualTo("NETWORK_ERROR")
         }
@@ -320,13 +330,14 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.append(record("fail-perm"))
             store.markReadyForDispatch("fail-perm", SovereignOpsAuditOutboxStatus.PREPARED)
             store.claimPending("dispatcher", 10, BASE_NOW)
-            val result = store.markFailed(
-                "fail-perm",
-                SovereignOpsAuditOutboxStatus.EMITTING,
-                expectedAttemptCount = 1,
-                errorCode = "INVALID_PAYLOAD",
-                retryable = false,
-            )
+            val result =
+                store.markFailed(
+                    "fail-perm",
+                    SovereignOpsAuditOutboxStatus.EMITTING,
+                    expectedAttemptCount = 1,
+                    errorCode = "INVALID_PAYLOAD",
+                    retryable = false,
+                )
             assertThat(result.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_PERMANENT)
             assertThat(result.lastErrorCode).isEqualTo("INVALID_PAYLOAD")
         }
@@ -336,13 +347,14 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     fun markFailedPreparedPermanentAllowedForOrphanRecovery() {
         runBlocking {
             store.append(record("orphan-recovery"))
-            val result = store.markFailed(
-                "orphan-recovery",
-                SovereignOpsAuditOutboxStatus.PREPARED,
-                expectedAttemptCount = 0,
-                errorCode = "TRANSITION_FAILED",
-                retryable = false,
-            )
+            val result =
+                store.markFailed(
+                    "orphan-recovery",
+                    SovereignOpsAuditOutboxStatus.PREPARED,
+                    expectedAttemptCount = 0,
+                    errorCode = "TRANSITION_FAILED",
+                    retryable = false,
+                )
             assertThat(result.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_PERMANENT)
             assertThat(result.lastErrorCode).isEqualTo("TRANSITION_FAILED")
         }
@@ -470,12 +482,14 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.markReadyForDispatch("conc-a", SovereignOpsAuditOutboxStatus.PREPARED)
             store.markReadyForDispatch("conc-b", SovereignOpsAuditOutboxStatus.PREPARED)
             coroutineScope {
-                val worker1 = async {
-                    store.claimPending("worker-1", 10, BASE_NOW)
-                }
-                val worker2 = async {
-                    store.claimPending("worker-2", 10, BASE_NOW)
-                }
+                val worker1 =
+                    async {
+                        store.claimPending("worker-1", 10, BASE_NOW)
+                    }
+                val worker2 =
+                    async {
+                        store.claimPending("worker-2", 10, BASE_NOW)
+                    }
                 val results1 = worker1.await()
                 val results2 = worker2.await()
                 val allClaimed = results1.map { it.outboxId } + results2.map { it.outboxId }
@@ -491,16 +505,18 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
         runBlocking {
             store.append(record("race-ready"))
             coroutineScope {
-                val attempt1 = async {
-                    runCatching {
-                        store.markReadyForDispatch("race-ready", SovereignOpsAuditOutboxStatus.PREPARED)
+                val attempt1 =
+                    async {
+                        runCatching {
+                            store.markReadyForDispatch("race-ready", SovereignOpsAuditOutboxStatus.PREPARED)
+                        }
                     }
-                }
-                val attempt2 = async {
-                    runCatching {
-                        store.markReadyForDispatch("race-ready", SovereignOpsAuditOutboxStatus.PREPARED)
+                val attempt2 =
+                    async {
+                        runCatching {
+                            store.markReadyForDispatch("race-ready", SovereignOpsAuditOutboxStatus.PREPARED)
+                        }
                     }
-                }
                 val results = listOf(attempt1.await(), attempt2.await())
                 val successes = results.count { it.isSuccess }
                 assertThat(successes).isEqualTo(1)
@@ -515,22 +531,24 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.markReadyForDispatch("race-emit-fail", SovereignOpsAuditOutboxStatus.PREPARED)
             store.claimPending("worker-1", 10, BASE_NOW)
             coroutineScope {
-                val emitAttempt = async {
-                    runCatching {
-                        store.markEmitted("race-emit-fail", SovereignOpsAuditOutboxStatus.EMITTING, 1, BASE_NOW)
+                val emitAttempt =
+                    async {
+                        runCatching {
+                            store.markEmitted("race-emit-fail", SovereignOpsAuditOutboxStatus.EMITTING, 1, BASE_NOW)
+                        }
                     }
-                }
-                val failAttempt = async {
-                    runCatching {
-                        store.markFailed(
-                            "race-emit-fail",
-                            SovereignOpsAuditOutboxStatus.EMITTING,
-                            expectedAttemptCount = 1,
-                            errorCode = "ERR",
-                            retryable = false,
-                        )
+                val failAttempt =
+                    async {
+                        runCatching {
+                            store.markFailed(
+                                "race-emit-fail",
+                                SovereignOpsAuditOutboxStatus.EMITTING,
+                                expectedAttemptCount = 1,
+                                errorCode = "ERR",
+                                retryable = false,
+                            )
+                        }
                     }
-                }
                 val results = listOf(emitAttempt.await(), failAttempt.await())
                 val successes = results.count { it.isSuccess }
                 assertThat(successes).isEqualTo(1)
@@ -542,12 +560,14 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     fun concurrentAppendWithSameEventKeyAllowsOneSuccess() {
         runBlocking {
             coroutineScope {
-                val attempt1 = async {
-                    runCatching { store.append(record("conc-id-1", eventKey = "same-key")) }
-                }
-                val attempt2 = async {
-                    runCatching { store.append(record("conc-id-2", eventKey = "same-key")) }
-                }
+                val attempt1 =
+                    async {
+                        runCatching { store.append(record("conc-id-1", eventKey = "same-key")) }
+                    }
+                val attempt2 =
+                    async {
+                        runCatching { store.append(record("conc-id-2", eventKey = "same-key")) }
+                    }
                 val results = listOf(attempt1.await(), attempt2.await())
                 val successes = results.count { it.isSuccess }
                 assertThat(successes).isEqualTo(1)
@@ -669,12 +689,13 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
         runBlocking {
             store.append(record("tamper-attempts"))
             dataSource.connection.use { conn ->
-                conn.prepareStatement(
-                    "UPDATE audit_outbox SET attempt_count = 99 WHERE outbox_id = ?"
-                ).use { stmt ->
-                    stmt.setString(1, "tamper-attempts")
-                    stmt.executeUpdate()
-                }
+                conn
+                    .prepareStatement(
+                        "UPDATE audit_outbox SET attempt_count = 99 WHERE outbox_id = ?",
+                    ).use { stmt ->
+                        stmt.setString(1, "tamper-attempts")
+                        stmt.executeUpdate()
+                    }
             }
             assertThatThrownBy {
                 runBlocking { store.get("tamper-attempts") }
@@ -688,12 +709,13 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
         runBlocking {
             store.append(record("decode-fail"))
             dataSource.connection.use { conn ->
-                conn.prepareStatement(
-                    "UPDATE audit_outbox SET encrypted_payload = decode('deadbeef', 'hex') WHERE outbox_id = ?"
-                ).use { stmt ->
-                    stmt.setString(1, "decode-fail")
-                    stmt.executeUpdate()
-                }
+                conn
+                    .prepareStatement(
+                        "UPDATE audit_outbox SET encrypted_payload = decode('deadbeef', 'hex') WHERE outbox_id = ?",
+                    ).use { stmt ->
+                        stmt.setString(1, "decode-fail")
+                        stmt.executeUpdate()
+                    }
             }
             assertThatThrownBy {
                 runBlocking { store.get("decode-fail") }
@@ -710,10 +732,11 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     fun restartSafetyNewStoreInstanceCanReadPreviouslyWrittenRecords() {
         runBlocking {
             store.append(record("restart-test"))
-            val newStore = JdbcSovereignOpsAuditOutboxStore(
-                dataSource = dataSource,
-                payloadCodec = testCodec,
-            )
+            val newStore =
+                JdbcSovereignOpsAuditOutboxStore(
+                    dataSource = dataSource,
+                    payloadCodec = testCodec,
+                )
             val result = newStore.get("restart-test")
             assertThat(result).isNotNull
             assertThat(result!!.outboxId).isEqualTo("restart-test")
@@ -724,14 +747,16 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     fun restartSafetyNewStoreInstanceCanTransitionRecord() {
         runBlocking {
             store.append(record("restart-transition"))
-            val newStore = JdbcSovereignOpsAuditOutboxStore(
-                dataSource = dataSource,
-                payloadCodec = testCodec,
-            )
-            val ready = newStore.markReadyForDispatch(
-                "restart-transition",
-                SovereignOpsAuditOutboxStatus.PREPARED,
-            )
+            val newStore =
+                JdbcSovereignOpsAuditOutboxStore(
+                    dataSource = dataSource,
+                    payloadCodec = testCodec,
+                )
+            val ready =
+                newStore.markReadyForDispatch(
+                    "restart-transition",
+                    SovereignOpsAuditOutboxStatus.PREPARED,
+                )
             assertThat(ready.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
         }
     }
@@ -770,19 +795,20 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     fun timestampsRoundTripWithoutBeingRegenerated() {
         runBlocking {
             val createdAt = Instant.parse("2026-01-15T10:30:00Z")
-            val record = SovereignOpsAuditOutboxRecord(
-                outboxId = "tstamp-test",
-                aggregateIdDigest = AGGREGATE_DIGEST,
-                eventKey = "tstamp-key",
-                actor = "operator-1",
-                workflowRunId = "wf-1",
-                correlationId = "corr-1",
-                approvalStatus = "DENIED",
-                approvalVersion = 3L,
-                reasonDigest = REASON_DIGEST,
-                reasonLength = 10,
-                createdAt = createdAt,
-            )
+            val record =
+                SovereignOpsAuditOutboxRecord(
+                    outboxId = "tstamp-test",
+                    aggregateIdDigest = AGGREGATE_DIGEST,
+                    eventKey = "tstamp-key",
+                    actor = "operator-1",
+                    workflowRunId = "wf-1",
+                    correlationId = "corr-1",
+                    approvalStatus = "DENIED",
+                    approvalVersion = 3L,
+                    reasonDigest = REASON_DIGEST,
+                    reasonLength = 10,
+                    createdAt = createdAt,
+                )
             store.append(record)
             val result = store.get("tstamp-test")
             assertThat(result).isNotNull
@@ -830,12 +856,13 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.append(record("claim-tamper-attempts"))
             store.markReadyForDispatch("claim-tamper-attempts", SovereignOpsAuditOutboxStatus.PREPARED)
             dataSource.connection.use { conn ->
-                conn.prepareStatement(
-                    "UPDATE audit_outbox SET attempt_count = 99 WHERE outbox_id = ?"
-                ).use { stmt ->
-                    stmt.setString(1, "claim-tamper-attempts")
-                    stmt.executeUpdate()
-                }
+                conn
+                    .prepareStatement(
+                        "UPDATE audit_outbox SET attempt_count = 99 WHERE outbox_id = ?",
+                    ).use { stmt ->
+                        stmt.setString(1, "claim-tamper-attempts")
+                        stmt.executeUpdate()
+                    }
             }
             assertThatThrownBy {
                 runBlocking {
@@ -982,32 +1009,34 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     fun appendUsesRecordCreatedAtInDbColumn() {
         runBlocking {
             val createdAt = Instant.parse("2026-03-15T08:00:00Z")
-            val record = SovereignOpsAuditOutboxRecord(
-                outboxId = "db-created-at",
-                aggregateIdDigest = AGGREGATE_DIGEST,
-                eventKey = "db-created-at-key",
-                actor = "operator-1",
-                workflowRunId = null,
-                correlationId = null,
-                approvalStatus = "DENIED",
-                approvalVersion = 1L,
-                reasonDigest = REASON_DIGEST,
-                reasonLength = 5,
-                createdAt = createdAt,
-            )
+            val record =
+                SovereignOpsAuditOutboxRecord(
+                    outboxId = "db-created-at",
+                    aggregateIdDigest = AGGREGATE_DIGEST,
+                    eventKey = "db-created-at-key",
+                    actor = "operator-1",
+                    workflowRunId = null,
+                    correlationId = null,
+                    approvalStatus = "DENIED",
+                    approvalVersion = 1L,
+                    reasonDigest = REASON_DIGEST,
+                    reasonLength = 5,
+                    createdAt = createdAt,
+                )
             store.append(record)
             // Read the DB column directly to verify it matches the payload
             dataSource.connection.use { conn ->
-                conn.prepareStatement(
-                    "SELECT created_at FROM audit_outbox WHERE outbox_id = 'db-created-at'"
-                ).use { stmt ->
-                    stmt.executeQuery().use { rs ->
-                        rs.next()
-                        val dbCreatedAt = rs.getTimestamp("created_at").toInstant()
-                        val diff = Duration.between(dbCreatedAt, createdAt).abs()
-                        assertThat(diff.seconds).isLessThanOrEqualTo(1)
+                conn
+                    .prepareStatement(
+                        "SELECT created_at FROM audit_outbox WHERE outbox_id = 'db-created-at'",
+                    ).use { stmt ->
+                        stmt.executeQuery().use { rs ->
+                            rs.next()
+                            val dbCreatedAt = rs.getTimestamp("created_at").toInstant()
+                            val diff = Duration.between(dbCreatedAt, createdAt).abs()
+                            assertThat(diff.seconds).isLessThanOrEqualTo(1)
+                        }
                     }
-                }
             }
         }
     }
@@ -1023,14 +1052,15 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             // DB claimed_at and next_attempt_at are NULL (PREPARED record)
             // Tamper both to non-null — payload still has null
             dataSource.connection.use { conn ->
-                conn.prepareStatement(
-                    "UPDATE audit_outbox SET claimed_at = ?, next_attempt_at = ? WHERE outbox_id = ?"
-                ).use { stmt ->
-                    stmt.setTimestamp(1, Timestamp.from(BASE_NOW))
-                    stmt.setTimestamp(2, Timestamp.from(BASE_NOW))
-                    stmt.setString(3, "null-claimed-at")
-                    stmt.executeUpdate()
-                }
+                conn
+                    .prepareStatement(
+                        "UPDATE audit_outbox SET claimed_at = ?, next_attempt_at = ? WHERE outbox_id = ?",
+                    ).use { stmt ->
+                        stmt.setTimestamp(1, Timestamp.from(BASE_NOW))
+                        stmt.setTimestamp(2, Timestamp.from(BASE_NOW))
+                        stmt.setString(3, "null-claimed-at")
+                        stmt.executeUpdate()
+                    }
             }
             assertThatThrownBy {
                 runBlocking { store.get("null-claimed-at") }
@@ -1047,32 +1077,38 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
         outboxId: String,
         status: SovereignOpsAuditOutboxStatus = SovereignOpsAuditOutboxStatus.PREPARED,
         eventKey: String = "event-$outboxId",
-    ): SovereignOpsAuditOutboxRecord = SovereignOpsAuditOutboxRecord(
-        outboxId = outboxId,
-        aggregateType = "approval",
-        aggregateIdDigest = AGGREGATE_DIGEST,
-        operation = "denyApproval",
-        eventKey = eventKey,
-        actor = "operator-1",
-        workflowRunId = "workflow-$outboxId",
-        correlationId = "correlation-$outboxId",
-        approvalStatus = "DENIED",
-        approvalVersion = 7L,
-        reasonDigest = REASON_DIGEST,
-        reasonLength = 42,
-        createdAt = BASE_NOW,
-        status = status,
-    )
+    ): SovereignOpsAuditOutboxRecord =
+        SovereignOpsAuditOutboxRecord(
+            outboxId = outboxId,
+            aggregateType = "approval",
+            aggregateIdDigest = AGGREGATE_DIGEST,
+            operation = "denyApproval",
+            eventKey = eventKey,
+            actor = "operator-1",
+            workflowRunId = "workflow-$outboxId",
+            correlationId = "correlation-$outboxId",
+            approvalStatus = "DENIED",
+            approvalVersion = 7L,
+            reasonDigest = REASON_DIGEST,
+            reasonLength = 42,
+            createdAt = BASE_NOW,
+            status = status,
+        )
 
-    private fun tamperColumn(outboxId: String, column: String, value: String) {
+    private fun tamperColumn(
+        outboxId: String,
+        column: String,
+        value: String,
+    ) {
         dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                "UPDATE audit_outbox SET $column = ? WHERE outbox_id = ?"
-            ).use { stmt ->
-                stmt.setString(1, value)
-                stmt.setString(2, outboxId)
-                stmt.executeUpdate()
-            }
+            conn
+                .prepareStatement(
+                    "UPDATE audit_outbox SET $column = ? WHERE outbox_id = ?",
+                ).use { stmt ->
+                    stmt.setString(1, value)
+                    stmt.setString(2, outboxId)
+                    stmt.executeUpdate()
+                }
         }
     }
 
@@ -1098,11 +1134,12 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     @Test
     fun `claim pending serializes behind a terminal mutation holding the only eligible row`() {
         val gated = GatedOutboxPayloadCodec(testCodec)
-        val gatedStore = JdbcSovereignOpsAuditOutboxStore(
-            dataSource = dataSource,
-            payloadCodec = gated,
-            claimLeaseDuration = Duration.ofMinutes(5),
-        )
+        val gatedStore =
+            JdbcSovereignOpsAuditOutboxStore(
+                dataSource = dataSource,
+                payloadCodec = gated,
+                claimLeaseDuration = Duration.ofMinutes(5),
+            )
         runBlocking {
             val id = "serialize-1"
             gatedStore.append(record(id))
@@ -1114,17 +1151,18 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             val expiredNow = BASE_NOW.plus(Duration.ofMinutes(5)).plusMillis(1)
 
             gated.armParking()
-            val markFailed = async(Dispatchers.Default) {
-                runCatching {
-                    gatedStore.markFailed(
-                        id,
-                        SovereignOpsAuditOutboxStatus.EMITTING,
-                        expectedAttemptCount = 1,
-                        errorCode = "boom",
-                        retryable = true,
-                    )
+            val markFailed =
+                async(Dispatchers.Default) {
+                    runCatching {
+                        gatedStore.markFailed(
+                            id,
+                            SovereignOpsAuditOutboxStatus.EMITTING,
+                            expectedAttemptCount = 1,
+                            errorCode = "boom",
+                            retryable = true,
+                        )
+                    }
                 }
-            }
             // markFailed has acquired the row lock and is parked at the codec.
             assertThat(gated.awaitParked(10_000))
                 .withFailMessage("markFailed never parked at the gated codec")
@@ -1133,9 +1171,10 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             // While the terminal mutation holds the row lock, the reclaim must
             // NOT report empty: the row is claimable on both sides of the
             // transition, so a lock cannot create a "nothing claimable" window.
-            val reclaim = async(Dispatchers.Default) {
-                gatedStore.claimPending("worker-B", 10, expiredNow)
-            }
+            val reclaim =
+                async(Dispatchers.Default) {
+                    gatedStore.claimPending("worker-B", 10, expiredNow)
+                }
             // Give reclaim a chance to enter its claim path before releasing.
             delay(250)
             gated.releaseParking()
@@ -1162,7 +1201,9 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     private class GatedOutboxPayloadCodec(
         private val delegate: JdbcOpsAuditOutboxPayloadCodec,
     ) : JdbcOpsAuditOutboxPayloadCodec {
-        private val parkNext = java.util.concurrent.atomic.AtomicBoolean(false)
+        private val parkNext =
+            java.util.concurrent.atomic
+                .AtomicBoolean(false)
         private val parked = java.util.concurrent.CountDownLatch(1)
         private val release = java.util.concurrent.CountDownLatch(1)
 
@@ -1170,8 +1211,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             parkNext.set(true)
         }
 
-        fun awaitParked(timeoutMillis: Long): Boolean =
-            parked.await(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+        fun awaitParked(timeoutMillis: Long): Boolean = parked.await(timeoutMillis, MILLISECONDS)
 
         fun releaseParking() {
             release.countDown()
@@ -1185,23 +1225,33 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             return delegate.encode(plaintext)
         }
 
-        override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray =
-            delegate.decode(envelope)
+        override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray = delegate.decode(envelope)
     }
 
     private fun runMigrations() {
         dataSource.connection.use { conn ->
             conn.createStatement().use { stmt ->
-                val v1 = javaClass.classLoader
-                    .getResourceAsStream("tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql")
-                    ?.bufferedReader()?.readText()
-                    ?: error("V1 migration not found")
+                val v1 =
+                    javaClass.classLoader
+                        .getResourceAsStream("tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql")
+                        ?.bufferedReader()
+                        ?.readText()
+                        ?: error("V1 migration not found")
                 stmt.execute(v1)
-                val v4 = javaClass.classLoader
-                    .getResourceAsStream("tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql")
-                    ?.bufferedReader()?.readText()
-                    ?: error("V4 migration not found")
+                val v4 =
+                    javaClass.classLoader
+                        .getResourceAsStream("tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql")
+                        ?.bufferedReader()
+                        ?.readText()
+                        ?: error("V4 migration not found")
                 runCatching { stmt.execute(v4) }
+                val v10 =
+                    javaClass.classLoader
+                        .getResourceAsStream("tramai/persistence/jdbc/postgres/V10__approval_actor_provenance.sql")
+                        ?.bufferedReader()
+                        ?.readText()
+                        ?: error("V10 migration not found")
+                runCatching { stmt.execute(v10) }
             }
         }
     }
@@ -1212,16 +1262,19 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     fun `append maps commit SQLException to the fixed database-failure code`() {
         runBlocking {
             val commitFailure = java.sql.SQLException("secret database diagnostic")
-            val failing = JdbcSovereignOpsAuditOutboxStore(
-                dataSource = dataSourceWithFailures(
-                    commitFailure = commitFailure,
-                ),
-                payloadCodec = testCodec,
-            )
+            val failing =
+                JdbcSovereignOpsAuditOutboxStore(
+                    dataSource =
+                        dataSourceWithFailures(
+                            commitFailure = commitFailure,
+                        ),
+                    payloadCodec = testCodec,
+                )
 
-            val thrown = runCatching {
-                failing.append(record("cancel-commit-sql"))
-            }.exceptionOrNull()
+            val thrown =
+                runCatching {
+                    failing.append(record("cancel-commit-sql"))
+                }.exceptionOrNull()
 
             assertThat(thrown).isInstanceOf(IllegalStateException::class.java)
             assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-database-failure")
@@ -1234,17 +1287,20 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
         runBlocking {
             val cancellation = CancellationException("cancelled by test")
             val rollbackFailure = java.sql.SQLException("rollback failed")
-            val failing = JdbcSovereignOpsAuditOutboxStore(
-                dataSource = dataSourceWithFailures(
-                    commitFailure = cancellation,
-                    rollbackFailure = rollbackFailure,
-                ),
-                payloadCodec = testCodec,
-            )
+            val failing =
+                JdbcSovereignOpsAuditOutboxStore(
+                    dataSource =
+                        dataSourceWithFailures(
+                            commitFailure = cancellation,
+                            rollbackFailure = rollbackFailure,
+                        ),
+                    payloadCodec = testCodec,
+                )
 
-            val thrown = runCatching {
-                failing.append(record("cancel-rollback"))
-            }.exceptionOrNull()
+            val thrown =
+                runCatching {
+                    failing.append(record("cancel-rollback"))
+                }.exceptionOrNull()
 
             assertSame(cancellation, thrown)
             assertEquals(listOf(rollbackFailure), thrown?.suppressed?.toList())
@@ -1256,17 +1312,20 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
         runBlocking {
             val cancellation = CancellationException("cancelled by test")
             val restoreFailure = java.sql.SQLException("restore failed")
-            val failing = JdbcSovereignOpsAuditOutboxStore(
-                dataSource = dataSourceWithFailures(
-                    commitFailure = cancellation,
-                    restoreFailure = restoreFailure,
-                ),
-                payloadCodec = testCodec,
-            )
+            val failing =
+                JdbcSovereignOpsAuditOutboxStore(
+                    dataSource =
+                        dataSourceWithFailures(
+                            commitFailure = cancellation,
+                            restoreFailure = restoreFailure,
+                        ),
+                    payloadCodec = testCodec,
+                )
 
-            val thrown = runCatching {
-                failing.append(record("cancel-restore"))
-            }.exceptionOrNull()
+            val thrown =
+                runCatching {
+                    failing.append(record("cancel-restore"))
+                }.exceptionOrNull()
 
             assertSame(cancellation, thrown)
             assertEquals(listOf(restoreFailure), thrown?.suppressed?.toList())

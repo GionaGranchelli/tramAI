@@ -1,8 +1,8 @@
 package dev.tramai.orchestration
 
-import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEventFailurePolicy
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
 import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
 import kotlinx.coroutines.CancellationException
@@ -23,10 +23,12 @@ import java.time.Instant
  */
 @ExperimentalTramaiInternalApi
 class FailureIsolatingWorkflowObserver(
-    private val delegate: WorkflowObserver,
+    internal val delegate: WorkflowObserver,
 ) : WorkflowObserver {
-
-    private inline fun <T> isolate(callback: String, block: () -> T) {
+    private inline fun <T> isolate(
+        callback: String,
+        block: () -> T,
+    ) {
         try {
             block()
         } catch (error: Exception) {
@@ -41,7 +43,10 @@ class FailureIsolatingWorkflowObserver(
         }
     }
 
-    override fun onWorkflowStarted(workflowName: String, context: WorkflowContext) {
+    override fun onWorkflowStarted(
+        workflowName: String,
+        context: WorkflowContext,
+    ) {
         isolate("onWorkflowStarted") { delegate.onWorkflowStarted(workflowName, context) }
     }
 
@@ -54,7 +59,11 @@ class FailureIsolatingWorkflowObserver(
         isolate("onWorkflowEvent") { delegate.onWorkflowEvent(workflowName, name, attributes, context) }
     }
 
-    override fun onWorkflowEvent(workflowName: String, event: RuntimeEvent, context: WorkflowContext) {
+    override fun onWorkflowEvent(
+        workflowName: String,
+        event: RuntimeEvent,
+        context: WorkflowContext,
+    ) {
         if (event.definition.failurePolicy == RuntimeEventFailurePolicy.FAIL_CLOSED) {
             // Authoritative emission: a failure must propagate, never be contained.
             delegate.onWorkflowEvent(workflowName, event, context)
@@ -63,11 +72,19 @@ class FailureIsolatingWorkflowObserver(
         }
     }
 
-    override fun onStepStarted(workflowName: String, stepName: String, context: WorkflowContext) {
+    override fun onStepStarted(
+        workflowName: String,
+        stepName: String,
+        context: WorkflowContext,
+    ) {
         isolate("onStepStarted") { delegate.onStepStarted(workflowName, stepName, context) }
     }
 
-    override fun onStepCompleted(workflowName: String, stepName: String, context: WorkflowContext) {
+    override fun onStepCompleted(
+        workflowName: String,
+        stepName: String,
+        context: WorkflowContext,
+    ) {
         isolate("onStepCompleted") { delegate.onStepCompleted(workflowName, stepName, context) }
     }
 
@@ -80,15 +97,26 @@ class FailureIsolatingWorkflowObserver(
         isolate("onStepFailed") { delegate.onStepFailed(workflowName, stepName, error, context) }
     }
 
-    override fun onWorkflowCompleted(workflowName: String, context: WorkflowContext) {
+    override fun onWorkflowCompleted(
+        workflowName: String,
+        context: WorkflowContext,
+    ) {
         isolate("onWorkflowCompleted") { delegate.onWorkflowCompleted(workflowName, context) }
     }
 
-    override fun onWorkflowFailed(workflowName: String, error: Throwable, context: WorkflowContext) {
+    override fun onWorkflowFailed(
+        workflowName: String,
+        error: Throwable,
+        context: WorkflowContext,
+    ) {
         isolate("onWorkflowFailed") { delegate.onWorkflowFailed(workflowName, error, context) }
     }
 
-    override fun onScheduledTick(workflowName: String, scheduledFireAt: Instant, context: WorkflowContext) {
+    override fun onScheduledTick(
+        workflowName: String,
+        scheduledFireAt: Instant,
+        context: WorkflowContext,
+    ) {
         isolate("onScheduledTick") { delegate.onScheduledTick(workflowName, scheduledFireAt, context) }
     }
 

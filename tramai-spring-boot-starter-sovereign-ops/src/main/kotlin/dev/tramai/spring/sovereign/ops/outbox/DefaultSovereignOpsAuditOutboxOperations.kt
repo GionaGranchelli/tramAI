@@ -2,6 +2,7 @@ package dev.tramai.spring.sovereign.ops.outbox
 
 import dev.tramai.spring.sovereign.ops.SovereignOpsProperties
 import kotlinx.coroutines.CancellationException
+import java.time.Clock
 import java.time.Instant
 
 /**
@@ -27,22 +28,33 @@ class DefaultSovereignOpsAuditOutboxOperations(
     private val outboxDispatcher: SovereignOpsAuditOutboxDispatcher?,
     private val properties: SovereignOpsProperties,
     private val recoveryResolver: SovereignOpsApprovalRecoveryResolver,
+    private val clock: Clock = Clock.systemUTC(),
 ) : SovereignOpsAuditOutboxOperations {
-
     private companion object {
-        private const val DEFAULT_LIMIT = 100
-        private const val MAX_LIMIT = 500
-        private const val MAX_REASON_LENGTH = 4096
-        private val SAFE_OUTBOX_ID = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")
         private val SAFE_ERROR_CODE = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")
-        private val STATUS_ORDER = listOf(
-            SovereignOpsAuditOutboxStatus.PREPARED,
-            SovereignOpsAuditOutboxStatus.PENDING,
-            SovereignOpsAuditOutboxStatus.EMITTING,
-            SovereignOpsAuditOutboxStatus.EMITTED,
-            SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE,
-            SovereignOpsAuditOutboxStatus.FAILED_PERMANENT,
-        )
+        private val STATUS_ORDER =
+            listOf(
+                SovereignOpsAuditOutboxStatus.PREPARED,
+                SovereignOpsAuditOutboxStatus.PENDING,
+                SovereignOpsAuditOutboxStatus.EMITTING,
+                SovereignOpsAuditOutboxStatus.EMITTED,
+                SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE,
+                SovereignOpsAuditOutboxStatus.FAILED_PERMANENT,
+            )
+    }
+
+    override suspend fun recordRefusal(evidence: RefusalEvidence): RefusalRecording {
+        val key = evidence.eventKey
+        outboxStore.findByEventKey(key)?.let { existing -> return duplicateOrFail(existing, evidence) }
+        val record = evidence.toOutboxRecord(clock.instant())
+        return try {
+            RefusalRecording.Recorded(outboxStore.appendDispatchable(record))
+        } catch (e: IllegalArgumentException) {
+            // The store rejected the append. If the key is taken, this was a concurrent identical retry and
+            // the stored record wins; anything else is a real rejection and is rethrown unchanged.
+            val existing = outboxStore.findByEventKey(key) ?: throw e
+            duplicateOrFail(existing, evidence)
+        }
     }
 
     override suspend fun listOutboxRecords(
@@ -50,18 +62,20 @@ class DefaultSovereignOpsAuditOutboxOperations(
         limit: Int?,
     ): List<SovereignOpsAuditOutboxSummary> {
         val boundedLimit = validateLimit(limit)
-        val records = if (status != null) {
-            outboxStore.listByStatus(status, boundedLimit)
-        } else {
-            listAcrossStatuses(boundedLimit)
-        }
+        val records =
+            if (status != null) {
+                outboxStore.listByStatus(status, boundedLimit)
+            } else {
+                listAcrossStatuses(boundedLimit)
+            }
         return records.map { it.toSummary() }
     }
 
     override suspend fun retryPending(limit: Int?): SovereignOpsAuditOutboxDispatchResult {
         val boundedLimit = validateLimit(limit)
-        val dispatcher = outboxDispatcher
-            ?: throw IllegalStateException("tramai-sovereign-ops-audit-unavailable")
+        val dispatcher =
+            outboxDispatcher
+                ?: throw IllegalStateException("tramai-sovereign-ops-audit-unavailable")
         return try {
             dispatcher.dispatchPending(boundedLimit)
         } catch (e: CancellationException) {
@@ -79,18 +93,20 @@ class DefaultSovereignOpsAuditOutboxOperations(
         validateOutboxId(outboxId)
         validateReason(reason)
 
-        val record = outboxStore.get(outboxId)
-            ?: throw IllegalStateException(ERROR_INVALID_OUTBOX_ID)
+        val record =
+            outboxStore.get(outboxId)
+                ?: throw IllegalStateException(ERROR_INVALID_OUTBOX_ID)
         require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
             "tramai-sovereign-ops-outbox-status-mismatch"
         }
-        return outboxStore.markFailed(
-            outboxId = outboxId,
-            expectedStatus = SovereignOpsAuditOutboxStatus.PREPARED,
-            expectedAttemptCount = 0,
-            errorCode = "operator-marked-prepared-failed",
-            retryable = false,
-        ).toSummary()
+        return outboxStore
+            .markFailed(
+                outboxId = outboxId,
+                expectedStatus = SovereignOpsAuditOutboxStatus.PREPARED,
+                expectedAttemptCount = 0,
+                errorCode = "operator-marked-prepared-failed",
+                retryable = false,
+            ).toSummary()
     }
 
     override suspend fun recoverPrepared(limit: Int?): SovereignOpsAuditOutboxRecoverySummary {
@@ -158,24 +174,6 @@ class DefaultSovereignOpsAuditOutboxOperations(
         return results
     }
 
-    private fun validateLimit(limit: Int?): Int {
-        val resolved = limit ?: DEFAULT_LIMIT
-        require(resolved > 0) { "tramai-sovereign-ops-invalid-limit" }
-        require(resolved <= MAX_LIMIT) { "tramai-sovereign-ops-invalid-limit" }
-        return resolved
-    }
-
-    private fun validateOutboxId(outboxId: String) {
-        require(outboxId.isNotBlank()) { ERROR_INVALID_OUTBOX_ID }
-        require(outboxId.length <= 128) { ERROR_INVALID_OUTBOX_ID }
-        require(SAFE_OUTBOX_ID.matches(outboxId)) { ERROR_INVALID_OUTBOX_ID }
-    }
-
-    private fun validateReason(reason: String) {
-        require(reason.isNotBlank()) { "tramai-sovereign-ops-invalid-reason" }
-        require(reason.length <= MAX_REASON_LENGTH) { "tramai-sovereign-ops-invalid-reason" }
-    }
-
     private fun SovereignOpsAuditOutboxRecord.toSummary(): SovereignOpsAuditOutboxSummary =
         SovereignOpsAuditOutboxSummary(
             outboxId = outboxId,
@@ -207,3 +205,38 @@ class DefaultSovereignOpsAuditOutboxOperations(
 
 /** @see DefaultSovereignOpsAuditOutboxOperations */
 private const val ERROR_INVALID_OUTBOX_ID = "tramai-sovereign-ops-invalid-outbox-id"
+
+/** Same key, different logical facts: fail closed rather than hand back another attempt's evidence. */
+private fun duplicateOrFail(
+    existing: SovereignOpsAuditOutboxRecord,
+    evidence: RefusalEvidence,
+): RefusalRecording {
+    check(evidence.matches(existing)) { "tramai-outbox-event-key-collision" }
+    return RefusalRecording.Duplicate(existing)
+}
+
+// Pure validation, hoisted out of the class so the operations object stays inside the function ceiling.
+
+private fun validateLimit(limit: Int?): Int {
+    val resolved = limit ?: DEFAULT_LIMIT
+    require(resolved > 0) { "tramai-sovereign-ops-invalid-limit" }
+    require(resolved <= MAX_LIMIT) { "tramai-sovereign-ops-invalid-limit" }
+    return resolved
+}
+
+private fun validateOutboxId(outboxId: String) {
+    require(outboxId.isNotBlank()) { ERROR_INVALID_OUTBOX_ID }
+    require(outboxId.length <= MAX_OUTBOX_ID_LENGTH) { ERROR_INVALID_OUTBOX_ID }
+    require(SAFE_OUTBOX_ID.matches(outboxId)) { ERROR_INVALID_OUTBOX_ID }
+}
+
+private fun validateReason(reason: String) {
+    require(reason.isNotBlank()) { "tramai-sovereign-ops-invalid-reason" }
+    require(reason.length <= MAX_REASON_LENGTH) { "tramai-sovereign-ops-invalid-reason" }
+}
+
+private const val MAX_OUTBOX_ID_LENGTH = 128
+private const val DEFAULT_LIMIT = 100
+private const val MAX_LIMIT = 500
+private const val MAX_REASON_LENGTH = 4096
+private val SAFE_OUTBOX_ID = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")

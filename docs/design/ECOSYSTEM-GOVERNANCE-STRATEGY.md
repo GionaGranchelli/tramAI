@@ -1,8 +1,8 @@
-# TramAI 0.7.0 — Ecosystem Governance, Simulation, and Contract-Testing Addendum
+# TramAI — Ecosystem Governance, Cross-Runtime Authority, Simulation, and Contract-Testing Strategy
 
-> **Status:** Normative companion to `docs/ROADMAP-0.7.0.md`  
-> **Target:** TramAI 0.7.0 architecture and sequencing  
-> **Scope:** Strategic/architectural amendments derived from the 2026 JVM AI framework landscape  
+> **Status:** Cross-release design strategy; release ownership is defined by the authoritative 0.7/0.8 roadmaps  
+> **Target:** 0.7 architecture constraints + one reference external-runtime authority proof; 0.8 simulation/testing/debugger/adapter DX; later compensation execution where justified  
+> **Scope:** Strategic/architectural guidance derived from the 2026 JVM AI framework landscape  
 > **Primary decision:** TramAI must remain valuable even when AI workloads are authored with another JVM framework.  
 > **Positioning consequence:** **Build AI workloads with the framework that fits. Govern their execution with TramAI.**
 
@@ -31,16 +31,14 @@ The strategic implication is not to abandon TramAI's runtime. It is to define a 
 
 > TramAI's durable differentiation is **governance authority**, not generic agent authoring.
 
-A company should not need to rewrite a Koog, Spring AI, LangChain4j, ADK, Genkit, or custom JVM workload merely to gain TramAI governance.
+A company should not need to rewrite a Koog, Spring AI, LangChain4j, Embabel, Google ADK Java, or custom JVM workload merely to gain TramAI governance.
 
-This addendum therefore strengthens four areas of the 0.7.0 roadmap:
+This strategy has four release-owned consequences:
 
-1. **cross-runtime governance boundary**;
-2. **policy simulation / decision preview**;
-3. **governance contract testing**;
-4. **developer-local governance UX**.
-
-It also records a later architectural opportunity around **tool reversibility and compensation semantics**.
+1. **0.7:** preserve a framework-independent governance boundary and prove it once against a non-TramAI JVM runtime;
+2. **0.7:** preserve explicit enforcement/evidence provenance so observation cannot masquerade as prevention;
+3. **0.8:** productize policy simulation, governance contract testing, local governance debugging, and adapter compatibility/TCK work over the same authoritative evaluator;
+4. **0.8/later:** introduce capability provenance and tool effect/reversibility semantics, with automated compensation execution deferred until concrete use cases justify it.
 
 ---
 
@@ -194,23 +192,20 @@ The local developer workflow is therefore a governance control surface, not cosm
 
 ---
 
-## 4. Must-ship boundary amendments
+## 4. Release ownership and must-ship boundary
 
-The six existing P0 capabilities in the main roadmap remain authoritative.
+The authoritative release roadmaps decide what blocks each release. This design note does not expand them implicitly.
 
-Add the following architectural requirement to the P0 boundary:
+For **0.7**, the must-ship consequences are:
 
-7. **Cross-runtime governance contract** defining how non-TramAI-authored JVM workloads can be identified, evaluated, observed, and—where integration strength permits—constrained without duplicating the policy engine.
+1. core workload/decision/evidence semantics do not require TramAI to own the agent runtime;
+2. deterministic policy/authorization meaning remains side-effect-free so later simulation/testing can reuse it;
+3. evidence preserves source/enforcement provenance and does not upgrade observation into proof of prevention;
+4. one **reference external-runtime authority proof** (XR1, using Spring AI) demonstrates `ALLOW`, `DENY`, and `REQUIRE_APPROVAL` across a non-TramAI execution boundary without a second policy model.
 
-Add the following P0/P1 capability:
+For **0.8**, productize the broader DX layer described below: policy simulation/decision preview, governance contract testing, local governance debugger, adapter SDK/TCK and additional runtime integrations, plus capability/effect semantics where justified.
 
-8. **Policy Simulation / Decision Preview** using the authoritative policy/selection evaluator with all external side effects disabled.
-
-Add the following P1 capability:
-
-9. **Governance Contract Testing** enabling deterministic CI assertions over classification, provider/model eligibility, tool approval, fallback, and other governance decisions.
-
-These additions do not require shipping production-grade adapters for every JVM framework in 0.7.0. The P0 requirement is the architecture and contract that prevents TramAI from becoming impossible to integrate later.
+0.7 does **not** require production-grade adapters for every JVM framework, a public simulation API, a governance-testing SDK, or debugger UX.
 
 ---
 
@@ -379,20 +374,21 @@ Therefore:
 7. Replayed decision IDs must not accidentally authorize a different action.
 8. Evidence must distinguish adapter-reported facts from TramAI-observed/enforced facts.
 
-### 0.2.6 Initial adapter targets
+### 0.2.6 Reference proof and later adapter targets
 
-0.7.0 does **not** require all of these to ship.
+0.7 XR1 uses **Spring AI** as the single reference external-runtime authority proof. It is intentionally narrow and may use an experimental integration surface.
 
-Candidates for post-contract adapters:
+0.8 candidates after XR1 include:
 
-- Spring AI;
 - Koog;
 - LangChain4j;
+- Embabel;
+- Google ADK Java;
 - plain HTTP/custom JVM model clients;
 - MCP tool execution boundaries;
-- generic OpenAI-compatible provider call boundary.
+- generic OpenAI-compatible provider call boundaries.
 
-The first production adapter should be selected by adoption value and ability to provide meaningful enforcement, not brand visibility.
+Broader production adapters should be selected by adoption value and ability to provide meaningful enforcement, not brand visibility.
 
 ### 0.2.7 Acceptance criteria
 
@@ -411,7 +407,7 @@ The first production adapter should be selected by adoption value and ability to
 
 ## Epic 1.2: Authoritative policy simulation
 
-**Priority:** P0/P1  
+**Priority:** 0.8 — Governance DX & Intelligence  
 **Goal:** Allow developers/operators to ask "what would TramAI decide?" without executing a provider call, tool, workflow action, approval side effect, or network request.
 
 ### 1.2.1 Core invariant
@@ -598,7 +594,7 @@ Diff mode may be P1 if basic simulation is P0/P1.
 
 ## Epic 5.2: Local governance debugger
 
-**Priority:** P1, with P0 architectural compatibility  
+**Priority:** 0.8 — Governance DX & Intelligence; 0.7 preserves the structured decision/provenance inputs it needs  
 **Goal:** Make TramAI governance understandable during development before a workload reaches an operational control plane.
 
 ### 5.2.1 Principle
@@ -680,7 +676,7 @@ Rules:
 
 ## Epic D.1: Deterministic governance test kit
 
-**Priority:** P1  
+**Priority:** 0.8 — Governance DX & Intelligence  
 **Goal:** Let teams prove governance invariants in CI without network calls, real models, or real tool side effects.
 
 ### D.1.1 Why this differs from generic AI testing
@@ -840,7 +836,7 @@ SARIF is exploratory and should not block the initial test kit.
 
 ## Epic E.1: Reversibility metadata
 
-**Priority:** P2 / later than the 0.7.0 core  
+**Priority:** 0.8 candidate for effect metadata; automated compensation execution is later/optional  
 **Goal:** Allow governance decisions to account for whether a tool's external effect can be reversed or compensated.
 
 ### E.1.1 Motivation
@@ -905,11 +901,11 @@ A "compensatable" action must never be presented as equivalent to a transaction 
 
 Compensation can fail and may require separate authorization.
 
-### E.1.5 0.7.0 decision
+### E.1.5 Release ownership
 
-Do not block 0.7.0 on compensation execution.
+0.7 establishes only the honesty boundary: cancellation/fencing future execution must not be represented as compensation of already-produced external effects.
 
-However, avoid tool-governance APIs that make future effect/reversibility metadata impossible to add cleanly.
+0.8 may add effect/reversibility metadata where useful. A general compensation/saga execution engine remains later/optional and must never pretend compensatable is equivalent to transactional rollback.
 
 ---
 
@@ -1107,21 +1103,11 @@ TramAI can provide the deterministic result without claiming that passing CI equ
 
 ## 8. Reference workflow amendment
 
-Extend the primary 0.7.0 reference workflow with a pre-execution simulation and an external-runtime variant.
+0.7 proves the native governed loop and one external-runtime authority boundary. 0.8 adds pre-execution simulation, contract testing, and debugger workflows over the same semantics.
 
-### 8.1 Native flow
+### 8.1 Native 0.7 flow
 
 ```text
-Developer changes provider/tool policy
-        ↓
-Governance contract tests run
-        ↓
-Policy simulation shows candidate routes
-        ↓
-No unexpected governance regression
-        ↓
-Deploy
-        ↓
 Sensitive document enters
         ↓
 Classification
@@ -1135,6 +1121,22 @@ Approval
 Execution
         ↓
 Semantic trace + evidence
+```
+
+### 8.1a 0.8 developer preflight extension
+
+```text
+Developer changes provider/tool policy
+        ↓
+Governance contract tests run
+        ↓
+Policy simulation shows candidate routes
+        ↓
+No unexpected governance regression
+        ↓
+Deploy
+        ↓
+execute through the same authoritative semantics
 ```
 
 ### 8.2 External-runtime flow
@@ -1163,73 +1165,46 @@ Evidence records include enforcement provenance
 
 ### 8.3 Demonstration acceptance criteria
 
-At least one 0.7.x demonstration should eventually prove that TramAI governance is conceptually independent from agent authoring.
+0.7 XR1 is the required reference proof that TramAI governance is conceptually independent from agent authoring.
 
-The demo does not require every external framework. One adapter is enough to validate the boundary.
+The proof does not require every external framework. One Spring AI integration boundary is enough to validate the architecture; broader adapter productization moves to 0.8.
 
 ---
 
 ## 9. Execution-order amendments
 
-The main roadmap's dependency ordering remains valid, with these insertions.
+The authoritative 0.7 execution board remains the source of sequencing truth.
 
-### Milestone A — Architecture contract
+### 0.7 — preserve and prove authority
 
-Existing:
+1. Finish 0.7.1 identity/authority without cross-runtime scope churn.
+2. In 0.7.2, keep policy/authorization evaluation deterministic and side-effect-free.
+3. In 0.7.3, establish reusable decision identity/reason semantics rather than provider-selection-only representations.
+4. Run **XR1 — Spring AI external-runtime authority proof** after 0.7.3 semantics exist and before 0.7.4 evidence/projection contracts are frozen.
+5. In 0.7.4, finalize runtime/integration identity plus enforcement/evidence provenance informed by XR1.
+6. In 0.7.5–0.7.8, preserve provenance through reconstruction, control, cancellation, and Dashboard explanation without adding a second policy engine.
 
-1. control-plane authority/read-model/command ADR;
-2. control-plane module/API scaffold;
-3. safe projection rules.
+### 0.8 — productize governance DX
 
-Add:
+After 0.7 proves the authority boundary:
 
-4. **External-runtime governance boundary ADR/SPI**;
-5. **enforcement-mode and evidence-provenance model**.
+- policy simulation / decision preview and diff;
+- governance contract-testing module;
+- local governance debugger;
+- adapter SDK/SPI plus compatibility TCK;
+- additional adapters based on adoption value;
+- capability provenance and registration/discovery/exposure semantics;
+- tool effect/reversibility metadata;
+- compensation execution only if concrete scenarios justify it.
 
-These should land before public adapter APIs are committed.
+### Deferred beyond the immediate 0.8 core
 
-### Milestone B — Selection and workload identity
-
-After candidate eligibility and workload identity:
-
-6. **Policy simulation core using authoritative selection/policy evaluator**;
-7. stable decision/reason normalization suitable for execution, simulation, and tests.
-
-### Milestone C — Projection layer
-
-Add projection support for:
-
-- enforcement mode;
-- external runtime identity;
-- simulation records/summaries where persisted;
-- evidence provenance.
-
-### Milestone D — Dashboard 2.0
-
-Add:
-
-- local governance debugger affordances;
-- "why" views based on structured decisions;
-- simulation/decision-preview UI;
-- explicit governance coverage/enforcement-mode display.
-
-### Milestone F — Expansion
-
-Add:
-
-- governance contract testing module;
-- first external-runtime adapter proof;
-- simulation diff mode if not already delivered.
-
-### Deferred / post-0.7.0
-
-- broad framework adapter matrix;
-- tool compensation execution;
-- external-runtime discovery across the enterprise;
-- remote agent marketplace/inventory connectors.
+- universal adapter coverage for every AI framework;
+- enterprise-wide external-runtime discovery;
+- remote agent marketplace/inventory connectors;
+- generic distributed transaction/saga engine.
 
 ---
-
 ## 10. Proposed module boundaries
 
 Names are provisional.
@@ -1350,47 +1325,50 @@ Add to Section 9 of the main roadmap.
 - UI/evidence language never upgrades OBSERVED into ENFORCED.
 - External adapter identity is authenticated/registered according to the declared threat model for authoritative mode.
 
-### 13.2 Simulation gates
+### 13.2 0.8 simulation gates
 
 - Simulation performs zero external side effects.
 - Simulation and execution share the authoritative evaluator.
 - Simulation results are type-distinct from executable authorization/evidence of enforcement.
 - Deterministic parity tests are green.
 
-### 13.3 Governance-test gates
+### 13.3 0.8 governance-test gates
 
-If the testing module ships in 0.7.0:
+When the testing module ships:
 
 - it runs offline;
 - it cannot invoke real tools/providers by default;
 - failures expose structured reason paths;
 - production evaluator code is exercised directly.
 
-### 13.4 Developer UX gate
+### 13.4 0.8 developer UX gate
 
-For the reference workflow, a developer can answer "why was this denied/approved/routed?" from structured local/control-plane output without reverse-engineering logs or frontend policy code.
+A developer can answer "why was this denied/approved/routed?" from structured local/control-plane output without reverse-engineering logs or frontend policy code.
 
 ---
 
 ## 14. Success-metric amendments
 
-Add product/architecture metrics:
+Split metrics by release ownership:
+
+### 0.7 metrics
+
+| Metric | Target |
+|---|---:|
+| XR1 denied operations executed at the declared authoritative boundary | 0 |
+| XR1 approval-required operations executed before approval | 0 |
+| External-reference evidence records that preserve enforcement provenance | 100% |
+| OBSERVED/INSTRUMENTED facts presented as AUTHORITATIVE | 0 |
+| Generic framework-specific concepts leaked into core governance semantics | 0 known intentional violations |
+
+### 0.8 metrics
 
 | Metric | Target |
 |---|---:|
 | Simulation/runtime deterministic decision parity | 100% for declared deterministic fixtures |
 | Simulation external side effects | 0 |
-| External workloads with explicit enforcement mode | 100% |
-| Evidence records that preserve enforcement provenance | 100% |
 | Governance test assertions using production evaluator | 100% |
-| OBSERVED integrations presented as AUTHORITATIVE | 0 |
-| Generic framework-specific concepts leaked into core governance model | 0 known intentional violations |
-
-Longer-term adoption metric:
-
-> At least one non-TramAI-authored JVM workload can participate in TramAI governance without rewriting its agent/workflow into a TramAI-native abstraction.
-
-This may be a 0.7.x proof rather than a hard 0.7.0 GA gate if implementation scope becomes excessive.
+| Supported external adapters with explicit enforcement mode | 100% |
 
 ---
 
@@ -1438,7 +1416,7 @@ The framework landscape suggests the following product discipline.
 
 ## 17. Architecture decision summary
 
-After this amendment, the 0.7.0 architecture should satisfy the following statement:
+After the 0.7/0.8 split recorded by the authoritative roadmaps, the architecture should satisfy the following statement:
 
 > TramAI may execute a workload itself, or it may govern an execution boundary owned by another JVM AI runtime. In either case, authoritative TramAI governance semantics remain typed, deterministic, explainable, headless, testable, and evidence-producing. The control plane displays those semantics without becoming a second policy engine. Where TramAI cannot guarantee enforcement, it says so explicitly.
 

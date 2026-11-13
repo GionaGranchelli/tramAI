@@ -110,6 +110,37 @@ The cross-check verifies that **no tool enforcement events appear in generic `po
 
 ---
 
+## What an ALLOW Record Means — Authorization, Not Completion
+
+The invocation counters in this example (`Tool execution: Exactly once`, and the 0-vs-1 counts the test suite
+asserts) describe **what happened in this example's process**: this provider, this engine and this ledger, wired
+together here and inspected here. They are a property of that run, not of the evidence. They do not turn an
+`ALLOW` evidence record into a general-purpose completion certificate.
+
+A `tool.permission` `ALLOW` record attests that the policy engine **authorized** the operation at the named
+enforcement point. It does not attest that the tool started, completed, succeeded, or changed external state — and
+the absence of completion evidence must not be read as success *or* as failure.
+
+```
+Policy decision:             ALLOW
+Audit emission:              successful
+Delegate invocation:         attempted
+Delegate result:             exception
+Result: ALLOW evidence is valid. Successful execution is not established.
+```
+
+Recording the authorization **before** the delegate runs is intentional: it lets the boundary refuse to delegate at
+all when the required authorization audit write fails — an action that ran with no evidence it was authorized is
+exactly the gap this boundary exists to close. The consequence is that an `ALLOW` record cannot distinguish a
+delegate that succeeded from one that threw after being authorized.
+
+The normative statement of these semantics, and of the limits they place on any reader, is in the
+[Runtime Evidence Export Model](../evidence/runtime-evidence-export-model.md#d-tool-permission-decisions-implemented)
+under the `tool.permission` family. This guide restates the meaning for the example; it adds no new decision kind
+and changes no ALLOW, DENY or REQUIRE_APPROVAL behaviour.
+
+---
+
 ## Tool Security Metadata
 
 Each governed tool declares its security metadata at definition time:
@@ -156,6 +187,7 @@ This example demonstrates:
 
 This example does **not** demonstrate:
 
+- ❌ Execution completion as a property of the evidence — an `ALLOW` record attests authorization, not that the tool ran, completed or succeeded
 - ❌ Durable approval storage or resume workflow
 - ❌ `REDACT_RESULT` or `ALLOW_INTERNAL_ONLY` decisions (not yet implemented)
 - ❌ MCP-connected tool governance

@@ -1,10 +1,105 @@
 package dev.tramai.engine
 
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.model.Message
-import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ResolvedTool
+import dev.tramai.core.model.ToolCall
 import dev.tramai.core.policy.ToolSecurityMetadata
+
+/**
+ * One durable GOVERNED suspension (0.7.1d): the existing suspension record plus the
+ * canonical run identity of the execution that created it.
+ *
+ * The engine identity and the canonical run identity must agree — a suspension whose
+ * engine identity says R1 while its canonical run identity says R2 is corruption, not a
+ * binding mismatch, so the invariant is checked here (and again when the record is
+ * decoded from durable storage).
+ *
+ * The persisted identity is the AUTHORITY for a standalone continuation. A caller-supplied
+ * identity is only a consistency precondition: requiring the caller to re-supply identity
+ * would create a second source that must then be reconciled against this one.
+ */
+data class GovernedSuspendedInvocation(
+    val metadata: SuspendedInvocationMetadata,
+    val runIdentity: GovernedRunIdentity,
+    /**
+     * How this suspension's provenance was established. Never inferred at resume time: a record that states nothing is
+     * [SuspensionBindingProvenance.LEGACY_UNKNOWN], which the workflow-authoritative profile treats as fail-closed.
+     */
+    val provenance: SuspensionBindingProvenance = SuspensionBindingProvenance.LEGACY_UNKNOWN,
+    /**
+     * The durable workflow checkpoint this suspension belongs to, when [provenance] is
+     * [SuspensionBindingProvenance.WORKFLOW_BOUND]. Supplied by the workflow execution context at suspension time,
+     * never derived from `deployment.workloadId` at resume time.
+     */
+    val checkpointBinding: WorkflowCheckpointBinding? = null,
+) {
+    init {
+        require(runIdentity.runId.value == metadata.identity.workflowRunId) {
+            "Governed suspension identity is inconsistent: engine workflowRunId " +
+                "'${metadata.identity.workflowRunId}' != canonical runId '${runIdentity.runId.value}'"
+        }
+        require((provenance == SuspensionBindingProvenance.WORKFLOW_BOUND) == (checkpointBinding != null)) {
+            "Governed suspension provenance '$provenance' and checkpoint binding '$checkpointBinding' disagree: " +
+                "a workflow-bound suspension needs its binding, and no other provenance may carry one"
+        }
+        require(checkpointBinding == null || checkpointBinding.workflowId == runIdentity.runId.value) {
+            "Governed suspension binds checkpoint '${checkpointBinding?.workflowId}' but its canonical run is " +
+                "'${runIdentity.runId.value}'"
+        }
+    }
+
+    /**
+     * Binary compatibility: the two-argument constructor published before E9. Hidden from Kotlin source, so new code
+     * must state its provenance, but kept on the JVM so already-compiled clients still link.
+     */
+    @Deprecated("State the suspension's provenance explicitly", level = DeprecationLevel.HIDDEN)
+    constructor(
+        metadata: SuspendedInvocationMetadata,
+        runIdentity: GovernedRunIdentity,
+    ) : this(metadata, runIdentity, SuspensionBindingProvenance.LEGACY_UNKNOWN, null)
+}
+
+/**
+ * Additive durable capability: governed approval suspensions (0.7.1d).
+ *
+ * Deliberately a separate interface rather than new methods on [SuspendedInvocationStore]:
+ * third parties implement that SPI, and adding a required method would break them. A
+ * governed suspension therefore REQUIRES this capability and fails closed when the
+ * configured store does not provide it — before any approval or continuation state is
+ * durably created. The degradation this prevents is "looks governed until the first
+ * approval boundary, then silently continues with run-id-only semantics".
+ *
+ * Implementations must persist [GovernedSuspendedInvocation] and its replay envelope as
+ * ONE durable record (one encrypted file write, one JDBC row/transaction, one logical
+ * in-memory mutation): two independently written records could leave a governed
+ * suspension carrying only partial attribution after a crash.
+ */
+interface GovernedSuspendedInvocationStore : SuspendedInvocationStore {
+    suspend fun createGoverned(
+        suspended: GovernedSuspendedInvocation,
+        replayEnvelope: SensitiveReplayEnvelope,
+    )
+
+    /**
+     * Canonical run identity of an existing governed suspension, or null when the record
+     * is a legacy (ungoverned) suspension.
+     */
+    suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity?
+
+    /**
+     * The whole governed suspension record when the store can provide it, including its provenance and any checkpoint
+     * binding; null when the record is absent or ungoverned.
+     *
+     * Defaulted to null so existing third-party stores keep compiling: a store that cannot answer is treated as
+     * [SuspensionBindingProvenance.LEGACY_UNKNOWN], which the workflow-authoritative profile refuses rather than
+     * assumes. Implementations that persist bindings override this.
+     */
+    suspend fun governedSuspension(approvalId: String): GovernedSuspendedInvocation? = null
+}
 
 /**
  * Snapshot of token budget tracker state at the point of suspension.

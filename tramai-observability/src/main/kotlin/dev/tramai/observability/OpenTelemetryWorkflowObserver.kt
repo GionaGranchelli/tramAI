@@ -37,23 +37,26 @@ class OpenTelemetryWorkflowObserver(
         tracer = openTelemetry.getTracer(instrumentationName),
         meter = openTelemetry.getMeter(instrumentationName),
     )
+
     override fun onWorkflowStarted(
         workflowName: String,
         context: WorkflowContext,
     ) {
-        val runKey = WorkflowRunKey(
-            workflowName = workflowName,
-            workflowId = context.workflowId,
-        )
+        val runKey =
+            WorkflowRunKey(
+                workflowName = workflowName,
+                workflowId = context.workflowId,
+            )
         val span = tracer.spanBuilder("workflow.$workflowName").startSpan()
-        val baseAttributes = mutableMapOf<String, Any?>(
-            RuntimeAttributes.WORKFLOW_NAME.name to workflowName,
-            RuntimeAttributes.WORKFLOW_ID.name to context.workflowId,
-        ).apply {
-            context.attributes.forEach { (key, value) ->
-                put(DynamicAttributeNamespaces.WORKFLOW_CONTEXT.key(key), value)
+        val baseAttributes =
+            mutableMapOf<String, Any?>(
+                RuntimeAttributes.WORKFLOW_NAME.name to workflowName,
+                RuntimeAttributes.WORKFLOW_ID.name to context.workflowId,
+            ).apply {
+                context.attributes.forEach { (key, value) ->
+                    put(DynamicAttributeNamespaces.WORKFLOW_CONTEXT.key(key), value)
+                }
             }
-        }
         span.setAttribute(RuntimeAttributes.WORKFLOW_NAME.name, workflowName)
         span.setAttribute(RuntimeAttributes.WORKFLOW_ID.name, context.workflowId)
         context.attributes.forEach { (key, value) ->
@@ -69,12 +72,14 @@ class OpenTelemetryWorkflowObserver(
                 else -> span.setAttribute(attributeName, value.toString())
             }
         }
-        activeWorkflows[runKey] = ActiveWorkflowSpan(
-            span = span,
-            startedAtNanos = System.nanoTime(),
-            baseAttributes = baseAttributes,
-        )
+        activeWorkflows[runKey] =
+            ActiveWorkflowSpan(
+                span = span,
+                startedAtNanos = System.nanoTime(),
+                baseAttributes = baseAttributes,
+            )
     }
+
     override fun onWorkflowEvent(
         workflowName: String,
         name: String,
@@ -95,6 +100,7 @@ class OpenTelemetryWorkflowObserver(
             ),
         )
     }
+
     override fun onStepStarted(
         workflowName: String,
         stepName: String,
@@ -106,6 +112,7 @@ class OpenTelemetryWorkflowObserver(
             },
         )
     }
+
     override fun onStepCompleted(
         workflowName: String,
         stepName: String,
@@ -117,6 +124,7 @@ class OpenTelemetryWorkflowObserver(
             },
         )
     }
+
     override fun onStepFailed(
         workflowName: String,
         stepName: String,
@@ -124,7 +132,7 @@ class OpenTelemetryWorkflowObserver(
         context: WorkflowContext,
     ) {
         activeWorkflows[WorkflowRunKey(workflowName, context.workflowId)]?.apply {
-            span.recordException(error)
+            span.recordSafeException(error)
             recordEvent(
                 RuntimeEvent.of(RuntimeEvents.WORKFLOW_STEP_FAILED) {
                     set(RuntimeAttributes.STEP_NAME, stepName)
@@ -133,6 +141,7 @@ class OpenTelemetryWorkflowObserver(
             )
         }
     }
+
     override fun onWorkflowCompleted(
         workflowName: String,
         context: WorkflowContext,
@@ -144,6 +153,7 @@ class OpenTelemetryWorkflowObserver(
             error = null,
         )
     }
+
     override fun onWorkflowFailed(
         workflowName: String,
         error: Throwable,
@@ -156,31 +166,37 @@ class OpenTelemetryWorkflowObserver(
             error = error,
         )
     }
+
     private fun completeWorkflow(
         workflowName: String,
         context: WorkflowContext,
         outcome: String,
         error: Throwable?,
     ) {
-        val active = activeWorkflows.remove(
-            WorkflowRunKey(
-                workflowName = workflowName,
-                workflowId = context.workflowId,
-            ),
-        ) ?: return
+        val active =
+            activeWorkflows.remove(
+                WorkflowRunKey(
+                    workflowName = workflowName,
+                    workflowId = context.workflowId,
+                ),
+            ) ?: return
         if (error != null) {
-            active.span.recordException(error)
-            active.span.setStatus(StatusCode.ERROR, error.message ?: "Workflow failed")
+            active.span.recordSafeException(error)
+            // A fixed description: the exception message is upstream-controlled and never exported.
+            active.span.setStatus(StatusCode.ERROR, "Workflow failed")
         }
         active.span.setAttribute(RuntimeAttributes.WORKFLOW_OUTCOME.name, outcome)
-        val attributes = workflowAttributes(
-            workflowName = workflowName,
-            workflowId = context.workflowId,
-            outcome = outcome,
-            extraAttributes = error?.let {
-                mapOf(RuntimeAttributes.ERROR_TYPE_FULL.name to (it::class.simpleName ?: "Throwable"))
-            }.orEmpty(),
-        )
+        val attributes =
+            workflowAttributes(
+                workflowName = workflowName,
+                workflowId = context.workflowId,
+                outcome = outcome,
+                extraAttributes =
+                    error
+                        ?.let {
+                            mapOf(RuntimeAttributes.ERROR_TYPE_FULL.name to (it::class.simpleName ?: "Throwable"))
+                        }.orEmpty(),
+            )
         metrics.runs.add(1, attributes)
         metrics.duration.record(
             (System.nanoTime() - active.startedAtNanos) / 1_000_000.0,
@@ -188,38 +204,49 @@ class OpenTelemetryWorkflowObserver(
         )
         active.span.end()
     }
+
     private fun workflowAttributes(
         workflowName: String,
         workflowId: String,
         outcome: String?,
         extraAttributes: Map<String, Any?>,
-    ): Attributes = buildMap<String, Any?> {
-        put(RuntimeAttributes.WORKFLOW_NAME.name, workflowName)
-        put(RuntimeAttributes.WORKFLOW_ID.name, workflowId)
-        outcome?.let { put(RuntimeAttributes.WORKFLOW_OUTCOME.name, it) }
-        putAll(extraAttributes)
-    }.toOpenTelemetryAttributes()
+    ): Attributes =
+        buildMap<String, Any?> {
+            put(RuntimeAttributes.WORKFLOW_NAME.name, workflowName)
+            put(RuntimeAttributes.WORKFLOW_ID.name, workflowId)
+            outcome?.let { put(RuntimeAttributes.WORKFLOW_OUTCOME.name, it) }
+            putAll(extraAttributes)
+        }.toOpenTelemetryAttributes()
 }
+
 private data class WorkflowRunKey(
     val workflowName: String,
     val workflowId: String,
 )
+
 private class OpenTelemetryWorkflowMetrics(
     meter: Meter,
 ) {
-    val runs: LongCounter = meter.counterBuilder(RuntimeMetrics.WORKFLOW_RUNS.name)
-        .setDescription(RuntimeMetrics.WORKFLOW_RUNS.description)
-        .setUnit(RuntimeMetrics.WORKFLOW_RUNS.unit)
-        .build()
-    val duration: DoubleHistogram = meter.histogramBuilder(RuntimeMetrics.WORKFLOW_DURATION.name)
-        .setDescription(RuntimeMetrics.WORKFLOW_DURATION.description)
-        .setUnit(RuntimeMetrics.WORKFLOW_DURATION.unit)
-        .build()
-    val events: LongCounter = meter.counterBuilder(RuntimeMetrics.WORKFLOW_EVENTS.name)
-        .setDescription(RuntimeMetrics.WORKFLOW_EVENTS.description)
-        .setUnit(RuntimeMetrics.WORKFLOW_EVENTS.unit)
-        .build()
+    val runs: LongCounter =
+        meter
+            .counterBuilder(RuntimeMetrics.WORKFLOW_RUNS.name)
+            .setDescription(RuntimeMetrics.WORKFLOW_RUNS.description)
+            .setUnit(RuntimeMetrics.WORKFLOW_RUNS.unit)
+            .build()
+    val duration: DoubleHistogram =
+        meter
+            .histogramBuilder(RuntimeMetrics.WORKFLOW_DURATION.name)
+            .setDescription(RuntimeMetrics.WORKFLOW_DURATION.description)
+            .setUnit(RuntimeMetrics.WORKFLOW_DURATION.unit)
+            .build()
+    val events: LongCounter =
+        meter
+            .counterBuilder(RuntimeMetrics.WORKFLOW_EVENTS.name)
+            .setDescription(RuntimeMetrics.WORKFLOW_EVENTS.description)
+            .setUnit(RuntimeMetrics.WORKFLOW_EVENTS.unit)
+            .build()
 }
+
 private data class ActiveWorkflowSpan(
     val span: Span,
     val startedAtNanos: Long,

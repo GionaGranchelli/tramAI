@@ -51,13 +51,14 @@ class OpenTelemetryOperationObserver(
         return SpanBackedObservation(
             span = span,
             metrics = metrics,
-            baseAttributes = mapOf(
-                RuntimeAttributes.GEN_AI_SYSTEM.name to context.providerId,
-                RuntimeAttributes.GEN_AI_REQUEST_MODEL.name to context.requestedModel,
-                RuntimeAttributes.OPERATION_INTERFACE.name to context.serviceInterface,
-                RuntimeAttributes.OPERATION_METHOD.name to context.methodName,
-                RuntimeAttributes.RETRY_ATTEMPT.name to context.attempt.toLong(),
-            ),
+            baseAttributes =
+                mapOf(
+                    RuntimeAttributes.GEN_AI_SYSTEM.name to context.providerId,
+                    RuntimeAttributes.GEN_AI_REQUEST_MODEL.name to context.requestedModel,
+                    RuntimeAttributes.OPERATION_INTERFACE.name to context.serviceInterface,
+                    RuntimeAttributes.OPERATION_METHOD.name to context.methodName,
+                    RuntimeAttributes.RETRY_ATTEMPT.name to context.attempt.toLong(),
+                ),
         )
     }
 }
@@ -65,47 +66,63 @@ class OpenTelemetryOperationObserver(
 private class OpenTelemetryMetrics(
     meter: Meter,
 ) {
-    val attempts: LongCounter = meter.counterBuilder(RuntimeMetrics.OPERATION_ATTEMPTS.name)
-        .setDescription(RuntimeMetrics.OPERATION_ATTEMPTS.description)
-        .setUnit(RuntimeMetrics.OPERATION_ATTEMPTS.unit)
-        .build()
+    val attempts: LongCounter =
+        meter
+            .counterBuilder(RuntimeMetrics.OPERATION_ATTEMPTS.name)
+            .setDescription(RuntimeMetrics.OPERATION_ATTEMPTS.description)
+            .setUnit(RuntimeMetrics.OPERATION_ATTEMPTS.unit)
+            .build()
 
-    val duration: DoubleHistogram = meter.histogramBuilder(RuntimeMetrics.OPERATION_DURATION.name)
-        .setDescription(RuntimeMetrics.OPERATION_DURATION.description)
-        .setUnit(RuntimeMetrics.OPERATION_DURATION.unit)
-        .build()
+    val duration: DoubleHistogram =
+        meter
+            .histogramBuilder(RuntimeMetrics.OPERATION_DURATION.name)
+            .setDescription(RuntimeMetrics.OPERATION_DURATION.description)
+            .setUnit(RuntimeMetrics.OPERATION_DURATION.unit)
+            .build()
 
-    val inputTokens: LongCounter = meter.counterBuilder(RuntimeMetrics.OPERATION_INPUT_TOKENS.name)
-        .setDescription(RuntimeMetrics.OPERATION_INPUT_TOKENS.description)
-        .setUnit(RuntimeMetrics.OPERATION_INPUT_TOKENS.unit)
-        .build()
+    val inputTokens: LongCounter =
+        meter
+            .counterBuilder(RuntimeMetrics.OPERATION_INPUT_TOKENS.name)
+            .setDescription(RuntimeMetrics.OPERATION_INPUT_TOKENS.description)
+            .setUnit(RuntimeMetrics.OPERATION_INPUT_TOKENS.unit)
+            .build()
 
-    val outputTokens: LongCounter = meter.counterBuilder(RuntimeMetrics.OPERATION_OUTPUT_TOKENS.name)
-        .setDescription(RuntimeMetrics.OPERATION_OUTPUT_TOKENS.description)
-        .setUnit(RuntimeMetrics.OPERATION_OUTPUT_TOKENS.unit)
-        .build()
+    val outputTokens: LongCounter =
+        meter
+            .counterBuilder(RuntimeMetrics.OPERATION_OUTPUT_TOKENS.name)
+            .setDescription(RuntimeMetrics.OPERATION_OUTPUT_TOKENS.description)
+            .setUnit(RuntimeMetrics.OPERATION_OUTPUT_TOKENS.unit)
+            .build()
 
-    val inputTokensPerAttempt: LongHistogram = meter.histogramBuilder(RuntimeMetrics.OPERATION_INPUT_TOKENS_PER_ATTEMPT.name)
-        .setDescription(RuntimeMetrics.OPERATION_INPUT_TOKENS_PER_ATTEMPT.description)
-        .setUnit(RuntimeMetrics.OPERATION_INPUT_TOKENS_PER_ATTEMPT.unit)
-        .ofLongs()
-        .build()
+    val inputTokensPerAttempt: LongHistogram =
+        meter
+            .histogramBuilder(RuntimeMetrics.OPERATION_INPUT_TOKENS_PER_ATTEMPT.name)
+            .setDescription(RuntimeMetrics.OPERATION_INPUT_TOKENS_PER_ATTEMPT.description)
+            .setUnit(RuntimeMetrics.OPERATION_INPUT_TOKENS_PER_ATTEMPT.unit)
+            .ofLongs()
+            .build()
 
-    val outputTokensPerAttempt: LongHistogram = meter.histogramBuilder(RuntimeMetrics.OPERATION_OUTPUT_TOKENS_PER_ATTEMPT.name)
-        .setDescription(RuntimeMetrics.OPERATION_OUTPUT_TOKENS_PER_ATTEMPT.description)
-        .setUnit(RuntimeMetrics.OPERATION_OUTPUT_TOKENS_PER_ATTEMPT.unit)
-        .ofLongs()
-        .build()
+    val outputTokensPerAttempt: LongHistogram =
+        meter
+            .histogramBuilder(RuntimeMetrics.OPERATION_OUTPUT_TOKENS_PER_ATTEMPT.name)
+            .setDescription(RuntimeMetrics.OPERATION_OUTPUT_TOKENS_PER_ATTEMPT.description)
+            .setUnit(RuntimeMetrics.OPERATION_OUTPUT_TOKENS_PER_ATTEMPT.unit)
+            .ofLongs()
+            .build()
 
-    val parseFailures: LongCounter = meter.counterBuilder(RuntimeMetrics.OPERATION_PARSE_FAILURES.name)
-        .setDescription(RuntimeMetrics.OPERATION_PARSE_FAILURES.description)
-        .setUnit(RuntimeMetrics.OPERATION_PARSE_FAILURES.unit)
-        .build()
+    val parseFailures: LongCounter =
+        meter
+            .counterBuilder(RuntimeMetrics.OPERATION_PARSE_FAILURES.name)
+            .setDescription(RuntimeMetrics.OPERATION_PARSE_FAILURES.description)
+            .setUnit(RuntimeMetrics.OPERATION_PARSE_FAILURES.unit)
+            .build()
 
-    val engineEvents: LongCounter = meter.counterBuilder(RuntimeMetrics.ENGINE_EVENTS.name)
-        .setDescription(RuntimeMetrics.ENGINE_EVENTS.description)
-        .setUnit(RuntimeMetrics.ENGINE_EVENTS.unit)
-        .build()
+    val engineEvents: LongCounter =
+        meter
+            .counterBuilder(RuntimeMetrics.ENGINE_EVENTS.name)
+            .setDescription(RuntimeMetrics.ENGINE_EVENTS.description)
+            .setUnit(RuntimeMetrics.ENGINE_EVENTS.unit)
+            .build()
 }
 
 private class SpanBackedObservation(
@@ -135,10 +152,19 @@ private class SpanBackedObservation(
         }
     }
 
+    /**
+     * Records the failure *type* only.
+     *
+     * A provider's exception message is upstream-controlled: the engine sanitizes the failures that
+     * travel through `providerTransportFailure`, but an exception a provider throws directly reaches
+     * this observer unsanitized, and it can carry response bodies, URLs or request fragments. So the
+     * message and stack trace are never exported — `exception.type` plus a fixed status description
+     * keep the diagnostic signal without the provider's payload. Epic 0.7.5g, Gate 1.
+     */
     override fun onProviderFailure(error: Throwable) {
         failure = error
-        span.recordException(error)
-        span.setStatus(StatusCode.ERROR, error.message ?: "Provider call failed")
+        span.recordSafeException(error)
+        span.setStatus(StatusCode.ERROR, "Provider call failed")
     }
 
     override fun onStructuredParseFailure(
@@ -146,15 +172,18 @@ private class SpanBackedObservation(
         errorSummary: String,
     ) {
         parseFailureRecorded = true
-        val event = RuntimeEvent.of(RuntimeEvents.PARSE_FAILURE) {
-            set(RuntimeAttributes.STRUCTURED_FAILURE_CODE, "output_rejected")
-            set(RuntimeAttributes.STRUCTURED_PARSE_SUCCESS, false)
-        }
+        val event =
+            RuntimeEvent.of(RuntimeEvents.PARSE_FAILURE) {
+                set(RuntimeAttributes.STRUCTURED_FAILURE_CODE, "output_rejected")
+                set(RuntimeAttributes.STRUCTURED_PARSE_SUCCESS, false)
+            }
         span.addEvent(
             event.name,
             io.opentelemetry.api.common.Attributes.of(
-                AttributeKey.stringKey(RuntimeAttributes.STRUCTURED_FAILURE_CODE.name), "output_rejected",
-                AttributeKey.booleanKey(RuntimeAttributes.STRUCTURED_PARSE_SUCCESS.name), false,
+                AttributeKey.stringKey(RuntimeAttributes.STRUCTURED_FAILURE_CODE.name),
+                "output_rejected",
+                AttributeKey.booleanKey(RuntimeAttributes.STRUCTURED_PARSE_SUCCESS.name),
+                false,
             ),
         )
         metrics.parseFailures.add(1, completionAttributes(parseSuccess = false))
@@ -198,7 +227,10 @@ private class SpanBackedObservation(
         return attributes.toOpenTelemetryAttributes()
     }
 
-    private fun completionAttributes(parseSuccess: Boolean?, outcomeOverride: String? = null): Attributes {
+    private fun completionAttributes(
+        parseSuccess: Boolean?,
+        outcomeOverride: String? = null,
+    ): Attributes {
         val attributes = mutableMapOf<String, Any?>()
         attributes.putAll(baseAttributes)
         attributes[RuntimeAttributes.OUTCOME.name] = outcomeOverride ?: currentOutcome()
@@ -208,10 +240,11 @@ private class SpanBackedObservation(
         return attributes.toOpenTelemetryAttributes()
     }
 
-    private fun currentOutcome(): String = when {
-        failure != null -> "failure"
-        parseFailureRecorded -> "parse_failure"
-        latestResponse != null -> "success"
-        else -> "unknown"
-    }
+    private fun currentOutcome(): String =
+        when {
+            failure != null -> "failure"
+            parseFailureRecorded -> "parse_failure"
+            latestResponse != null -> "success"
+            else -> "unknown"
+        }
 }

@@ -1,0 +1,90 @@
+0.7.4d — Phase 0 baseline evidence
+================================================================================
+Base commit : 052cc27fb9979a4b5fb467d06c6eed3ba87176d3  (release/0.7.0 tip = 0.7.4c3 squash of PR #534)
+Branch      : task/0.7.4d-materialized-governance-read-model
+Worktree    : /home/gionag/tramai-d1
+Recorded at : 2026-10-15 (session date)
+
+--------------------------------------------------------------------------------
+1. Release containment
+--------------------------------------------------------------------------------
+$ git fetch origin release/0.7.0
+$ git rev-parse origin/release/0.7.0
+052cc27fb9979a4b5fb467d06c6eed3ba87176d3
+$ git merge-base --is-ancestor 052cc27f origin/release/0.7.0   -> YES
+  (the baseline IS the tip, so #534 is the head of the release line)
+
+--------------------------------------------------------------------------------
+2. Governance projection suite (the layer this task persists)
+--------------------------------------------------------------------------------
+$ ./gradlew :tramai-security:test --tests 'dev.tramai.security.governance.*' --console=plain
+governance_baseline: tests=207 failures=0 errors=0   (14 result files)
+
+--------------------------------------------------------------------------------
+3. Real durable backend probe (environment, not formality)
+--------------------------------------------------------------------------------
+$ ./gradlew :tramai-persistence-jdbc:test --tests '*JdbcAuditStoreTckTest*' --console=plain
+BUILD SUCCESSFUL in 31s
+jdbc_audit_tck_baseline: tests=43 failures=0 errors=0   -> real PostgreSQL via Testcontainers
+
+$ docker ps --format '{{.Names}}'   -> containers listed (Docker available)
+$ grep testcontainers tramai-memory-store/build.gradle.kts
+  testImplementation(platform(libs.testcontainers.bom))
+  testImplementation(libs.testcontainers.core)
+  testImplementation(libs.testcontainers.junit.jupiter)
+  (a non-persistence module already runs real JDBC tests in this repository)
+
+--------------------------------------------------------------------------------
+4. Dependency-legality facts behind the storage-boundary decision
+--------------------------------------------------------------------------------
+$ grep -n "api(project" tramai-persistence-jdbc/build.gradle.kts
+  11: api(project(":tramai-core"))
+  12: api(project(":tramai-engine"))
+  13: api(project(":tramai-security"))        <-- persistence-jdbc already depends on security
+  14: api(project(":tramai-control-plane"))
+  => :tramai-security -> :tramai-persistence-jdbc would be a CYCLE.
+     module-boundaries.yml: "No cycles (checked separately with full cycle detection)"
+
+$ grep -n "fromLayer/toLayer" config/quality/module-boundaries.yml (relevant rules)
+  core-contracts -> governance-security   FORBIDDEN
+  core-contracts -> persistence           FORBIDDEN
+  fromPublished  -> internal              FORBIDDEN
+  (no rule forbids governance-security -> persistence; :tramai-security and
+   :tramai-persistence-jdbc are both publishability: published)
+
+$ ls tramai-security/api/
+  tramai-security.api                     <-- the module has a public API dump; new public types
+                                              would change it (unapproved ABI change)
+
+$ ls tramai-security/src/main/kotlin/dev/tramai/security/governance/
+  GovernanceProjection.kt, GovernanceProjectionReader.kt, GovernanceDecisionFold.kt,
+  GovernanceFactClassification.kt, AuditBackedGovernanceDecisionFactSource.kt
+  (all projection types `internal` — invisible to :tramai-persistence-jdbc)
+
+--------------------------------------------------------------------------------
+5. Precedent for a non-persistence module owning its JDBC backend (main sources)
+--------------------------------------------------------------------------------
+$ grep -rl "javax.sql.DataSource" --include=*.kt <module>/src/main
+  tramai-memory-store/dev/tramai/memory/store/JdbcChatMemoryStore.kt
+  tramai-scheduler/dev/tramai/scheduler/JdbcGovernedScheduleBindingStore.kt
+  tramai-scheduler/dev/tramai/scheduler/JdbcWorkflowSchedulerStore.kt
+  tramai-platform/dev/tramai/platform/JdbcRepositories.kt
+  (+ tramai-server, tramai-vectorstore-pgvector, tramai-mcp)
+
+$ find */src/main/resources -name "V*.sql"
+  tramai-persistence-jdbc/src/main/resources/tramai/persistence/jdbc/postgres/V1..V8
+  tramai-platform/src/main/resources/db/migration/V1__platform.sql   <-- module-owned migration dir
+
+$ docs/architecture/change-guides/adding-a-store.md:14
+  "Store implementations: new code lands in the owning persistence module
+   (tramai-persistence-file, tramai-persistence-jdbc) OR THE MODULE THAT WILL OWN THE NEW BACKEND"
+
+--------------------------------------------------------------------------------
+6. Contract gaps found by reading the types (not assumed from the task text)
+--------------------------------------------------------------------------------
+(a) observedHeadHash: the adapter anchors verifiedRange to the observed head's position AND hash,
+    then discards the hash. Not present in StreamCoverage or DecisionProjection.
+(b) The raw coverage buckets (accountedPositions, unrecordedDecisionPositions,
+    unclassifiedPositions) do not reach DecisionProjection: it exposes verifiedStreamRange and
+    completeness only. No classification-contract revision exists anywhere.
+Both must be closed in Phase 1: a snapshot cannot preserve what the read never carried.
