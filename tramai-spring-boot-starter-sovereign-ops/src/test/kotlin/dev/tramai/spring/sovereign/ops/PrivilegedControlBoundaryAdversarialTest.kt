@@ -451,12 +451,14 @@ class PrivilegedControlBoundaryAdversarialTest {
     }
 
     // ── G2-13: Refusal Replay / Idempotent Isolation ──
-    // Note: Durable deduplication of retried refusal event keys is authoritative in JDBC persistence
-    // and verified by JdbcRefusalRecordingRestartTest. This unit test verifies that control-plane replays
-    // never mutate approval state and never generate pending outbox records.
+    // Note: Distinguishes absence of business-decision audit outbox evidence (APPROVAL_APPROVED / APPROVAL_DENIED)
+    // from legitimate durable refusal evidence recorded in the refusal store. Durable deduplication of retried
+    // refusal event keys is authoritative in JDBC persistence and verified by JdbcRefusalRecordingRestartTest.
+    // This unit test verifies that control-plane replays never mutate approval state and never generate
+    // business-decision audit outbox records.
 
     @Test
-    fun `G2-13 - replaying refused commands leaves approval state unmutated and outbox isolated`() {
+    fun `G2-13 - replaying refused commands leaves approval state unmutated and business outbox isolated`() {
         runBlocking {
             val store = TestTrackingApprovalStore(pendingApproval())
             val outboxStore = InMemorySovereignOpsAuditOutboxStore()

@@ -118,7 +118,7 @@ We define seven distinct adversarial personas attempting to breach the privilege
 | **G2-10** | A5 (Direct store mutation) | Build-Logic PSI Guard | **PASS**: `verifyDirectApprovalMutations` detects and fails on unreviewed direct calls to `ApprovalStore.transition`. |
 | **G2-11** | Fail-Closed Policy | Control Plane Policy Evaluation | **PASS**: Unconfigured or missing policy version in `OperatorApprovalPolicy` refuses decision with `UNAUTHORIZED(APPROVAL_POLICY_UNAVAILABLE)` or `UNAUTHORIZED(ROLE_NOT_PERMITTED)`. |
 | **G2-12** | Outbox Failure Atomicity | Transactional Mutation Store | **PASS**: Failure during outbox persistence in real PostgreSQL transaction rolls back the entire transaction; approval status remains PENDING and zero outbox records commit. |
-| **G2-13** | Refusal Replay & Deduplication | Authoritative JDBC & Control Plane | **PASS**: Replaying refused commands leaves approval state unmutated with zero outbox records. Durable refusal deduplication onto exactly one persistent record across retries/restarts is proven by `JdbcRefusalRecordingRestartTest`. |
+| **G2-13** | Refusal Replay & Deduplication | Authoritative JDBC & Control Plane | **PASS**: Distinguishes the absence of business-decision audit outbox evidence (`APPROVAL_APPROVED` / `APPROVAL_DENIED`) from legitimate durable `AUTHORIZATION_REFUSAL` evidence recorded in the refusal store. Replaying refused commands leaves approval state unmutated with zero business-decision outbox records. Durable refusal deduplication onto exactly one persistent refusal row across retries/restarts is proven by `JdbcRefusalRecordingRestartTest`. |
 | **G2-14** | A6 (Origin strength cap) | Enforcement Origin Boundary | **PASS**: Event naming registered boundary without framework attester is capped at `DECLARED` strength; `attested` refused. |
 
 ---
@@ -129,14 +129,14 @@ Individual mutation experiments executed and distinguished from unverified asser
 
 | Mutation ID | Target Invariant | Mutated Source & Fault Injection | Target Discriminator Test | Execution Result & Verdict |
 | :--- | :--- | :--- | :--- | :--- |
-| **M1** | L2 Operator Capability Check | Remove `capabilityRefusal` check for `OperatorCapability.DECIDE_APPROVAL` | `PrivilegedControlBoundaryAdversarialTest.G2-02` | **KILLED** (Operator lacking capability received decision rather than `UNAUTHORIZED(MISSING_CAPABILITY)`). |
-| **M2** | L3 Approver Role Policy | Invert role policy condition in `approvalRefusal` (`roles.intersect().isEmpty()`) | `PrivilegedControlBoundaryAdversarialTest.G2-03` | **KILLED** (Permitted roles refused; unpermitted roles authorized). |
-| **M3** | Actor Identity Forgery | Substitute caller header/body actor string in `ApprovalDecisionRestController` | `PrivilegedControlBoundaryRestAdversarialTest.G2-04` | **KILLED** (Controller extracts actor identity strictly from verified `OperatorAuthority`; spoofed headers ignored). |
-| **M4** | Version Precondition Check | Remove `command.expectedVersion == approval.version` precondition guard | `PrivilegedControlBoundaryAdversarialTest.G2-06` | **KILLED** (Stale commands bypass precondition check and proceed to mutation). |
-| **M5** | Authoritative Store CAS Fencing | Replace CAS `WHERE version = ?` with unconditional `UPDATE approvals SET status = ?` | `PrivilegedControlBoundaryConcurrencyQualificationTest.G2-08, G2-09` | **KILLED** (Parallel barrier races result in lost updates and multiple conflicting winners). |
-| **M6** | Fail-Closed Policy Evaluation | Return permissive `Allow` when `policyVersion` is unconfigured | `PrivilegedControlBoundaryAdversarialTest.G2-07` | **KILLED** (Unconfigured versions succeed instead of failing closed with `APPROVAL_POLICY_UNAVAILABLE`). |
-| **M7** | Refusal Audit Evidence Isolation | Populate `approvalStatus`/`approvalVersion` metadata onto `AUTHORIZATION_REFUSAL` | `PrivilegedControlBoundaryAdversarialTest.G2-11`, `SovereignOpsAuditEvidenceDispatchTest` | **KILLED** (Malicious refusal evidence with decision state emitted; caught by refusal metadata discriminator). |
-| **M8** | Enforcement Origin Strength Capping | Allow un-attested declared origin to claim `AUTHORITATIVE` strength | `EnforcementOriginBoundaryAdversarialTest.G2-14` | **KILLED** (Declared origins elevated without attester; caught by strength boundary discriminator). |
+| **M1** | L2 Operator Capability Check | Remove `capabilityRefusal` check for `OperatorCapability.DECIDE_APPROVAL` in `SovereignOpsApprovalDecisionControlPlane.kt:76` | `PrivilegedControlBoundaryAdversarialTest.G2-02` | **KILLED** (`AssertionFailedError`: operator lacking capability received `Approved` instead of `UNAUTHORIZED(MISSING_CAPABILITY)`). |
+| **M2** | L3 Approver Role Policy | Bypass role policy evaluation in `SovereignOpsApprovalDecisionControlPlane.kt:81` (return `null`) | `PrivilegedControlBoundaryAdversarialTest.G2-03` | **KILLED** (`AssertionFailedError`: operator with wrong approver role received `Approved` instead of `UNAUTHORIZED(ROLE_NOT_PERMITTED)`). |
+| **M3** | Actor Identity Forgery | Substitute verified `authority` with synthetic/attacker authority in `ApprovalControlPlaneController.kt:95` | `PrivilegedControlBoundaryRestAdversarialTest.G2-04` | **KILLED** (`AssertionError`: controller passed forged authority; caught by `actorId` assertion). |
+| **M4** | Version Precondition Check | Disable `command.expectedVersion != approval.version` precondition guard in `SovereignOpsApprovalDecisionControlPlane.kt:254` | `PrivilegedControlBoundaryAdversarialTest.G2-07` | **KILLED** (`AssertionFailedError`: stale command bypassed precondition check; expected `Stale(0, 1)`, received `Approved`). |
+| **M5** | Authoritative Store CAS Fencing | Remove `AND version = ?` from CAS `UPDATE approvals` in `JdbcSovereignOpsApprovalMutationStore.kt` | `PrivilegedControlBoundaryConcurrencyQualificationTest.G2-08, G2-09` | **NOT_EVALUATED** (Compound guard: under PostgreSQL row locking, the second transaction sees `status = 'APPROVED'`, causing `status = 'PENDING'` to reject the update even without `version = ?`. G2-08/G2-09 does not independently isolate the CAS version predicate from status fencing). |
+| **M6** | Fail-Closed Policy Evaluation | Return `null` instead of `APPROVAL_POLICY_UNAVAILABLE` when `policyVersion` is missing in `OperatorApprovalPolicy.kt:66` | `PrivilegedControlBoundaryAdversarialTest.G2-11` | **KILLED** (`AssertionFailedError`: unconfigured version succeeded; expected `UNAUTHORIZED(APPROVAL_POLICY_UNAVAILABLE)`, received `Approved`). |
+| **M7** | Refusal Audit Evidence Isolation | Remove refusal kind filter in `AuditEngineSovereignOpsAuditEmitter.kt:87`, emitting decision-only metadata unconditionally | `SovereignOpsAuditEvidenceDispatchTest.malformed refusal with populated decision-only fields does not leak approval state into emitted event` | **KILLED** (`AssertionError`: emitted refusal audit event leaked `approvalStatus` and `previousApprovalStatus` into metadata). |
+| **M8** | Enforcement Origin Strength Capping | Emit registered `boundary.strength` (`AUTHORITATIVE`) instead of `DECLARED` in `RuntimeBoundaryProvenance.kt:155` | `EnforcementOriginBoundaryAdversarialTest.G2-14` | **KILLED** (`AssertionFailedError`: declared origin claimed `AUTHORITATIVE` strength without attester; expected `DECLARED`). |
 
 ---
 
@@ -144,18 +144,18 @@ Individual mutation experiments executed and distinguished from unverified asser
 
 All residual security findings are documented with explicit rationale and submitted for repository-owner review and ratification:
 
-1. **F3 — `GET /{approvalId}` Read Endpoint Role Filtering:**
+1. **F3 — Approval-Read Authorization (`GET /{approvalId}`):**
    - *Status:* **PROPOSED RESIDUAL FOR OWNER REVIEW**.
    - *Rationale:* The read endpoint requires an authenticated operator, but does not enforce fine-grained role-based read filtering. The response exposes metadata and continuation status, but no sensitive execution payloads (payloads are protected by hash digest). Full read authorization requires tenant/domain policy alignment in 0.8.x.
 
-2. **F5 — `requiredRole` Persisted as Policy Version Rather Than Explicit Column:**
+2. **F5 — Persistence of Originally Requested Approver Role:**
    - *Status:* **PROPOSED RESIDUAL FOR OWNER REVIEW**.
-   - *Rationale:* Approver requirements are evaluated via `binding.policyVersion` mapped against `OperatorApprovalPolicy`. The client-requested `requiredRole` in `ApprovalGateway.requestApproval` is stored as queryable metadata, not authoritative state. Persisting dynamic per-approval required roles into the schema requires a schema migration and ADR deferred to a future milestone.
+   - *Rationale:* Approver requirements are evaluated via `binding.policyVersion` mapped against `OperatorApprovalPolicy`. The client-requested `requiredRole` in `ApprovalGateway.requestApproval` is stored as queryable metadata, not an authoritative schema column. Persisting dynamic per-approval required roles into the schema requires a schema migration and ADR deferred to a future milestone.
 
-3. **L4 — In-Process `ApprovalStore.transition` Public Method:**
+3. **L4 — Public Direct-Mutation Interface (`ApprovalStore.transition`):**
    - *Status:* **PROPOSED RESIDUAL FOR OWNER REVIEW (Gated by Static Analysis Ratchet)**.
-   - *Rationale:* `ApprovalStore` is a public SPI. In JVM architectures without OSGi/JPMS module isolation, any code within the same process can call public methods. The risk is bounded and gated by the `verifyDirectApprovalMutations` PSI ratchet, which prevents unreviewed call sites in production code.
+   - *Rationale:* `ApprovalStore` is a public SPI. In JVM architectures without OSGi/JPMS module isolation, any code within the same process can call public methods. The risk is bounded and gated by the `verifyDirectApprovalMutations` PSI ratchet, which statically scans direct invocation expressions in first-party source code against a reviewed allowlist. Preserved limitation: the PSI scanner is a build-time syntactic check; it does not provide comprehensive runtime protection against dynamic wrappers, indirect aliases, reflection, bytecode manipulation, or arbitrary in-process code executing within the same JVM.
 
 4. **Issue #524 — Enforcement-Origin Attestation Slice 2:**
-   - *Status:* **PROPOSED DEFERRAL FOR OWNER REVIEW (Issue #524 remains OPEN)**.
-   - *Rationale:* Slice 1 (PR #573) delivered declaration-safe enforcement provenance. Slice 2 (wiring-held capability and store readback) remains deferred until a real production runtime boundary exists. Issue #524 remains open.
+   - *Status:* **OWNER DEFERRED IN 0.7.6g1 RATIFICATION (Issue #524 remains OPEN)**.
+   - *Rationale:* Slice 1 (PR #573) delivered declaration-safe enforcement provenance. Slice 2 (wiring-held capability and store readback) was explicitly ratified and deferred by the repository owner in 0.7.6g1 until a real production runtime boundary exists. Issue #524 remains open.
