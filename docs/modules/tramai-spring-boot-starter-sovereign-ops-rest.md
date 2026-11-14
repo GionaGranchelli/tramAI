@@ -47,7 +47,9 @@ Verify against `tramai-spring-boot-starter-sovereign-ops-rest/api/tramai-spring-
   - missing, malformed, expired, foreign-signed, wrong-issuer or wrong-audience token → **401**;
   - a verified token whose `sub` cannot be recorded as an approval actor id → **401**
     (`tramai-operator-subject-unsupported`), never a rewritten identity;
-  - a verified operator without the required capability → **403** at the eventual control boundary (0.7.6e);
+  - a verified operator without the required capability or approver role → **403** (`UNAUTHORIZED`) with refusal wire reason (`missing-capability`, `role-not-permitted`, `approval-policy-unavailable`), emitting an isolated refusal audit record (0.7.6e/f);
+  - a command with missing, null, or negative `expectedVersion` → **400** (`INVALID_PRECONDITION`) (0.7.6d);
+  - a command with a stale `expectedVersion` → **409** (`STALE`) (0.7.6d);
   - `enabled=true` with a blank `issuer`, `audience`, or neither `jwk-set-uri` nor `public-key` →
     **startup failure**
     (`tramai-operator-authentication-incomplete-configuration`). There is no anonymous fallback, no
@@ -97,15 +99,20 @@ registered at a higher precedence**. That case is tested (`OperatorChainShadowin
 So shadowing is a **denial a host can cause, never an authorization bypass**. The contract: **register no chain
 with higher precedence than the operator chain over the operator paths.** The starter cannot enforce ordering
 against an arbitrary `@Order` without owning the host's whole security configuration. These shadowing tests
-establish fail-closed behaviour **for routes that consume an `OperatorPrincipal`**; they say nothing about the
-legacy approval endpoints, which still do not require a principal at all (0.7.6e).
+establish fail-closed behaviour **for routes that consume an `OperatorPrincipal`** or `OperatorAuthority`. A
+host chain registered at higher precedence cannot bypass authentication or grant unauthorized privileges.
 
-### What this module does NOT enforce
+### Delivered Security Enforcements and Residual Scope
 
-Authentication only. The approval endpoints still accept `actorId`/`actorRole` from the request body and
-perform no capability check (0.7.6a finding F1); approval decisions still auto-detect the expected version
-(finding F2). Authorization is 0.7.6e, concurrency fencing is 0.7.6d, actor attribution is 0.7.6f. Do not
-describe these operations as authorization-safe.
+With the delivery of 0.7.6d, 0.7.6e, and 0.7.6f:
+- **Identity & Authorization:** `ApprovalControlPlaneController` ignores caller-asserted identity or roles in the request body; operator identity is established strictly from verified JWT claims, and authority is minted server-side via `OperatorAuthority` checking `OperatorCapability.DECIDE_APPROVAL` and per-approval `ApproverRole` policies.
+- **Preconditions & Concurrency:** Approval decisions require an explicit caller-observed `expectedVersion >= 0` (0.7.6d). Stale commands are rejected with 409 `STALE` before reaching storage.
+- **Evidence & Attribution:** Decisions commit atomically with outbox audit evidence containing dual `(issuer, subject)` attribution via `ActorIdentityDigest` and schema V10 columns (0.7.6f). Refusals emit isolated refusal audit records without mutating approval state.
+
+**Remaining Residual Boundaries (Pending Owner Decision):**
+- **F3 Read Authorization:** Read queries (`GET /{approvalId}` and `GET /approvals`) require valid JWT authentication (401 if missing/invalid), but do not filter rows by approver role on read. Only safe metadata/digests are returned (no execution arguments or resume credentials).
+- **F5 Dynamic Role Persistence:** Approver role requirements are evaluated against server-configured `OperatorApprovalPolicy` mapped via `binding.policyVersion`, rather than dynamically persisted relational columns.
+- **L4 Direct Store SPI:** Direct mutation via `ApprovalStore.transition(...)` is bounded by the build-time `verifyDirectApprovalMutations` AST/PSI ratchet, protecting within the trusted in-process code boundary.
 
 ### Contract tests / TCKs
 
@@ -140,5 +147,6 @@ describe these operations as authorization-safe.
 
 The JSON body field is the single precondition representation; no `If-Match` header was introduced that could
 disagree with it. A rejected precondition never becomes a control-plane command, so it cannot reach the mutation
-store. Error bodies carry a stable code and no approval metadata, token material or stack trace. `actorId` and
-`actorRole` remain untrusted claims (0.7.6e).
+store. Error bodies carry a stable code and no approval metadata, token material or stack trace. Caller-supplied
+actor strings in request bodies are ignored by the controller; operator identity and authority are derived
+exclusively from the verified JWT and server-side policy.
