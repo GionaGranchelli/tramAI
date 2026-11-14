@@ -141,13 +141,15 @@ tramai:
 
 To prevent accidental security misconfigurations in production, TramAI fails startup immediately if security invariants are violated:
 
-| Misconfiguration Condition | Failure Mechanism | Error Message |
+| Misconfiguration Condition | Failure Mechanism | Exact Error Message Prefix / Key |
 | :--- | :--- | :--- |
 | `rest-control-plane-enabled: true`, but `security.enabled: false` | Application startup fails with `IllegalStateException` | `tramai-rest-control-plane-requires-operator-security` |
-| `security.enabled: true`, but missing `jwk-set-uri` (or `publicKey`) | Application startup fails with `IllegalStateException` | `tramai-operator-security-missing-jwks` |
-| `security.enabled: true`, but no active `OperatorApprovalPolicy` | Application startup fails with `IllegalStateException` | `tramai-rest-control-plane-requires-approval-policy` |
-| `approval-policies` configured with an empty role list | Configuration validation fails on startup | `tramai-operator-policy-empty-roles` |
-| `approval-policies` references a role not defined in `approver-role-mappings` | Configuration validation fails on startup | `tramai-operator-policy-unsatisfiable-role` |
+| `security.enabled: true`, but missing `issuer`, `audience`, or `jwk-set-uri`/`public-key` | Application startup fails with `IllegalStateException` | `tramai-operator-authentication-incomplete-configuration` |
+| `rest-control-plane-enabled: true`, but no active `ApprovalDecisionControlPlane` / missing approval policy bean | Application startup fails with `IllegalStateException` | `tramai-rest-control-plane-requires-approval-policy` |
+| `security.enabled: true`, but missing `approval-policies` entry | Application startup fails with `IllegalArgumentException` | `tramai-approval-policies-missing` |
+| `approval-policies` configured with an empty role list for a policy version | Configuration validation fails on startup | `tramai-operator-approval-policy-empty-roles` |
+| `approval-policies` references a role not defined in `approver-role-mappings` | Configuration validation fails on startup | `tramai-approval-policy-unsatisfiable` |
+| Configured control plane base path not covered by `protected-paths` | Application startup fails with `IllegalStateException` | `tramai-operator-authentication-unprotected-control-plane` |
 
 ---
 
@@ -383,17 +385,32 @@ Headless systems can search and paginate approval queues without direct database
 
 ## 8. Durable Outbox Evidence and Attribution
 
-### 8.1 Schema V10 Attribution Columns
+### 8.1 PostgreSQL Schema and V10 Attribution Columns
 
-When a decision commits, the relational database table `sovereign_ops_approval` is updated with verifiable actor provenance:
+When a decision commits, the relational database table `approvals` is updated within a single transaction alongside `audit_outbox`:
 
-- `decided_by`: The operator's subject identifier (`sub` from JWT).
-- `decision_actor_issuer`: The identity provider issuer URI (`iss` from JWT).
-- `decision_actor_identity_digest`: SHA-256 hash of `"${issuer}:${subject}"`, providing a deterministic global actor identity digest.
+- **Actor Subject:** The operator's subject identifier (`sub` from JWT) is stored in `sanitized_metadata` JSONB.
+- **Legacy Subject Hash (`decision_actor_hash`):** Retains its historical textual form (`sha256:` followed by 64 lowercase hex characters of the subject) for backwards compatibility.
+- **Issuer Attribution (`decision_actor_issuer`):** Added in Schema V10, stores the exact identity provider issuer URI (`iss` from JWT).
+- **Canonical Global Identity Digest (`decision_actor_identity_digest`):** Added in Schema V10, binds both `(issuer, subject)` into an immutable, collision-resistant identifier.
+
+#### Canonical Identity Digest Algorithm
+
+A subject alone is only unique *within* an issuer; two operators from different identity providers could share a subject string. To prevent cross-issuer collisions without delimiter ambiguity, `ActorIdentityDigest.of(issuer, subject)` encodes the pair using domain separation and big-endian length prefixing rather than string concatenation:
+
+```text
+SHA-256( "tramai/actor-identity" ‖ 0x00 ‖ u32be(1) ‖ u32be(len(issuer)) ‖ issuer (UTF-8)
+                                        ‖ u32be(len(subject)) ‖ subject (UTF-8) )
+```
+
+- **Domain Separation:** Prefixed with `"tramai/actor-identity"\0`.
+- **Versioned Binary Framing:** `u32be(1)` encoding version ensures future v2 encodings cannot collide with v1.
+- **Length-Prefixed UTF-8:** `u32be(length)` precedes each string component, preventing separator injection attacks.
+- **Output Representation:** 64 lowercase hexadecimal characters, **without prefix** (distinguishable from legacy `sha256:`-prefixed hashes).
 
 ### 8.2 Evidence Kinds and Refusal Isolation
 
-The outbox table `sovereign_ops_audit_outbox` durably records one of three explicit evidence kinds:
+The transactional outbox table `audit_outbox` durably records one of three explicit evidence kinds:
 
 1. `APPROVAL_APPROVED`: Written when an approval decision commits. Emits state transition metadata (`approvalStatus=APPROVED`, `approvalVersion=1`, `previousApprovalStatus=PENDING`, `previousApprovalVersion=0`).
 2. `APPROVAL_DENIED`: Written when an authorized operator decides to deny. Emits state transition metadata.
@@ -413,4 +430,4 @@ When deploying to production:
 - [ ] **JWKS Endpoint Protection:** Pin the JWKS URI or verify IdP TLS certificates. TramAI validates RS256 signatures and checks clock skew with a ±60 second tolerance.
 - [ ] **Audience Validation:** Always configure `tramai.sovereign.ops.security.audience` to match your application's client identifier. Tokens without a matching `aud` claim are rejected immediately.
 - [ ] **Network Perimeter for Internal Surfaces:** Ensure internal server endpoints (`tramai-server`) are inaccessible from untrusted subnets.
-- [ ] **Database Least Privilege:** The application database user should hold permissions only on `sovereign_ops_approval`, `sovereign_ops_approval_continuation`, and `sovereign_ops_audit_outbox`. Direct modification of existing outbox rows should be restricted.
+- [ ] **Database Least Privilege:** The application database user should hold permissions only on `approvals`, `approval_continuations`, and `audit_outbox`. Direct modification of existing outbox rows should be restricted.
