@@ -430,11 +430,11 @@ When deploying to production:
 - [ ] **JWKS Endpoint Protection:** Pin the JWKS URI or verify IdP TLS certificates. TramAI validates RS256 signatures and checks clock skew with a ±60 second tolerance.
 - [ ] **Audience Validation:** Always configure `tramai.sovereign.ops.security.audience` to match your application's client identifier. Tokens without a matching `aud` claim are rejected immediately.
 - [ ] **Network Perimeter for Internal Surfaces:** Ensure internal server endpoints (`tramai-server`) are inaccessible from untrusted subnets.
-- [ ] **Database Least Privilege:** Provision database credentials with component-specific minimum permissions, avoiding shared superuser or blanket table grants:
+- [ ] **Database Least Privilege:** Provision database credentials with component-specific minimum permissions, avoiding shared superuser or blanket table grants (executably qualified in `DatabaseLeastPrivilegeQualificationTest`):
   - **Approval Decision API Runtime:**
     - `approvals`: `SELECT`, `UPDATE` (optimistic version compare-and-set and actor provenance recording).
     - `approval_continuations`: `SELECT` (evaluating continuation status and expiry metadata).
-    - `audit_outbox`: `INSERT` (transactional enqueue of `APPROVAL_APPROVED`, `APPROVAL_DENIED`, or `AUTHORIZATION_REFUSAL` evidence).
+    - `audit_outbox`: `SELECT`, `INSERT`, `UPDATE` (transactional enqueue of `PREPARED` evidence and subsequent `UPDATE` to `PENDING` upon commit in `markPreparedOutboxPending`; `SELECT` is required in PostgreSQL to evaluate `WHERE outbox_id = ? AND status = 'PREPARED'` and calculate `version = version + 1`).
   - **Audit Outbox Dispatcher (Background Event Publisher):**
     - `audit_outbox`: `SELECT`, `UPDATE` (claiming outbox entries and recording dispatch timestamps).
     - `audit_events`: `SELECT`, `INSERT` (appending immutable audit event log streams).
@@ -442,7 +442,8 @@ When deploying to production:
     - `audit_outbox_quarantine`: `SELECT`, `INSERT` (recording unparseable or corrupted payload metadata).
     - `worker_leases`: `SELECT`, `INSERT`, `UPDATE`, `DELETE` (distributed worker lease acquisition and heartbeat).
   - **Continuation Resume Worker (Asynchronous Workflow Resumption):**
-    - `approval_continuations`: `SELECT`, `UPDATE` (continuation state transitions and retry attempt tracking).
-    - `tramai_approval_resume_credentials`: `SELECT`, `DELETE` (single-use resume token consumption, where credential custody is enabled).
-    - `worker_leases`: `SELECT`, `INSERT`, `UPDATE`, `DELETE` (lease management).
+    - `approvals`: `SELECT`, `UPDATE` (PostgreSQL `SELECT ... FOR UPDATE SKIP LOCKED` across joined tables takes row locks across all queried tables, requiring `UPDATE` privilege on `approvals`).
+    - `approval_continuations`: `SELECT`, `UPDATE` (row locking during batch claim, continuation state transitions, and retry tracking).
+    - `tramai_approval_resume_credentials`: `SELECT`, `UPDATE`, `DELETE` (`UPDATE` due to join row-locking in `claimApprovedPending`, and `DELETE` for single-use resume token consumption upon completion).
+    - `worker_leases`: `SELECT`, `INSERT`, `UPDATE`, `DELETE` (distributed worker lease management).
   - **Schema Migrations:** Restrict DDL privileges (`CREATE TABLE`, `ALTER TABLE`, `CREATE INDEX`) to deployment/CI automation (e.g. Flyway migration runner); runtime application users should hold only DML privileges.
