@@ -430,4 +430,19 @@ When deploying to production:
 - [ ] **JWKS Endpoint Protection:** Pin the JWKS URI or verify IdP TLS certificates. TramAI validates RS256 signatures and checks clock skew with a ±60 second tolerance.
 - [ ] **Audience Validation:** Always configure `tramai.sovereign.ops.security.audience` to match your application's client identifier. Tokens without a matching `aud` claim are rejected immediately.
 - [ ] **Network Perimeter for Internal Surfaces:** Ensure internal server endpoints (`tramai-server`) are inaccessible from untrusted subnets.
-- [ ] **Database Least Privilege:** The application database user should hold permissions only on `approvals`, `approval_continuations`, and `audit_outbox`. Direct modification of existing outbox rows should be restricted.
+- [ ] **Database Least Privilege:** Provision database credentials with component-specific minimum permissions, avoiding shared superuser or blanket table grants:
+  - **Approval Decision API Runtime:**
+    - `approvals`: `SELECT`, `UPDATE` (optimistic version compare-and-set and actor provenance recording).
+    - `approval_continuations`: `SELECT` (evaluating continuation status and expiry metadata).
+    - `audit_outbox`: `INSERT` (transactional enqueue of `APPROVAL_APPROVED`, `APPROVAL_DENIED`, or `AUTHORIZATION_REFUSAL` evidence).
+  - **Audit Outbox Dispatcher (Background Event Publisher):**
+    - `audit_outbox`: `SELECT`, `UPDATE` (claiming outbox entries and recording dispatch timestamps).
+    - `audit_events`: `SELECT`, `INSERT` (appending immutable audit event log streams).
+    - `audit_stream_heads`: `SELECT`, `INSERT`, `UPDATE` (maintaining stream sequence numbers and cryptographic hash chains).
+    - `audit_outbox_quarantine`: `SELECT`, `INSERT` (recording unparseable or corrupted payload metadata).
+    - `worker_leases`: `SELECT`, `INSERT`, `UPDATE`, `DELETE` (distributed worker lease acquisition and heartbeat).
+  - **Continuation Resume Worker (Asynchronous Workflow Resumption):**
+    - `approval_continuations`: `SELECT`, `UPDATE` (continuation state transitions and retry attempt tracking).
+    - `tramai_approval_resume_credentials`: `SELECT`, `DELETE` (single-use resume token consumption, where credential custody is enabled).
+    - `worker_leases`: `SELECT`, `INSERT`, `UPDATE`, `DELETE` (lease management).
+  - **Schema Migrations:** Restrict DDL privileges (`CREATE TABLE`, `ALTER TABLE`, `CREATE INDEX`) to deployment/CI automation (e.g. Flyway migration runner); runtime application users should hold only DML privileges.
