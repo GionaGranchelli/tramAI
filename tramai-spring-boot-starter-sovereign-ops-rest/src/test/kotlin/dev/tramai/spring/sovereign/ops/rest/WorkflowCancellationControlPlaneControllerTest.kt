@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.operator.OperatorCapability
 import dev.tramai.core.operator.OperatorPrincipal
-import dev.tramai.orchestration.WorkflowLifecycleStatus
 import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.WorkflowCancellationCommand
 import dev.tramai.spring.sovereign.ops.WorkflowCancellationControlPlane
@@ -77,7 +76,7 @@ class WorkflowCancellationControlPlaneControllerTest {
                 workflowName = command.workflowName,
                 runId = command.runId,
                 revision = 4L,
-                status = WorkflowLifecycleStatus.CANCELLED,
+                status = "cancelled",
                 cancelledBy = fixtureAuthority.subject,
                 cancelledAtEpochMillis = 1709294400000L,
                 alreadyCancelled = false,
@@ -122,7 +121,7 @@ class WorkflowCancellationControlPlaneControllerTest {
                 workflowName = command.workflowName,
                 runId = command.runId,
                 revision = 4L,
-                status = WorkflowLifecycleStatus.CANCELLED,
+                status = "cancelled",
                 cancelledBy = "previous-actor",
                 cancelledAtEpochMillis = 1709294400000L,
                 alreadyCancelled = true,

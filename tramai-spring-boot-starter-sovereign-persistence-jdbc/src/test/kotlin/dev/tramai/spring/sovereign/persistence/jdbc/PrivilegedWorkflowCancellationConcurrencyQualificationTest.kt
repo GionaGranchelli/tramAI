@@ -174,7 +174,7 @@ class PrivilegedWorkflowCancellationConcurrencyQualificationTest {
                 assertThat(winners).hasSize(1)
                 val winner = winners.first()
                 assertThat(winner.revision).isEqualTo(2L)
-                assertThat(winner.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED)
+                assertThat(winner.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED.wireName)
 
                 // Other 4 results must be either alreadyCancelled=true or Stale
                 val nonWinners = results.filter { it != winner }
@@ -287,7 +287,7 @@ class PrivilegedWorkflowCancellationConcurrencyQualificationTest {
 
             assertThat(cancelResult).isInstanceOf(WorkflowCancellationResult.Cancelled::class.java)
             val cancelled = cancelResult as WorkflowCancellationResult.Cancelled
-            assertThat(cancelled.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED_UNCERTAIN)
+            assertThat(cancelled.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED_UNCERTAIN.wireName)
             assertThat(cancelled.revision).isEqualTo(2L)
 
             val lifecycle = checkpointStore.lifecycle(workflowName, runId)

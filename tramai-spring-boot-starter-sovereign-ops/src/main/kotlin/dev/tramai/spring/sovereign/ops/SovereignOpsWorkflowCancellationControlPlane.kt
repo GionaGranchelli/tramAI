@@ -2,8 +2,6 @@ package dev.tramai.spring.sovereign.ops
 
 import dev.tramai.core.operator.ActorIdentityDigest
 import dev.tramai.core.operator.OperatorCapability
-import dev.tramai.orchestration.WorkflowCheckpointConflictException
-import dev.tramai.orchestration.WorkflowCheckpointStore
 import dev.tramai.spring.sovereign.ops.outbox.RefusalEvidence
 import dev.tramai.spring.sovereign.ops.outbox.RefusalOperation
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
@@ -27,7 +25,6 @@ import java.util.UUID
  * 4. Atomic execution coupling state mutation with audit outbox emission.
  */
 class SovereignOpsWorkflowCancellationControlPlane(
-    private val checkpointStore: WorkflowCheckpointStore,
     private val mutationStore: SovereignOpsWorkflowCancellationStore,
     private val cancellationPolicy: OperatorWorkflowCancellationPolicy,
     private val clock: Clock = Clock.systemUTC(),
@@ -70,30 +67,29 @@ class SovereignOpsWorkflowCancellationControlPlane(
         }
 
         // Precondition read: checkpoint existence and current revision
-        val currentLifecycle = checkpointStore.lifecycle(command.workflowName, command.runId)
-        if (currentLifecycle != null) {
+        val currentRun =
+            mutationStore.queryRun(command.workflowName, command.runId)
+                ?: return WorkflowCancellationResult.NotFound(command.workflowName, command.runId)
+
+        if (currentRun.isCancelled) {
             // Run is already cancelled. Idempotently report the existing cancellation.
             return WorkflowCancellationResult.Cancelled(
                 workflowName = command.workflowName,
                 runId = command.runId,
-                revision = currentLifecycle.revision,
-                status = currentLifecycle.status,
-                cancelledBy = currentLifecycle.cancelledBy,
-                cancelledAtEpochMillis = currentLifecycle.cancelledAtEpochMillis,
+                revision = currentRun.revision,
+                status = currentRun.status,
+                cancelledBy = currentRun.cancelledBy ?: "unknown",
+                cancelledAtEpochMillis = currentRun.cancelledAtEpochMillis ?: clock.millis(),
                 alreadyCancelled = true,
             )
         }
 
-        val checkpoint =
-            checkpointStore.load(command.workflowName, command.runId)
-                ?: return WorkflowCancellationResult.NotFound(command.workflowName, command.runId)
-
-        if (checkpoint.revision != command.expectedRevision) {
+        if (currentRun.revision != command.expectedRevision) {
             return WorkflowCancellationResult.Stale(
                 workflowName = command.workflowName,
                 runId = command.runId,
                 expectedRevision = command.expectedRevision,
-                currentRevision = checkpoint.revision,
+                currentRevision = currentRun.revision,
             )
         }
 
@@ -115,7 +111,7 @@ class SovereignOpsWorkflowCancellationControlPlane(
                 approvalStatus = null,
                 approvalVersion = null,
                 previousApprovalStatus = "ACTIVE",
-                previousApprovalVersion = checkpoint.revision,
+                previousApprovalVersion = currentRun.revision,
                 reasonDigest = sha256Hex(command.reason),
                 reasonLength = command.reason.length,
                 createdAt = now,
@@ -135,18 +131,14 @@ class SovereignOpsWorkflowCancellationControlPlane(
             WorkflowCancellationResult.Cancelled(
                 workflowName = command.workflowName,
                 runId = command.runId,
-                revision = mutationResult.state.revision,
-                status = mutationResult.state.status,
-                cancelledBy = mutationResult.state.cancelledBy,
-                cancelledAtEpochMillis = mutationResult.state.cancelledAtEpochMillis,
+                revision = mutationResult.revision,
+                status = mutationResult.status,
+                cancelledBy = mutationResult.cancelledBy,
+                cancelledAtEpochMillis = mutationResult.cancelledAtEpochMillis,
                 alreadyCancelled = mutationResult.alreadyCancelled,
             )
         } catch (e: CancellationException) {
             throw e
-        } catch (e: WorkflowCheckpointConflictException) {
-            staleOrConflict(command, e)
-        } catch (e: IllegalStateException) {
-            staleOrConflict(command, e)
         } catch (e: Exception) {
             staleOrConflict(command, e)
         }
@@ -158,28 +150,28 @@ class SovereignOpsWorkflowCancellationControlPlane(
         cause: Throwable,
     ): WorkflowCancellationResult {
         // Check if another concurrent writer won and either advanced the revision or completed cancellation
-        checkpointStore.lifecycle(command.workflowName, command.runId)?.let { currentLifecycle ->
+        val currentRun =
+            mutationStore.queryRun(command.workflowName, command.runId)
+                ?: return WorkflowCancellationResult.NotFound(command.workflowName, command.runId)
+
+        if (currentRun.isCancelled) {
             return WorkflowCancellationResult.Cancelled(
                 workflowName = command.workflowName,
                 runId = command.runId,
-                revision = currentLifecycle.revision,
-                status = currentLifecycle.status,
-                cancelledBy = currentLifecycle.cancelledBy,
-                cancelledAtEpochMillis = currentLifecycle.cancelledAtEpochMillis,
+                revision = currentRun.revision,
+                status = currentRun.status,
+                cancelledBy = currentRun.cancelledBy ?: "unknown",
+                cancelledAtEpochMillis = currentRun.cancelledAtEpochMillis ?: clock.millis(),
                 alreadyCancelled = true,
             )
         }
 
-        val current =
-            checkpointStore.load(command.workflowName, command.runId)
-                ?: return WorkflowCancellationResult.NotFound(command.workflowName, command.runId)
-
-        return if (current.revision != command.expectedRevision) {
+        return if (currentRun.revision != command.expectedRevision) {
             WorkflowCancellationResult.Stale(
                 workflowName = command.workflowName,
                 runId = command.runId,
                 expectedRevision = command.expectedRevision,
-                currentRevision = current.revision,
+                currentRevision = currentRun.revision,
             )
         } else {
             WorkflowCancellationResult.Conflict(

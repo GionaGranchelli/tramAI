@@ -107,10 +107,10 @@ class JdbcSovereignOpsWorkflowCancellationStoreTest {
                 )
 
             assertThat(result.alreadyCancelled).isFalse()
-            assertThat(result.state.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED)
-            assertThat(result.state.revision).isEqualTo(saved.revision + 1)
-            assertThat(result.state.cancelledBy).isEqualTo("ops-user")
-            assertThat(result.state.cancelledAtEpochMillis).isEqualTo(BASE_NOW.toEpochMilli())
+            assertThat(result.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED.wireName)
+            assertThat(result.revision).isEqualTo(saved.revision + 1)
+            assertThat(result.cancelledBy).isEqualTo("ops-user")
+            assertThat(result.cancelledAtEpochMillis).isEqualTo(BASE_NOW.toEpochMilli())
 
             // Verify outbox state in DB
             val outboxStatus =
@@ -198,8 +198,8 @@ class JdbcSovereignOpsWorkflowCancellationStoreTest {
                 )
 
             assertThat(result.alreadyCancelled).isFalse()
-            assertThat(result.state.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED_UNCERTAIN)
-            assertThat(result.state.revision).isEqualTo(saved.revision + 1)
+            assertThat(result.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED_UNCERTAIN.wireName)
+            assertThat(result.revision).isEqualTo(saved.revision + 1)
 
             val outboxStatus =
                 selectSingleValue(
@@ -275,7 +275,7 @@ class JdbcSovereignOpsWorkflowCancellationStoreTest {
             assertThat(result1.alreadyCancelled).isFalse()
 
             // Second call with newer expected revision (since revision incremented)
-            val command2 = command.copy(expectedRevision = result1.state.revision, reason = "Repeat cancel")
+            val command2 = command.copy(expectedRevision = result1.revision, reason = "Repeat cancel")
             val auditRecord2 = createAuditRecord(command2, "event-004-2")
             val result2 =
                 store.cancelWithAuditIntent(
@@ -287,8 +287,8 @@ class JdbcSovereignOpsWorkflowCancellationStoreTest {
                 )
 
             assertThat(result2.alreadyCancelled).isTrue()
-            assertThat(result2.state.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED)
-            assertThat(result2.state.revision).isEqualTo(result1.state.revision)
+            assertThat(result2.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED.wireName)
+            assertThat(result2.revision).isEqualTo(result1.revision)
 
             // Only the first outbox record exists
             val outboxCount2 = selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'event-004-2'")

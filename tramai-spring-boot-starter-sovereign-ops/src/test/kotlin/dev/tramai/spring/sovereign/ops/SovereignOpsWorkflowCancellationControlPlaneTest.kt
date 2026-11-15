@@ -5,20 +5,12 @@ package dev.tramai.spring.sovereign.ops
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.operator.OperatorCapability
 import dev.tramai.core.operator.OperatorPrincipal
-import dev.tramai.orchestration.WorkflowAdmission
-import dev.tramai.orchestration.WorkflowAdmissionRequest
-import dev.tramai.orchestration.WorkflowCancellationRequest
-import dev.tramai.orchestration.WorkflowCheckpoint
-import dev.tramai.orchestration.WorkflowCheckpointStore
-import dev.tramai.orchestration.WorkflowLifecycleState
-import dev.tramai.orchestration.WorkflowLifecycleStatus
 import dev.tramai.spring.sovereign.ops.outbox.RefusalEvidence
 import dev.tramai.spring.sovereign.ops.outbox.RefusalOperation
-import dev.tramai.spring.sovereign.ops.outbox.RefusalRecording
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
-import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsRefusalRecorder
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowRunState
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -47,23 +39,21 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
     @Test
     fun `cancel pending run commits cancellation and returns Cancelled`() {
         runBlocking {
-            val checkpoint =
-                WorkflowCheckpoint(
-                    workflowName = "invoice-flow",
-                    workflowId = "run-1",
-                    nextStepIndex = 1,
-                    stepExecutions = 1,
-                    lastCompletedStepName = "step-0",
-                    statePayload = "{}",
+            val run =
+                SovereignOpsWorkflowRunState(
                     revision = 2L,
+                    status = "active",
+                    isCancelled = false,
                 )
-            val store = MutableCheckpointStore(mutableMapOf("invoice-flow:run-1" to checkpoint))
-            val mutationStore = StubWorkflowCancellationStore(store, clock)
+            val mutationStore =
+                StubWorkflowCancellationStore(
+                    runs = mutableMapOf("invoice-flow:run-1" to run),
+                    clock = clock,
+                )
             val refusalRecorder = RecordingRefusalRecorder()
 
             val controlPlane =
                 SovereignOpsWorkflowCancellationControlPlane(
-                    checkpointStore = store,
                     mutationStore = mutationStore,
                     cancellationPolicy = testCancellationPolicy,
                     clock = clock,
@@ -85,7 +75,7 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
             assertThat(cancelled.workflowName).isEqualTo("invoice-flow")
             assertThat(cancelled.runId).isEqualTo("run-1")
             assertThat(cancelled.revision).isEqualTo(3L)
-            assertThat(cancelled.status).isEqualTo(WorkflowLifecycleStatus.CANCELLED)
+            assertThat(cancelled.status).isEqualTo("cancelled")
             assertThat(cancelled.cancelledBy).isEqualTo("test-operator")
             assertThat(cancelled.cancelledAtEpochMillis).isEqualTo(now.toEpochMilli())
             assertThat(cancelled.alreadyCancelled).isFalse()
@@ -100,8 +90,7 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
     @Test
     fun `operator lacking CANCEL_WORKFLOW capability is refused existence-blind`() {
         runBlocking {
-            val store = MutableCheckpointStore(mutableMapOf())
-            val mutationStore = StubWorkflowCancellationStore(store, clock)
+            val mutationStore = StubWorkflowCancellationStore(clock = clock)
             val refusalRecorder = RecordingRefusalRecorder()
 
             val unprivilegedOperator =
@@ -117,7 +106,6 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
 
             val controlPlane =
                 SovereignOpsWorkflowCancellationControlPlane(
-                    checkpointStore = store,
                     mutationStore = mutationStore,
                     cancellationPolicy = testCancellationPolicy,
                     clock = clock,
@@ -149,13 +137,11 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
     @Test
     fun `operator with unconfigured workflow policy is refused`() {
         runBlocking {
-            val store = MutableCheckpointStore(mutableMapOf())
-            val mutationStore = StubWorkflowCancellationStore(store, clock)
+            val mutationStore = StubWorkflowCancellationStore(clock = clock)
             val refusalRecorder = RecordingRefusalRecorder()
 
             val controlPlane =
                 SovereignOpsWorkflowCancellationControlPlane(
-                    checkpointStore = store,
                     mutationStore = mutationStore,
                     cancellationPolicy = testCancellationPolicy, // only has "invoice-flow"
                     clock = clock,
@@ -185,8 +171,7 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
     @Test
     fun `operator lacking required target role is refused`() {
         runBlocking {
-            val store = MutableCheckpointStore(mutableMapOf())
-            val mutationStore = StubWorkflowCancellationStore(store, clock)
+            val mutationStore = StubWorkflowCancellationStore(clock = clock)
             val refusalRecorder = RecordingRefusalRecorder()
 
             val wrongRoleOperator =
@@ -202,7 +187,6 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
 
             val controlPlane =
                 SovereignOpsWorkflowCancellationControlPlane(
-                    checkpointStore = store,
                     mutationStore = mutationStore,
                     cancellationPolicy = testCancellationPolicy, // requires ops-admin
                     clock = clock,
@@ -232,12 +216,10 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
     @Test
     fun `cancellation on missing workflow run returns NotFound`() {
         runBlocking {
-            val store = MutableCheckpointStore(mutableMapOf())
-            val mutationStore = StubWorkflowCancellationStore(store, clock)
+            val mutationStore = StubWorkflowCancellationStore(clock = clock)
 
             val controlPlane =
                 SovereignOpsWorkflowCancellationControlPlane(
-                    checkpointStore = store,
                     mutationStore = mutationStore,
                     cancellationPolicy = testCancellationPolicy,
                     clock = clock,
@@ -260,22 +242,20 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
     @Test
     fun `cancellation on stale revision returns Stale`() {
         runBlocking {
-            val checkpoint =
-                WorkflowCheckpoint(
-                    workflowName = "invoice-flow",
-                    workflowId = "run-1",
-                    nextStepIndex = 1,
-                    stepExecutions = 1,
-                    lastCompletedStepName = "step-0",
-                    statePayload = "{}",
+            val run =
+                SovereignOpsWorkflowRunState(
                     revision = 5L,
+                    status = "active",
+                    isCancelled = false,
                 )
-            val store = MutableCheckpointStore(mutableMapOf("invoice-flow:run-1" to checkpoint))
-            val mutationStore = StubWorkflowCancellationStore(store, clock)
+            val mutationStore =
+                StubWorkflowCancellationStore(
+                    runs = mutableMapOf("invoice-flow:run-1" to run),
+                    clock = clock,
+                )
 
             val controlPlane =
                 SovereignOpsWorkflowCancellationControlPlane(
-                    checkpointStore = store,
                     mutationStore = mutationStore,
                     cancellationPolicy = testCancellationPolicy,
                     clock = clock,
@@ -301,25 +281,22 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
     @Test
     fun `repeated cancellation on already cancelled run returns Cancelled with alreadyCancelled true`() {
         runBlocking {
-            val existingState =
-                WorkflowLifecycleState(
-                    status = WorkflowLifecycleStatus.CANCELLED,
+            val existingRun =
+                SovereignOpsWorkflowRunState(
                     revision = 3L,
-                    checkpointGeneration = "gen-1",
+                    status = "cancelled",
                     cancelledAtEpochMillis = now.toEpochMilli(),
                     cancelledBy = "original-canceller",
-                    reason = "Initial cancellation",
+                    isCancelled = true,
                 )
-            val store =
-                MutableCheckpointStore(
-                    checkpoints = mutableMapOf(),
-                    lifecycles = mutableMapOf("invoice-flow:run-1" to existingState),
+            val mutationStore =
+                StubWorkflowCancellationStore(
+                    runs = mutableMapOf("invoice-flow:run-1" to existingRun),
+                    clock = clock,
                 )
-            val mutationStore = StubWorkflowCancellationStore(store, clock)
 
             val controlPlane =
                 SovereignOpsWorkflowCancellationControlPlane(
-                    checkpointStore = store,
                     mutationStore = mutationStore,
                     cancellationPolicy = testCancellationPolicy,
                     clock = clock,
@@ -344,61 +321,16 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
         }
     }
 
-    private class MutableCheckpointStore(
-        private val checkpoints: MutableMap<String, WorkflowCheckpoint>,
-        private val lifecycles: MutableMap<String, WorkflowLifecycleState> = mutableMapOf(),
-    ) : WorkflowCheckpointStore {
-        override suspend fun load(
-            workflowName: String,
-            workflowId: String,
-        ): WorkflowCheckpoint? = checkpoints["$workflowName:$workflowId"]
-
-        override suspend fun save(
-            checkpoint: WorkflowCheckpoint,
-            expectedRevision: Long?,
-        ): WorkflowCheckpoint {
-            val key = "${checkpoint.workflowName}:${checkpoint.workflowId}"
-            checkpoints[key] = checkpoint
-            return checkpoint
-        }
-
-        override suspend fun delete(
-            workflowName: String,
-            workflowId: String,
-            expectedRevision: Long?,
-            expectedGeneration: String?,
-        ) {
-            checkpoints.remove("$workflowName:$workflowId")
-        }
-
-        override suspend fun lifecycle(
-            workflowName: String,
-            workflowId: String,
-        ): WorkflowLifecycleState? = lifecycles["$workflowName:$workflowId"]
-
-        override suspend fun cancel(request: WorkflowCancellationRequest): WorkflowLifecycleState {
-            val key = "${request.workflowName}:${request.workflowId}"
-            val state =
-                WorkflowLifecycleState(
-                    status = request.status,
-                    revision = request.expectedRevision + 1,
-                    checkpointGeneration = request.expectedGeneration,
-                    cancelledAtEpochMillis = request.cancelledAtEpochMillis,
-                    cancelledBy = request.actor,
-                    reason = request.reason,
-                )
-            lifecycles[key] = state
-            return state
-        }
-
-        override suspend fun admit(request: WorkflowAdmissionRequest): WorkflowAdmission = WorkflowAdmission(admitted = true, sequence = 1L)
-    }
-
     private class StubWorkflowCancellationStore(
-        private val checkpointStore: MutableCheckpointStore,
+        private val runs: MutableMap<String, SovereignOpsWorkflowRunState> = mutableMapOf(),
         private val clock: Clock = Clock.systemUTC(),
     ) : SovereignOpsWorkflowCancellationStore {
         var lastIntent: SovereignOpsAuditOutboxRecord? = null
+
+        override suspend fun queryRun(
+            workflowName: String,
+            runId: String,
+        ): SovereignOpsWorkflowRunState? = runs["$workflowName:$runId"]
 
         override suspend fun cancelWithAuditIntent(
             command: WorkflowCancellationCommand,
@@ -408,42 +340,33 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
             auditIntent: SovereignOpsAuditOutboxRecord,
         ): SovereignOpsWorkflowCancellationMutationResult {
             lastIntent = auditIntent
-            val checkpoint =
-                checkpointStore.load(command.workflowName, command.runId)
-                    ?: error("Checkpoint missing")
-            val request =
-                WorkflowCancellationRequest(
-                    workflowName = command.workflowName,
-                    workflowId = command.runId,
-                    expectedRevision = command.expectedRevision,
-                    expectedGeneration = checkpoint.checkpointGeneration,
-                    actor = actor,
-                    reason = command.reason,
-                    cancelledAtEpochMillis = clock.millis(),
-                    uncertain = false,
+            val key = "${command.workflowName}:${command.runId}"
+            val current = runs[key] ?: error("Checkpoint missing")
+            if (current.isCancelled) {
+                return SovereignOpsWorkflowCancellationMutationResult(
+                    revision = current.revision,
+                    status = current.status,
+                    cancelledBy = current.cancelledBy ?: actor,
+                    cancelledAtEpochMillis = current.cancelledAtEpochMillis ?: clock.millis(),
+                    alreadyCancelled = true,
                 )
-            val state = checkpointStore.cancel(request)
-            return SovereignOpsWorkflowCancellationMutationResult(state = state, alreadyCancelled = false)
-        }
-    }
-
-    private class RecordingRefusalRecorder : SovereignOpsRefusalRecorder {
-        val recorded = mutableListOf<RefusalEvidence>()
-
-        override suspend fun recordRefusal(evidence: RefusalEvidence): RefusalRecording {
-            recorded += evidence
-            return RefusalRecording.Recorded(
-                SovereignOpsAuditOutboxRecord(
-                    aggregateIdDigest = evidence.approvalIdDigest,
-                    eventKey = evidence.eventKey,
-                    actor = evidence.subject,
-                    workflowRunId = evidence.workflowRunId,
-                    correlationId = evidence.correlationId,
-                    approvalStatus = null,
-                    approvalVersion = null,
-                    reasonDigest = "",
-                    reasonLength = 0,
-                ),
+            }
+            val newRevision = command.expectedRevision + 1
+            val updated =
+                SovereignOpsWorkflowRunState(
+                    revision = newRevision,
+                    status = "cancelled",
+                    cancelledBy = actor,
+                    cancelledAtEpochMillis = clock.millis(),
+                    isCancelled = true,
+                )
+            runs[key] = updated
+            return SovereignOpsWorkflowCancellationMutationResult(
+                revision = newRevision,
+                status = "cancelled",
+                cancelledBy = actor,
+                cancelledAtEpochMillis = clock.millis(),
+                alreadyCancelled = false,
             )
         }
     }

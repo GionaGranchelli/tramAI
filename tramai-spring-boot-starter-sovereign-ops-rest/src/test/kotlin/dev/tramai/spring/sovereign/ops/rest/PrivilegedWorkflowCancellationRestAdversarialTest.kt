@@ -4,7 +4,6 @@ package dev.tramai.spring.sovereign.ops.rest
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.operator.OperatorCapability
-import dev.tramai.orchestration.WorkflowLifecycleStatus
 import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.WorkflowCancellationCommand
 import dev.tramai.spring.sovereign.ops.WorkflowCancellationControlPlane
@@ -355,7 +354,7 @@ class PrivilegedWorkflowCancellationRestAdversarialTest {
                 workflowName = command.workflowName,
                 runId = command.runId,
                 revision = command.expectedRevision + 1,
-                status = WorkflowLifecycleStatus.CANCELLED,
+                status = "cancelled",
                 cancelledBy = authority.subject,
                 cancelledAtEpochMillis = System.currentTimeMillis(),
                 alreadyCancelled = false,

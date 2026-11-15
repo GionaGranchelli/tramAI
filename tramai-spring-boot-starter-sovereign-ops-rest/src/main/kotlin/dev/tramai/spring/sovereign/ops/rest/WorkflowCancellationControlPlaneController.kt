@@ -102,7 +102,7 @@ class WorkflowCancellationControlPlaneController(
             is WorkflowCancellationResult.Cancelled -> {
                 ResponseEntity.ok(
                     WorkflowCancellationResponse(
-                        status = result.status.wireName,
+                        status = result.status,
                         workflowName = workflowName,
                         runId = runId,
                         revision = result.revision,

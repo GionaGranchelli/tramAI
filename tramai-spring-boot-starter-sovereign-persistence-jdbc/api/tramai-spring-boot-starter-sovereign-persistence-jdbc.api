@@ -160,6 +160,7 @@ public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOps
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowCheckpointStore;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Clock;I)V
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowCheckpointStore;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Clock;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun cancelWithAuditIntent (Ldev/tramai/spring/sovereign/ops/WorkflowCancellationCommand;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun queryRun (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcKeyLoader {

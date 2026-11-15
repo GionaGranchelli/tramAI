@@ -1,6 +1,5 @@
 package dev.tramai.spring.sovereign.ops
 
-import dev.tramai.orchestration.WorkflowCheckpointStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsRefusalRecorder
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
 import dev.tramai.spring.sovereign.ops.outbox.UnconfiguredRefusalRecorder
@@ -16,8 +15,7 @@ import java.time.Clock
  * Spring Boot auto-configuration for the [WorkflowCancellationControlPlane] (0.7.7m).
  *
  * Creates a [SovereignOpsWorkflowCancellationControlPlane] bean when
- * [SovereignOpsWorkflowCancellationStore], [WorkflowCheckpointStore], and
- * [OperatorWorkflowCancellationPolicy] are available.
+ * [SovereignOpsWorkflowCancellationStore] and [OperatorWorkflowCancellationPolicy] are available.
  */
 @AutoConfiguration(after = [SovereignOpsAutoConfiguration::class])
 @ConditionalOnProperty(
@@ -32,18 +30,15 @@ class WorkflowCancellationControlPlaneAutoConfiguration {
         value = [
             OperatorWorkflowCancellationPolicy::class,
             SovereignOpsWorkflowCancellationStore::class,
-            WorkflowCheckpointStore::class,
         ],
     )
     fun sovereignOpsWorkflowCancellationControlPlane(
-        checkpointStore: WorkflowCheckpointStore,
         cancellationStore: SovereignOpsWorkflowCancellationStore,
         cancellationPolicy: OperatorWorkflowCancellationPolicy,
         refusalRecorder: ObjectProvider<SovereignOpsRefusalRecorder>,
         clock: ObjectProvider<Clock>,
     ): WorkflowCancellationControlPlane =
         SovereignOpsWorkflowCancellationControlPlane(
-            checkpointStore = checkpointStore,
             mutationStore = cancellationStore,
             cancellationPolicy = cancellationPolicy,
             refusalRecorder = refusalRecorder.getIfAvailable() ?: UnconfiguredRefusalRecorder,

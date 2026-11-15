@@ -531,7 +531,7 @@ migrations:
 
   - module: ":tramai-spring-boot-starter-sovereign-ops"
     fromSha256: "ef10091bec9891abda5c2b8b2693b087a0c40539d2879cca98bf42c855f19e6a"
-    toSha256: "50603f4eec0b3b84bd3bc3a1f3288bb8703730a4838b330fad3cdbbe3fdec939"
+    toSha256: "77f7af171b9b91f18585afe219986631faee276bc81b450af0edc6a000ca5341"
     targetVersion: "0.7.0"
     rationale: "TASK-0.7.7m: Add workflow cancellation control plane contracts, target authorization policy (OperatorWorkflowCancellationPolicy), store SPI (SovereignOpsWorkflowCancellationStore), outbox evidence kinds (WORKFLOW_CANCELLED, RefusalEvidence.CANCEL_WORKFLOW), and auto-configuration."
     migration: "No consumer action required: additive domain control plane and policy types; existing callers and configurations require no change."
@@ -545,7 +545,7 @@ migrations:
 
   - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
     fromSha256: "df415d890b708efcb3f3405cbebd408811cd551ecf7fe0ec0b041eda4e129f65"
-    toSha256: "aa6ddaf3c558c93d2fad16ac166c1b4d67edde76fb993f8c3bdf62ea28567f3f"
+    toSha256: "326e4b27466c86e4a7a48297b86ad2a500ce847c15e80a92c939f96018ae28f6"
     targetVersion: "0.7.0"
     rationale: "TASK-0.7.7m: Add JdbcSovereignOpsWorkflowCancellationStore and auto-configuration wiring for atomic single-transaction workflow checkpoint cancellation and audit outbox record persistence."
     migration: "No consumer action required: additive store implementation and bean definitions; existing callers require no change."

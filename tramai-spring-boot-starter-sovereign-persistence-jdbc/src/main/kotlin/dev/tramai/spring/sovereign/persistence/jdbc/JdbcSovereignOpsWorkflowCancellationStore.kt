@@ -9,6 +9,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowRunState
 import kotlinx.coroutines.CancellationException
 import java.sql.Connection
 import java.sql.SQLException
@@ -30,6 +31,31 @@ class JdbcSovereignOpsWorkflowCancellationStore(
     private val clock: Clock = Clock.systemUTC(),
     private val maxReasonLength: Int = 4096,
 ) : SovereignOpsWorkflowCancellationStore {
+    override suspend fun queryRun(
+        workflowName: String,
+        runId: String,
+    ): SovereignOpsWorkflowRunState? {
+        val lifecycle = checkpointStore.lifecycle(workflowName, runId)
+        if (lifecycle != null) {
+            return SovereignOpsWorkflowRunState(
+                revision = lifecycle.revision,
+                status = lifecycle.status.wireName,
+                cancelledBy = lifecycle.cancelledBy,
+                cancelledAtEpochMillis = lifecycle.cancelledAtEpochMillis,
+                isCancelled = true,
+            )
+        }
+        return checkpointStore.load(workflowName, runId)?.let { checkpoint ->
+            SovereignOpsWorkflowRunState(
+                revision = checkpoint.revision,
+                status = "active",
+                cancelledBy = null,
+                cancelledAtEpochMillis = null,
+                isCancelled = false,
+            )
+        }
+    }
+
     @Suppress("LongMethod", "TooGenericExceptionCaught")
     override suspend fun cancelWithAuditIntent(
         command: WorkflowCancellationCommand,
@@ -49,7 +75,10 @@ class JdbcSovereignOpsWorkflowCancellationStore(
                 if (existingLifecycle != null) {
                     conn.rollback()
                     return SovereignOpsWorkflowCancellationMutationResult(
-                        state = existingLifecycle,
+                        revision = existingLifecycle.revision,
+                        status = existingLifecycle.status.wireName,
+                        cancelledBy = existingLifecycle.cancelledBy,
+                        cancelledAtEpochMillis = existingLifecycle.cancelledAtEpochMillis,
                         alreadyCancelled = true,
                     )
                 }
@@ -96,7 +125,10 @@ class JdbcSovereignOpsWorkflowCancellationStore(
                 conn.commit()
 
                 SovereignOpsWorkflowCancellationMutationResult(
-                    state = finalState,
+                    revision = finalState.revision,
+                    status = finalState.status.wireName,
+                    cancelledBy = finalState.cancelledBy,
+                    cancelledAtEpochMillis = finalState.cancelledAtEpochMillis,
                     alreadyCancelled = false,
                 )
             } catch (e: CancellationException) {

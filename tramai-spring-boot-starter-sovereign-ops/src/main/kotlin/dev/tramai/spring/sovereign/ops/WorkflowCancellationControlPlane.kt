@@ -1,7 +1,5 @@
 package dev.tramai.spring.sovereign.ops
 
-import dev.tramai.orchestration.WorkflowLifecycleStatus
-
 /**
  * Command to cancel a governed workflow run (0.7.7m).
  *
@@ -37,7 +35,7 @@ sealed interface WorkflowCancellationResult {
         val workflowName: String,
         val runId: String,
         val revision: Long,
-        val status: WorkflowLifecycleStatus,
+        val status: String,
         val cancelledBy: String,
         val cancelledAtEpochMillis: Long,
         val alreadyCancelled: Boolean = false,
