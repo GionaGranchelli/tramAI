@@ -51,7 +51,8 @@ This document is the formal security-risk acceptance record for Epic 0.7.6. It e
 | **Proposed Target Milestone** | **Epic 0.8.0** (Multi-Tenant Domain Policy & Read Authorization) |
 | **Compensating Controls & Operational Restrictions** | 1. **Trust Realm Scope:** Deploy `tramai-spring-boot-starter-sovereign-ops-rest` only within an organizational trust boundary where all authenticated operators possessing valid JWTs are cleared to view approval metadata.<br>2. **Sanitized Exposure:** Verify that application configurations do not place raw sensitive secrets in queryable approval metadata.<br>3. **Network Isolation for Internal Server:** `tramai-server` is an unpublished internal module (`id("tramai.kotlin-library")`, not published to Maven Central). It **must never be exposed to public networks** and must reside behind an isolated private network perimeter or mTLS reverse-proxy. |
 | **Unsupported Deployment Conditions** | • Deployments requiring multi-tenant read partitioning among different operator groups on the same TramAI instance are **UNSUPPORTED** in 0.7.x.<br>• Direct public exposure of `tramai-server` is **UNSUPPORTED**. |
-| **Tracked Issue / Follow-up** | Issue #530 / Epic 0.8.0 Read Authorization. |
+| **Tracked Follow-up & Ownership** | **Epic 0.8.0 Roadmap Track** (`docs/roadmap/0.8.0/`), owned by Control Plane & Security Working Group. (Tracked as an epic-governed architectural milestone; no synthetic issue number). |
+| **Enforceable Scope & Closure Criteria** | 1. Implement operator role-based query filtering and workflow ownership partitioning on supported read endpoints (`/tramai/sovereign/approvals/**`).<br>2. Formally deprecate or isolate `tramai-server` prototype controllers behind explicit security adapters or network perimeter boundaries.<br>3. **Closure Condition:** Unauthenticated or unauthorized queries outside the operator's authorized role/scope fail closed with HTTP 403; integration tests prove multi-tenant read isolation. |
 | **Invalidation Conditions** | This risk profile is invalidated if read endpoints begin exposing raw tool payloads, decrypted credentials, or resume tokens, or if `tramai-server` is published as a supported library artifact. |
 | **Owner Ratification Status** | **PROPOSED — PENDING EXPLICIT REPOSITORY-OWNER RATIFICATION**<br>*Formal Owner Decision: [Pending]* |
 
@@ -71,7 +72,8 @@ This document is the formal security-risk acceptance record for Epic 0.7.6. It e
 | **Proposed Target Milestone** | **Epic 0.8.0** (Relational Schema Migration V11 & Dynamic Policy ADR) |
 | **Compensating Controls & Operational Restrictions** | 1. **Policy-Version Mapping:** Workloads requiring distinct approver roles must map separate, immutable policy versions via server configuration (`tramai.sovereign.ops.security.approver-role-mappings`).<br>2. **Client Understanding:** Integrating applications must understand that client-requested `requiredRole` strings in `ApprovalRequest` serve inbox presentation and query indexing, while authoritative authorization is governed by server-side policy version binding. |
 | **Unsupported Deployment Conditions** | • Workloads requiring ad-hoc, dynamic per-approval approver roles that cannot be mapped to server-controlled policy versions are **UNSUPPORTED** in 0.7.x. |
-| **Tracked Issue / Follow-up** | Issue #531 / Epic 0.8.0 Dynamic Approver-Role Schema. |
+| **Tracked Follow-up & Ownership** | **Epic 0.8.0 Schema Migration V11 & Policy Architecture Task** (`docs/roadmap/0.8.0/`), owned by Persistence & Governance Working Group. (Tracked as an epic-governed architectural milestone; no synthetic issue number). |
+| **Enforceable Scope & Closure Criteria** | 1. Introduce relational column `approvals.required_role` in Flyway migration V11.<br>2. Update JDBC and File persistence stores to persist and retrieve the immutable declared role.<br>3. Align `OperatorApprovalPolicy` to evaluate against this authoritative relational column rather than relying solely on server-side `policyVersion` mapping.<br>4. **Closure Condition:** Database migration V11 applies cleanly with rollback verification; TCK and adversarial tests prove that an approval requesting `requiredRole="FINANCE_ADMIN"` cannot be approved by an operator possessing only `OPS_ADMIN`, even if both share the same `policyVersion`. |
 | **Invalidation Conditions** | This risk profile is invalidated if application code or documentation claims that dynamic `requiredRole` strings in `ApprovalRequest` provide authoritative access control. |
 | **Owner Ratification Status** | **PROPOSED — PENDING EXPLICIT REPOSITORY-OWNER RATIFICATION**<br>*Formal Owner Decision: [Pending]* |
 
@@ -88,10 +90,11 @@ This document is the formal security-risk acceptance record for Epic 0.7.6. It e
 | **Delivered Verification Evidence** | • `verifyDirectApprovalMutations` Gradle task: passes cleanly in CI and blocks direct store mutation call sites.<br>• `OperatorTrustBoundarySubstitutionTest`: proves client-supplied body identity is ignored.<br>• `PrivilegedControlBoundaryRestAdversarialTest` (scenario `G2-04`): proves spoofed headers cannot mint authority.<br>• Mutation `M3` KILLED. |
 | **Exact Residual Risk** | `ApprovalStore` is a public Kotlin/JVM interface in `tramai-core` (`dev.tramai.core.approval.ApprovalStore`). Because TramAI is an embedded JVM library without Java Platform Module System (JPMS) strong encapsulation or runtime bytecode sandboxing, in-process JVM code running in the same classloader could theoretically invoke `ApprovalStore.transition(...)` directly via reflection or direct references, bypassing operator authorization and outbox audit emission. |
 | **Proposed Disposition** | **BOUNDED ACCEPTANCE (PENDING OWNER DECISION)** |
-| **Proposed Target Milestone** | **TramAI 1.0** (JPMS Strong Encapsulation & Core SPI Segregation) |
+| **Proposed Target Milestone** | **TramAI 1.0** (Core SPI Segregation & Internal Encapsulation) |
 | **Compensating Controls & Operational Restrictions** | 1. **Trusted In-Process Boundary:** TramAI's security architecture explicitly assumes a **trusted in-process host application**. Untrusted code, untrusted plugins, or malicious third-party dependencies sharing the same JVM memory space are excluded from the threat model.<br>2. **CI AST Ratchet:** The `verifyDirectApprovalMutations` Gradle task remains a required CI quality gate to prevent accidental or unauthorized direct-store call sites from being introduced into the repository. |
 | **Unsupported Deployment Conditions** | • Multi-tenant or pluggable execution models running untrusted, hostile code in the same JVM without sandbox boundaries are **UNSUPPORTED**. |
-| **Tracked Issue / Follow-up** | Architectural Debt Ledger L4 / TramAI 1.0 JPMS boundary. |
+| **Tracked Follow-up & Ownership** | **Architectural Debt Ledger (L4) / TramAI 1.0 Core SPI Segregation**, owned by Architecture Authority. |
+| **Enforceable Scope & Closure Criteria** | 1. Segregate application-facing API modules from engine-internal SPI modules; relocate `ApprovalStore` and related mutation SPIs into an internal SPI module not exported to application consumers.<br>2. **Hostile-Code Isolation Boundary:** Explicitly note that while strong module encapsulation (such as JPMS or classloader segregation) reduces accidental access and coupling, **JPMS alone does not provide a complete hostile-code isolation mechanism or sandboxing against untrusted in-process code**. TramAI's supported deployment model is and remains an embedded library for **trusted host runtimes**. Pluggable untrusted code isolation requires external sandbox boundaries (such as out-of-process workers or WebAssembly runtimes).<br>3. **Closure Condition:** Core SPI interfaces are internal; build ratchet `verifyDirectApprovalMutations` continues enforcing zero unauthorized internal call sites; architecture tests verify compile-time encapsulation across module boundaries. |
 | **Invalidation Conditions** | This risk profile is invalidated if `verifyDirectApprovalMutations` is removed or weakened in CI, or if supported REST controllers bypass `SovereignOpsApprovalDecisionControlPlane`. |
 | **Owner Ratification Status** | **PROPOSED — PENDING EXPLICIT REPOSITORY-OWNER RATIFICATION**<br>*Formal Owner Decision: [Pending]* |
 
@@ -135,12 +138,13 @@ The Epic 0.7.6 charter defines five core acceptance criteria. In accordance with
 ### 4.2 Acceptance Criterion AC4: Direct-Store / Client Bypasses Absent (PARTIAL)
 
 - **Requirement:** Direct-store and client-side bypasses are absent from supported control paths.
-- **Delivered & Verified (PASS):**
+- **Delivered & Verified (PASS for Invariant I4):**
   - Supported REST control paths strictly reject or ignore caller-supplied actor identity, spoofed headers, and bypass attempts (adversarial scenario `G2-04`, mutation `M3` KILLED).
   - Preconditions fail closed on missing or stale versions (`G2-06`, `G2-07`, mutation `M4` KILLED).
-- **Boundary Qualification (PARTIAL Justification):**
-  - The public JVM SPI method `ApprovalStore.transition(...)` in `tramai-core` is guarded within the repository by the AST/PSI build ratchet `verifyDirectApprovalMutations`. However, runtime JVM bytecode sandboxing against reflection or arbitrary in-process invocation is not provided (residual L4).
-- **Formal Status:** **PARTIAL** (Supported Control Paths: PASS; In-Process JVM SPI Sandboxing: PARTIAL).
+  - Invariant **I4** (*Untrusted external clients cannot directly mutate persistence through supported control paths*) is fully **PASS**.
+- **Boundary Qualification (PARTIAL Justification for AC4):**
+  - The public JVM SPI method `ApprovalStore.transition(...)` in `tramai-core` is guarded within the repository by the AST/PSI build ratchet `verifyDirectApprovalMutations`. However, runtime JVM bytecode sandboxing against reflection or arbitrary in-process invocation by co-located code is not provided (residual L4).
+- **Formal Status:** **PARTIAL** (Supported Control Paths / Invariant I4: PASS; In-Process JVM SPI Sandboxing / Limitation L4: PARTIAL).
 
 ---
 
@@ -150,8 +154,8 @@ The Epic 0.7.6 charter defines five core acceptance criteria. In accordance with
 | :--- | :--- | :--- | :--- | :---: |
 | **I1** | UI visibility != authorization | Headless REST endpoints; Reviewer UI is an unprivileged SSR shell | `ApprovalControlPlaneControllerTest`, `G2-01` | **PASS** |
 | **I2** | Privileged mutation requires auth + authz | OAuth2 filter chain + L2 capability + L3 approver-role policy | `G2-01`, `G2-02`, `G2-03`, `G2-11`, M1, M2, M6 | **PASS** |
-| **I3** | Stale command cannot overwrite newer state | Mandatory `expectedVersion >= 0` + control-plane check + store CAS | `G2-06`, `G2-07`, `G2-08`, `G2-09`, M4, M5 | **PASS** |
-| **I4** | Client cannot directly mutate persistence | Controller ignores client body actor; AST ratchet guards SPI | `G2-04`, `verifyDirectApprovalMutations`, M3 | **PASS** |
+| **I3** | Stale command cannot overwrite newer state | Mandatory `expectedVersion >= 0` domain precondition + database CAS version predicate (`WHERE version = ?`) | Domain precondition: `G2-06`, `G2-07` (`M4` KILLED).<br>Concurrency CAS: `G2-08`, `G2-09` (real PostgreSQL 10-thread concurrency qualified).<br>Mutation `M5`: NOT_EVALUATED (compound defense independently qualified). | **PASS** |
+| **I4** | Untrusted external clients cannot directly mutate persistence through supported control paths | Supported REST controllers reject client-asserted identity; AST ratchet guards repo SPI call sites. In-process JVM bypass limitation remains scoped under L4. | `G2-04`, `verifyDirectApprovalMutations`, `M3` (KILLED) | **PASS** |
 | **I5** | Operator capability != runtime capability | Closed `OperatorCapability` enum distinct from tool/MCP policies | `OperatorCapabilityContractTest`, `OperatorCapabilityMappingTest` | **PASS** |
 | **AC1** | Headless usability | Supported REST decision endpoints operable via standard HTTP | `TwoIssuerOidcJdbcEvidenceAttributionEndToEndTest` | **PARTIAL** |
 | **AC2** | Server-side IdP-neutral authorization | RS256 JWKS validation; server-side claim mapping to capability/role | `OperatorAuthenticationHttpTest`, `G2-02`, `G2-03`, `G2-05` | **PASS** |
@@ -161,9 +165,19 @@ The Epic 0.7.6 charter defines five core acceptance criteria. In accordance with
 
 ---
 
-## 6. Formal Owner Ratification Ledger
+## 6. Governance Distinction & Formal Owner Ratification Ledger
 
-The proposed dispositions for residual security risks F3, F5, and L4, the deferral of Issue #524, and the qualification bounds of M5, AC1, and AC4 are formally submitted for repository-owner review:
+### 6.1 Distinction: Accepted Deployment Restrictions vs. Incomplete Technical Acceptance Criteria
+
+This formal record strictly distinguishes between:
+1. **Accepted Deployment Restrictions (Risks F3, F5, L4):**
+   These are operational boundaries, trust domain constraints, and threat model exclusions (single-tenant operator trust realm, server-configured policy version mapping, trusted in-process host runtime). Once reviewed and ratified by the repository owner, these define the supported deployment envelope of TramAI 0.7.x rather than product defects.
+2. **Incomplete Technical Acceptance Criteria (AC1 and AC4):**
+   These are technical gaps in composed end-to-end testing (AC1 lacks a single live-HTTP-to-PostgreSQL-and-outbox test suite) and JVM module encapsulation (AC4 lacks runtime sandboxing against in-process SPI bypasses). These remain rigorously classified as **PARTIAL** in technical audit records; owner ratification of operational deployment restrictions does not convert AC1 or AC4 into unqualified technical PASS verdicts.
+
+### 6.2 Formal Owner Ratification Ledger
+
+The proposed dispositions for residual security risks F3, F5, and L4, the deferral of Issue #524, the qualification bounds of M5, and the partial status of AC1 and AC4 are formally submitted for repository-owner review:
 
 ```text
 ========================================================================================

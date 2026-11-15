@@ -118,7 +118,7 @@ Because `WorkflowCheckpointStore.cancel(...)` currently lacks an authenticated, 
 
 Before Epic 0.7.7 can be certified for release cut:
 1. A supported REST cancellation endpoint (e.g. `POST /tramai/sovereign/workflows/{id}/cancel` or `DELETE /tramai/sovereign/workflows/{id}`) must be implemented in `tramai-spring-boot-starter-sovereign-ops-rest`.
-2. The endpoint must enforce RS256 JWT authentication, server-side operator authorization (e.g. via an operator capability such as `OperatorCapability.ADMINISTER_OPERATORS` or a dedicated `CANCEL_WORKFLOW` capability), typed version preconditions, and transactional outbox evidence.
+2. The endpoint must enforce RS256 JWT authentication, server-side operator authorization through a dedicated `OperatorCapability.CANCEL_WORKFLOW` capability (do NOT reuse or conflate with `ADMINISTER_OPERATORS`), target-scoped authorization evaluating the caller's authority over the specific target workload and run (rather than treating global capability possession as sufficient), typed workflow lifecycle revision fencing (evaluating the authoritative workflow checkpoint revision/version, distinct from approval command `expectedVersion` semantics), and transactional outbox evidence emission.
 3. Alternatively, if cancellation in 0.7.0 is strictly an in-process programmatic JVM API, the Epic 0.7.7 charter must be formally amended with an owner-approved ADR explicitly scoping cancellation as internal-only.
 
 ---
@@ -141,15 +141,15 @@ cancelled(run) != already-produced external effects compensated or reversed
    - If `admission_seq == 0` when cancelled $\to$ transitions to `WorkflowLifecycleStatus.CANCELLED`.
    - If `admission_seq > 0` when cancelled $\to$ transitions to `WorkflowLifecycleStatus.CANCELLED_UNCERTAIN`.
    - Admitted effects cannot be assumed rolled back. External compensation requires operator reconciliation playbooks.
-5. **Timeline Reconstruction Adapter:** `WorkflowHistoricalEvidenceReader.readTimeline` extracts exact lifecycle history without side effects; detects sequence gaps with bounded enumeration; flags `reconciliationRequired == true` fail-closed.
+5. **Timeline Reconstruction Adapter:** `WorkflowHistoricalEvidenceReader.readTimeline` extracts lifecycle history without re-executing workflow effects; detects sequence gaps with bounded enumeration; flags `reconciliationRequired == true` fail-closed. However, durable continuation inspection is **not yet guaranteed to be side-effect-free or mutation-free** (see §6.2.2).
 
 ### 6.2 D7-F Residual Limitations
 
 1. **Cross-Family Multi-Runtime Composition (PARTIAL):** Pairwise compositions (E11 with E9, E1, E3/E4, E7) are qualified in D7-F01–D7-F16. Simultaneous multi-family runtime pipelines across all 9 families within a single active graph are deferred.
 2. **Durable Continuation Forensic Inspection (PARTIAL):**
-   - `WorkflowHistoricalEvidenceReader.readTimeline` delegates to `ApprovalContinuationStore.get`.
-   - Existing store implementations (`JdbcApprovalContinuationStore`, `FileApprovalContinuationStore`) perform lazy status mutation on expired pending continuations.
-   - The `ReadOnlyApprovalContinuationLookup` interface abstraction is established in `:tramai-orchestration`, but native non-mutating query methods on durable stores require cross-module SPI changes and are deferred.
+   - Timeline reconstruction extracts historical events without re-executing workflow effects. However, when inspecting durable continuations, `WorkflowHistoricalEvidenceReader.readTimeline` delegates to `ApprovalContinuationStore.get`.
+   - Existing store implementations (`JdbcApprovalContinuationStore`, `FileApprovalContinuationStore`) perform lazy status mutation (transitioning expired `PENDING` continuations to `EXPIRED`, incrementing version, and scrubbing payloads) upon inspection.
+   - Consequently, durable continuation inspection is not yet guaranteed to be mutation-free. The `ReadOnlyApprovalContinuationLookup` interface abstraction is established in `:tramai-orchestration`, but native non-mutating query methods on durable stores require cross-module SPI changes and are deferred to a dedicated continuation-store enhancement task.
 3. **Operator Reconciliation Playbook Required:**
    - For runs in `CANCELLED_UNCERTAIN`, operators must inspect timelines and reconcile external systems manually using `idempotentKey` and `admissionSeq`.
 
