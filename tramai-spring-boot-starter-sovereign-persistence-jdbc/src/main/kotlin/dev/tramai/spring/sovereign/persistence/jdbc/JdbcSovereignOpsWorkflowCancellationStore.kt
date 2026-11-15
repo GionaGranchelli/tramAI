@@ -30,6 +30,7 @@ class JdbcSovereignOpsWorkflowCancellationStore(
     private val clock: Clock = Clock.systemUTC(),
     private val maxReasonLength: Int = 4096,
 ) : SovereignOpsWorkflowCancellationStore {
+    @Suppress("LongMethod", "TooGenericExceptionCaught")
     override suspend fun cancelWithAuditIntent(
         command: WorkflowCancellationCommand,
         actor: String,

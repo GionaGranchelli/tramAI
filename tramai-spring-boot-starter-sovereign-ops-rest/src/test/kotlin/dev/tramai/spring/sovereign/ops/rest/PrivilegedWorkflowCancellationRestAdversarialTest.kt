@@ -312,6 +312,7 @@ class PrivilegedWorkflowCancellationRestAdversarialTest {
             lastAuthority = null
         }
 
+        @Suppress("ReturnCount")
         override suspend fun cancel(
             command: WorkflowCancellationCommand,
             authority: OperatorAuthority,

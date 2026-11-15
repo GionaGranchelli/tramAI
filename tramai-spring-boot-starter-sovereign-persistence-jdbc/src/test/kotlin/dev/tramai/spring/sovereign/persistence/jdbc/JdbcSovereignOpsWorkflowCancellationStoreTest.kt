@@ -79,6 +79,7 @@ class JdbcSovereignOpsWorkflowCancellationStoreTest {
     }
 
     @Test
+    @Suppress("LongMethod")
     fun `cancelWithAuditIntent commits checkpoint cancellation and pending outbox record atomically`() {
         runBlocking {
             val workflowName = "test-pipeline"
@@ -302,8 +303,7 @@ class JdbcSovereignOpsWorkflowCancellationStoreTest {
 
             val failingCodec =
                 object : JdbcOpsAuditOutboxPayloadCodec {
-                    override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload =
-                        error("codec encryption failed")
+                    override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload = error("codec encryption failed")
 
                     override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray = envelope.ciphertext
                 }

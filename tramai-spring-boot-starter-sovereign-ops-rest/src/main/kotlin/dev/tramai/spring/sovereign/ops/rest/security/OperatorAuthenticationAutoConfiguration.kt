@@ -109,7 +109,9 @@ class OperatorAuthenticationAutoConfiguration {
         val configured = properties.workflowCancellationPolicies
         val requirement =
             configured.mapValues { (target, roles) ->
-                roles.forEach { role -> requireApproverRoleShape(role, "a workflow-cancellation-policies '$target' role") }
+                roles.forEach { role ->
+                    requireApproverRoleShape(role, "a workflow-cancellation-policies '$target' role")
+                }
                 roles.map { ApproverRole(it) }.toSet()
             }
         val grantable = approverRoleMapping(properties).grantableApproverRoles()

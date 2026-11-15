@@ -408,7 +408,7 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
             lastIntent = auditIntent
             val checkpoint =
                 checkpointStore.load(command.workflowName, command.runId)
-                    ?: throw IllegalStateException("Checkpoint missing")
+                    ?: error("Checkpoint missing")
             val request =
                 WorkflowCancellationRequest(
                     workflowName = command.workflowName,

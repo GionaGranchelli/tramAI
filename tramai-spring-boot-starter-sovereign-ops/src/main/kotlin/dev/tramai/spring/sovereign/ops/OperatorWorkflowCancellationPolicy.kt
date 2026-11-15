@@ -29,7 +29,8 @@ class OperatorWorkflowCancellationPolicy(
                 "tramai-operator-workflow-cancellation-policy-blank-name: a workflow name key must not be blank"
             }
             require(roles.isNotEmpty()) {
-                "tramai-operator-workflow-cancellation-policy-empty-roles: workflow '$workflowName' accepts no role, so no cancellation could ever satisfy it"
+                "tramai-operator-workflow-cancellation-policy-empty-roles: " +
+                    "workflow '$workflowName' accepts no role, so no cancellation could ever satisfy it"
             }
         }
         requiredRoles =

@@ -129,6 +129,7 @@ class PrivilegedWorkflowCancellationConcurrencyQualificationTest {
     }
 
     @Test
+    @Suppress("LongMethod")
     fun `concurrent cancellations at barrier commit exactly one linearization point and one outbox row`() {
         runBlocking {
             val workflowName = "deploy-pipeline"

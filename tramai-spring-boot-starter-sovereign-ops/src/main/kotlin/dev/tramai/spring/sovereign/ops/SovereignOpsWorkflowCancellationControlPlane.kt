@@ -33,6 +33,7 @@ class SovereignOpsWorkflowCancellationControlPlane(
     private val clock: Clock = Clock.systemUTC(),
     private val refusalRecorder: SovereignOpsRefusalRecorder = UnconfiguredRefusalRecorder,
 ) : WorkflowCancellationControlPlane {
+    @Suppress("LongMethod", "ReturnCount", "TooGenericExceptionCaught")
     override suspend fun cancel(
         command: WorkflowCancellationCommand,
         authority: OperatorAuthority,
@@ -151,6 +152,7 @@ class SovereignOpsWorkflowCancellationControlPlane(
         }
     }
 
+    @Suppress("ReturnCount")
     private suspend fun staleOrConflict(
         command: WorkflowCancellationCommand,
         cause: Throwable,
