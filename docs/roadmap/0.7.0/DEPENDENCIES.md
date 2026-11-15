@@ -45,7 +45,7 @@
 | 0.7.4 | 0.7.2/0.7.3 | SOFT | evidence schema can start first but must project their final reason/decision contracts |
 | 0.7.5 | 0.7.4 | HARD | timeline/reconstruction consume authoritative evidence/read-model contracts |
 | 0.7.6 | 0.7.1/0.7.4 | HARD | privileged commands require target identity/preconditions and evidence linkage |
-| 0.7.7 | 0.7.6 | HARD | persisted cancellation is an authoritative privileged lifecycle command |
+| 0.7.7 | 0.7.6 | HARD | persisted cancellation is an authoritative privileged lifecycle command; rebaselined under [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md) |
 | 0.7.8 | 0.7.3–0.7.7 | HARD | Dashboard is a client of completed headless control-plane APIs |
 
 ## Parallel-start recommendation

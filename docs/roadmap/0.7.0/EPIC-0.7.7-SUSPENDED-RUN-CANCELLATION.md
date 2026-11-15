@@ -1,8 +1,8 @@
 # Epic 0.7.7 — Authoritative Persisted Suspended-Run Cancellation
 
-**Branch:** `epic/0.7.7-suspended-run-cancellation`  
-**Status:** ⚪ Planned  
-**Dependencies:** 0.7.6 HARD
+**Branch:** `epic/0.7.7-suspended-run-cancellation`
+**Status:** 🟡 Implementation Complete; Integration Rebaseline & Cancellation Boundary Pending
+**Dependencies:** 0.7.6 HARD (Rebaselined under [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md))
 
 ## Executive decision
 
@@ -38,18 +38,25 @@ Once cancellation wins, no model, tool, approval continuation, network action, o
 - generic saga/compensation engine;
 - claiming that terminal cancellation automatically reverses an email, payment, deployment, external API mutation, or other already-completed side effect.
 
-## Tasks
+## Tasks & Delivery Ledger
 
-| ID | Candidate | Required result |
-|---|---|---|
-| 0.7.7a | Suspended-run lifecycle audit | Map checkpoint, approval, resume, recovery and cancellation race paths |
-| 0.7.7b | Terminal cancellation contract | Durable terminal state/identity and transition legality |
-| 0.7.7c | Authoritative cancel command | Integrate 0.7.6 authorization/control path with persisted lifecycle authority |
-| 0.7.7d | Resume fencing | Every future resume/recovery path fails closed after cancellation |
-| 0.7.7e | Late-approval fencing | Pending/late approval continuation cannot reactivate cancelled execution |
-| 0.7.7f | Atomic race/restart/idempotency | One cancel/resume winner; persistence survives restart; repeated cancel stable |
-| 0.7.7g | Evidence/reconstruction | Terminal cancellation remains explainable after cleanup/restart |
-| 0.7.7h | Adversarial/mutation/integration proof | Concurrency/restart/late approval/discriminator suite and exact-head gate |
+The core engine, store, lease, admission, and evidence mechanisms were delivered through milestones D7-A through D7-E1, and integrated in milestone **D7-F** (PR #591, commit `b97e4179`):
+
+| ID / Deliverable | Scope | Status | Key Artifacts |
+|---|---|---|---|
+| **D7-A** (0.7.7a/b) | Durable cancellation contract & lifecycle state | ✅ **Delivered** | [TASK-0.7.7a](../0.7.7/TASK-0.7.7a-CANCELLATION-AUTHORITY-CONTRACT.md) |
+| **D7-B** (0.7.7b/c) | Per-effect admission fencing (E1–E8) & permit contract | ✅ **Delivered** | [TASK-0.7.7b](../0.7.7/TASK-0.7.7b-PER-EFFECT-ADMISSION-CONTRACT.md) |
+| **D7-C** (0.7.7d) | Recovery re-execution fencing & lease store (E10) | ✅ **Delivered** | [TASK-0.7.7c](../0.7.7/TASK-0.7.7c-RECOVERY-REEXECUTION-FENCING.md) |
+| **D7-D** (0.7.7g) | Per-effect evidence schemas (E1–E8) | ✅ **Delivered** | [TASK-0.7.7e](../0.7.7/TASK-0.7.7e-PER-EFFECT-EVIDENCE-CONTRACT.md)–[TASK-0.7.7i](../0.7.7/TASK-0.7.7i-EXTERNAL-EFFECT-EVIDENCE.md) |
+| **D7-E1** (0.7.7e) | Approval resume continuation evidence (E9) | ✅ **Delivered** | [TASK-0.7.7j](../0.7.7/TASK-0.7.7j-E9-EVIDENCE-LINEAGE-CONTRACT.md), [TASK-0.7.7k](../0.7.7/TASK-0.7.7k-E9-DURABLE-APPROVAL-RESUME-EVIDENCE.md) |
+| **D7-F** (0.7.7f/h) | Cross-boundary cancellation & evidence integration closure | ✅ **Delivered** | [TASK-0.7.7l-D7-F-INTEGRATION-CLOSURE.md](../0.7.7/TASK-0.7.7l-D7-F-INTEGRATION-CLOSURE.md) (PR #591) |
+| **D7-Rebaseline** | Dependency rebaseline against delivered 0.7.6 | 🟡 **Active / Provisional** | [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md) |
+
+### Release Blocker — Cancellation Control Entry Point Authority
+
+While internal engine-level cancellation is fully fenced and qualified in D7-F (`WorkflowCheckpointStore.cancel(...)`), the whole-repository security inventory in 0.7.6h identified that **no authenticated, authorized, typed cancellation control endpoint exists in `tramai-spring-boot-starter-sovereign-ops-rest`**. The existing `DELETE /workflows/{name}/runs/{id}` endpoint in `tramai-server` is an unsupported, unauthenticated internal prototype.
+
+**Implementing an authenticated REST cancellation endpoint or securing an explicit ADR scoping cancellation strictly to in-process JVM callers is an explicit release gate blocker for Epic 0.7.7 release promotion.**
 
 ## Acceptance criteria
 
