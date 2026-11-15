@@ -303,7 +303,8 @@ class SovereignJdbcPersistenceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(WorkflowCheckpointStore::class)
     @ConditionalOnBean(DataSource::class)
-    fun workflowCheckpointStore(dataSource: DataSource): WorkflowCheckpointStore = JdbcWorkflowCheckpointStore(dataSource)
+    fun workflowCheckpointStore(dataSource: DataSource): WorkflowCheckpointStore =
+        JdbcWorkflowCheckpointStore(dataSource)
 
     @Bean
     @ConditionalOnMissingBean

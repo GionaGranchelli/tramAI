@@ -9,6 +9,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
+import kotlinx.coroutines.CancellationException
 import java.sql.Connection
 import java.sql.SQLException
 import java.sql.Timestamp
@@ -55,7 +56,7 @@ class JdbcSovereignOpsWorkflowCancellationStore(
                 // 2. Load checkpoint and verify revision
                 val checkpoint =
                     checkpointStore.load(conn, command.workflowName, command.runId)
-                        ?: throw IllegalStateException("tramai-workflow-not-found")
+                        ?: error("tramai-workflow-not-found")
 
                 if (checkpoint.revision != command.expectedRevision) {
                     conn.rollback()
@@ -97,10 +98,17 @@ class JdbcSovereignOpsWorkflowCancellationStore(
                     state = finalState,
                     alreadyCancelled = false,
                 )
+            } catch (e: CancellationException) {
+                try {
+                    conn.rollback()
+                } catch (rollbackEx: SQLException) {
+                    e.addSuppressed(rollbackEx)
+                }
+                throw e
             } catch (e: Exception) {
                 try {
                     conn.rollback()
-                } catch (rollbackEx: Exception) {
+                } catch (rollbackEx: SQLException) {
                     e.addSuppressed(rollbackEx)
                 }
                 throw mapSqlException(e, auditIntent)
@@ -124,6 +132,7 @@ class JdbcSovereignOpsWorkflowCancellationStore(
         SafeActorIdPolicy.validateActorId(actor, "actor")
     }
 
+    @Suppress("MagicNumber")
     private fun insertPreparedOutbox(
         conn: Connection,
         record: SovereignOpsAuditOutboxRecord,
@@ -154,6 +163,7 @@ class JdbcSovereignOpsWorkflowCancellationStore(
         }
     }
 
+    @Suppress("MagicNumber")
     private fun markPreparedOutboxPending(
         conn: Connection,
         record: SovereignOpsAuditOutboxRecord,

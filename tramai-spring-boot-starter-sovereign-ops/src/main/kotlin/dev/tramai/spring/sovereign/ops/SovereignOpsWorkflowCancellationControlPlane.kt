@@ -12,6 +12,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsRefusalRecorder
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
 import dev.tramai.spring.sovereign.ops.outbox.UnconfiguredRefusalRecorder
+import kotlinx.coroutines.CancellationException
 import java.security.MessageDigest
 import java.time.Clock
 import java.util.UUID
@@ -139,6 +140,8 @@ class SovereignOpsWorkflowCancellationControlPlane(
                 cancelledAtEpochMillis = mutationResult.state.cancelledAtEpochMillis,
                 alreadyCancelled = mutationResult.alreadyCancelled,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: WorkflowCheckpointConflictException) {
             staleOrConflict(command, e)
         } catch (e: IllegalStateException) {

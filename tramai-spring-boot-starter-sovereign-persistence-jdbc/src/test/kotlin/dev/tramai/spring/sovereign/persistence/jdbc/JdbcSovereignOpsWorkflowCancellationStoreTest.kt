@@ -18,7 +18,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.postgresql.ds.PGSimpleDataSource
-import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.postgresql.PostgreSQLContainer
 import java.security.SecureRandom
 import java.time.Clock
 import java.time.Instant
@@ -303,7 +303,7 @@ class JdbcSovereignOpsWorkflowCancellationStoreTest {
             val failingCodec =
                 object : JdbcOpsAuditOutboxPayloadCodec {
                     override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload =
-                        throw IllegalStateException("codec encryption failed")
+                        error("codec encryption failed")
 
                     override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray = envelope.ciphertext
                 }

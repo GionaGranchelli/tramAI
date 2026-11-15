@@ -55,9 +55,6 @@ class PrivilegedWorkflowCancellationConcurrencyQualificationTest {
     private lateinit var checkpointStore: JdbcWorkflowCheckpointStore
 
     @Autowired
-    private lateinit var cancellationStore: SovereignOpsWorkflowCancellationStore
-
-    @Autowired
     private lateinit var controlPlane: WorkflowCancellationControlPlane
 
     @Autowired
@@ -180,10 +177,13 @@ class PrivilegedWorkflowCancellationConcurrencyQualificationTest {
                 val nonWinners = results.filter { it != winner }
                 assertThat(nonWinners).hasSize(4)
                 nonWinners.forEach { result ->
-                    assertThat(
-                        (result is WorkflowCancellationResult.Cancelled && result.alreadyCancelled) ||
-                            (result is WorkflowCancellationResult.Stale && result.expectedRevision == 1L && result.currentRevision == 2L),
-                    ).isTrue()
+                    val isAlreadyCancelled =
+                        result is WorkflowCancellationResult.Cancelled && result.alreadyCancelled
+                    val isStale =
+                        result is WorkflowCancellationResult.Stale &&
+                            result.expectedRevision == 1L &&
+                            result.currentRevision == 2L
+                    assertThat(isAlreadyCancelled || isStale).isTrue()
                 }
 
                 // Verify DB row
@@ -198,14 +198,14 @@ class PrivilegedWorkflowCancellationConcurrencyQualificationTest {
                     jdbcTemplate.queryForObject(
                         "SELECT count(*) FROM audit_outbox",
                         Int::class.java,
-                    )
+                    ) ?: 0
                 assertThat(outboxCount).isEqualTo(1)
 
                 val outboxStatus =
                     jdbcTemplate.queryForObject(
                         "SELECT status FROM audit_outbox",
                         String::class.java,
-                    )
+                    ) ?: ""
                 assertThat(outboxStatus).isEqualTo("PENDING")
             } finally {
                 pool.shutdownNow()
@@ -294,7 +294,7 @@ class PrivilegedWorkflowCancellationConcurrencyQualificationTest {
                 jdbcTemplate.queryForObject(
                     "SELECT status FROM audit_outbox",
                     String::class.java,
-                )
+                ) ?: ""
             assertThat(outboxStatus).isEqualTo("PENDING")
         }
     }
