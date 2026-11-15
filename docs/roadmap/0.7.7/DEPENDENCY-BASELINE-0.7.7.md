@@ -1,6 +1,6 @@
 # Epic 0.7.7 — Dependency Baseline & Integration Rebaseline
 
-**Status:** PROVISIONAL — PENDING OWNER RATIFICATION OF 0.7.6 SECURITY RISKS
+**Status:** FINALIZED — 0.7.6 SECURITY RISKS RATIFIED BY REPOSITORY OWNER
 **Target:** `release/0.7.0`
 **Verified Baseline:** `19bb92c944a91fec98f83896c5c58f07f2fde113`
 **Governing Epics:**
@@ -27,7 +27,7 @@ With the subsequent merge of PRs #592, #593, and #594 into `release/0.7.0`, the 
 2. Identifies the exact architectural contracts Epic 0.7.7 authoritatively inherits.
 3. Explicitly defines the negative boundaries Epic 0.7.7 **must not assume**.
 4. Highlights an **explicit release blocker for Epic 0.7.7**: the absence of an authenticated, authorized, typed cancellation REST endpoint in the supported library control plane.
-5. Establishes the provisional status of this dependency handoff pending repository-owner ratification of 0.7.6 security risks F3, F5, and L4.
+5. Establishes the finalized status of this dependency handoff following repository-owner ratification of 0.7.6 security risks F3, F5, and L4.
 
 ---
 
@@ -155,21 +155,21 @@ cancelled(run) != already-produced external effects compensated or reversed
 
 ---
 
-## 7. Provisional Acceptance & Ratification Boundary
+## 7. Baseline Finalization & Ratification Boundary
 
-This dependency baseline is **PROVISIONAL**.
+This dependency baseline is **FINALIZED**.
 
-Full certification of the Epic 0.7.6 $\to$ Epic 0.7.7 dependency handoff is contingent upon:
-1. Explicit repository-owner ratification of the 0.7.6 security risks record ([ACCEPTANCE-0.7.6-SECURITY-RISKS.md](../0.7.6/ACCEPTANCE-0.7.6-SECURITY-RISKS.md)).
-2. Resolution or formal charter amendment regarding the cancellation REST control entry point in `tramai-spring-boot-starter-sovereign-ops-rest`.
+With the repository owner's explicit ratification of the 0.7.6 security risks record ([ACCEPTANCE-0.7.6-SECURITY-RISKS.md](../0.7.6/ACCEPTANCE-0.7.6-SECURITY-RISKS.md)) on 2026-11-15, the security boundaries and contracts inherited by Epic 0.7.7 are formally established.
+
+The absence of an authenticated, authorized, typed cancellation control endpoint in `tramai-spring-boot-starter-sovereign-ops-rest` remains an **explicit release blocker for Epic 0.7.7 release promotion** and must be resolved by implementing the secure control boundary (TASK-0.7.7m).
 
 ```text
 ========================================================================================
 EPIC 0.7.7 DEPENDENCY REBASELINE RATIFICATION
 ========================================================================================
 0.7.6 Hard Dependency Delivery Status:     DELIVERED (PRs #592, #593, #594)
-0.7.6 Security Risk Acceptance Status:      PROVISIONAL (Awaiting Owner Ratification)
-0.7.7 Cancellation Control REST Boundary:   EXPLICIT RELEASE BLOCKER (Needs Resolution)
-Overall Dependency Handoff Verdict:         PROVISIONALLY REBASELINED
+0.7.6 Security Risk Acceptance Status:      RATIFIED & CLOSED BY REPOSITORY OWNER (2026-11-15)
+0.7.7 Cancellation Control REST Boundary:   EXPLICIT RELEASE BLOCKER (TASK-0.7.7m Proposed)
+Overall Dependency Handoff Verdict:         FINALIZED DEPENDENCY BASELINE
 ========================================================================================
 ```

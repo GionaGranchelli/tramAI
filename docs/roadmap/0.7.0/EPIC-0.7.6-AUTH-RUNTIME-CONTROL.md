@@ -1,7 +1,7 @@
 # Epic 0.7.6 — Authentication, Authorization & Runtime Control
 
 **Branch:** `epic/0.7.6-auth-runtime-control`
-**Status:** 🟡 Implementation Complete; Security Acceptance Pending Owner Ratification (F3, F5, L4)
+**Status:** 🟢 Implementation Complete — Residual Security Risks Accepted (Bounded)
 **Dependencies:** 0.7.1 HARD; 0.7.4 HARD
 
 ## Executive decision
@@ -38,7 +38,7 @@ Expose privileged control-plane commands only through an identity-provider-neutr
 | 0.7.6f | Privileged evidence | ✅ **Delivered** — PRs #564, #565, #566, #567, #569, #570, and final gap-closure PR. Durable `(issuer, subject)` attribution (`ActorIdentityDigest` v1 + V10 `decision_actor_issuer` / `decision_actor_identity_digest` columns, V3 outbox payload, and emitted `AuditEvent` metadata with `issuerAttribution = "legacy-absent"` for legacy records), explicit `APPROVAL_APPROVED` / `APPROVAL_DENIED` / `AUTHORIZATION_REFUSAL` evidence kinds and kind-correct dispatch, recorded `previousApprovalStatus` / `previousApprovalVersion`, existence-blind `MISSING_CAPABILITY` refusal recording via `appendDispatchable` and `recordRefusal` idempotency (`refusal-sha256:`), metadata-only quarantine (`quarantineUndecodableEvidence`, `listQuarantined`, `readQuarantinedCiphertext`) across JDBC and File stores, and end-to-end two-issuer OIDC/JWT + PostgreSQL JDBC qualification. `ApprovalRequest`, `SovereignApprovalSummary`, and `ApprovalDecisionResult` remain unchanged per owner ratification (§4.1). Spec: [TASK-0.7.6f contract](../0.7.6/TASK-0.7.6f-PRIVILEGED-EVIDENCE-CONTRACT.md) |
 | 0.7.6g | Adversarial/security/mutation proof | ✅ **Delivered** — 0.7.6g1 delivered in PR #573; 0.7.6g2 delivered in PR #593 (`226f7894`) with adversarial qualification contract [TASK-0.7.6g2](../0.7.6/TASK-0.7.6g2-PRIVILEGED-CONTROL-ADVERSARIAL-QUALIFICATION.md). 14 adversarial test scenarios G2-01–G2-14, concurrency and rollback proof on real PostgreSQL, mutation experiments M1–M8, and characterization of residual findings. |
 | 0.7.6h | Integration/docs & Epic acceptance gate | ✅ **Delivered** — PR #594 (`19bb92c9`), [TASK-0.7.6h contract](../0.7.6/TASK-0.7.6h-INTEGRATION-CLOSURE.md), headless integration guide [sovereign-operator-control-plane.md](../../guides/sovereign-operator-control-plane.md), whole-repository security surface inventory, F3 audit reconciliation, and Epic acceptance gate. |
-| 0.7.6i | Security-risk acceptance & 0.7.7 dependency rebaseline | 🟡 **Active** — Formal security-risk acceptance record [ACCEPTANCE-0.7.6-SECURITY-RISKS.md](../0.7.6/ACCEPTANCE-0.7.6-SECURITY-RISKS.md) (risks F3, F5, L4, Issue #524, M5, AC1/AC4) and Epic 0.7.7 dependency rebaseline [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md). Pending owner ratification. |
+| 0.7.6i | Security-risk acceptance & 0.7.7 dependency rebaseline | ✅ **Delivered** — Formal security-risk acceptance record [ACCEPTANCE-0.7.6-SECURITY-RISKS.md](../0.7.6/ACCEPTANCE-0.7.6-SECURITY-RISKS.md) (risks F3, F5, L4, Issue #524, M5, AC1/AC4 ratified by repository owner) and Epic 0.7.7 dependency rebaseline [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md) (PR #595). |
 
 ## Core invariants
 

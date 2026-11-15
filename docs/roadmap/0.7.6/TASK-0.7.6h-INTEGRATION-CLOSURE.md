@@ -1,6 +1,6 @@
 # 0.7.6h — Headless Control API, Security Surface Inventory & Epic Acceptance Gate
 
-**Status:** DELIVERED (PR #594) — SECURITY ACCEPTANCE PENDING OWNER RATIFICATION
+**Status:** DELIVERED (PR #594, 19bb92c9) — SECURITY RISKS RATIFIED BY OWNER (TASK-0.7.6i / PR #595)
 **Target:** `release/0.7.0`
 **Verified baseline:** `226f78947439bc379e53a38d4d13db8c914b308c`
 **Delivered commit:** `19bb92c944a91fec98f83896c5c58f07f2fde113` (PR #594)

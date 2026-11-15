@@ -1,8 +1,8 @@
 # Epic 0.7.7 — Authoritative Persisted Suspended-Run Cancellation
 
 **Branch:** `epic/0.7.7-suspended-run-cancellation`
-**Status:** 🟡 Implementation Complete; Integration Rebaseline & Cancellation Boundary Pending
-**Dependencies:** 0.7.6 HARD (Rebaselined under [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md))
+**Status:** 🟡 Implementation Complete; Cancellation Control Boundary Blocker Pending (TASK-0.7.7m)
+**Dependencies:** 0.7.6 HARD (Finalized under [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md))
 
 ## Executive decision
 
@@ -50,7 +50,7 @@ The core engine, store, lease, admission, and evidence mechanisms were delivered
 | **D7-D** (0.7.7g) | Per-effect evidence schemas (E1–E8) | ✅ **Delivered** | [TASK-0.7.7e](../0.7.7/TASK-0.7.7e-PER-EFFECT-EVIDENCE-CONTRACT.md)–[TASK-0.7.7i](../0.7.7/TASK-0.7.7i-EXTERNAL-EFFECT-EVIDENCE.md) |
 | **D7-E1** (0.7.7e) | Approval resume continuation evidence (E9) | ✅ **Delivered** | [TASK-0.7.7j](../0.7.7/TASK-0.7.7j-E9-EVIDENCE-LINEAGE-CONTRACT.md), [TASK-0.7.7k](../0.7.7/TASK-0.7.7k-E9-DURABLE-APPROVAL-RESUME-EVIDENCE.md) |
 | **D7-F** (0.7.7f/h) | Cross-boundary cancellation & evidence integration closure | ✅ **Delivered** | [TASK-0.7.7l-D7-F-INTEGRATION-CLOSURE.md](../0.7.7/TASK-0.7.7l-D7-F-INTEGRATION-CLOSURE.md) (PR #591) |
-| **D7-Rebaseline** | Dependency rebaseline against delivered 0.7.6 | 🟡 **Active / Provisional** | [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md) |
+| **D7-Rebaseline** | Dependency rebaseline against delivered 0.7.6 | ✅ **Delivered** | [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md) |
 
 ### Release Blocker — Cancellation Control Entry Point Authority
 
