@@ -1,9 +1,9 @@
 # TramAI 0.7.0 — Execution Board
 
-> **Release:** 0.7.0 — Governed AI Control Plane  
-> **Integration branch:** `release/0.7.0`  
-> **Stable branch:** `master`  
-> **Release authority:** [`../../ROADMAP-0.7.0-RELEASE-CUT.md`](../../ROADMAP-0.7.0-RELEASE-CUT.md)  
+> **Release:** 0.7.0 — Governed AI Control Plane
+> **Integration branch:** `release/0.7.0`
+> **Stable branch:** `master`
+> **Release authority:** [`../../ROADMAP-0.7.0-RELEASE-CUT.md`](../../ROADMAP-0.7.0-RELEASE-CUT.md)
 > **Status:** IN DEVELOPMENT
 
 The roadmap defines **what** ships. This directory defines **how 0.7.0 is executed and proven**.
@@ -49,8 +49,8 @@ See [`WAY-OF-WORKING.md`](WAY-OF-WORKING.md).
 | [0.7.3](EPIC-0.7.3-AUTHORIZED-SELECTION.md) | Explainable authorized/viable/selected provider-model decision | 0.7.2 hard | ⚪ Planned |
 | [0.7.4](EPIC-0.7.4-EVIDENCE-PROJECTION.md) | Typed governance evidence + authoritative read model/query API | 0.7.1 hard; 0.7.2/3 soft | ⚪ Planned |
 | [0.7.5](EPIC-0.7.5-TIMELINE-RECONSTRUCTION.md) | Semantic timeline + side-effect-free forensic reconstruction | 0.7.4 hard | ⚪ Planned |
-| [0.7.6](EPIC-0.7.6-AUTH-RUNTIME-CONTROL.md) | Generic OIDC boundary, capability authorization, typed controls | 0.7.1/4 hard | ⚪ Planned |
-| [0.7.7](EPIC-0.7.7-SUSPENDED-RUN-CANCELLATION.md) | Authoritative persisted-run cancellation and resume fencing | 0.7.6 hard | ⚪ Planned |
+| [0.7.6](EPIC-0.7.6-AUTH-RUNTIME-CONTROL.md) | Generic OIDC boundary, capability authorization, typed controls | 0.7.1/4 hard | 🟢 Implementation Complete (Risks Accepted) |
+| [0.7.7](EPIC-0.7.7-SUSPENDED-RUN-CANCELLATION.md) | Authoritative persisted-run cancellation and resume fencing | 0.7.6 hard | 🟡 Implementation Complete; Cancellation Blocker Pending |
 | [0.7.8](EPIC-0.7.8-DASHBOARD-INTEGRATION.md) | Dashboard 2.0 as replaceable control-plane client + release proof | 0.7.3–0.7.7 hard | ⚪ Planned |
 
 Status values: `⚪ Planned` · `🟡 Active` · `🟣 Review` · `✅ Complete` · `⛔ Blocked`.

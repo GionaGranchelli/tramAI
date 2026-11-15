@@ -1,9 +1,9 @@
 # D7-F — Cross-Boundary Cancellation & Evidence Integration Closure
 
-**Status:** Completed & Qualified (Strict Merge Hold)  
-**Base:** `release/0.7.0` at `13ae6583a9272922b7a75fcd632ad94c3e8f75a3`  
-**Working Branch:** `task/0.7.7l-d7-f-integration-closure`  
-**Authority:** `docs/roadmap/0.7.0/EPIC-0.7.7-SUSPENDED-RUN-CANCELLATION.md`, `docs/roadmap/0.7.0/QUALITY-GATES.md`, `docs/roadmap/0.7.0/EPIC-0.7.5-TIMELINE-RECONSTRUCTION.md`, ratified D7-A through D7-E1 contracts, `AGENTS.md`  
+**Status:** Completed & Qualified (Strict Merge Hold)
+**Base:** `release/0.7.0` at `13ae6583a9272922b7a75fcd632ad94c3e8f75a3`
+**Working Branch:** `task/0.7.7l-d7-f-integration-closure`
+**Authority:** `docs/roadmap/0.7.0/EPIC-0.7.7-SUSPENDED-RUN-CANCELLATION.md`, `docs/roadmap/0.7.0/QUALITY-GATES.md`, `docs/roadmap/0.7.0/EPIC-0.7.5-TIMELINE-RECONSTRUCTION.md`, ratified D7-A through D7-E1 contracts, `AGENTS.md`
 **Scope:** Integration qualification across all outbound effect boundaries (E1–E9), recovery lease fencing (E10), and step admission (E11); end-to-end qualification suite (D7-F01–D7-F15); cross-family evidence correlation proof; read-only timeline reconstruction adapter; adversarial qualification suite (ADV-01–ADV-12); and Epic 0.7.7 acceptance matrix.
 
 ---
@@ -235,8 +235,11 @@ Implemented and verified in `WorkflowCrossBoundaryAdversarialTest.kt`. Each test
 
 ### Evaluation
 - The core runtime controls of Epic 0.7.6 (Durable Approval Continuation contracts, storage, versioning, digest verification, and claim lifecycle) have been implemented and validated through D7-A through D7-E1.
-- However, ancillary tasks in Track 0.7.6 (specifically tasks 0.7.6f–h regarding extended authorization policies and administrative CLI tooling) remain incomplete.
-- **Architectural Verdict:** The cancellation and evidence integration closure delivered in D7-F is technically sound, verified against the durable continuation contracts, and introduces zero regressions. However, full release graduation of Epic 0.7.7 requires completion of remaining 0.7.6 prerequisites before final release cut.
+- All subsequent deliverables of Track 0.7.6 have now merged into `release/0.7.0`:
+  - 0.7.6f (Privileged Evidence, PR #592, `6f2854ad`)
+  - 0.7.6g2 (Privileged Control Boundary Adversarial Qualification, PR #593, `226f7894`)
+  - 0.7.6h (Headless Control API, Security Surface Inventory & Acceptance Gate, PR #594, `19bb92c9`)
+- **Architectural Verdict & Rebaseline:** The cancellation and evidence integration closure delivered in D7-F is technically sound, verified against the durable continuation contracts, and introduces zero regressions. The 0.7.6 dependency handoff is formally rebaselined under [DEPENDENCY-BASELINE-0.7.7.md](DEPENDENCY-BASELINE-0.7.7.md) and [ACCEPTANCE-0.7.6-SECURITY-RISKS.md](../0.7.6/ACCEPTANCE-0.7.6-SECURITY-RISKS.md). Full release promotion of Epic 0.7.7 is provisional pending repository-owner ratification of 0.7.6 security risks and the implementation of an authenticated cancellation REST control boundary in `tramai-spring-boot-starter-sovereign-ops-rest`.
 
 ---
 

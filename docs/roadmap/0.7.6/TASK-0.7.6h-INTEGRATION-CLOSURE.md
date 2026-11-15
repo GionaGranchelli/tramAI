@@ -1,11 +1,12 @@
 # 0.7.6h — Headless Control API, Security Surface Inventory & Epic Acceptance Gate
 
-**Status:** PROPOSED CLOSURE — PENDING OWNER REVIEW AND RATIFICATION  
-**Target:** `release/0.7.0`  
-**Verified baseline:** `226f78947439bc379e53a38d4d13db8c914b308c`  
-**Branch:** `task/0.7.6h-integration-closure`  
-**Epic:** [EPIC-0.7.6-AUTH-RUNTIME-CONTROL.md](../0.7.0/EPIC-0.7.6-AUTH-RUNTIME-CONTROL.md)  
-**Governing Audit:** [AUDIT-0.7.6a-SECURITY-CONTROL-BASELINE.md](AUDIT-0.7.6a-SECURITY-CONTROL-BASELINE.md)  
+**Status:** DELIVERED (PR #594, 19bb92c9) — SECURITY RISKS RATIFIED BY OWNER (TASK-0.7.6i / PR #595)
+**Target:** `release/0.7.0`
+**Verified baseline:** `226f78947439bc379e53a38d4d13db8c914b308c`
+**Delivered commit:** `19bb92c944a91fec98f83896c5c58f07f2fde113` (PR #594)
+**Epic:** [EPIC-0.7.6-AUTH-RUNTIME-CONTROL.md](../0.7.0/EPIC-0.7.6-AUTH-RUNTIME-CONTROL.md)
+**Governing Audit:** [AUDIT-0.7.6a-SECURITY-CONTROL-BASELINE.md](AUDIT-0.7.6a-SECURITY-CONTROL-BASELINE.md)
+**Follow-up Security Acceptance Record:** [ACCEPTANCE-0.7.6-SECURITY-RISKS.md](ACCEPTANCE-0.7.6-SECURITY-RISKS.md)
 **Preceding Deliverables:**
 - 0.7.6b: [TASK-0.7.6b-PRINCIPAL-OPERATOR-CAPABILITY.md](TASK-0.7.6b-PRINCIPAL-OPERATOR-CAPABILITY.md)
 - 0.7.6c: [TASK-0.7.6c-OIDC-SPRING-BOUNDARY.md](TASK-0.7.6c-OIDC-SPRING-BOUNDARY.md)
@@ -141,7 +142,7 @@ A Spring Boot application integrating `tramai-spring-boot-starter-sovereign-ops-
 | **I1** | **UI visibility != authorization** | Reviewer UI is a static HTML shell; all mutations invoke `POST /tramai/sovereign/approvals/{id}/approve` or `/deny`. Server-side `OperatorAuthority` evaluation occurs independently of UI presence. | • Unit: `ApprovalControlPlaneControllerTest`<br>• HTTP Integration: `PrivilegedControlBoundaryRestAdversarialTest` (scenario `G2-01`: unauthenticated approval-control request rejected with 401 in `:tramai-spring-boot-starter-sovereign-ops-rest`). | **PASS** |
 | **I2** | **Privileged mutation requires authenticated actor + server-side authorization** | Spring Security OAuth2 resource server filter chain validates JWT; `ApprovalControlPlaneController` delegates to `SovereignOpsApprovalDecisionControlPlane`, which checks L2 capability (`DECIDE_APPROVAL`) and L3 approver role policy against `binding.policyVersion`. | • Unit/Contracts: `OperatorCapabilityMappingTest`, `OperatorSubjectPolicyTest`, `OperatorApprovalPolicyTest`<br>• HTTP/Domain Integration: `OperatorAuthenticationHttpTest` (filter chain), `PrivilegedControlBoundaryRestAdversarialTest` (scenarios `G2-01`, `G2-04`), and `PrivilegedControlBoundaryAdversarialTest` (scenarios `G2-02` [403 `MISSING_CAPABILITY`], `G2-03` [403 `ROLE_NOT_PERMITTED`], `G2-11` [403 `APPROVAL_POLICY_UNAVAILABLE`] in `:tramai-spring-boot-starter-sovereign-ops`)<br>• Mutations: M1, M2, M6 KILLED. | **PASS** |
 | **I3** | **Stale command cannot silently overwrite newer authoritative state** | Controller rejects missing or negative `expectedVersion` with 400 `INVALID_PRECONDITION`. Control plane checks `command.expectedVersion == current.version` returning 409 `STALE`. Storage CAS provides final fence. | • Controller Preconditions: `ApprovalControlPlaneControllerTest` (precondition rejection of null/negative `expectedVersion`)<br>• Configuration Preconditions: `PrivilegedControlBoundaryRestAdversarialTest` (scenario `G2-06`)<br>• Domain Version Preconditions: `PrivilegedControlBoundaryAdversarialTest` (scenario `G2-07`: proves typed `Stale` result and zero mutation store invocation on stale command in `:tramai-spring-boot-starter-sovereign-ops`; HTTP 409 mapping proven in `ApprovalControlPlaneControllerTest`)<br>• Real PostgreSQL Concurrency: `PrivilegedControlBoundaryConcurrencyQualificationTest` (scenarios `G2-08`, `G2-09`: 10 concurrent threads against PostgreSQL row serialization in `:tramai-spring-boot-starter-sovereign-persistence-jdbc`)<br>• Mutations: M4 KILLED, M5 NOT_EVALUATED (combined concurrency defense tested separately). | **PASS** |
-| **I4** | **Dashboard/client cannot directly mutate authoritative persistence** | Public `ApprovalStore.transition(...)` method bounded by `verifyDirectApprovalMutations` PSI ratchet. Direct calls outside allowlisted packages fail the Gradle build. Client-supplied actor strings in body are ignored. | • HTTP Integration: `OperatorTrustBoundarySubstitutionTest`, `PrivilegedControlBoundaryRestAdversarialTest` (scenario `G2-04`: spoofed body/header actor ignored in `:tramai-spring-boot-starter-sovereign-ops-rest`)<br>• Build Ratchet: `verifyDirectApprovalMutations`<br>• Mutations: M3 KILLED. | **PASS** |
+| **I4** | **Untrusted external clients cannot directly mutate authoritative persistence through supported control paths** | Supported REST control paths strictly ignore client-supplied actor strings. Public `ApprovalStore.transition(...)` method bounded by `verifyDirectApprovalMutations` PSI ratchet within repository (in-process JVM bypass limitation scoped under L4). | • HTTP Integration: `OperatorTrustBoundarySubstitutionTest`, `PrivilegedControlBoundaryRestAdversarialTest` (scenario `G2-04`: spoofed body/header actor ignored in `:tramai-spring-boot-starter-sovereign-ops-rest`)<br>• Build Ratchet: `verifyDirectApprovalMutations`<br>• Mutations: M3 KILLED. | **PASS** |
 | **I5** | **Operator capability != runtime capability** | Operator capabilities (`dev.tramai.core.operator.OperatorCapability`) are closed, immutable enums strictly separated from tool, MCP, model, and network scopes. | • Core Contracts: `OperatorCapabilityContractTest` (in `tramai-core`), `OperatorCapabilityMappingTest` (in `tramai-spring-boot-starter-sovereign-ops-rest`)<br>• Zero runtime tool scopes exposed on operator principal. | **PASS** |
 
 ---
@@ -170,7 +171,8 @@ A Spring Boot application integrating `tramai-spring-boot-starter-sovereign-ops-
 | **0.7.6f** | Privileged Evidence & Durable Attribution | **DELIVERED** | PR #592 (`6f2854ad`) | [TASK-0.7.6f-PRIVILEGED-EVIDENCE-CONTRACT.md](TASK-0.7.6f-PRIVILEGED-EVIDENCE-CONTRACT.md) |
 | **0.7.6g1** | Enforcement-Origin Contract (Slice 1) | **DELIVERED** | PR #573 (`0e9e42e4`) | [TASK-0.7.6g-ENFORCEMENT-ORIGIN-CONTRACT.md](TASK-0.7.6g-ENFORCEMENT-ORIGIN-CONTRACT.md) |
 | **0.7.6g2** | Privileged Control Boundary Adversarial Qualification | **DELIVERED** | PR #593 (`226f7894`) | [TASK-0.7.6g2-PRIVILEGED-CONTROL-ADVERSARIAL-QUALIFICATION.md](TASK-0.7.6g2-PRIVILEGED-CONTROL-ADVERSARIAL-QUALIFICATION.md) |
-| **0.7.6h** | Headless Control API, Security Docs & Epic Acceptance Gate | **PROPOSED CLOSURE** | Active Branch | [TASK-0.7.6h-INTEGRATION-CLOSURE.md](TASK-0.7.6h-INTEGRATION-CLOSURE.md), [sovereign-operator-control-plane.md](../../guides/sovereign-operator-control-plane.md) |
+| **0.7.6h** | Headless Control API, Security Docs & Epic Acceptance Gate | **DELIVERED** | PR #594 (`19bb92c9`) | [TASK-0.7.6h-INTEGRATION-CLOSURE.md](TASK-0.7.6h-INTEGRATION-CLOSURE.md), [sovereign-operator-control-plane.md](../../guides/sovereign-operator-control-plane.md) |
+| **0.7.6i** | Security-Risk Acceptance & 0.7.7 Dependency Rebaseline | **DELIVERED / ACTIVE** | Active Branch | [ACCEPTANCE-0.7.6-SECURITY-RISKS.md](ACCEPTANCE-0.7.6-SECURITY-RISKS.md), [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md) |
 
 ---
 
@@ -181,16 +183,14 @@ Milestones 0.7.6a through 0.7.6h of **Epic 0.7.6 (Authentication, Authorization 
 ### Merge Readiness vs. Final Epic Security Ratification
 
 A critical governance distinction applies to this milestone:
-1. **Pull Request Merge Readiness (PR #594):**
-   PR #594 delivers an accurate whole-repository security inventory, comprehensive headless integration documentation, corrected PostgreSQL schema accounting, and a faithful acceptance matrix. It is technically complete, green across 18/18 CI checks, and ready for merge into `release/0.7.0`.
-2. **Final Epic Security Ratification:**
-   Merging PR #594 completes milestone 0.7.6h deliverables, but does **not** silently mark the Epic's security acceptance gate as closed. Overall Epic 0.7.6 status remains:
+1. **Pull Request Merge Status (PR #594):**
+   PR #594 delivered an accurate whole-repository security inventory, comprehensive headless integration documentation, corrected PostgreSQL schema accounting, and a faithful acceptance matrix. Following explicit repository-owner authorization, PR #594 was squashed and merged into `release/0.7.0` at commit `19bb92c944a91fec98f83896c5c58f07f2fde113`.
+2. **Final Epic Security Ratification (Handed off to 0.7.6i):**
+   Merging PR #594 completed milestone 0.7.6h deliverables, but did **not** silently mark the Epic's security acceptance gate as closed. Overall Epic 0.7.6 status remains:
    **🟡 Implementation Complete; Security Acceptance Pending Owner Ratification**
    Formal closure of Epic 0.7.6 requires the repository owner's explicit ratification of the proposed dispositions for:
    - **F3:** Conditional deferral of read authorization with documented deployment/network perimeter restrictions.
    - **F5:** Deferral of relational column persistence for dynamic approver roles to a separate schema/ADR task.
    - **L4:** Bounded acceptance of direct store SPI within the trusted in-process codebase (excluding hostile plugins).
 
-Per `AGENTS.md` and repository governance rules:
-- **Strict Merge Hold:** This pull request targets `release/0.7.0`. Merging this PR requires explicit authorization from the repository owner.
-- **Merge Authorization:** Awaiting repository owner authorization to merge PR #594 into `release/0.7.0`.
+   These risk profiles and ratification placeholders are formalized in milestone 0.7.6i: [ACCEPTANCE-0.7.6-SECURITY-RISKS.md](ACCEPTANCE-0.7.6-SECURITY-RISKS.md).
