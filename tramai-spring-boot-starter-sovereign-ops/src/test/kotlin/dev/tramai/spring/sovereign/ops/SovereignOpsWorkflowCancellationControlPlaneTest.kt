@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package dev.tramai.spring.sovereign.ops
 
 import dev.tramai.core.approval.gateway.ApproverRole

@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package dev.tramai.spring.sovereign.ops.rest
 
 import com.fasterxml.jackson.databind.ObjectMapper

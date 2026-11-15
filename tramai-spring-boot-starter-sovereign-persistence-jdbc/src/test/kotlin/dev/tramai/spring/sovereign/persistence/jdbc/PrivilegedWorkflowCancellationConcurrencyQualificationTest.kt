@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package dev.tramai.spring.sovereign.persistence.jdbc
 
 import dev.tramai.core.approval.gateway.ApproverRole
