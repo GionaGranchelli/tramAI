@@ -24,6 +24,7 @@ This directory records the key architectural decisions currently implied by the 
 - [ADR-018: Separate Security Enforcement from SaaS Platform Concerns](./adr-018.md)
 - [ADR-019: Reason Over the Authoritative Governance Decision Type](./adr-019.md)
 - [ADR-020: Stage Governance Vocabulary Before Its Producer](./adr-020.md)
+- [ADR-021: Supported Headless Workflow Cancellation Control Boundary & Transactional Evidence Coupling](./adr-021.md)
 
 ## ADR Conventions
 

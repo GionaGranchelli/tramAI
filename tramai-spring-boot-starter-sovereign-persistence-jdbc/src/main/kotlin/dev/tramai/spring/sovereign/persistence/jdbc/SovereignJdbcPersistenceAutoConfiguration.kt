@@ -5,6 +5,8 @@ import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
 import dev.tramai.core.observation.attempt.AttemptObservationStore
 import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.orchestration.JdbcWorkflowCheckpointStore
+import dev.tramai.orchestration.WorkflowCheckpointStore
 import dev.tramai.persistence.jdbc.GovernedJdbcSuspendedInvocationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalContinuationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalStore
@@ -21,6 +23,8 @@ import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -295,4 +299,23 @@ class SovereignJdbcPersistenceAutoConfiguration {
     @ConditionalOnBean(DataSource::class)
     fun approvedContinuationResumeQueueStatusStore(dataSource: DataSource): ApprovedContinuationResumeQueueStatusStore =
         JdbcApprovedContinuationResumeQueueStatusStore(dataSource)
+
+    @Bean
+    @ConditionalOnMissingBean(WorkflowCheckpointStore::class)
+    @ConditionalOnBean(DataSource::class)
+    fun workflowCheckpointStore(dataSource: DataSource): WorkflowCheckpointStore = JdbcWorkflowCheckpointStore(dataSource)
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
+    fun sovereignOpsWorkflowCancellationStore(
+        dataSource: DataSource,
+        payloadCodec: JdbcOpsAuditOutboxPayloadCodec,
+        checkpointStore: ObjectProvider<JdbcWorkflowCheckpointStore>,
+    ): SovereignOpsWorkflowCancellationStore =
+        JdbcSovereignOpsWorkflowCancellationStore(
+            dataSource = dataSource,
+            checkpointStore = checkpointStore.ifAvailable ?: JdbcWorkflowCheckpointStore(dataSource),
+            payloadCodec = payloadCodec,
+        )
 }

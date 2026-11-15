@@ -120,7 +120,7 @@ class JdbcWorkflowCheckpointStore(
      * The admission the store already performs, on a caller's connection, so a lease fence can hold the lease row lock
      * and advance the counter in one transaction instead of two.
      */
-    internal fun admitInConnection(
+    fun admitInConnection(
         conn: java.sql.Connection,
         request: WorkflowAdmissionRequest,
     ): WorkflowAdmission = admissions.admitInConnection(conn, request)
@@ -269,7 +269,7 @@ class JdbcWorkflowCheckpointStore(
             }
     }
 
-    internal fun cancelInConnection(
+    fun cancelInConnection(
         connection: java.sql.Connection,
         request: WorkflowCancellationRequest,
     ): WorkflowLifecycleState {
@@ -321,7 +321,7 @@ class JdbcWorkflowCheckpointStore(
             AND ${table.lifecycleStatusColumn} IS NULL
         """.trimIndent()
 
-    internal fun lifecycleInConnection(
+    fun lifecycleInConnection(
         connection: java.sql.Connection,
         workflowName: String,
         workflowId: String,
@@ -347,7 +347,7 @@ class JdbcWorkflowCheckpointStore(
             }
         }
 
-    internal fun load(
+    fun load(
         connection: java.sql.Connection,
         workflowName: String,
         workflowId: String,

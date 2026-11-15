@@ -109,17 +109,17 @@ The whole-repository security surface inventory conducted in 0.7.6h ([TASK-0.7.6
 - As proven in 0.7.6h, `tramai-server` is an **unsupported, unpublished internal prototype** with **zero authentication and zero authorization**.
 - **No cancellation endpoint exists in `tramai-spring-boot-starter-sovereign-ops-rest`** (the supported privileged control plane library).
 
-### 5.2 Release Gate Blocker for Epic 0.7.7
+### 5.2 Release Gate Blocker Resolution: TASK-0.7.7m
 
-Because `WorkflowCheckpointStore.cancel(...)` currently lacks an authenticated, authorized, typed REST command controller in the supported library starter, **cancellation cannot yet be invoked headlessly by external operators through a secured HTTP API**.
+The release gate blocker identified in 0.7.6h and Section 5.1 has been **formally resolved by Task 0.7.7m** ([TASK-0.7.7m-CANCELLATION-CONTROL-BOUNDARY.md](TASK-0.7.7m-CANCELLATION-CONTROL-BOUNDARY.md)).
 
-**Architectural Verdict:**
-> **The absence of an authenticated, authorized, typed cancellation control endpoint in `tramai-spring-boot-starter-sovereign-ops-rest` is an EXPLICIT ACCEPTANCE BLOCKER for Epic 0.7.7 release promotion.**
-
-Before Epic 0.7.7 can be certified for release cut:
-1. A supported REST cancellation endpoint (e.g. `POST /tramai/sovereign/workflows/{id}/cancel` or `DELETE /tramai/sovereign/workflows/{id}`) must be implemented in `tramai-spring-boot-starter-sovereign-ops-rest`.
-2. The endpoint must enforce RS256 JWT authentication, server-side operator authorization through a dedicated `OperatorCapability.CANCEL_WORKFLOW` capability (do NOT reuse or conflate with `ADMINISTER_OPERATORS`), target-scoped authorization evaluating the caller's authority over the specific target workload and run (rather than treating global capability possession as sufficient), typed workflow lifecycle revision fencing (evaluating the authoritative workflow checkpoint revision/version, distinct from approval command `expectedVersion` semantics), and transactional outbox evidence emission.
-3. Alternatively, if cancellation in 0.7.0 is strictly an in-process programmatic JVM API, the Epic 0.7.7 charter must be formally amended with an owner-approved ADR explicitly scoping cancellation as internal-only.
+Task 0.7.7m implemented and qualified the full authenticated and authorized REST cancellation boundary in `tramai-spring-boot-starter-sovereign-ops-rest`:
+1. **Dedicated Endpoint:** `POST /tramai/sovereign/workflows/{workflowName}/runs/{runId}/cancel` secured by Spring Security OAuth2 resource server with RS256 JWT verification.
+2. **Dedicated Capability:** `OperatorCapability.CANCEL_WORKFLOW` (`"cancel-workflow"`), completely decoupled from `ADMINISTER_OPERATORS`.
+3. **Target-Scoped Policy:** `OperatorWorkflowCancellationPolicy` binding target `workflowName`s to authorized `ApproverRole`s, evaluated server-side.
+4. **Typed Optimistic Revision Fencing:** Request carries `expectedRevision >= 0` and non-blank `reason`. Outdated revisions receive `409 Conflict` (`STALE`) before executing storage mutations.
+5. **Transactional Evidence Coupling:** Checkpoint CAS cancellation commits atomically in a single PostgreSQL transaction with transactional outbox evidence (`WORKFLOW_CANCELLED` and `AUTHORIZATION_REFUSAL`).
+6. **Execution Proof:** Adversarial REST bypass test suite and multi-threaded barrier concurrency qualification verified the control boundary.
 
 ---
 
@@ -159,9 +159,7 @@ cancelled(run) != already-produced external effects compensated or reversed
 
 This dependency baseline is **FINALIZED**.
 
-With the repository owner's explicit ratification of the 0.7.6 security risks record ([ACCEPTANCE-0.7.6-SECURITY-RISKS.md](../0.7.6/ACCEPTANCE-0.7.6-SECURITY-RISKS.md)) on 2026-11-15, the security boundaries and contracts inherited by Epic 0.7.7 are formally established.
-
-The absence of an authenticated, authorized, typed cancellation control endpoint in `tramai-spring-boot-starter-sovereign-ops-rest` remains an **explicit release blocker for Epic 0.7.7 release promotion** and must be resolved by implementing the secure control boundary (TASK-0.7.7m).
+With the repository owner's explicit ratification of the 0.7.6 security risks record ([ACCEPTANCE-0.7.6-SECURITY-RISKS.md](../0.7.6/ACCEPTANCE-0.7.6-SECURITY-RISKS.md)) on 2026-11-15, and the delivery and qualification of the authenticated and authorized workflow cancellation control boundary in [TASK-0.7.7m-CANCELLATION-CONTROL-BOUNDARY.md](TASK-0.7.7m-CANCELLATION-CONTROL-BOUNDARY.md), the Epic 0.7.7 release blocker is resolved.
 
 ```text
 ========================================================================================
@@ -169,7 +167,7 @@ EPIC 0.7.7 DEPENDENCY REBASELINE RATIFICATION
 ========================================================================================
 0.7.6 Hard Dependency Delivery Status:     DELIVERED (PRs #592, #593, #594)
 0.7.6 Security Risk Acceptance Status:      RATIFIED & CLOSED BY REPOSITORY OWNER (2026-11-15)
-0.7.7 Cancellation Control REST Boundary:   EXPLICIT RELEASE BLOCKER (TASK-0.7.7m Proposed)
-Overall Dependency Handoff Verdict:         FINALIZED DEPENDENCY BASELINE
+0.7.7 Cancellation Control REST Boundary:   RESOLVED (TASK-0.7.7m Delivered)
+Overall Dependency Handoff Verdict:         FINALIZED DEPENDENCY BASELINE — READY FOR 0.7.0 RELEASE
 ========================================================================================
 ```

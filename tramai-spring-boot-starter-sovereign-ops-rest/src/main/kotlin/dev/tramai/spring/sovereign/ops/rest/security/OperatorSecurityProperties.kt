@@ -83,6 +83,13 @@ class OperatorSecurityProperties {
     var approvalPolicies: Map<String, List<String>> = emptyMap()
 
     /**
+     * Target-scoped workflow cancellation policy requirement (0.7.7m): key is the workflow target name
+     * (or specific workflow identifier), value is the set of roles (from operator's verified JWT) that may
+     * cancel runs of that workflow.
+     */
+    var workflowCancellationPolicies: Map<String, List<String>> = emptyMap()
+
+    /**
      * Request paths protected by the operator boundary. Defaults to every sovereign-ops route the
      * REST starter publishes. Narrowing this list is a security decision, not a convenience.
      */

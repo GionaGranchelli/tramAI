@@ -3,6 +3,7 @@ package dev.tramai.spring.sovereign.ops.rest.security
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
+import dev.tramai.spring.sovereign.ops.OperatorWorkflowCancellationPolicy
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
@@ -94,6 +95,36 @@ class OperatorAuthenticationAutoConfiguration {
                 "is granted by no approver-role-mappings value, so no verified operator could ever satisfy it"
         }
         return OperatorApprovalPolicy(requirement)
+    }
+
+    /**
+     * Target-scoped workflow cancellation policy requirement (0.7.7m).
+     *
+     * Keyed by workflow name / target. When a target is missing from the configuration,
+     * cancellations for runs of that workflow are refused fail-closed with
+     * WORKFLOW_POLICY_UNAVAILABLE.
+     */
+    @Bean
+    fun operatorWorkflowCancellationPolicy(properties: OperatorSecurityProperties): OperatorWorkflowCancellationPolicy {
+        val configured = properties.workflowCancellationPolicies
+        val requirement =
+            configured.mapValues { (target, roles) ->
+                roles.forEach { role -> requireApproverRoleShape(role, "a workflow-cancellation-policies '$target' role") }
+                roles.map { ApproverRole(it) }.toSet()
+            }
+        val grantable = approverRoleMapping(properties).grantableApproverRoles()
+        val unsatisfiable =
+            requirement.values
+                .flatten()
+                .filterNot { it in grantable }
+                .map { it.value }
+                .distinct()
+        require(unsatisfiable.isEmpty()) {
+            "tramai-workflow-cancellation-policy-unsatisfiable: ${unsatisfiable.joinToString(", ")} named by " +
+                "workflow-cancellation-policies is granted by no approver-role-mappings value, so no verified " +
+                "operator could ever satisfy it"
+        }
+        return OperatorWorkflowCancellationPolicy(requirement)
     }
 
     @Bean

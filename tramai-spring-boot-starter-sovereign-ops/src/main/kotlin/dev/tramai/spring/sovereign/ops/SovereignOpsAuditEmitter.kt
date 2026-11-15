@@ -60,6 +60,12 @@ fun interface SovereignOpsAuditEmitter {
         throw UnsupportedOperationException("tramai-sovereign-ops-outbox-emission-unsupported")
 
     /**
+     * Called during outbox dispatch replay for workflow cancellation evidence (0.7.7m).
+     */
+    suspend fun workflowCancelledFromOutbox(record: SovereignOpsAuditOutboxRecord): Unit =
+        throw UnsupportedOperationException("tramai-sovereign-ops-workflow-cancellation-evidence-unsupported")
+
+    /**
      * Called during outbox dispatch replay, for evidence of any kind.
      *
      * Binary compatibility is not semantic correctness: a default that forwarded every record to
@@ -71,6 +77,7 @@ fun interface SovereignOpsAuditEmitter {
      *   [SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL] -> [UnsupportedOperationException], so an
      *   emitter that cannot represent them stops emitting instead of mislabelling. The record is kept and
      *   parked as `FAILED_PERMANENT` by the dispatcher: visible, not silently wrong.
+     * - [SovereignOpsAuditEvidenceKind.WORKFLOW_CANCELLED] -> [workflowCancelledFromOutbox].
      *
      * A legacy record (no persisted kind) is classified from its persisted status first, and fails closed
      * when that status cannot name a kind.
@@ -87,6 +94,10 @@ fun interface SovereignOpsAuditEmitter {
 
             SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL -> {
                 throw UnsupportedOperationException("tramai-sovereign-ops-refusal-evidence-unsupported")
+            }
+
+            SovereignOpsAuditEvidenceKind.WORKFLOW_CANCELLED -> {
+                workflowCancelledFromOutbox(record)
             }
         }
     }

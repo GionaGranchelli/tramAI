@@ -477,6 +477,7 @@ public final class dev/tramai/spring/sovereign/ops/AuditEngineSovereignOpsAuditE
 	public fun approvalDeniedFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun evidenceFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun isActive ()Z
+	public fun workflowCancelledFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/AuditEngineSovereignOpsAuditEmitter$Companion {
@@ -528,6 +529,7 @@ public final class dev/tramai/spring/sovereign/ops/NoopSovereignOpsAuditEmitter 
 	public fun approvalDeniedFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun evidenceFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun isActive ()Z
+	public fun workflowCancelledFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/OperatorApprovalPolicy {
@@ -545,6 +547,12 @@ public final class dev/tramai/spring/sovereign/ops/OperatorAuthority {
 	public final fun getSubject ()Ljava/lang/String;
 	public final fun holds (Ldev/tramai/core/operator/OperatorCapability;)Z
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/OperatorWorkflowCancellationPolicy {
+	public fun <init> (Ljava/util/Map;)V
+	public final fun configuredWorkflows ()Ljava/util/Set;
+	public final fun evaluate (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;)Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;
 }
 
 public final class dev/tramai/spring/sovereign/ops/RecordingApprovedContinuationResumeWorkerObserver : dev/tramai/spring/sovereign/ops/ApprovedContinuationResumeWorkerObserver {
@@ -684,12 +692,15 @@ public abstract interface class dev/tramai/spring/sovereign/ops/SovereignOpsAudi
 	public fun evidenceFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun evidenceFromOutbox$suspendImpl (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun isActive ()Z
+	public fun workflowCancelledFromOutbox (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun workflowCancelledFromOutbox$suspendImpl (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter$DefaultImpls {
 	public static fun approvalDeniedFromOutbox (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static fun evidenceFromOutbox (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static fun isActive (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;)Z
+	public static fun workflowCancelledFromOutbox (Ldev/tramai/spring/sovereign/ops/SovereignOpsAuditEmitter;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/SovereignOpsAutoConfiguration {
@@ -803,6 +814,16 @@ public final class dev/tramai/spring/sovereign/ops/SovereignOpsTransactionalAppr
 	public fun requestApproval-Atj0Sqo (Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public final class dev/tramai/spring/sovereign/ops/SovereignOpsWorkflowCancellationControlPlane : dev/tramai/spring/sovereign/ops/WorkflowCancellationControlPlane {
+	public static final field Companion Ldev/tramai/spring/sovereign/ops/SovereignOpsWorkflowCancellationControlPlane$Companion;
+	public fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationStore;Ldev/tramai/spring/sovereign/ops/OperatorWorkflowCancellationPolicy;Ljava/time/Clock;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsRefusalRecorder;)V
+	public synthetic fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationStore;Ldev/tramai/spring/sovereign/ops/OperatorWorkflowCancellationPolicy;Ljava/time/Clock;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsRefusalRecorder;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun cancel (Ldev/tramai/spring/sovereign/ops/WorkflowCancellationCommand;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/ops/SovereignOpsWorkflowCancellationControlPlane$Companion {
+}
+
 public abstract interface class dev/tramai/spring/sovereign/ops/SovereignRuntimeOperations {
 	public abstract fun status ()Ldev/tramai/spring/sovereign/ops/SovereignRuntimeStatus;
 }
@@ -853,6 +874,132 @@ public final class dev/tramai/spring/sovereign/ops/SovereignSuspendedInvocationS
 	public final fun getWorkflowRunId ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/WorkflowCancellationCommand {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()J
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationCommand;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/WorkflowCancellationCommand;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationCommand;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getExpectedRevision ()J
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getRunId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/spring/sovereign/ops/WorkflowCancellationControlPlane {
+	public abstract fun cancel (Ldev/tramai/spring/sovereign/ops/WorkflowCancellationCommand;Ldev/tramai/spring/sovereign/ops/OperatorAuthority;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/ops/WorkflowCancellationControlPlaneAutoConfiguration {
+	public fun <init> ()V
+	public final fun sovereignOpsWorkflowCancellationControlPlane (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationStore;Ldev/tramai/spring/sovereign/ops/OperatorWorkflowCancellationPolicy;Lorg/springframework/beans/factory/ObjectProvider;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationControlPlane;
+}
+
+public abstract interface class dev/tramai/spring/sovereign/ops/WorkflowCancellationResult {
+}
+
+public final class dev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Cancelled : dev/tramai/spring/sovereign/ops/WorkflowCancellationResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowLifecycleStatus;Ljava/lang/String;JZ)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowLifecycleStatus;Ljava/lang/String;JZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()J
+	public final fun component4 ()Ldev/tramai/orchestration/WorkflowLifecycleStatus;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()J
+	public final fun component7 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowLifecycleStatus;Ljava/lang/String;JZ)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Cancelled;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Cancelled;Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowLifecycleStatus;Ljava/lang/String;JZILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Cancelled;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAlreadyCancelled ()Z
+	public final fun getCancelledAtEpochMillis ()J
+	public final fun getCancelledBy ()Ljava/lang/String;
+	public final fun getRevision ()J
+	public final fun getRunId ()Ljava/lang/String;
+	public final fun getStatus ()Ldev/tramai/orchestration/WorkflowLifecycleStatus;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Conflict : dev/tramai/spring/sovereign/ops/WorkflowCancellationResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Conflict;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Conflict;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Conflict;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getRunId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/WorkflowCancellationResult$NotFound : dev/tramai/spring/sovereign/ops/WorkflowCancellationResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$NotFound;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$NotFound;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$NotFound;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRunId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Stale : dev/tramai/spring/sovereign/ops/WorkflowCancellationResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;JJ)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()J
+	public final fun component4 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;JJ)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Stale;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Stale;Ljava/lang/String;Ljava/lang/String;JJILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Stale;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrentRevision ()J
+	public final fun getExpectedRevision ()J
+	public final fun getRunId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Unauthorized : dev/tramai/spring/sovereign/ops/WorkflowCancellationResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Unauthorized;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Unauthorized;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/WorkflowCancellationResult$Unauthorized;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;
+	public final fun getRunId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason : java/lang/Enum {
+	public static final field MISSING_CAPABILITY Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;
+	public static final field ROLE_NOT_PERMITTED Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;
+	public static final field WORKFLOW_POLICY_UNAVAILABLE Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;
+	public static fun values ()[Ldev/tramai/spring/sovereign/ops/WorkflowUnauthorizedReason;
 }
 
 public final class dev/tramai/spring/sovereign/ops/evidence/ApprovalDecisionRuntimeEvidenceExporter {
@@ -1309,6 +1456,7 @@ public final class dev/tramai/spring/sovereign/ops/outbox/RefusalEvidence$Compan
 
 public final class dev/tramai/spring/sovereign/ops/outbox/RefusalOperation : java/lang/Enum {
 	public static final field APPROVE Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;
+	public static final field CANCEL_WORKFLOW Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;
 	public static final field DENY Ldev/tramai/spring/sovereign/ops/outbox/RefusalOperation;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public final fun getWireName ()Ljava/lang/String;
@@ -1410,6 +1558,7 @@ public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvide
 	public static final field APPROVAL_APPROVED Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
 	public static final field APPROVAL_DENIED Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
 	public static final field AUTHORIZATION_REFUSAL Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
+	public static final field WORKFLOW_CANCELLED Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
 	public static fun values ()[Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditEvidenceKind;
@@ -1832,6 +1981,24 @@ public abstract interface class dev/tramai/spring/sovereign/ops/outbox/Sovereign
 
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkerLeaseLostException : java/lang/RuntimeException {
 	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationMutationResult {
+	public fun <init> (Ldev/tramai/orchestration/WorkflowLifecycleState;Z)V
+	public synthetic fun <init> (Ldev/tramai/orchestration/WorkflowLifecycleState;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/orchestration/WorkflowLifecycleState;
+	public final fun component2 ()Z
+	public final fun copy (Ldev/tramai/orchestration/WorkflowLifecycleState;Z)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationMutationResult;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationMutationResult;Ldev/tramai/orchestration/WorkflowLifecycleState;ZILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationMutationResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAlreadyCancelled ()Z
+	public final fun getState ()Ldev/tramai/orchestration/WorkflowLifecycleState;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationStore {
+	public abstract fun cancelWithAuditIntent (Ldev/tramai/spring/sovereign/ops/WorkflowCancellationCommand;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/spring/sovereign/ops/outbox/UnconfiguredRefusalRecorder : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsRefusalRecorder {
