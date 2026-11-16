@@ -51,7 +51,7 @@ The core engine, store, lease, admission, and evidence mechanisms were delivered
 | **D7-E1** (0.7.7e) | Approval resume continuation evidence (E9) | ✅ **Delivered** | [TASK-0.7.7j](../0.7.7/TASK-0.7.7j-E9-EVIDENCE-LINEAGE-CONTRACT.md), [TASK-0.7.7k](../0.7.7/TASK-0.7.7k-E9-DURABLE-APPROVAL-RESUME-EVIDENCE.md) |
 | **D7-F** (0.7.7f/h) | Cross-boundary cancellation & evidence integration closure | ✅ **Delivered** | [TASK-0.7.7l-D7-F-INTEGRATION-CLOSURE.md](../0.7.7/TASK-0.7.7l-D7-F-INTEGRATION-CLOSURE.md) (PR #591) |
 | **D7-Rebaseline** | Dependency rebaseline against delivered 0.7.6 | ✅ **Delivered** | [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md) |
-| **0.7.7m** | Authenticated & authorized workflow cancellation REST boundary | ✅ **Delivered** | [TASK-0.7.7m](../0.7.7/TASK-0.7.7m-CANCELLATION-CONTROL-BOUNDARY.md) (PR #596, commit `baad07bc`) |
+| **0.7.7m** | Authenticated & authorized workflow cancellation REST boundary | ✅ **Delivered** | [TASK-0.7.7m](../0.7.7/TASK-0.7.7m-CANCELLATION-CONTROL-BOUNDARY.md) (PR #596, merge commit `baad07bc037af28854b94ac95942426aab62347a`, audit commit `6f9c494cd10a6e8d54866c19337fba754ca67882`) |
 
 ### Release Blocker Resolution — Cancellation Control Entry Point Authority
 

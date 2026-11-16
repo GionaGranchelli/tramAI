@@ -1,8 +1,11 @@
 # AUDIT-0.7.7 — Epic 0.7.7 Final Acceptance & Integration Audit
 
-**Status:** ACCEPTED & CLOSED
-**Target:** `release/0.7.0`
-**Final Verified Release Head:** `baad07bcc34b95d9859f518e3848b59436bf644f`
+**Status:** ACCEPTED & MERGED (Milestone / Component Scope)  
+**Release-Head Certification:** PENDING (Post-merge release-branch CI qualification in progress)  
+**Target Branch:** `release/0.7.0`  
+**PR #596 Merge Commit:** `baad07bc037af28854b94ac95942426aab62347a`  
+**Acceptance Audit Documentation Commit:** `6f9c494cd10a6e8d54866c19337fba754ca67882`  
+**Pristine Base Commit:** `c27d3a15a13deb7fa95e6eb464f0b24f470bb823`  
 **Governing Epics:**
 - [EPIC-0.7.6-AUTH-RUNTIME-CONTROL.md](../0.7.0/EPIC-0.7.6-AUTH-RUNTIME-CONTROL.md)
 - [EPIC-0.7.7-SUSPENDED-RUN-CANCELLATION.md](../0.7.0/EPIC-0.7.7-SUSPENDED-RUN-CANCELLATION.md)
@@ -13,9 +16,13 @@
 
 ## 1. Executive Summary & Verdict
 
-Epic 0.7.7 (*Authoritative Persisted Suspended-Run Cancellation*) is hereby **FORMALLY CLOSED**.
+Epic 0.7.7 (*Authoritative Persisted Suspended-Run Cancellation*) is hereby **ACCEPTED & CLOSED at component / milestone scope**.
 
-All planned deliverables, structural security boundaries, persistence guarantees, admission fences, lease fences, transactional evidence outbox pipelines, and adversarial qualifications have been completed, verified against real PostgreSQL instances, reviewed independently, and integrated into `release/0.7.0`.
+All planned deliverables, structural security boundaries, persistence guarantees, admission fences, lease fences, transactional evidence outbox pipelines, and adversarial qualifications have been completed, verified against real PostgreSQL instances, reviewed independently, and integrated into `release/0.7.0` via merge commit `baad07bc037af28854b94ac95942426aab62347a`.
+
+> [!NOTE]
+> **Provenance & Release-Head Distinction:**  
+> A merge commit records the integration point into `release/0.7.0`, not the post-merge verified release head. Following the integration of PR #596 (`baad07bc037af28854b94ac95942426aab62347a`), the release branch advanced with documentation commit `6f9c494cd10a6e8d54866c19337fba754ca67882`. Whole-release branch certification remains bounded pending the reconciliation of pre-existing release-line CI gates documented in Section 5.
 
 ```text
 ========================================================================================
@@ -28,7 +35,8 @@ Persistence Integrity:             VERIFIED (Single-transaction atomic CAS & out
 Concurrency Safety:                VERIFIED (Multi-threaded barrier test proves single linearization winner)
 Reconstruction Visibility:         VERIFIED (ReadTimeline historical reader extracts lifecycle without re-executing)
 Residual Limitations:              DOCUMENTED & BOUNDED (Consistent with ratified 0.7.6 risk record)
-Overall Epic 0.7.7 Status:         FORMALLY CLOSED & MERGED (Commit baad07bc)
+Component Integration Status:      FORMALLY MERGED & ACCEPTED (PR #596, commit baad07bc037af28854b94ac95942426aab62347a)
+Exact-Head Release Certification:  PENDING RELEASE-BRANCH GATE RECONCILIATION
 ========================================================================================
 ```
 
@@ -40,12 +48,13 @@ All milestones of Epic 0.7.7 and its hard dependency chain (Epic 0.7.6) are inte
 
 | Milestone / PR | Commit | Scope / Deliverable | Status on `release/0.7.0` |
 | :--- | :--- | :--- | :--- |
-| **D7-F** (PR #591) | `b97e4179` | Cross-boundary cancellation & evidence integration closure (E1–E9, E10, E11) | ✅ Integrated |
-| **0.7.6f** (PR #592) | `6f2854ad` | Privileged evidence, V10 schema, V3 outbox payload, canonical `ActorIdentityDigest` | ✅ Integrated |
-| **0.7.6g2** (PR #593) | `226f7894` | Privileged control boundary adversarial qualification (14 bypass tests, M1–M8) | ✅ Integrated |
-| **0.7.6h** (PR #594) | `19bb92c9` | Headless control API guide, whole-repo security inventory, least privilege matrix | ✅ Integrated |
-| **0.7.6i** (PR #595) | `c27d3a15` | Ratified 0.7.6 security-risk acceptance record (F3, F5, L4) & 0.7.7 dependency rebaseline | ✅ Integrated |
-| **TASK-0.7.7m** (PR #596) | `baad07bc` | Authenticated & authorized workflow cancellation REST boundary, structural route protection | ✅ Integrated |
+| **D7-F** (PR #591) | `b97e417937d1cfc7c88b7f8e0d68f6bf7e21a20b` | Cross-boundary cancellation & evidence integration closure (E1–E9, E10, E11) | ✅ Integrated |
+| **0.7.6f** (PR #592) | `6f2854ad6f6630a91e52003c2e171b31275d29d8` | Privileged evidence, V10 schema, V3 outbox payload, canonical `ActorIdentityDigest` | ✅ Integrated |
+| **0.7.6g2** (PR #593) | `226f78943cf6cb2ca65aa5ff93e36495531d0446` | Privileged control boundary adversarial qualification (14 bypass tests, M1–M8) | ✅ Integrated |
+| **0.7.6h** (PR #594) | `19bb92c944a91fec98f83896c5c58f07f2fde113` | Headless control API guide, whole-repo security inventory, least privilege matrix | ✅ Integrated |
+| **0.7.6i** (PR #595) | `c27d3a15a13deb7fa95e6eb464f0b24f470bb823` | Ratified 0.7.6 security-risk acceptance record (F3, F5, L4) & 0.7.7 dependency rebaseline | ✅ Integrated |
+| **TASK-0.7.7m** (PR #596) | `baad07bc037af28854b94ac95942426aab62347a` | Authenticated & authorized workflow cancellation REST boundary, structural route protection | ✅ Integrated |
+| **0.7.7 Audit Record** | `6f9c494cd10a6e8d54866c19337fba754ca67882` | Initial publication of Epic 0.7.7 acceptance audit | ✅ Committed |
 
 ---
 
@@ -86,6 +95,41 @@ Consistent with owner ratification instructions, the following architectural bou
 
 ---
 
-## 5. Final Sign-Off
+## 5. Post-Merge CI Qualification & Diagnosis
 
-With the merge of PR #596 at commit `baad07bcc34b95d9859f518e3848b59436bf644f`, all technical, architectural, and documentation requirements of Epic 0.7.7 are fulfilled. Epic 0.7.7 is closed and ready for downstream release preparation.
+Following the merge of PR #596 and publication of commit `6f9c494cd10a6e8d54866c19337fba754ca67882`, five workflows executed on GitHub Actions. Two passed and three failed:
+
+- `Sovereign Runtime Release Candidate` (Run `43896346114`): **PASSED** (✓)
+- `Mutation Authority Integration` (Run `43896346249`): **PASSED** (✓)
+- `Maintainability Baseline` (Run `43896346099`): **FAILED** (X)
+- `Architecture Authority` (Run `43896346283`): **FAILED** (X)
+- `CI` (Run `43896346239`): **FAILED** (X)
+
+### Root-Cause Diagnosis and Evidence
+
+An exhaustive comparative evaluation was performed across:
+- Candidate commit `6f9c494cd10a6e8d54866c19337fba754ca67882` (post-merge audit docs)
+- Merge commit `baad07bc037af28854b94ac95942426aab62347a` (PR #596 merge)
+- Pristine base commit `c27d3a15a13deb7fa95e6eb464f0b24f470bb823` (state of `release/0.7.0` immediately before PR #596)
+
+All workflows running on `release/0.7.0` execute under the context of **open pull request #400** (`release/0.7.0` -> `master`), which evaluates `release/0.7.0` against `master` (`611845cc4bb54ad26507cae5cc69257f7e4c767b`).
+
+| Workflow | Failed Step / Task | Diagnostic Signature | Pristine Base (`c27d3a15`) Outcome | Classification |
+| :--- | :--- | :--- | :--- | :--- |
+| **Maintainability Baseline** (`43896346099`) | `Verify Change Policy` | `POLICY [analyzer-runtime-separation]: Analyzer/tooling code and runtime production modules must not change together.` | Failed with identical diagnostic signature (Run `43752945605`). | `existing-branch-drift` / `environment-mismatch` (Evaluation against `master` via PR #400 spans all tooling and runtime diffs accumulated across Epics 0.7.1–0.7.7. PR #596 itself touched only runtime modules). |
+| **Maintainability Baseline** (`43896346099`) | `build-logic (release-sovereign)` -> `Run release-sovereign build-logic tests` | `TramaiDocsGuardsPluginTest > verifyModuleDocContract passes on real module cards() FAILED: [MODULE_CARD_LINK_BROKEN] Card 'spring-ai-authority-boundary' link '../../tramai-security/.../RuntimeBoundaryProvenance.kt' does not resolve` | Failed with identical diagnostic signature (Run `43752945605`). | `test-defect` / `independent-issue` (Introduced in commit `1689d84e` during 0.7.4g; the test fixture copies `docs` and `ARCHITECTURE.md` but omits `tramai-security`, breaking the relative link inside the isolated test environment). |
+| **Architecture Authority** (`43896346283`) | `Verify API architecture authority` | `verify060Architecture FAILED: API_COMPATIBILITY_FAILED` on `:tramai-control-plane`, `:tramai-engine`, `:tramai-orchestration`, etc. | Failed with identical diagnostic signature (Run `43752945668`). | `baseline-mismatch` / `existing-branch-drift` (Evaluation against `master` via PR #400 cannot resolve intermediate 0.7.x migration steps. In PR #596 targeting `release/0.7.0`, `verify060Architecture` passed cleanly in Run `43862804597`). |
+| **CI** (`43896346239`) | `tests` -> `Verify mutation ratchet against PR base` | `M35: population admission records fromBaseSha '5bcb030c...', not authority base '611845cc...'`<br>`M45: digest-migration certificate records fromBaseSha '64d05450...', not authority base '611845cc...'` | Failed with identical diagnostic signature (Run `43752945596`, Job `132930713426`). | `baseline-mismatch` / `existing-branch-drift` (Admissions and certificates in `release/0.7.0` were minted against release-line bases, not `master`. In PR #596 targeting `release/0.7.0`, `verifyMutationRatchet` passed cleanly in Run `43862804562`). |
+
+### Non-Regression Verdict
+
+- **No regressions were introduced by PR #596.** Every failing CI check on `release/0.7.0` was present identically at pristine base `c27d3a15a13deb7fa95e6eb464f0b24f470bb823`.
+- In PR #596 itself (head `5df31693bbd9774a0404ad05729bb1632263a947`, evaluated against `release/0.7.0`), all required gates—including `Architecture Authority`, `Sovereign Runtime`, `Mutation Authority`, and `CI`—passed completely.
+- The failures observed on `release/0.7.0` stem entirely from evaluating the full release branch against `master` via PR #400 rather than evaluating release-line transitions against their respective base branches.
+
+---
+
+## 6. Final Certification Verdict
+
+1. **Epic 0.7.7 Component Acceptance:** **ACCEPTED & CLOSED**. All functionality, adversarial tests, authorization semantics, and documentation requirements of Epic 0.7.7 are fully satisfied.
+2. **Release-Head Certification:** **PENDING WHOLE-RELEASE GATE RECONCILIATION**. While PR #596 introduced zero regressions, full release certification of the `release/0.7.0` head branch requires reconciling PR #400 base evaluation, test fixture isolation in `build-logic`, and multi-epic migration baselines prior to final release promotion.
