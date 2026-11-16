@@ -323,8 +323,8 @@ internal fun requireOperatorConfiguration(
 /**
  * Fail-closed route coverage. The approval base path is configurable, so protecting a fixed pattern would
  * silently leave the control plane outside the operator chain whenever a consumer moved it. Both the base
- * path, a synthetic child of it, and the workflow cancellation route must match some protected pattern, and
- * an empty pattern list is a failure rather than an unprotected-but-authenticated boundary.
+ * path, a synthetic child of it, and the dynamic workflow cancellation route must match some protected
+ * pattern, and an empty pattern list is a failure rather than an unprotected-but-authenticated boundary.
  */
 internal fun requireProtectedControlPlane(
     protectedPaths: List<String>,
@@ -343,14 +343,18 @@ internal fun requireProtectedControlPlane(
 
     val cancellationCovered =
         protectedPaths.any { pattern ->
-            matcher.match(pattern, WORKFLOW_CANCELLATION_PROBE_PATH)
+            matcher.match(pattern, WORKFLOW_CANCELLATION_PROBE_PATH_ALPHA) &&
+                matcher.match(pattern, WORKFLOW_CANCELLATION_PROBE_PATH_BETA)
         }
     check(cancellationCovered) {
-        "tramai-operator-authentication-unprotected-control-plane: workflow cancellation route at " +
-            "'$WORKFLOW_CANCELLATION_PROBE_PATH' is not covered by " +
-            "protected-paths ${protectedPaths.ifEmpty { listOf("<empty>") }}"
+        "tramai-operator-authentication-unprotected-control-plane: workflow cancellation route " +
+            "'/tramai/sovereign/workflows/{workflowName}/runs/{runId}/cancel' is not covered across " +
+            "dynamic target and run paths by protected-paths ${protectedPaths.ifEmpty { listOf("<empty>") }}"
     }
 }
 
-internal const val WORKFLOW_CANCELLATION_PROBE_PATH: String =
-    "/tramai/sovereign/workflows/probe-wf/runs/probe-run/cancel"
+internal const val WORKFLOW_CANCELLATION_PROBE_PATH_ALPHA: String =
+    "/tramai/sovereign/workflows/probe-wf-alpha/runs/probe-run-1/cancel"
+
+internal const val WORKFLOW_CANCELLATION_PROBE_PATH_BETA: String =
+    "/tramai/sovereign/workflows/probe-wf-beta/runs/probe-run-2/cancel"

@@ -439,6 +439,7 @@ public final class dev/tramai/orchestration/JdbcWorkflowCheckpointStore : dev/tr
 	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun createTableSql ()Ljava/lang/String;
 	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getDataSource ()Ljavax/sql/DataSource;
 	public final fun getPersistenceFailureDiagnosticObserver ()Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;
 	public fun lifecycle (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun lifecycleInConnection (Ljava/sql/Connection;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/orchestration/WorkflowLifecycleState;

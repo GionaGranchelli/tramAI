@@ -10,7 +10,7 @@ import javax.sql.DataSource
  * Applications are responsible for supplying a JDBC driver and creating the target table.
  */
 class JdbcWorkflowCheckpointStore(
-    internal val dataSource: DataSource,
+    val dataSource: DataSource,
     private val table: JdbcWorkflowCheckpointTable = JdbcWorkflowCheckpointTable(),
 ) : WorkflowCheckpointStore,
     WorkflowCheckpointCatalog {

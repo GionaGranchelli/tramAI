@@ -87,6 +87,23 @@ class OperatorAuthenticationConfigurationTest {
     }
 
     @Test
+    fun `protected-paths covering approvals and only a narrow workflow cancellation URL fails startup`() {
+        val narrowPath =
+            properties().apply {
+                protectedPaths =
+                    listOf(
+                        "/tramai/sovereign/approvals/**",
+                        "/tramai/sovereign/workflows/probe-wf/runs/probe-run/cancel",
+                    )
+            }
+
+        assertThatThrownBy { requireOperatorConfiguration(narrowPath, APPROVAL_BASE) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("tramai-operator-authentication-unprotected-control-plane")
+            .hasMessageContaining("workflow cancellation route")
+    }
+
+    @Test
     fun `protected-paths explicitly covering both approvals and workflow cancellation passes`() {
         val multiPath =
             properties().apply {

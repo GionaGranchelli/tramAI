@@ -670,6 +670,40 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
             }
     }
 
+    @Test
+    fun `checkpoint store with different DataSource fails startup fail-closed`() {
+        val keyFile = prepareKeyFile()
+
+        contextRunner
+            .withUserConfiguration(MismatchedDataSourceCheckpointStoreConfig::class.java)
+            .withPropertyValues(
+                *validJdbcProps(keyFile)
+                    .entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            ).run { ctx ->
+                assertThat(ctx).hasFailed()
+                val failure = requireNotNull(ctx.startupFailure)
+                assertThat(failure)
+                    .hasMessageContaining("tramai-sovereign-cancellation-store-datasource-mismatch")
+            }
+    }
+
+    @Test
+    fun `sameAuthoritativeDataSource unwrap and comparison contract`() {
+        val ds1 = NoOpDataSource()
+        val ds2 = NoOpDataSource()
+        val delegating =
+            org.springframework.jdbc.datasource
+                .DelegatingDataSource(ds1)
+
+        assertThat(sameAuthoritativeDataSource(ds1, ds1)).isTrue()
+        assertThat(sameAuthoritativeDataSource(delegating, ds1)).isTrue()
+        assertThat(sameAuthoritativeDataSource(ds1, delegating)).isTrue()
+        assertThat(sameAuthoritativeDataSource(ds1, ds2)).isFalse()
+        assertThat(sameAuthoritativeDataSource(delegating, ds2)).isFalse()
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private fun prepareKeyFile(name: String = "key.b64"): Path {
@@ -734,6 +768,15 @@ open class IncompatibleCheckpointStoreConfig {
                 workflowId: String,
             ): dev.tramai.orchestration.WorkflowLifecycleState? = null
         }
+}
+
+open class MismatchedDataSourceCheckpointStoreConfig {
+    @Bean
+    @Primary
+    open fun customCheckpointStore(): WorkflowCheckpointStore {
+        val distinctDataSource = NoOpDataSource()
+        return JdbcWorkflowCheckpointStore(distinctDataSource)
+    }
 }
 
 open class CustomOutboxStoreConfig {

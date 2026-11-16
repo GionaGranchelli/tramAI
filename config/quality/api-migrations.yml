@@ -524,10 +524,10 @@ migrations:
 
   - module: ":tramai-orchestration"
     fromSha256: "5530b5ce2752d3ade7d7bae1feb0dbedea9042bb509bf15a319614304857d9e6"
-    toSha256: "3f3d606fb9a89b578094bb51331713ea96d082f8dc8c6d0e6357f39631269679"
+    toSha256: "75ce808e6b5a3918fed293d0236111c65ed4245dc9ba0cc7d04b7a0b1305429b"
     targetVersion: "0.7.0"
-    rationale: "TASK-0.7.7m: Expose connection-participating SPI methods on JdbcWorkflowCheckpointStore (cancelInConnection, lifecycleInConnection, load(conn, ...)) to enable atomic single-transaction workflow cancellation and audit outbox emission."
-    migration: "No consumer action required: additive SPI methods only; existing callers and implementations require no change."
+    rationale: "TASK-0.7.7m: Expose connection-participating SPI methods on JdbcWorkflowCheckpointStore (cancelInConnection, lifecycleInConnection, load(conn, ...)) and public dataSource property to verify authoritative database alignment."
+    migration: "No consumer action required: additive SPI methods and property only; existing callers and implementations require no change."
 
   - module: ":tramai-spring-boot-starter-sovereign-ops"
     fromSha256: "ef10091bec9891abda5c2b8b2693b087a0c40539d2879cca98bf42c855f19e6a"

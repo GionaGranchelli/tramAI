@@ -318,10 +318,31 @@ class SovereignJdbcPersistenceAutoConfiguration {
                 "authoritative WorkflowCheckpointStore must be an instance of JdbcWorkflowCheckpointStore " +
                 "to support atomic transactional cancellation, but found: ${checkpointStore::class.qualifiedName}"
         }
+        check(sameAuthoritativeDataSource(checkpointStore.dataSource, dataSource)) {
+            "tramai-sovereign-cancellation-store-datasource-mismatch: " +
+                "authoritative WorkflowCheckpointStore operates on a different DataSource instance than the " +
+                "cancellation transaction boundary"
+        }
         return JdbcSovereignOpsWorkflowCancellationStore(
             dataSource = dataSource,
             checkpointStore = checkpointStore,
             payloadCodec = payloadCodec,
         )
     }
+}
+
+internal fun sameAuthoritativeDataSource(
+    first: DataSource,
+    second: DataSource,
+): Boolean {
+    if (first === second) return true
+    val unwrappedFirst = unwrapDataSource(first)
+    val unwrappedSecond = unwrapDataSource(second)
+    return unwrappedFirst === unwrappedSecond || unwrappedFirst == unwrappedSecond
+}
+
+private tailrec fun unwrapDataSource(current: DataSource): DataSource {
+    if (current !is org.springframework.jdbc.datasource.DelegatingDataSource) return current
+    val target = current.targetDataSource
+    return if (target == null || target === current) current else unwrapDataSource(target)
 }
