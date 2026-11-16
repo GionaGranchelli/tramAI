@@ -35,7 +35,10 @@ enum class OperatorCapability(
     /** Approve or deny a pending approval request. */
     DECIDE_APPROVAL("decide-approval"),
 
-    /** Cancel a governed workflow run. */
+    /** Cancel a governed workflow run (0.7.7m). */
+    CANCEL_WORKFLOW("cancel-workflow"),
+
+    /** Cancel a governed workflow run (legacy wire alias for CANCEL_WORKFLOW). */
     CANCEL_RUN("cancel-run"),
     ;
 

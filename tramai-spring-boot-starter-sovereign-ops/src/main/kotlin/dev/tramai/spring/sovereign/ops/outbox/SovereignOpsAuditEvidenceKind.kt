@@ -7,14 +7,17 @@ package dev.tramai.spring.sovereign.ops.outbox
  * a guess. A record written before this field existed has no kind and is classified from its persisted
  * approval status by the reader (0.7.6f slice 4), never assumed here.
  *
- * The three kinds are the contract's whole vocabulary:
+ * The contract vocabulary:
  * - [APPROVAL_APPROVED] / [APPROVAL_DENIED] -- a decision the decision plane made, carrying the approval
  *   status and version it produced.
  * - [AUTHORIZATION_REFUSAL] -- a refusal, which has no business transition, so it carries no approval
  *   status and is inserted directly in a dispatchable state.
+ * - [WORKFLOW_CANCELLED] -- an authoritative workflow run cancellation (0.7.7m), carrying the terminal
+ *   lifecycle status (CANCELLED or CANCELLED_UNCERTAIN) and resulting revision.
  */
 enum class SovereignOpsAuditEvidenceKind {
     APPROVAL_APPROVED,
     APPROVAL_DENIED,
     AUTHORIZATION_REFUSAL,
+    WORKFLOW_CANCELLED,
 }

@@ -521,3 +521,31 @@ migrations:
     migration: >-
       No consumer action required: additive public API only. Existing 4-argument constructors and
       copy descriptors on ApprovalResumeAdmissionRequest remain binary-compatible.
+
+  - module: ":tramai-orchestration"
+    fromSha256: "5530b5ce2752d3ade7d7bae1feb0dbedea9042bb509bf15a319614304857d9e6"
+    toSha256: "75ce808e6b5a3918fed293d0236111c65ed4245dc9ba0cc7d04b7a0b1305429b"
+    targetVersion: "0.7.0"
+    rationale: "TASK-0.7.7m: Expose connection-participating SPI methods on JdbcWorkflowCheckpointStore (cancelInConnection, lifecycleInConnection, load(conn, ...)) and public dataSource property to verify authoritative database alignment."
+    migration: "No consumer action required: additive SPI methods and property only; existing callers and implementations require no change."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops"
+    fromSha256: "ef10091bec9891abda5c2b8b2693b087a0c40539d2879cca98bf42c855f19e6a"
+    toSha256: "b44568df64edf625669a3131dd7011dd4fc632e4b1ae7f991e2c08173ee31af4"
+    targetVersion: "0.7.0"
+    rationale: "TASK-0.7.7m: Add workflow cancellation control plane contracts, target authorization policy (OperatorWorkflowCancellationPolicy), store SPI (SovereignOpsWorkflowCancellationStore), outbox evidence kinds (WORKFLOW_CANCELLED, RefusalEvidence.CANCEL_WORKFLOW), and auto-configuration."
+    migration: "No consumer action required: additive domain control plane and policy types; existing callers and configurations require no change."
+
+  - module: ":tramai-spring-boot-starter-sovereign-ops-rest"
+    fromSha256: "7c2a83464374dc8f380c889d54917723a5bf0cbea6ee6615ab83da6f377d62fa"
+    toSha256: "8d45270088477c823634a22d992ed82a220756b855c680f828c41c9c861ff7d7"
+    targetVersion: "0.7.0"
+    rationale: "TASK-0.7.7m: Add REST cancellation controller (WorkflowCancellationControlPlaneController), request/response DTOs, and operator cancellation policy configuration properties and validation."
+    migration: "No consumer action required: additive REST endpoint and configuration properties; existing callers require no change."
+
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    fromSha256: "df415d890b708efcb3f3405cbebd408811cd551ecf7fe0ec0b041eda4e129f65"
+    toSha256: "f491e11855bf5c43e1b70a93d56f0e1d3aa072dd2841d57041e9d1ea2e5bea92"
+    targetVersion: "0.7.0"
+    rationale: "TASK-0.7.7m: Add JdbcSovereignOpsWorkflowCancellationStore and auto-configuration wiring for atomic single-transaction workflow checkpoint cancellation and audit outbox record persistence."
+    migration: "No consumer action required: additive store implementation and bean definitions; existing callers require no change."

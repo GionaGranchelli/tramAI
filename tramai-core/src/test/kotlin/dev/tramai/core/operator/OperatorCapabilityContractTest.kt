@@ -49,10 +49,17 @@ class OperatorCapabilityContractTest {
     fun `authorize returns Authorized only for a granted capability`() {
         val operator =
             principal(
-                capabilities = setOf(OperatorCapability.INSPECT_GOVERNANCE, OperatorCapability.CANCEL_RUN),
+                capabilities =
+                    setOf(
+                        OperatorCapability.INSPECT_GOVERNANCE,
+                        OperatorCapability.CANCEL_RUN,
+                        OperatorCapability.CANCEL_WORKFLOW,
+                    ),
             )
 
         assertThat(operator.authorize(OperatorCapability.CANCEL_RUN))
+            .isEqualTo(OperatorAuthorizationResult.Authorized)
+        assertThat(operator.authorize(OperatorCapability.CANCEL_WORKFLOW))
             .isEqualTo(OperatorAuthorizationResult.Authorized)
         assertThat(operator.authorize(OperatorCapability.DECIDE_APPROVAL))
             .isEqualTo(OperatorAuthorizationResult.Denied(OperatorCapability.DECIDE_APPROVAL))

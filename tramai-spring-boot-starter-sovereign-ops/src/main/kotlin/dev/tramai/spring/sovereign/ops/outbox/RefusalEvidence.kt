@@ -17,6 +17,7 @@ enum class RefusalOperation(
 ) {
     APPROVE("approval-approve"),
     DENY("approval-deny"),
+    CANCEL_WORKFLOW("workflow-cancel"),
 }
 
 /**

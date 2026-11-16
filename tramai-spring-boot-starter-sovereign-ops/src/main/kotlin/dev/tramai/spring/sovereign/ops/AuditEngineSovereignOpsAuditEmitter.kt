@@ -71,25 +71,29 @@ class AuditEngineSovereignOpsAuditEmitter(
     }
 
     /**
+     * Outbox replay emission for workflow cancellation evidence (0.7.7m).
+     */
+    override suspend fun workflowCancelledFromOutbox(record: SovereignOpsAuditOutboxRecord) {
+        evidenceFromOutbox(
+            record.copy(evidenceKind = SovereignOpsAuditEvidenceKind.WORKFLOW_CANCELLED),
+        )
+    }
+
+    /**
      * 0.7.6f §6: emits what the record is evidence of, not what the old emission path assumed.
      *
-     * This override is the exact output guarantee for the three kinds: an approval is never labelled a
-     * denial, and a refusal is never labelled as either. Stored digests are used as they are -- nothing
-     * here re-hashes [SovereignOpsAuditOutboxRecord.aggregateIdDigest] or
-     * [SovereignOpsAuditOutboxRecord.reasonDigest].
+     * This override is the exact output guarantee for all evidence kinds: an approval is never labelled a
+     * denial, a refusal is never labelled as either, and workflow cancellation is emitted with workflow
+     * stream and target metadata. Stored digests are used as they are -- nothing here re-hashes
+     * [SovereignOpsAuditOutboxRecord.aggregateIdDigest] or [SovereignOpsAuditOutboxRecord.reasonDigest].
      */
     override suspend fun evidenceFromOutbox(record: SovereignOpsAuditOutboxRecord) {
         val evidence = classifyEvidence(record)
         val mapping = EMITTED_AS.getValue(evidence.kind)
+        val isWorkflowCancellation = evidence.kind == SovereignOpsAuditEvidenceKind.WORKFLOW_CANCELLED
         val metadata =
             buildMap {
-                put(METADATA_APPROVAL_ID_DIGEST, bounded(record.aggregateIdDigest))
-                if (evidence.kind != SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL) {
-                    record.approvalStatus?.let { put(METADATA_APPROVAL_STATUS, bounded(it)) }
-                    record.approvalVersion?.let { put(METADATA_APPROVAL_VERSION, it.toString()) }
-                    record.previousApprovalStatus?.let { put(METADATA_PREVIOUS_APPROVAL_STATUS, bounded(it)) }
-                    record.previousApprovalVersion?.let { put(METADATA_PREVIOUS_APPROVAL_VERSION, it.toString()) }
-                }
+                populateTargetMetadata(this, record, evidence.kind)
                 put(METADATA_REASON_DIGEST, bounded(record.reasonDigest))
                 put(METADATA_REASON_LENGTH, record.reasonLength.toString())
                 // Correlation back to exactly one outbox record.
@@ -113,9 +117,16 @@ class AuditEngineSovereignOpsAuditEmitter(
                 if (evidence.legacy) put(METADATA_LEGACY_EVIDENCE, "true")
             }
 
+        val auditStreamId =
+            if (isWorkflowCancellation) {
+                "sovereign-ops-workflow:${record.aggregateIdDigest}"
+            } else {
+                "sovereign-ops-approval:${record.aggregateIdDigest}"
+            }
+
         auditEngine.emit(
             AuditEmission(
-                auditStreamId = "sovereign-ops-approval:${record.aggregateIdDigest}",
+                auditStreamId = auditStreamId,
                 workflowRunId = record.workflowRunId,
                 correlationId = record.correlationId,
                 actor = record.actor,
@@ -129,6 +140,28 @@ class AuditEngineSovereignOpsAuditEmitter(
         )
     }
 
+    private fun populateTargetMetadata(
+        metadata: MutableMap<String, String>,
+        record: SovereignOpsAuditOutboxRecord,
+        kind: SovereignOpsAuditEvidenceKind,
+    ) {
+        if (kind == SovereignOpsAuditEvidenceKind.WORKFLOW_CANCELLED) {
+            metadata[METADATA_WORKFLOW_TARGET_DIGEST] = bounded(record.aggregateIdDigest)
+            record.approvalStatus?.let { metadata[METADATA_WORKFLOW_STATUS] = bounded(it) }
+            record.approvalVersion?.let { metadata[METADATA_WORKFLOW_REVISION] = it.toString() }
+            record.previousApprovalStatus?.let { metadata[METADATA_PREVIOUS_WORKFLOW_STATUS] = bounded(it) }
+            record.previousApprovalVersion?.let { metadata[METADATA_PREVIOUS_WORKFLOW_REVISION] = it.toString() }
+        } else {
+            metadata[METADATA_APPROVAL_ID_DIGEST] = bounded(record.aggregateIdDigest)
+            if (kind != SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL) {
+                record.approvalStatus?.let { metadata[METADATA_APPROVAL_STATUS] = bounded(it) }
+                record.approvalVersion?.let { metadata[METADATA_APPROVAL_VERSION] = it.toString() }
+                record.previousApprovalStatus?.let { metadata[METADATA_PREVIOUS_APPROVAL_STATUS] = bounded(it) }
+                record.previousApprovalVersion?.let { metadata[METADATA_PREVIOUS_APPROVAL_VERSION] = it.toString() }
+            }
+        }
+    }
+
     companion object {
         private const val MAX_BOUNDED_LENGTH = 256
 
@@ -137,6 +170,11 @@ class AuditEngineSovereignOpsAuditEmitter(
         private const val METADATA_APPROVAL_VERSION = "approvalVersion"
         private const val METADATA_PREVIOUS_APPROVAL_STATUS = "previousApprovalStatus"
         private const val METADATA_PREVIOUS_APPROVAL_VERSION = "previousApprovalVersion"
+        private const val METADATA_WORKFLOW_TARGET_DIGEST = "workflowTargetDigest"
+        private const val METADATA_WORKFLOW_STATUS = "workflowStatus"
+        private const val METADATA_WORKFLOW_REVISION = "workflowRevision"
+        private const val METADATA_PREVIOUS_WORKFLOW_STATUS = "previousWorkflowStatus"
+        private const val METADATA_PREVIOUS_WORKFLOW_REVISION = "previousWorkflowRevision"
         private const val METADATA_REASON_DIGEST = "reasonDigest"
         private const val METADATA_REASON_LENGTH = "reasonLength"
         private const val METADATA_OUTBOX_ID = "outboxId"
@@ -170,6 +208,12 @@ class AuditEngineSovereignOpsAuditEmitter(
                         enforcementPoint = "sovereign-ops.approval.authorization",
                         decision = "DENIED",
                         reasonCode = "sovereign-ops-authorization-refused",
+                    ),
+                SovereignOpsAuditEvidenceKind.WORKFLOW_CANCELLED to
+                    EmissionMapping(
+                        enforcementPoint = "sovereign-ops.workflow.cancel",
+                        decision = "CANCELLED",
+                        reasonCode = "sovereign-ops-workflow-cancelled",
                     ),
             )
 

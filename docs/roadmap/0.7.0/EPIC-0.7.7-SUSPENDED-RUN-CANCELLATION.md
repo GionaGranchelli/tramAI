@@ -1,7 +1,7 @@
 # Epic 0.7.7 — Authoritative Persisted Suspended-Run Cancellation
 
 **Branch:** `epic/0.7.7-suspended-run-cancellation`
-**Status:** 🟡 Implementation Complete; Cancellation Control Boundary Blocker Pending (TASK-0.7.7m)
+**Status:** 🟢 Complete — Authenticated Cancellation Control Boundary Delivered (TASK-0.7.7m)
 **Dependencies:** 0.7.6 HARD (Finalized under [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md))
 
 ## Executive decision
@@ -51,12 +51,19 @@ The core engine, store, lease, admission, and evidence mechanisms were delivered
 | **D7-E1** (0.7.7e) | Approval resume continuation evidence (E9) | ✅ **Delivered** | [TASK-0.7.7j](../0.7.7/TASK-0.7.7j-E9-EVIDENCE-LINEAGE-CONTRACT.md), [TASK-0.7.7k](../0.7.7/TASK-0.7.7k-E9-DURABLE-APPROVAL-RESUME-EVIDENCE.md) |
 | **D7-F** (0.7.7f/h) | Cross-boundary cancellation & evidence integration closure | ✅ **Delivered** | [TASK-0.7.7l-D7-F-INTEGRATION-CLOSURE.md](../0.7.7/TASK-0.7.7l-D7-F-INTEGRATION-CLOSURE.md) (PR #591) |
 | **D7-Rebaseline** | Dependency rebaseline against delivered 0.7.6 | ✅ **Delivered** | [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md) |
+| **0.7.7m** | Authenticated & authorized workflow cancellation REST boundary | ✅ **Delivered** | [TASK-0.7.7m](../0.7.7/TASK-0.7.7m-CANCELLATION-CONTROL-BOUNDARY.md) |
 
-### Release Blocker — Cancellation Control Entry Point Authority
+### Release Blocker Resolution — Cancellation Control Entry Point Authority
 
-While internal engine-level cancellation is fully fenced and qualified in D7-F (`WorkflowCheckpointStore.cancel(...)`), the whole-repository security inventory in 0.7.6h identified that **no authenticated, authorized, typed cancellation control endpoint exists in `tramai-spring-boot-starter-sovereign-ops-rest`**. The existing `DELETE /workflows/{name}/runs/{id}` endpoint in `tramai-server` is an unsupported, unauthenticated internal prototype.
+The previous release blocker identified in 0.7.6h and [DEPENDENCY-BASELINE-0.7.7.md](../0.7.7/DEPENDENCY-BASELINE-0.7.7.md)—namely that cancellation lacked an authenticated and authorized entry point in the supported library starter—is **resolved by Task 0.7.7m**.
 
-**Implementing an authenticated REST cancellation endpoint or securing an explicit ADR scoping cancellation strictly to in-process JVM callers is an explicit release gate blocker for Epic 0.7.7 release promotion.**
+Task 0.7.7m delivered:
+- `POST /tramai/sovereign/workflows/{workflowName}/runs/{runId}/cancel` in `tramai-spring-boot-starter-sovereign-ops-rest`.
+- Dedicated `OperatorCapability.CANCEL_WORKFLOW` capability.
+- Server-side target-scoped authorization via `OperatorWorkflowCancellationPolicy` binding workflow names to required `ApproverRole`s.
+- Optimistic concurrency control validating `expectedRevision >= 0` against the current checkpoint revision (409 `STALE`).
+- Atomic CAS mutation in PostgreSQL paired with transactional outbox evidence (`WORKFLOW_CANCELLED` and `AUTHORIZATION_REFUSAL`).
+- Full adversarial, concurrency barrier, and post-cancellation admission fencing qualification.
 
 ## Acceptance criteria
 

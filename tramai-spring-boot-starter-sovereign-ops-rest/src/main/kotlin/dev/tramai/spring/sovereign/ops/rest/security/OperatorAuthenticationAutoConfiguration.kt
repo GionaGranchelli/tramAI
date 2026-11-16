@@ -3,6 +3,7 @@ package dev.tramai.spring.sovereign.ops.rest.security
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
+import dev.tramai.spring.sovereign.ops.OperatorWorkflowCancellationPolicy
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
@@ -96,6 +97,38 @@ class OperatorAuthenticationAutoConfiguration {
         return OperatorApprovalPolicy(requirement)
     }
 
+    /**
+     * Target-scoped workflow cancellation policy requirement (0.7.7m).
+     *
+     * Keyed by workflow name / target. When a target is missing from the configuration,
+     * cancellations for runs of that workflow are refused fail-closed with
+     * WORKFLOW_POLICY_UNAVAILABLE.
+     */
+    @Bean
+    fun operatorWorkflowCancellationPolicy(properties: OperatorSecurityProperties): OperatorWorkflowCancellationPolicy {
+        val configured = properties.workflowCancellationPolicies
+        val requirement =
+            configured.mapValues { (target, roles) ->
+                roles.forEach { role ->
+                    requireApproverRoleShape(role, "a workflow-cancellation-policies '$target' role")
+                }
+                roles.map { ApproverRole(it) }.toSet()
+            }
+        val grantable = approverRoleMapping(properties).grantableApproverRoles()
+        val unsatisfiable =
+            requirement.values
+                .flatten()
+                .filterNot { it in grantable }
+                .map { it.value }
+                .distinct()
+        require(unsatisfiable.isEmpty()) {
+            "tramai-workflow-cancellation-policy-unsatisfiable: ${unsatisfiable.joinToString(", ")} named by " +
+                "workflow-cancellation-policies is granted by no approver-role-mappings value, so no verified " +
+                "operator could ever satisfy it"
+        }
+        return OperatorWorkflowCancellationPolicy(requirement)
+    }
+
     @Bean
     @ConditionalOnMissingBean
     fun operatorClock(): Clock = Clock.systemUTC()
@@ -150,10 +183,11 @@ class OperatorAuthenticationAutoConfiguration {
     ): SecurityFilterChain {
         requireOperatorConfiguration(properties, approvalBasePath)
         val decoder = operatorJwtDecoder(properties)
-        // Widening cast keeps the element type exact without constructing a mutable collection: the
-        // architecture gate treats mutable collection construction in production code as global state.
+        // Structural route guarantee: /tramai/sovereign/workflows/** is unconditionally included
+        // in the operator security chain so no dynamic workflow or run cancellation URL can escape
+        // authentication, regardless of how narrow or customized properties.protectedPaths is.
         val matchers: List<RequestMatcher> =
-            properties.protectedPaths
+            effectiveProtectedPaths(properties.protectedPaths)
                 .map { path -> AntPathRequestMatcher(path) as RequestMatcher }
         return http
             .securityMatcher(OrRequestMatcher(matchers))
@@ -288,10 +322,15 @@ internal fun requireOperatorConfiguration(
 }
 
 /**
- * Fail-closed route coverage. The approval base path is configurable, so protecting a fixed pattern would
- * silently leave the control plane outside the operator chain whenever a consumer moved it. Both the base
- * path and a synthetic child of it must match some protected pattern, and an empty pattern list is a
- * failure rather than an unprotected-but-authenticated boundary.
+ * Fail-closed route coverage for the configurable approval control plane. The approval base path is
+ * configurable, so protecting a fixed pattern would silently leave the control plane outside the operator
+ * chain whenever a consumer moved it. Both the base path and a synthetic child of it must match some
+ * protected pattern, and an empty pattern list is a failure rather than an unprotected-but-authenticated
+ * boundary.
+ *
+ * Workflow cancellation routes are protected structurally via [WORKFLOW_CANCELLATION_ROUTE_PATTERN]
+ * directly in [operatorSecurityFilterChain], ensuring no dynamic URL can escape authentication regardless
+ * of customization.
  */
 internal fun requireProtectedControlPlane(
     protectedPaths: List<String>,
@@ -299,12 +338,27 @@ internal fun requireProtectedControlPlane(
 ) {
     val matcher = AntPathMatcher()
     val basePath = controlPlaneBasePath.trimEnd('/')
-    val covered =
+    val approvalCovered =
         protectedPaths.any { pattern ->
             matcher.match(pattern, basePath) && matcher.match(pattern, "$basePath/probe")
         }
-    check(covered) {
+    check(approvalCovered) {
         "tramai-operator-authentication-unprotected-control-plane: control plane at '$basePath' is not " +
             "covered by protected-paths ${protectedPaths.ifEmpty { listOf("<empty>") }}"
     }
 }
+
+/**
+ * Returns the effective set of request paths protected by the operator security boundary.
+ *
+ * Unconditionally appends [WORKFLOW_CANCELLATION_ROUTE_PATTERN] to ensure that all dynamic workflow
+ * and run cancellation routes are authenticated by construction, preventing configuration bypass.
+ */
+internal fun effectiveProtectedPaths(configuredPaths: List<String>): List<String> =
+    buildList {
+        addAll(configuredPaths)
+        add(WORKFLOW_CANCELLATION_ROUTE_PATTERN)
+    }.distinct()
+
+internal const val WORKFLOW_CANCELLATION_ROUTE_PATTERN: String =
+    "/tramai/sovereign/workflows/**"

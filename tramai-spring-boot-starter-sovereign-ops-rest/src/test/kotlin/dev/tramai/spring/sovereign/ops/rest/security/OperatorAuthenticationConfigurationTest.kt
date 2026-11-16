@@ -77,6 +77,43 @@ class OperatorAuthenticationConfigurationTest {
     }
 
     @Test
+    fun `effectiveProtectedPaths structurally includes workflow cancellation route regardless of configured paths`() {
+        val emptyPaths = emptyList<String>()
+        val approvalOnly = listOf("/tramai/sovereign/approvals/**")
+        val narrowProbe = listOf("/tramai/sovereign/workflows/probe-wf-*/runs/probe-run-*/cancel")
+
+        assertThat(effectiveProtectedPaths(emptyPaths))
+            .containsExactly(WORKFLOW_CANCELLATION_ROUTE_PATTERN)
+        assertThat(effectiveProtectedPaths(approvalOnly))
+            .containsExactly("/tramai/sovereign/approvals/**", WORKFLOW_CANCELLATION_ROUTE_PATTERN)
+        assertThat(effectiveProtectedPaths(narrowProbe))
+            .containsExactly(
+                "/tramai/sovereign/workflows/probe-wf-*/runs/probe-run-*/cancel",
+                WORKFLOW_CANCELLATION_ROUTE_PATTERN,
+            )
+    }
+
+    @Test
+    fun `protected-paths covering approvals passes startup`() {
+        val approvalOnly = properties().apply { protectedPaths = listOf("/tramai/sovereign/approvals/**") }
+        requireOperatorConfiguration(approvalOnly, APPROVAL_BASE)
+    }
+
+    @Test
+    fun `protected-paths explicitly covering both approvals and workflow cancellation passes`() {
+        val multiPath =
+            properties().apply {
+                protectedPaths =
+                    listOf(
+                        "/tramai/sovereign/approvals/**",
+                        "/tramai/sovereign/workflows/**",
+                    )
+            }
+
+        requireOperatorConfiguration(multiPath, APPROVAL_BASE)
+    }
+
+    @Test
     fun `the boundary is disabled unless explicitly enabled`() {
         assertThat(OperatorSecurityProperties().enabled).isFalse()
     }

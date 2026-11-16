@@ -432,16 +432,21 @@ public final class dev/tramai/orchestration/JdbcWorkflowCheckpointStore : dev/tr
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
 	public fun admit (Ldev/tramai/orchestration/WorkflowAdmissionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun admitInConnection (Ljava/sql/Connection;Ldev/tramai/orchestration/WorkflowAdmissionRequest;)Ldev/tramai/orchestration/WorkflowAdmission;
 	public fun cancel (Ldev/tramai/orchestration/WorkflowCancellationRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun cancelInConnection (Ljava/sql/Connection;Ldev/tramai/orchestration/WorkflowCancellationRequest;)Ldev/tramai/orchestration/WorkflowLifecycleState;
 	public final fun checkpointGenerationMigrationSql ()Ljava/lang/String;
 	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun createTableSql ()Ljava/lang/String;
 	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getDataSource ()Ljavax/sql/DataSource;
 	public final fun getPersistenceFailureDiagnosticObserver ()Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;
 	public fun lifecycle (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun lifecycleInConnection (Ljava/sql/Connection;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/orchestration/WorkflowLifecycleState;
 	public final fun lifecycleMigrationSql ()Ljava/util/List;
 	public fun listCheckpoints (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun load (Ljava/sql/Connection;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/orchestration/WorkflowCheckpoint;
 	public final fun migrationSql ()Ljava/lang/String;
 	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

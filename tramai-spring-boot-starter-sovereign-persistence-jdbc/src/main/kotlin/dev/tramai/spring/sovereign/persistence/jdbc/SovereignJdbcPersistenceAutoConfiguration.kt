@@ -5,6 +5,8 @@ import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
 import dev.tramai.core.observation.attempt.AttemptObservationStore
 import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.orchestration.JdbcWorkflowCheckpointStore
+import dev.tramai.orchestration.WorkflowCheckpointStore
 import dev.tramai.persistence.jdbc.GovernedJdbcSuspendedInvocationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalContinuationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalStore
@@ -21,6 +23,7 @@ import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -295,4 +298,51 @@ class SovereignJdbcPersistenceAutoConfiguration {
     @ConditionalOnBean(DataSource::class)
     fun approvedContinuationResumeQueueStatusStore(dataSource: DataSource): ApprovedContinuationResumeQueueStatusStore =
         JdbcApprovedContinuationResumeQueueStatusStore(dataSource)
+
+    @Bean
+    @ConditionalOnMissingBean(WorkflowCheckpointStore::class)
+    @ConditionalOnBean(DataSource::class)
+    @Suppress("MaxLineLength")
+    fun workflowCheckpointStore(dataSource: DataSource): JdbcWorkflowCheckpointStore = JdbcWorkflowCheckpointStore(dataSource)
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
+    fun sovereignOpsWorkflowCancellationStore(
+        dataSource: DataSource,
+        payloadCodec: JdbcOpsAuditOutboxPayloadCodec,
+        checkpointStore: WorkflowCheckpointStore,
+    ): SovereignOpsWorkflowCancellationStore {
+        check(checkpointStore is JdbcWorkflowCheckpointStore) {
+            "tramai-sovereign-cancellation-store-incompatible-checkpoint-backend: " +
+                "authoritative WorkflowCheckpointStore must be an instance of JdbcWorkflowCheckpointStore " +
+                "to support atomic transactional cancellation, but found: ${checkpointStore::class.qualifiedName}"
+        }
+        check(sameAuthoritativeDataSource(checkpointStore.dataSource, dataSource)) {
+            "tramai-sovereign-cancellation-store-datasource-mismatch: " +
+                "authoritative WorkflowCheckpointStore operates on a different DataSource instance than the " +
+                "cancellation transaction boundary"
+        }
+        return JdbcSovereignOpsWorkflowCancellationStore(
+            dataSource = dataSource,
+            checkpointStore = checkpointStore,
+            payloadCodec = payloadCodec,
+        )
+    }
+}
+
+internal fun sameAuthoritativeDataSource(
+    first: DataSource,
+    second: DataSource,
+): Boolean {
+    if (first === second) return true
+    val unwrappedFirst = unwrapDataSource(first)
+    val unwrappedSecond = unwrapDataSource(second)
+    return unwrappedFirst === unwrappedSecond
+}
+
+private tailrec fun unwrapDataSource(current: DataSource): DataSource {
+    if (current !is org.springframework.jdbc.datasource.DelegatingDataSource) return current
+    val target = current.targetDataSource
+    return if (target == null || target === current) current else unwrapDataSource(target)
 }

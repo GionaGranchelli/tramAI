@@ -4,6 +4,7 @@ import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
+import dev.tramai.spring.sovereign.ops.WorkflowCancellationControlPlane
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQueryService
 import dev.tramai.spring.sovereign.ops.rest.security.OperatorSecurityProperties
 import org.springframework.beans.factory.ObjectProvider
@@ -78,6 +79,20 @@ class ApprovalControlPlaneRestAutoConfiguration {
             approvalStore = approvalStore,
             approvalContinuationStore = approvalContinuationStore,
         )
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(WorkflowCancellationControlPlaneController::class)
+    @ConditionalOnBean(WorkflowCancellationControlPlane::class)
+    fun workflowCancellationControlPlaneController(
+        controlPlane: WorkflowCancellationControlPlane,
+        operatorSecurity: OperatorSecurityProperties,
+    ): WorkflowCancellationControlPlaneController {
+        requireConfiguration(
+            operatorSecurity.enabled.takeIf { it },
+            "tramai-rest-control-plane-requires-operator-security",
+        )
+        return WorkflowCancellationControlPlaneController(controlPlane)
     }
 
     /**

@@ -114,6 +114,9 @@ tramai:
           approval-operator:
             - "decide-approval"
             - "inspect-governance"
+          workflow-operator:
+            - "cancel-workflow"
+            - "inspect-governance"
           governance-auditor:
             - "inspect-governance"
             
@@ -124,12 +127,21 @@ tramai:
             - "compliance-reviewer"
           billing-admin:
             - "finance-reviewer"
+          pipeline-admin:
+            - "deploy-admin"
             
         # Server-controlled per-approval policy: policyVersion -> Permitted ApproverRoles
         approval-policies:
           v1-privileged-tool:
             - "security-lead"
           v1-financial-transfer:
+            - "finance-reviewer"
+
+        # Server-controlled per-workflow cancellation policy: workflowName -> Permitted ApproverRoles
+        workflow-cancellation-policies:
+          deploy-pipeline:
+            - "deploy-admin"
+          billing-cycle:
             - "finance-reviewer"
             
         # Protected path patterns (defaults to /tramai/sovereign/**)
@@ -149,6 +161,9 @@ To prevent accidental security misconfigurations in production, TramAI fails sta
 | `security.enabled: true`, but missing `approval-policies` entry | Application startup fails with `IllegalArgumentException` | `tramai-approval-policies-missing` |
 | `approval-policies` configured with an empty role list for a policy version | Configuration validation fails on startup | `tramai-operator-approval-policy-empty-roles` |
 | `approval-policies` references a role not defined in `approver-role-mappings` | Configuration validation fails on startup | `tramai-approval-policy-unsatisfiable` |
+| `security.enabled: true`, but missing `workflow-cancellation-policies` entry | Application startup fails with `IllegalArgumentException` | `tramai-workflow-cancellation-policies-missing` |
+| `workflow-cancellation-policies` configured with an empty role list for a workflow | Configuration validation fails on startup | `tramai-operator-workflow-cancellation-policy-empty-roles` |
+| `workflow-cancellation-policies` references a role not defined in `approver-role-mappings` | Configuration validation fails on startup | `tramai-workflow-cancellation-policy-unsatisfiable` |
 | Configured control plane base path not covered by `protected-paths` | Application startup fails with `IllegalStateException` | `tramai-operator-authentication-unprotected-control-plane` |
 
 ---
@@ -175,29 +190,36 @@ Incoming HTTP Request
 3. OperatorPrincipalResolver:
   │ Mints request-scoped `OperatorAuthority`
   ▼
-4. SovereignOpsApprovalDecisionControlPlane:
-  │ L2 Check: Does authority hold OperatorCapability.DECIDE_APPROVAL?
-  │           If NO -> Refusal: MISSING_CAPABILITY (HTTP 403)
+4. Control Plane Authorization:
   │
-  │ L3 Check: Look up approval's persisted policyVersion (e.g. "v1-privileged-tool").
-  │           Does authority hold an ApproverRole listed in policy for this version?
-  │           If policy missing -> Refusal: APPROVAL_POLICY_UNAVAILABLE (HTTP 403)
-  │           If role missing   -> Refusal: ROLE_NOT_PERMITTED (HTTP 403)
-  ▼
-5. Precondition Check:
-  │ Does command.expectedVersion == approval.version?
-  │ If NO -> Conflict: STALE (HTTP 409)
-  ▼
-6. Storage Transaction:
-  │ Atomic CAS update + Outbox write
+  ├─ [Approval Decision Route: /tramai/sovereign/approvals/{id}/*]
+  │   │ L2 Check: Does authority hold OperatorCapability.DECIDE_APPROVAL?
+  │   │           If NO -> Refusal: MISSING_CAPABILITY (HTTP 403)
+  │   │ L3 Check: Look up approval's persisted policyVersion (e.g. "v1-privileged-tool").
+  │   │           Does authority hold an ApproverRole listed in policy for this version?
+  │   │           If policy missing -> Refusal: APPROVAL_POLICY_UNAVAILABLE (HTTP 403)
+  │   │           If role missing   -> Refusal: ROLE_NOT_PERMITTED (HTTP 403)
+  │   ▼
+  │   Precondition & CAS Mutation (expectedVersion)
+  │
+  └─ [Workflow Cancellation Route: /tramai/sovereign/workflows/{wf}/runs/{runId}/cancel]
+      │ L2 Check: Does authority hold OperatorCapability.CANCEL_WORKFLOW?
+      │           If NO -> Refusal: MISSING_CAPABILITY (HTTP 403)
+      │ L3 Check: Look up configured policy for target `workflowName`.
+      │           Does authority hold an ApproverRole listed for this workflow?
+      │           If policy missing -> Refusal: WORKFLOW_POLICY_UNAVAILABLE (HTTP 403)
+      │           If role missing   -> Refusal: ROLE_NOT_PERMITTED (HTTP 403)
+      ▼
+      Precondition & CAS Mutation (expectedRevision)
 ```
 
 ### 5.2 Existence Disclosure Boundary
 
-- **L2 Capability Check (`DECIDE_APPROVAL`):**
-  Evaluated before checking database state. A caller lacking `DECIDE_APPROVAL` receives `403 Forbidden` (`missing-capability`) regardless of whether the target approval exists. This path discloses zero information about approval existence.
-- **L3 Policy Check (`ApproverRole` vs `policyVersion`):**
-  Requires reading the approval's stored `policyVersion`. Callers that hold `DECIDE_APPROVAL` but lack the specific approver role receive `403 Forbidden` (`role-not-permitted`), disclosing approval existence. This is accepted behavior because operators holding `DECIDE_APPROVAL` are already authorized governance participants.
+- **L2 Capability Check (`DECIDE_APPROVAL` / `CANCEL_WORKFLOW`):**
+  Evaluated before checking database state. A caller lacking the required capability receives `403 Forbidden` (`missing-capability`) regardless of whether the target approval or workflow run exists. This path discloses zero information about entity existence.
+- **L3 Policy Check:**
+  - For approvals: requires reading the approval's stored `policyVersion`. Callers that hold `DECIDE_APPROVAL` but lack the specific approver role receive `403 Forbidden` (`role-not-permitted`), disclosing approval existence. This is accepted behavior because operators holding `DECIDE_APPROVAL` are already authorized governance participants.
+  - For workflow cancellation: evaluated against the target `workflowName` from server configuration before querying the database. Callers holding `CANCEL_WORKFLOW` who lack the role required for `workflowName` receive `403 Forbidden` (`workflow-policy-unavailable` or `role-not-permitted`) without querying run existence in the database. Run existence is only probed after authorization succeeds.
 
 ---
 
@@ -304,17 +326,68 @@ Execute an authoritative privileged denial decision.
 
 ---
 
-### 6.4 Error and Precondition Status Codes
+### 6.4 Cancel a Workflow Run
+
+Execute an authoritative privileged workflow cancellation command against a suspended or running workflow instance.
+
+- **Method:** `POST`
+- **Path:** `/tramai/sovereign/workflows/{workflowName}/runs/{runId}/cancel`
+- **Headers:**
+  - `Authorization: Bearer <token>`
+  - `Content-Type: application/json`
+
+#### Request Body:
+
+```json
+{
+  "expectedRevision": 1,
+  "reason": "Emergency rollback triggered by deployment monitoring",
+  "correlationId": "tx-cancel-8841"
+}
+```
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `expectedRevision` | Long (>= 0) | **Yes** | The caller's observed checkpoint revision of the workflow run. Must match current storage revision. |
+| `reason` | String | **Yes** | Non-blank operational justification or incident ticket reference for cancellation. |
+| `correlationId` | String | No | Distributed tracing or incident correlation identifier. |
+
+> [!IMPORTANT]
+> Omitting `expectedRevision`, passing a negative revision, or omitting `reason` results in an immediate `400 Bad Request` (`INVALID_PRECONDITION`).
+
+#### Response: `200 OK` (Cancelled)
+
+```json
+{
+  "workflowName": "deploy-pipeline",
+  "runId": "run-01j9z5v0k1",
+  "revision": 2,
+  "status": "CANCELLED",
+  "cancelledBy": "alice@sovereign.example",
+  "cancelledAtEpochMillis": 1782298530000,
+  "alreadyCancelled": false
+}
+```
+
+If outbound effects were already admitted (`admissionSequence > 0`) prior to cancellation, the run status deterministically commits as `CANCELLED_UNCERTAIN`. Subsequent effect and step admissions are permanently fenced.
+
+#### Idempotent Replay
+
+Reissuing a cancellation command on an already-cancelled run returns `200 OK` with `alreadyCancelled: true`, preserving the original `cancelledBy` actor, `cancelledAtEpochMillis` timestamp, and terminal status (`CANCELLED` or `CANCELLED_UNCERTAIN`).
+
+---
+
+### 6.5 Error and Precondition Status Codes
 
 The control plane returns standardized typed error responses:
 
 | HTTP Status | Response `status` | Meaning | Response Fields |
 | :--- | :--- | :--- | :--- |
-| **`400 Bad Request`** | `INVALID_PRECONDITION` | `expectedVersion` was null, missing, or negative. | `message: "tramai-approval-expected-version-required"` |
+| **`400 Bad Request`** | `INVALID_PRECONDITION` | `expectedVersion`/`expectedRevision` was null, missing, or negative, or `reason` was blank. | `message: "tramai-approval-expected-version-required"`, `"tramai-workflow-expected-revision-required"`, or `"tramai-workflow-cancel-reason-required"` |
 | **`401 Unauthorized`** | *(Spring Security default)* | Missing, expired, or invalid JWT. | Standard OAuth2 bearer error response. |
-| **`403 Forbidden`** | `UNAUTHORIZED` | Authorization refused server-side. | `message`: `missing-capability`, `role-not-permitted`, or `approval-policy-unavailable`. Refusal recorded in outbox. |
-| **`404 Not Found`** | *(Empty body)* | Approval ID does not exist in authoritative storage. | — |
-| **`409 Conflict`** | `STALE` | `expectedVersion` does not match storage version. | `expectedVersion`, `currentVersion`, `message: "tramai-approval-version-stale"`. |
+| **`403 Forbidden`** | `UNAUTHORIZED` | Authorization refused server-side. | `message`: `missing-capability`, `role-not-permitted`, `approval-policy-unavailable`, or `workflow-policy-unavailable`. Refusal recorded in outbox. |
+| **`404 Not Found`** | *(Empty body)* | Target approval ID or workflow run ID does not exist in authoritative storage. | — |
+| **`409 Conflict`** | `STALE` | `expectedVersion` or `expectedRevision` does not match storage state. | `expectedVersion`/`expectedRevision`, `currentVersion`/`currentRevision`, `message`. |
 | **`409 Conflict`** | `EXPIRED` | Approval expiration deadline has passed. | `approvalId` |
 | **`409 Conflict`** | `CONFLICT` | Invalid transition (e.g. attempting to deny an already approved item with mismatched version). | `message` |
 | **`200 OK`** | `ALREADY_APPROVED` | Idempotent replay of decision on an already approved item. | `actorId` |
@@ -410,11 +483,12 @@ SHA-256( "tramai/actor-identity" ‖ 0x00 ‖ u32be(1) ‖ u32be(len(issuer)) �
 
 ### 8.2 Evidence Kinds and Refusal Isolation
 
-The transactional outbox table `audit_outbox` durably records one of three explicit evidence kinds:
+The transactional outbox table `audit_outbox` durably records one of four explicit evidence kinds:
 
 1. `APPROVAL_APPROVED`: Written when an approval decision commits. Emits state transition metadata (`approvalStatus=APPROVED`, `approvalVersion=1`, `previousApprovalStatus=PENDING`, `previousApprovalVersion=0`).
 2. `APPROVAL_DENIED`: Written when an authorized operator decides to deny. Emits state transition metadata.
-3. `AUTHORIZATION_REFUSAL`: Written when an operator request is refused (403 `MISSING_CAPABILITY`, `ROLE_NOT_PERMITTED`, or `APPROVAL_POLICY_UNAVAILABLE`).
+3. `WORKFLOW_CANCELLED`: Written when an authorized workflow cancellation commits. Emits workflow state transition metadata (`approvalStatus=CANCELLED` or `CANCELLED_UNCERTAIN`, `approvalVersion=checkpoint.revision`, `previousApprovalStatus=ACTIVE`, `previousApprovalVersion=expectedRevision`, and `workflowRunId`).
+4. `AUTHORIZATION_REFUSAL`: Written when an operator request is refused (403 `MISSING_CAPABILITY`, `ROLE_NOT_PERMITTED`, `APPROVAL_POLICY_UNAVAILABLE`, or `WORKFLOW_POLICY_UNAVAILABLE`). Refusal operation is recorded as `approval-decision` or `workflow-cancel`.
 
 > [!IMPORTANT]
 > **Refusal Evidence Isolation:**
@@ -435,6 +509,9 @@ When deploying to production:
     - `approvals`: `SELECT`, `UPDATE` (optimistic version compare-and-set and actor provenance recording).
     - `approval_continuations`: `SELECT` (evaluating continuation status and expiry metadata).
     - `audit_outbox`: `SELECT`, `INSERT`, `UPDATE` (transactional enqueue of `PREPARED` evidence and subsequent `UPDATE` to `PENDING` upon commit in `markPreparedOutboxPending`; `SELECT` is required in PostgreSQL to evaluate `WHERE outbox_id = ? AND status = 'PREPARED'` and calculate `version = version + 1`).
+  - **Workflow Cancellation API Runtime:**
+    - `tramai_workflow_checkpoint`: `SELECT`, `UPDATE` (checkpoint revision CAS and terminal cancellation recording).
+    - `audit_outbox`: `SELECT`, `INSERT`, `UPDATE` (transactional enqueue of `PREPARED` cancellation evidence and subsequent `UPDATE` to `PENDING` upon commit in `markPreparedOutboxPending`).
   - **Audit Outbox Dispatcher (Background Event Publisher):**
     - `audit_outbox`: `SELECT`, `UPDATE` (claiming outbox entries and recording dispatch timestamps).
     - `audit_events`: `SELECT`, `INSERT` (appending immutable audit event log streams).
