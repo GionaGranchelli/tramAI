@@ -183,10 +183,11 @@ class OperatorAuthenticationAutoConfiguration {
     ): SecurityFilterChain {
         requireOperatorConfiguration(properties, approvalBasePath)
         val decoder = operatorJwtDecoder(properties)
-        // Widening cast keeps the element type exact without constructing a mutable collection: the
-        // architecture gate treats mutable collection construction in production code as global state.
+        // Structural route guarantee: /tramai/sovereign/workflows/** is unconditionally included
+        // in the operator security chain so no dynamic workflow or run cancellation URL can escape
+        // authentication, regardless of how narrow or customized properties.protectedPaths is.
         val matchers: List<RequestMatcher> =
-            properties.protectedPaths
+            effectiveProtectedPaths(properties.protectedPaths)
                 .map { path -> AntPathRequestMatcher(path) as RequestMatcher }
         return http
             .securityMatcher(OrRequestMatcher(matchers))
@@ -321,10 +322,15 @@ internal fun requireOperatorConfiguration(
 }
 
 /**
- * Fail-closed route coverage. The approval base path is configurable, so protecting a fixed pattern would
- * silently leave the control plane outside the operator chain whenever a consumer moved it. Both the base
- * path, a synthetic child of it, and the dynamic workflow cancellation route must match some protected
- * pattern, and an empty pattern list is a failure rather than an unprotected-but-authenticated boundary.
+ * Fail-closed route coverage for the configurable approval control plane. The approval base path is
+ * configurable, so protecting a fixed pattern would silently leave the control plane outside the operator
+ * chain whenever a consumer moved it. Both the base path and a synthetic child of it must match some
+ * protected pattern, and an empty pattern list is a failure rather than an unprotected-but-authenticated
+ * boundary.
+ *
+ * Workflow cancellation routes are protected structurally via [WORKFLOW_CANCELLATION_ROUTE_PATTERN]
+ * directly in [operatorSecurityFilterChain], ensuring no dynamic URL can escape authentication regardless
+ * of customization.
  */
 internal fun requireProtectedControlPlane(
     protectedPaths: List<String>,
@@ -340,21 +346,19 @@ internal fun requireProtectedControlPlane(
         "tramai-operator-authentication-unprotected-control-plane: control plane at '$basePath' is not " +
             "covered by protected-paths ${protectedPaths.ifEmpty { listOf("<empty>") }}"
     }
-
-    val cancellationCovered =
-        protectedPaths.any { pattern ->
-            matcher.match(pattern, WORKFLOW_CANCELLATION_PROBE_PATH_ALPHA) &&
-                matcher.match(pattern, WORKFLOW_CANCELLATION_PROBE_PATH_BETA)
-        }
-    check(cancellationCovered) {
-        "tramai-operator-authentication-unprotected-control-plane: workflow cancellation route " +
-            "'/tramai/sovereign/workflows/{workflowName}/runs/{runId}/cancel' is not covered across " +
-            "dynamic target and run paths by protected-paths ${protectedPaths.ifEmpty { listOf("<empty>") }}"
-    }
 }
 
-internal const val WORKFLOW_CANCELLATION_PROBE_PATH_ALPHA: String =
-    "/tramai/sovereign/workflows/probe-wf-alpha/runs/probe-run-1/cancel"
+/**
+ * Returns the effective set of request paths protected by the operator security boundary.
+ *
+ * Unconditionally appends [WORKFLOW_CANCELLATION_ROUTE_PATTERN] to ensure that all dynamic workflow
+ * and run cancellation routes are authenticated by construction, preventing configuration bypass.
+ */
+internal fun effectiveProtectedPaths(configuredPaths: List<String>): List<String> =
+    buildList {
+        addAll(configuredPaths)
+        add(WORKFLOW_CANCELLATION_ROUTE_PATTERN)
+    }.distinct()
 
-internal const val WORKFLOW_CANCELLATION_PROBE_PATH_BETA: String =
-    "/tramai/sovereign/workflows/probe-wf-beta/runs/probe-run-2/cancel"
+internal const val WORKFLOW_CANCELLATION_ROUTE_PATTERN: String =
+    "/tramai/sovereign/workflows/**"

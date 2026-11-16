@@ -77,30 +77,26 @@ class OperatorAuthenticationConfigurationTest {
     }
 
     @Test
-    fun `protected-paths covering approvals but omitting workflow cancellation is a startup failure`() {
-        val approvalOnly = properties().apply { protectedPaths = listOf("/tramai/sovereign/approvals/**") }
+    fun `effectiveProtectedPaths structurally includes workflow cancellation route regardless of configured paths`() {
+        val emptyPaths = emptyList<String>()
+        val approvalOnly = listOf("/tramai/sovereign/approvals/**")
+        val narrowProbe = listOf("/tramai/sovereign/workflows/probe-wf-*/runs/probe-run-*/cancel")
 
-        assertThatThrownBy { requireOperatorConfiguration(approvalOnly, APPROVAL_BASE) }
-            .isInstanceOf(IllegalStateException::class.java)
-            .hasMessageContaining("tramai-operator-authentication-unprotected-control-plane")
-            .hasMessageContaining("workflow cancellation route")
+        assertThat(effectiveProtectedPaths(emptyPaths))
+            .containsExactly(WORKFLOW_CANCELLATION_ROUTE_PATTERN)
+        assertThat(effectiveProtectedPaths(approvalOnly))
+            .containsExactly("/tramai/sovereign/approvals/**", WORKFLOW_CANCELLATION_ROUTE_PATTERN)
+        assertThat(effectiveProtectedPaths(narrowProbe))
+            .containsExactly(
+                "/tramai/sovereign/workflows/probe-wf-*/runs/probe-run-*/cancel",
+                WORKFLOW_CANCELLATION_ROUTE_PATTERN,
+            )
     }
 
     @Test
-    fun `protected-paths covering approvals and only a narrow workflow cancellation URL fails startup`() {
-        val narrowPath =
-            properties().apply {
-                protectedPaths =
-                    listOf(
-                        "/tramai/sovereign/approvals/**",
-                        "/tramai/sovereign/workflows/probe-wf/runs/probe-run/cancel",
-                    )
-            }
-
-        assertThatThrownBy { requireOperatorConfiguration(narrowPath, APPROVAL_BASE) }
-            .isInstanceOf(IllegalStateException::class.java)
-            .hasMessageContaining("tramai-operator-authentication-unprotected-control-plane")
-            .hasMessageContaining("workflow cancellation route")
+    fun `protected-paths covering approvals passes startup`() {
+        val approvalOnly = properties().apply { protectedPaths = listOf("/tramai/sovereign/approvals/**") }
+        requireOperatorConfiguration(approvalOnly, APPROVAL_BASE)
     }
 
     @Test

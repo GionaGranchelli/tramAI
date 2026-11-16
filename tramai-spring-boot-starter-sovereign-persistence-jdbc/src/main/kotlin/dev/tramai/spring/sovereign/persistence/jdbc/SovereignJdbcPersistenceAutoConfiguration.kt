@@ -338,7 +338,7 @@ internal fun sameAuthoritativeDataSource(
     if (first === second) return true
     val unwrappedFirst = unwrapDataSource(first)
     val unwrappedSecond = unwrapDataSource(second)
-    return unwrappedFirst === unwrappedSecond || unwrappedFirst == unwrappedSecond
+    return unwrappedFirst === unwrappedSecond
 }
 
 private tailrec fun unwrapDataSource(current: DataSource): DataSource {
