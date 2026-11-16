@@ -8,6 +8,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsRefusalRecorder
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationConflictException
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
 import dev.tramai.spring.sovereign.ops.outbox.UnconfiguredRefusalRecorder
 import kotlinx.coroutines.CancellationException
@@ -139,16 +140,15 @@ class SovereignOpsWorkflowCancellationControlPlane(
             )
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
-            staleOrConflict(command, e)
+        } catch (
+            @Suppress("SwallowedException") e: SovereignOpsWorkflowCancellationConflictException,
+        ) {
+            staleOrConflict(command)
         }
     }
 
     @Suppress("ReturnCount")
-    private suspend fun staleOrConflict(
-        command: WorkflowCancellationCommand,
-        cause: Throwable,
-    ): WorkflowCancellationResult {
+    private suspend fun staleOrConflict(command: WorkflowCancellationCommand): WorkflowCancellationResult {
         // Check if another concurrent writer won and either advanced the revision or completed cancellation
         val currentRun =
             mutationStore.queryRun(command.workflowName, command.runId)
@@ -177,7 +177,7 @@ class SovereignOpsWorkflowCancellationControlPlane(
             WorkflowCancellationResult.Conflict(
                 workflowName = command.workflowName,
                 runId = command.runId,
-                reason = cause.message ?: "workflow-cancellation-conflict",
+                reason = "tramai-workflow-cancellation-conflict",
             )
         }
     }

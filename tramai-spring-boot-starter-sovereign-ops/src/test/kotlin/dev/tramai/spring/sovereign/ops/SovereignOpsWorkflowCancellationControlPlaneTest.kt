@@ -321,7 +321,106 @@ class SovereignOpsWorkflowCancellationControlPlaneTest {
         }
     }
 
-    private class StubWorkflowCancellationStore(
+    @Test
+    fun `concurrency conflict during mutation re-checks run and returns Conflict with safe reason`() {
+        runBlocking {
+            val run =
+                SovereignOpsWorkflowRunState(
+                    revision = 2L,
+                    status = "active",
+                    isCancelled = false,
+                )
+            val mutationStore =
+                object : StubWorkflowCancellationStore(
+                    runs = mutableMapOf("invoice-flow:run-1" to run),
+                    clock = clock,
+                ) {
+                    override suspend fun cancelWithAuditIntent(
+                        command: WorkflowCancellationCommand,
+                        actor: String,
+                        actorIssuer: String,
+                        actorIdentityDigest: String,
+                        auditIntent: SovereignOpsAuditOutboxRecord,
+                    ): SovereignOpsWorkflowCancellationMutationResult =
+                        throw dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationConflictException(
+                            "internal db conflict details",
+                        )
+                }
+
+            val controlPlane =
+                SovereignOpsWorkflowCancellationControlPlane(
+                    mutationStore = mutationStore,
+                    cancellationPolicy = testCancellationPolicy,
+                    clock = clock,
+                )
+
+            val command =
+                WorkflowCancellationCommand(
+                    workflowName = "invoice-flow",
+                    runId = "run-1",
+                    expectedRevision = 2L,
+                    reason = "Cancel with conflict",
+                )
+
+            val result = controlPlane.cancel(command, authorizedOperator)
+
+            assertThat(result).isInstanceOf(WorkflowCancellationResult.Conflict::class.java)
+            val conflict = result as WorkflowCancellationResult.Conflict
+            assertThat(conflict.reason).isEqualTo("tramai-workflow-cancellation-conflict")
+            assertThat(conflict.reason).doesNotContain("internal db conflict details")
+        }
+    }
+
+    @Test
+    fun `unexpected infrastructure exception is not converted to 409 and bubbles up`() {
+        runBlocking {
+            val run =
+                SovereignOpsWorkflowRunState(
+                    revision = 2L,
+                    status = "active",
+                    isCancelled = false,
+                )
+            val mutationStore =
+                object : StubWorkflowCancellationStore(
+                    runs = mutableMapOf("invoice-flow:run-1" to run),
+                    clock = clock,
+                ) {
+                    override suspend fun cancelWithAuditIntent(
+                        command: WorkflowCancellationCommand,
+                        actor: String,
+                        actorIssuer: String,
+                        actorIdentityDigest: String,
+                        auditIntent: SovereignOpsAuditOutboxRecord,
+                    ): SovereignOpsWorkflowCancellationMutationResult =
+                        throw java.sql.SQLException("Connection to PostgreSQL failed on port 5432")
+                }
+
+            val controlPlane =
+                SovereignOpsWorkflowCancellationControlPlane(
+                    mutationStore = mutationStore,
+                    cancellationPolicy = testCancellationPolicy,
+                    clock = clock,
+                )
+
+            val command =
+                WorkflowCancellationCommand(
+                    workflowName = "invoice-flow",
+                    runId = "run-1",
+                    expectedRevision = 2L,
+                    reason = "Infrastructure failure test",
+                )
+
+            org.assertj.core.api.Assertions
+                .assertThatThrownBy {
+                    runBlocking {
+                        controlPlane.cancel(command, authorizedOperator)
+                    }
+                }.isInstanceOf(java.sql.SQLException::class.java)
+                .hasMessageContaining("Connection to PostgreSQL failed")
+        }
+    }
+
+    private open class StubWorkflowCancellationStore(
         private val runs: MutableMap<String, SovereignOpsWorkflowRunState> = mutableMapOf(),
         private val clock: Clock = Clock.systemUTC(),
     ) : SovereignOpsWorkflowCancellationStore {

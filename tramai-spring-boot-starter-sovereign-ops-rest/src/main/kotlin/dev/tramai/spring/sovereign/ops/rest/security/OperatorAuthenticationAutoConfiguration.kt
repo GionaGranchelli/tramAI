@@ -323,8 +323,8 @@ internal fun requireOperatorConfiguration(
 /**
  * Fail-closed route coverage. The approval base path is configurable, so protecting a fixed pattern would
  * silently leave the control plane outside the operator chain whenever a consumer moved it. Both the base
- * path and a synthetic child of it must match some protected pattern, and an empty pattern list is a
- * failure rather than an unprotected-but-authenticated boundary.
+ * path, a synthetic child of it, and the workflow cancellation route must match some protected pattern, and
+ * an empty pattern list is a failure rather than an unprotected-but-authenticated boundary.
  */
 internal fun requireProtectedControlPlane(
     protectedPaths: List<String>,
@@ -332,12 +332,25 @@ internal fun requireProtectedControlPlane(
 ) {
     val matcher = AntPathMatcher()
     val basePath = controlPlaneBasePath.trimEnd('/')
-    val covered =
+    val approvalCovered =
         protectedPaths.any { pattern ->
             matcher.match(pattern, basePath) && matcher.match(pattern, "$basePath/probe")
         }
-    check(covered) {
+    check(approvalCovered) {
         "tramai-operator-authentication-unprotected-control-plane: control plane at '$basePath' is not " +
             "covered by protected-paths ${protectedPaths.ifEmpty { listOf("<empty>") }}"
     }
+
+    val cancellationCovered =
+        protectedPaths.any { pattern ->
+            matcher.match(pattern, WORKFLOW_CANCELLATION_PROBE_PATH)
+        }
+    check(cancellationCovered) {
+        "tramai-operator-authentication-unprotected-control-plane: workflow cancellation route at " +
+            "'$WORKFLOW_CANCELLATION_PROBE_PATH' is not covered by " +
+            "protected-paths ${protectedPaths.ifEmpty { listOf("<empty>") }}"
+    }
 }
+
+internal const val WORKFLOW_CANCELLATION_PROBE_PATH: String =
+    "/tramai/sovereign/workflows/probe-wf/runs/probe-run/cancel"

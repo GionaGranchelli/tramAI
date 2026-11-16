@@ -7,10 +7,15 @@ import dev.tramai.orchestration.WorkflowAdmissionRequest
 import dev.tramai.orchestration.WorkflowCheckpoint
 import dev.tramai.orchestration.WorkflowCheckpointConflictException
 import dev.tramai.orchestration.WorkflowLifecycleStatus
+import dev.tramai.security.audit.AuditEngine
+import dev.tramai.security.audit.InMemoryAuditStore
+import dev.tramai.spring.sovereign.ops.AuditEngineSovereignOpsAuditEmitter
 import dev.tramai.spring.sovereign.ops.WorkflowCancellationCommand
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationConflictException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -236,7 +241,7 @@ class JdbcSovereignOpsWorkflowCancellationStoreTest {
                         auditIntent = auditRecord,
                     )
                 }
-            }.isInstanceOf(WorkflowCheckpointConflictException::class.java)
+            }.isInstanceOf(SovereignOpsWorkflowCancellationConflictException::class.java)
 
             // Workflow remains active at initial revision
             val current = checkpointStore.load(workflowName, runId)
@@ -348,6 +353,105 @@ class JdbcSovereignOpsWorkflowCancellationStoreTest {
             val count = selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'event-005'")
             assertThat(count).isEqualTo(0)
         }
+    }
+
+    @Test
+    fun `cancelWithAuditIntent outbox record dispatches cleanly through real AuditEngineSovereignOpsAuditEmitter to AuditStore`() {
+        runBlocking {
+            val workflowName = "test-pipeline"
+            val runId = "run-006"
+            val saved = saveInitialCheckpoint(workflowName, runId)
+
+            val command =
+                WorkflowCancellationCommand(
+                    workflowName = workflowName,
+                    runId = runId,
+                    expectedRevision = saved.revision,
+                    reason = "Transactional cancellation test",
+                )
+            val auditRecord = createAuditRecord(command, "event-006")
+
+            val mutationResult =
+                store.cancelWithAuditIntent(
+                    command = command,
+                    actor = "ops-user",
+                    actorIssuer = "https://id.tramai.dev",
+                    actorIdentityDigest = "d".repeat(64),
+                    auditIntent = auditRecord,
+                )
+
+            assertThat(mutationResult.alreadyCancelled).isFalse()
+            assertThat(mutationResult.status).isEqualTo("cancelled")
+
+            // Outbox record is PENDING in PostgreSQL
+            val pendingStatus = selectSingleValue("SELECT status FROM audit_outbox WHERE event_key = ?", "event-006")
+            assertThat(pendingStatus).isEqualTo("PENDING")
+
+            // Dispatch through real outbox store and real AuditEngineSovereignOpsAuditEmitter
+            val outboxStore = JdbcSovereignOpsAuditOutboxStore(dataSource = dataSource, payloadCodec = codec)
+            val auditStore = InMemoryAuditStore()
+            val auditEngine = AuditEngine(auditStore, clock = Clock.fixed(BASE_NOW, ZoneOffset.UTC))
+            val emitter = AuditEngineSovereignOpsAuditEmitter(auditEngine)
+            val dispatcher =
+                SovereignOpsAuditOutboxDispatcher(
+                    outboxStore = outboxStore,
+                    auditEmitter = emitter,
+                    clock = Clock.fixed(BASE_NOW, ZoneOffset.UTC),
+                )
+
+            val dispatchResult = dispatcher.dispatchPending(limit = 10)
+            assertThat(dispatchResult.claimed).isEqualTo(1)
+            assertThat(dispatchResult.emitted).isEqualTo(1)
+            assertThat(dispatchResult.failedPermanent).isEqualTo(0)
+            assertThat(dispatchResult.failedRetryable).isEqualTo(0)
+
+            // Database outbox row is now EMITTED
+            val finalStatus = selectSingleValue("SELECT status FROM audit_outbox WHERE event_key = ?", "event-006")
+            assertThat(finalStatus).isEqualTo("EMITTED")
+
+            // Real AuditEvent is in the workflow stream
+            val expectedStream = "sovereign-ops-workflow:${auditRecord.aggregateIdDigest}"
+            val events = auditStore.readStream(expectedStream)
+            assertThat(events).hasSize(1)
+            assertEmittedWorkflowCancellationEvent(
+                event = events.single(),
+                runId = runId,
+                aggregateIdDigest = auditRecord.aggregateIdDigest,
+                revision = mutationResult.revision,
+                previousRevision = saved.revision,
+            )
+        }
+    }
+
+    private fun assertEmittedWorkflowCancellationEvent(
+        event: dev.tramai.security.audit.AuditEvent,
+        runId: String,
+        aggregateIdDigest: String,
+        revision: Long,
+        previousRevision: Long = revision - 1L,
+    ) {
+        assertThat(event.actor).isEqualTo("ops-user")
+        assertThat(event.workflowRunId).isEqualTo(runId)
+        assertThat(event.enforcementPoint).isEqualTo("sovereign-ops.workflow.cancel")
+        assertThat(event.decision).isEqualTo("CANCELLED")
+        assertThat(event.reasonCode).isEqualTo("sovereign-ops-workflow-cancelled")
+
+        // Workflow-specific metadata
+        assertThat(event.metadata).containsEntry("workflowTargetDigest", aggregateIdDigest)
+        assertThat(event.metadata).containsEntry("workflowStatus", "cancelled")
+        assertThat(event.metadata).containsEntry("workflowRevision", revision.toString())
+        assertThat(event.metadata).containsEntry("previousWorkflowStatus", "ACTIVE")
+        assertThat(event.metadata).containsEntry("previousWorkflowRevision", previousRevision.toString())
+        assertThat(event.metadata).containsEntry("actorIssuer", "https://id.tramai.dev")
+        assertThat(event.metadata).containsEntry("actorIdentityDigest", "d".repeat(64))
+
+        // Misleading approval labels are omitted
+        assertThat(event.metadata).doesNotContainKey("approvalIdDigest")
+        assertThat(event.metadata).doesNotContainKey("approvalStatus")
+        assertThat(event.metadata).doesNotContainKey("approvalVersion")
+        assertThat(event.metadata).doesNotContainKey("previousApprovalStatus")
+        assertThat(event.metadata).doesNotContainKey("previousApprovalVersion")
+        assertThat(event.metadata).doesNotContainKey("refusalReason")
     }
 
     private suspend fun saveInitialCheckpoint(

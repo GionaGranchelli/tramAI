@@ -187,9 +187,9 @@ public final class dev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPer
 	public final fun sovereignOpsApprovalRequestMutationStore (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;Ldev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljavax/crypto/SecretKey;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalRequestMutationStore;
 	public final fun sovereignOpsAuditOutboxStore (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;
 	public final fun sovereignOpsWorkerLeaseStore (Ljavax/sql/DataSource;)Ldev/tramai/spring/sovereign/ops/lease/SovereignOpsWorkerLeaseStore;
-	public final fun sovereignOpsWorkflowCancellationStore (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationStore;
+	public final fun sovereignOpsWorkflowCancellationStore (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ldev/tramai/orchestration/WorkflowCheckpointStore;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationStore;
 	public final fun suspendedInvocationStore (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;)Ldev/tramai/engine/SuspendedInvocationStore;
-	public final fun workflowCheckpointStore (Ljavax/sql/DataSource;)Ldev/tramai/orchestration/WorkflowCheckpointStore;
+	public final fun workflowCheckpointStore (Ljavax/sql/DataSource;)Ldev/tramai/orchestration/JdbcWorkflowCheckpointStore;
 }
 
 public final class dev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties {

@@ -98,17 +98,73 @@ class SovereignOpsAuditEvidenceDispatchTest {
             val approved = stores.seed(decision("approved-2", APPROVED, "APPROVED"))
             val denied = stores.seed(decision("denied-2", DENIED, "DENIED"))
             val refused = stores.seed(refusal("refused-2", reason = "role-not-held"))
+            val cancelled = stores.seed(cancellation("cancelled-2"))
 
             val result = stores.dispatch(legacyEmitter, limit = 10)
 
             // Only the kind this emitter can represent is emitted -- an approval is never relabelled a denial.
             assertThat(emitted).containsExactly(denied)
             assertThat(result.emitted).isEqualTo(1)
-            assertThat(result.failedPermanent).isEqualTo(2)
+            assertThat(result.failedPermanent).isEqualTo(3)
             assertThat(result.failedRetryable).isZero()
             stores.assertParked(approved)
             stores.assertParked(refused)
+            stores.assertParked(cancelled)
             assertThat(stores.store.get(denied)?.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
+        }
+
+    @Test
+    fun `workflow cancellation outbox records dispatch with workflow stream and metadata`() =
+        runBlocking<Unit> {
+            val stores = stores()
+            val cancelled =
+                stores.seed(
+                    cancellation(
+                        outboxId = "cancel-outbox-1",
+                        status = "CANCELLED",
+                        revision = 5L,
+                        actorIssuer = "https://idp.example/",
+                        actorIdentityDigest = "sha256:actor-digest-1",
+                    ),
+                )
+
+            val result = stores.dispatcher.dispatchPending(limit = 10)
+
+            assertThat(result).isEqualTo(SovereignOpsAuditOutboxDispatchResult(1, 1, 0, 0))
+            val workflowStream = "sovereign-ops-workflow:$AGGREGATE_DIGEST"
+            val events = stores.audit.readStream(workflowStream)
+            assertThat(events).hasSize(1)
+
+            val event = events.single()
+            assertThat(event.actor).isEqualTo(ACTOR)
+            assertThat(event.workflowRunId).isEqualTo("wf-1")
+            assertThat(event.correlationId).isEqualTo("corr-1")
+            assertThat(event.enforcementPoint).isEqualTo("sovereign-ops.workflow.cancel")
+            assertThat(event.decision).isEqualTo("CANCELLED")
+            assertThat(event.reasonCode).isEqualTo("sovereign-ops-workflow-cancelled")
+
+            // Workflow-specific metadata
+            assertThat(event.metadata).containsEntry("workflowTargetDigest", AGGREGATE_DIGEST)
+            assertThat(event.metadata).containsEntry("workflowStatus", "CANCELLED")
+            assertThat(event.metadata).containsEntry("workflowRevision", "5")
+            assertThat(event.metadata).containsEntry("previousWorkflowStatus", "ACTIVE")
+            assertThat(event.metadata).containsEntry("previousWorkflowRevision", "4")
+            assertThat(event.metadata).containsEntry("reasonDigest", REASON_DIGEST)
+            assertThat(event.metadata).containsEntry("reasonLength", "11")
+            assertThat(event.metadata).containsEntry(META_OUTBOX_ID, cancelled)
+            assertThat(event.metadata).containsEntry(META_EVENT_KEY, "event-$cancelled")
+            assertThat(event.metadata).containsEntry("actorIssuer", "https://idp.example/")
+            assertThat(event.metadata).containsEntry("actorIdentityDigest", "sha256:actor-digest-1")
+
+            // Strict omission of misleading approval labels
+            assertThat(event.metadata).doesNotContainKey("approvalIdDigest")
+            assertThat(event.metadata).doesNotContainKey("approvalStatus")
+            assertThat(event.metadata).doesNotContainKey("approvalVersion")
+            assertThat(event.metadata).doesNotContainKey("previousApprovalStatus")
+            assertThat(event.metadata).doesNotContainKey("previousApprovalVersion")
+            assertThat(event.metadata).doesNotContainKey("refusalReason")
+            assertThat(event.metadata).doesNotContainKey("refusalPolicyVersion")
+            assertThat(event.metadata).doesNotContainKey("refusalExpectedVersion")
         }
 
     // --- discriminator 12 -----------------------------------------------------------------------
@@ -417,6 +473,35 @@ class SovereignOpsAuditEvidenceDispatchTest {
             status = SovereignOpsAuditOutboxStatus.PENDING,
             evidenceKind = SovereignOpsAuditEvidenceKind.AUTHORIZATION_REFUSAL,
             refusalReason = reason,
+        )
+
+    private fun cancellation(
+        outboxId: String,
+        status: String = "CANCELLED",
+        revision: Long = 2L,
+        actorIssuer: String? = null,
+        actorIdentityDigest: String? = null,
+    ): SovereignOpsAuditOutboxRecord =
+        SovereignOpsAuditOutboxRecord(
+            outboxId = outboxId,
+            aggregateType = "workflow",
+            aggregateIdDigest = AGGREGATE_DIGEST,
+            operation = "cancelWorkflow",
+            eventKey = "event-$outboxId",
+            actor = ACTOR,
+            actorIssuer = actorIssuer,
+            actorIdentityDigest = actorIdentityDigest,
+            workflowRunId = "wf-1",
+            correlationId = "corr-1",
+            approvalStatus = status,
+            approvalVersion = revision,
+            previousApprovalStatus = "ACTIVE",
+            previousApprovalVersion = revision - 1L,
+            reasonDigest = REASON_DIGEST,
+            reasonLength = 11,
+            createdAt = clock.instant(),
+            status = SovereignOpsAuditOutboxStatus.PENDING,
+            evidenceKind = SovereignOpsAuditEvidenceKind.WORKFLOW_CANCELLED,
         )
 
     private inner class Fixture(

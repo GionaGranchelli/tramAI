@@ -7,6 +7,7 @@ import dev.tramai.orchestration.WorkflowCheckpointConflictException
 import dev.tramai.spring.sovereign.ops.WorkflowCancellationCommand
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationConflictException
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowRunState
@@ -90,7 +91,7 @@ class JdbcSovereignOpsWorkflowCancellationStore(
 
                 if (checkpoint.revision != command.expectedRevision) {
                     conn.rollback()
-                    throw WorkflowCheckpointConflictException("tramai-workflow-version-conflict")
+                    throw SovereignOpsWorkflowCancellationConflictException("tramai-workflow-version-conflict")
                 }
 
                 // 3. Insert outbox record as PREPARED
@@ -109,7 +110,12 @@ class JdbcSovereignOpsWorkflowCancellationStore(
                         cancelledAtEpochMillis = clock.millis(),
                         uncertain = false, // Checkpoint store automatically evaluates admissionSequence > 0
                     )
-                val finalState = checkpointStore.cancelInConnection(conn, cancellationRequest)
+                val finalState =
+                    try {
+                        checkpointStore.cancelInConnection(conn, cancellationRequest)
+                    } catch (e: WorkflowCheckpointConflictException) {
+                        throw SovereignOpsWorkflowCancellationConflictException("tramai-workflow-version-conflict", e)
+                    }
 
                 // 5. Update outbox record to PENDING
                 val pendingIntent =
@@ -223,7 +229,9 @@ class JdbcSovereignOpsWorkflowCancellationStore(
             stmt.setString(5, encrypted.payloadDigest)
             stmt.setString(6, record.outboxId)
             val updated = stmt.executeUpdate()
-            check(updated == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
+            if (updated != 1) {
+                throw SovereignOpsWorkflowCancellationConflictException("tramai-sovereign-ops-outbox-concurrent-update")
+            }
         }
     }
 
@@ -235,7 +243,10 @@ class JdbcSovereignOpsWorkflowCancellationStore(
         val message = e.message?.lowercase() ?: ""
         return when {
             message.contains("uq_audit_outbox_event_key") || message.contains("audit_outbox_event_key_key") -> {
-                IllegalStateException("tramai-sovereign-ops-outbox-duplicate-event-key: ${record.eventKey}", e)
+                SovereignOpsWorkflowCancellationConflictException(
+                    "tramai-sovereign-ops-outbox-duplicate-event-key: ${record.eventKey}",
+                    e,
+                )
             }
 
             message.contains("audit_outbox_pkey") -> {

@@ -4,6 +4,8 @@ import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.orchestration.JdbcWorkflowCheckpointStore
+import dev.tramai.orchestration.WorkflowCheckpointStore
 import dev.tramai.persistence.jdbc.GovernedJdbcSuspendedInvocationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalContinuationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalStore
@@ -24,6 +26,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutatio
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -622,6 +625,51 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
             }
     }
 
+    @Test
+    fun `valid config creates cancellation store sharing exact same checkpoint store instance`() {
+        val keyFile = prepareKeyFile()
+
+        contextRunner
+            .withPropertyValues(
+                *validJdbcProps(keyFile)
+                    .entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            ).run { ctx ->
+                assertThat(ctx).hasSingleBean(SovereignOpsWorkflowCancellationStore::class.java)
+                assertThat(ctx).hasSingleBean(WorkflowCheckpointStore::class.java)
+                val cancellationStore = ctx.getBean(SovereignOpsWorkflowCancellationStore::class.java)
+                val checkpointStore = ctx.getBean(WorkflowCheckpointStore::class.java)
+
+                assertThat(cancellationStore).isInstanceOf(JdbcSovereignOpsWorkflowCancellationStore::class.java)
+                assertThat(checkpointStore).isInstanceOf(JdbcWorkflowCheckpointStore::class.java)
+
+                val field = JdbcSovereignOpsWorkflowCancellationStore::class.java.getDeclaredField("checkpointStore")
+                field.isAccessible = true
+                val cancellationCheckpointStore = field.get(cancellationStore)
+                assertThat(cancellationCheckpointStore).isSameAs(checkpointStore)
+            }
+    }
+
+    @Test
+    fun `incompatible custom WorkflowCheckpointStore fails startup fail-closed`() {
+        val keyFile = prepareKeyFile()
+
+        contextRunner
+            .withUserConfiguration(IncompatibleCheckpointStoreConfig::class.java)
+            .withPropertyValues(
+                *validJdbcProps(keyFile)
+                    .entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            ).run { ctx ->
+                assertThat(ctx).hasFailed()
+                val failure = requireNotNull(ctx.startupFailure)
+                assertThat(failure)
+                    .hasMessageContaining("tramai-sovereign-cancellation-store-incompatible-checkpoint-backend")
+            }
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private fun prepareKeyFile(name: String = "key.b64"): Path {
@@ -653,6 +701,39 @@ open class CustomApprovalStoreConfig {
     @Bean
     @Primary
     open fun customApprovalStore(): ApprovalStore = CustomApprovalStore()
+}
+
+open class IncompatibleCheckpointStoreConfig {
+    @Bean
+    @Primary
+    open fun customCheckpointStore(): WorkflowCheckpointStore =
+        object : WorkflowCheckpointStore {
+            override suspend fun save(
+                checkpoint: dev.tramai.orchestration.WorkflowCheckpoint,
+                expectedRevision: Long?,
+            ): dev.tramai.orchestration.WorkflowCheckpoint = checkpoint
+
+            override suspend fun load(
+                workflowName: String,
+                workflowId: String,
+            ): dev.tramai.orchestration.WorkflowCheckpoint? = null
+
+            override suspend fun delete(
+                workflowName: String,
+                workflowId: String,
+                expectedRevision: Long?,
+                expectedGeneration: String?,
+            ) = Unit
+
+            override suspend fun cancel(
+                request: dev.tramai.orchestration.WorkflowCancellationRequest,
+            ): dev.tramai.orchestration.WorkflowLifecycleState = throw UnsupportedOperationException()
+
+            override suspend fun lifecycle(
+                workflowName: String,
+                workflowId: String,
+            ): dev.tramai.orchestration.WorkflowLifecycleState? = null
+        }
 }
 
 open class CustomOutboxStoreConfig {

@@ -176,4 +176,5 @@ private val UNSUPPORTED_EVIDENCE_CODES: Set<String> =
         "tramai-sovereign-ops-approval-evidence-unsupported",
         "tramai-sovereign-ops-refusal-evidence-unsupported",
         "tramai-sovereign-ops-outbox-emission-unsupported",
+        "tramai-sovereign-ops-workflow-cancellation-evidence-unsupported",
     )

@@ -24,7 +24,6 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsWorkflowCancellationStore
-import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -304,7 +303,7 @@ class SovereignJdbcPersistenceAutoConfiguration {
     @ConditionalOnMissingBean(WorkflowCheckpointStore::class)
     @ConditionalOnBean(DataSource::class)
     @Suppress("MaxLineLength")
-    fun workflowCheckpointStore(dataSource: DataSource): WorkflowCheckpointStore = JdbcWorkflowCheckpointStore(dataSource)
+    fun workflowCheckpointStore(dataSource: DataSource): JdbcWorkflowCheckpointStore = JdbcWorkflowCheckpointStore(dataSource)
 
     @Bean
     @ConditionalOnMissingBean
@@ -312,11 +311,17 @@ class SovereignJdbcPersistenceAutoConfiguration {
     fun sovereignOpsWorkflowCancellationStore(
         dataSource: DataSource,
         payloadCodec: JdbcOpsAuditOutboxPayloadCodec,
-        checkpointStore: ObjectProvider<JdbcWorkflowCheckpointStore>,
-    ): SovereignOpsWorkflowCancellationStore =
-        JdbcSovereignOpsWorkflowCancellationStore(
+        checkpointStore: WorkflowCheckpointStore,
+    ): SovereignOpsWorkflowCancellationStore {
+        check(checkpointStore is JdbcWorkflowCheckpointStore) {
+            "tramai-sovereign-cancellation-store-incompatible-checkpoint-backend: " +
+                "authoritative WorkflowCheckpointStore must be an instance of JdbcWorkflowCheckpointStore " +
+                "to support atomic transactional cancellation, but found: ${checkpointStore::class.qualifiedName}"
+        }
+        return JdbcSovereignOpsWorkflowCancellationStore(
             dataSource = dataSource,
-            checkpointStore = checkpointStore.ifAvailable ?: JdbcWorkflowCheckpointStore(dataSource),
+            checkpointStore = checkpointStore,
             payloadCodec = payloadCodec,
         )
+    }
 }

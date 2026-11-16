@@ -71,7 +71,7 @@ HTTP 200 OK (WorkflowCancellationResponse)
 1. **Dedicated Capability (`OperatorCapability.CANCEL_WORKFLOW`):**
    Decoupled from `ADMINISTER_OPERATORS` to eliminate authority coupling between user administration and workload termination.
 2. **Target-Scoped Policy (`OperatorWorkflowCancellationPolicy`):**
-   Evaluated against the target `workflowName` and server-configured `ApproverRole` mappings before querying database state.
+   Evaluated against the target `workflowName` and server-configured `ApproverRole` mappings before querying database state. The authority model enforces workflow-wide administrative authority (an authorized role permits cancelling any run of that workflow). TramAI does not implement individual per-run user ACLs or run-level ownership checks at this boundary.
 3. **Existence-Blind Refusals:**
    L2 capability refusal and L3 workflow policy refusal fail closed with `403 Forbidden` without querying the database, preventing adversarial existence probing.
 4. **Typed Optimistic Revision Fencing:**

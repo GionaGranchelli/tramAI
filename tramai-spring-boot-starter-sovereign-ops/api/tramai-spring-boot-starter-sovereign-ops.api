@@ -1983,6 +1983,12 @@ public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkerLeas
 	public fun <init> (Ljava/lang/String;)V
 }
 
+public class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationConflictException : java/lang/RuntimeException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
 public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsWorkflowCancellationMutationResult {
 	public fun <init> (JLjava/lang/String;Ljava/lang/String;JZ)V
 	public synthetic fun <init> (JLjava/lang/String;Ljava/lang/String;JZILkotlin/jvm/internal/DefaultConstructorMarker;)V

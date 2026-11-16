@@ -63,3 +63,11 @@ interface SovereignOpsWorkflowCancellationStore {
         auditIntent: SovereignOpsAuditOutboxRecord,
     ): SovereignOpsWorkflowCancellationMutationResult
 }
+
+/**
+ * Thrown when a workflow cancellation mutation fails due to an optimistic concurrency / CAS conflict.
+ */
+open class SovereignOpsWorkflowCancellationConflictException(
+    message: String = "tramai-workflow-cancellation-conflict",
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)
