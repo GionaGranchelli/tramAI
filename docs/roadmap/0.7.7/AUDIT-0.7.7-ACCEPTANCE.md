@@ -48,9 +48,9 @@ All milestones of Epic 0.7.7 and its hard dependency chain (Epic 0.7.6) are inte
 
 | Milestone / PR | Commit | Scope / Deliverable | Status on `release/0.7.0` |
 | :--- | :--- | :--- | :--- |
-| **D7-F** (PR #591) | `b97e417937d1cfc7c88b7f8e0d68f6bf7e21a20b` | Cross-boundary cancellation & evidence integration closure (E1–E9, E10, E11) | ✅ Integrated |
-| **0.7.6f** (PR #592) | `6f2854ad6f6630a91e52003c2e171b31275d29d8` | Privileged evidence, V10 schema, V3 outbox payload, canonical `ActorIdentityDigest` | ✅ Integrated |
-| **0.7.6g2** (PR #593) | `226f78943cf6cb2ca65aa5ff93e36495531d0446` | Privileged control boundary adversarial qualification (14 bypass tests, M1–M8) | ✅ Integrated |
+| **D7-F** (PR #591) | `b97e41798995212f32b64c1393392ff6d7f92553` | Cross-boundary cancellation & evidence integration closure (E1–E9, E10, E11) | ✅ Integrated |
+| **0.7.6f** (PR #592) | `6f2854adbec96061a80dab2e9e30f8f893719f20` | Privileged evidence, V10 schema, V3 outbox payload, canonical `ActorIdentityDigest` | ✅ Integrated |
+| **0.7.6g2** (PR #593) | `226f78947439bc379e53a38d4d13db8c914b308c` | Privileged control boundary adversarial qualification (14 bypass tests, M1–M8) | ✅ Integrated |
 | **0.7.6h** (PR #594) | `19bb92c944a91fec98f83896c5c58f07f2fde113` | Headless control API guide, whole-repo security inventory, least privilege matrix | ✅ Integrated |
 | **0.7.6i** (PR #595) | `c27d3a15a13deb7fa95e6eb464f0b24f470bb823` | Ratified 0.7.6 security-risk acceptance record (F3, F5, L4) & 0.7.7 dependency rebaseline | ✅ Integrated |
 | **TASK-0.7.7m** (PR #596) | `baad07bc037af28854b94ac95942426aab62347a` | Authenticated & authorized workflow cancellation REST boundary, structural route protection | ✅ Integrated |
@@ -121,9 +121,19 @@ All workflows running on `release/0.7.0` execute under the context of **open pul
 | **Architecture Authority** (`43896346283`) | `Verify API architecture authority` | `verify060Architecture FAILED: API_COMPATIBILITY_FAILED` on `:tramai-control-plane`, `:tramai-engine`, `:tramai-orchestration`, etc. | Failed with identical diagnostic signature (Run `43752945668`). | `baseline-mismatch` / `existing-branch-drift` (Evaluation against `master` via PR #400 cannot resolve intermediate 0.7.x migration steps. In PR #596 targeting `release/0.7.0`, `verify060Architecture` passed cleanly in Run `43862804597`). |
 | **CI** (`43896346239`) | `tests` -> `Verify mutation ratchet against PR base` | `M35: population admission records fromBaseSha '5bcb030c...', not authority base '611845cc...'`<br>`M45: digest-migration certificate records fromBaseSha '64d05450...', not authority base '611845cc...'` | Failed with identical diagnostic signature (Run `43752945596`, Job `132930713426`). | `baseline-mismatch` / `existing-branch-drift` (Admissions and certificates in `release/0.7.0` were minted against release-line bases, not `master`. In PR #596 targeting `release/0.7.0`, `verifyMutationRatchet` passed cleanly in Run `43862804562`). |
 
+### PR #597 Exact-Head CI Status
+
+On qualification pull request #597 (`task/0.7.7-release-evidence-integrity` -> `release/0.7.0`):
+- **CI Workflow (Run `43980988486`):** **PASSED** (17/17 checks successful, including all test suites, quality gates, mutation ratchet against PR base, and zero-egress checks).
+- **Architecture Authority Workflow (Run `43980988705`):** **FAILED** (`verify060Architecture` failed on `api-migrations.yml` history walk).
+
+> [!WARNING]
+> **Architecture Gate Status:**  
+> While `verify060Architecture` also failed at the pristine base `c27d3a15a13deb7fa95e6eb464f0b24f470bb823` (Run `43752945668`), confirming that the root cause is pre-existing release-line `api-migrations.yml` history drift rather than a regression from this PR, the exact-head architecture gate on PR #597 remains red. Therefore, while documentation CI passed, **release architecture certification remains unresolved**. Do not weaken or bypass the architecture gate.
+
 ### Non-Regression Verdict
 
-- **No regressions were introduced by PR #596.** Every failing CI check on `release/0.7.0` was present identically at pristine base `c27d3a15a13deb7fa95e6eb464f0b24f470bb823`.
+- **No regressions were introduced by PR #596 or PR #597.** Every failing CI check on `release/0.7.0` was present identically at pristine base `c27d3a15a13deb7fa95e6eb464f0b24f470bb823`.
 - In PR #596 itself (head `5df31693bbd9774a0404ad05729bb1632263a947`, evaluated against `release/0.7.0`), all required gates—including `Architecture Authority`, `Sovereign Runtime`, `Mutation Authority`, and `CI`—passed completely.
 - The failures observed on `release/0.7.0` stem entirely from evaluating the full release branch against `master` via PR #400 rather than evaluating release-line transitions against their respective base branches.
 
@@ -132,4 +142,6 @@ All workflows running on `release/0.7.0` execute under the context of **open pul
 ## 6. Final Certification Verdict
 
 1. **Epic 0.7.7 Component Acceptance:** **ACCEPTED & CLOSED**. All functionality, adversarial tests, authorization semantics, and documentation requirements of Epic 0.7.7 are fully satisfied.
-2. **Release-Head Certification:** **PENDING WHOLE-RELEASE GATE RECONCILIATION**. While PR #596 introduced zero regressions, full release certification of the `release/0.7.0` head branch requires reconciling PR #400 base evaluation, test fixture isolation in `build-logic`, and multi-epic migration baselines prior to final release promotion.
+2. **Documentation & Verification CI Status:** **PASSED** (PR #597 CI run `43980988486` succeeded across all 17 checks).
+3. **Release Architecture Certification:** **UNRESOLVED / BLOCKED** (Exact-head Architecture Authority run `43980988705` remains red; whole-release architecture certification requires reconciling the release-line API migration chain in a dedicated task before release promotion).
+4. **Overall Release-Head Status:** **PENDING WHOLE-RELEASE GATE RECONCILIATION**. While PR #596 and PR #597 introduced zero regressions, full release certification of the `release/0.7.0` head branch requires reconciling PR #400 base evaluation, test fixture isolation in `build-logic`, and multi-epic migration baselines prior to final release promotion.
