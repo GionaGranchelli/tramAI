@@ -1,6 +1,6 @@
 # TASK-0.7.7m — Authenticated & Authorized Workflow Cancellation Control Boundary
 
-**Status:** Completed & Integrated (PR #596, commit `baad07bcc34b95d9859f518e3848b59436bf644f`)
+**Status:** Completed & Integrated (PR #596, merge commit `baad07bc037af28854b94ac95942426aab62347a`)
 **Base:** `release/0.7.0` at `c27d3a15a13deb7fa95e6eb464f0b24f470bb823`
 **Working Branch:** `task/0.7.7m-cancellation-control-boundary`
 **Target Branch:** `release/0.7.0`
