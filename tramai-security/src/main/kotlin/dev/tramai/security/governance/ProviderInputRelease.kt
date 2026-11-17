@@ -73,13 +73,97 @@ class ProviderInputRelease(
                 null
             }
         }
+
+    /**
+     * Evaluates the explicit data-release decision for one selected [deployment].
+     *
+     * Fails closed on missing or inconsistent facts, and never downgrades a
+     * minimization obligation to [ProviderInputReleaseDecision.AllowRaw].
+     */
+    fun decide(
+        workloadZone: ProviderTrustZone?,
+        classification: DataClassification?,
+        deployment: ProviderDeployment?,
+        expectedDeploymentId: String? = deployment?.deploymentId,
+        minimizationRequired: Boolean = false,
+        obligations: Set<MinimizationObligation> = emptySet(),
+    ): ProviderInputReleaseDecision {
+        if (deployment == null || expectedDeploymentId.isNullOrBlank() || deployment.deploymentId != expectedDeploymentId) {
+            return ProviderInputReleaseDecision.Deny(
+                deploymentId = deployment?.deploymentId,
+                refusal = ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY,
+            )
+        }
+        if (workloadZone == null || classification == null) {
+            return ProviderInputReleaseDecision.Deny(
+                deploymentId = deployment.deploymentId,
+                refusal = ReleaseRefusal.MISSING_RELEASE_POLICY,
+            )
+        }
+        val baseRefusal = refusalFor(workloadZone, classification, deployment.trustZone.category)
+        if (baseRefusal != null) {
+            return ProviderInputReleaseDecision.Deny(
+                deploymentId = deployment.deploymentId,
+                refusal = baseRefusal,
+            )
+        }
+        if (minimizationRequired && obligations.isEmpty()) {
+            return ProviderInputReleaseDecision.Deny(
+                deploymentId = deployment.deploymentId,
+                refusal = ReleaseRefusal.MISSING_RELEASE_POLICY,
+            )
+        }
+        if (minimizationRequired || obligations.isNotEmpty()) {
+            return ProviderInputReleaseDecision.AllowWithMinimization(
+                deploymentId = deployment.deploymentId,
+                obligations = obligations,
+            )
+        }
+        return ProviderInputReleaseDecision.AllowRaw(deploymentId = deployment.deploymentId)
+    }
+}
+
+/**
+ * Stable, non-sensitive minimization obligation identifier.
+ */
+enum class MinimizationObligation {
+    REDACT_PII,
+    REDACT_SECRETS,
+    MINIMIZE_TO_POLICY,
+}
+
+/**
+ * Explicit data-release decision for one selected provider deployment.
+ */
+sealed interface ProviderInputReleaseDecision {
+    val deploymentId: String?
+
+    /** Input may cross to [deploymentId] without minimization. */
+    data class AllowRaw(
+        override val deploymentId: String,
+    ) : ProviderInputReleaseDecision
+
+    /** Input may cross to [deploymentId] only after all [obligations] are satisfied. */
+    data class AllowWithMinimization(
+        override val deploymentId: String,
+        val obligations: Set<MinimizationObligation>,
+    ) : ProviderInputReleaseDecision {
+        init {
+            require(obligations.isNotEmpty()) {
+                "AllowWithMinimization requires at least one MinimizationObligation"
+            }
+        }
+    }
+
+    /** Input is withheld from [deploymentId] for [refusal]. */
+    data class Deny(
+        override val deploymentId: String?,
+        val refusal: ReleaseRefusal,
+    ) : ProviderInputReleaseDecision
 }
 
 /**
  * Stable reason why a provider-bound input was withheld from a deployment.
- *
- * Two members only: the two authorities this boundary consults can each refuse,
- * and nothing else in the configured facts can.
  */
 enum class ReleaseRefusal {
     /** The workload-to-deployment zone pair is not an explicitly listed pair. */
@@ -87,4 +171,10 @@ enum class ReleaseRefusal {
 
     /** The classification's routing rule does not permit the deployment's zone. */
     CLASSIFICATION_ZONE_NOT_PERMITTED,
+
+    /** Required release policy or minimization facts are missing or incomplete. */
+    MISSING_RELEASE_POLICY,
+
+    /** Deployment identity is missing or does not match the selected deployment. */
+    INCONSISTENT_DEPLOYMENT_IDENTITY,
 }

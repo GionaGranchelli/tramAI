@@ -290,7 +290,10 @@ class CandidateAuthorization(
                 AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED
             }
 
-            ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED -> {
+            ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED,
+            ReleaseRefusal.MISSING_RELEASE_POLICY,
+            ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY,
+            -> {
                 AuthorizationRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED
             }
         }

@@ -179,10 +179,127 @@ class ProviderInputReleaseTest {
     }
 
     @Test
-    fun `the release refusal family has exactly the two authorities`() {
+    fun `the release refusal family covers all fail-closed reasons`() {
         assertEquals(
-            listOf(ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED, ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED),
+            listOf(
+                ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED,
+                ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED,
+                ReleaseRefusal.MISSING_RELEASE_POLICY,
+                ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY,
+            ),
             ReleaseRefusal.entries.toList(),
         )
+    }
+
+    @Test
+    fun `two deployments with different obligations produce deny, allow raw, and allow with minimization`() {
+        val euDeployment =
+            ProviderDeployment(
+                deploymentId = "eu-prod",
+                providerId = "openai",
+                trustZone = NamedTrustZone(TrustZoneName("eu-zone"), ProviderTrustZone.EU_CLOUD),
+            )
+        val globalDeployment =
+            ProviderDeployment(
+                deploymentId = "global-prod",
+                providerId = "openai",
+                trustZone = NamedTrustZone(TrustZoneName("global-zone"), ProviderTrustZone.GLOBAL_CLOUD),
+            )
+
+        val allowRaw =
+            release.decide(
+                workloadZone = ProviderTrustZone.LOCAL,
+                classification = DataClassification.INTERNAL,
+                deployment = euDeployment,
+            )
+        assertEquals(ProviderInputReleaseDecision.AllowRaw(euDeployment.deploymentId), allowRaw)
+
+        val allowMinimized =
+            release.decide(
+                workloadZone = ProviderTrustZone.LOCAL,
+                classification = DataClassification.INTERNAL,
+                deployment = euDeployment,
+                minimizationRequired = true,
+                obligations = setOf(MinimizationObligation.REDACT_PII),
+            )
+        assertEquals(
+            ProviderInputReleaseDecision.AllowWithMinimization(
+                euDeployment.deploymentId,
+                setOf(MinimizationObligation.REDACT_PII),
+            ),
+            allowMinimized,
+        )
+
+        val denied =
+            release.decide(
+                workloadZone = ProviderTrustZone.LOCAL,
+                classification = DataClassification.INTERNAL,
+                deployment = globalDeployment,
+            )
+        assertEquals(
+            ProviderInputReleaseDecision.Deny(globalDeployment.deploymentId, ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED),
+            denied,
+        )
+    }
+
+    @Test
+    fun `missing policy facts and inconsistent deployment identity fail closed`() {
+        val euDeployment =
+            ProviderDeployment(
+                deploymentId = "eu-prod",
+                providerId = "openai",
+                trustZone = NamedTrustZone(TrustZoneName("eu-zone"), ProviderTrustZone.EU_CLOUD),
+            )
+
+        assertEquals(
+            ProviderInputReleaseDecision.Deny(euDeployment.deploymentId, ReleaseRefusal.MISSING_RELEASE_POLICY),
+            release.decide(workloadZone = null, classification = DataClassification.INTERNAL, deployment = euDeployment),
+        )
+        assertEquals(
+            ProviderInputReleaseDecision.Deny(euDeployment.deploymentId, ReleaseRefusal.MISSING_RELEASE_POLICY),
+            release.decide(workloadZone = ProviderTrustZone.LOCAL, classification = null, deployment = euDeployment),
+        )
+        assertEquals(
+            ProviderInputReleaseDecision.Deny(euDeployment.deploymentId, ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY),
+            release.decide(
+                workloadZone = ProviderTrustZone.LOCAL,
+                classification = DataClassification.INTERNAL,
+                deployment = euDeployment,
+                expectedDeploymentId = "other-prod",
+            ),
+        )
+        assertEquals(
+            ProviderInputReleaseDecision.Deny(null, ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY),
+            release.decide(
+                workloadZone = ProviderTrustZone.LOCAL,
+                classification = DataClassification.INTERNAL,
+                deployment = null,
+            ),
+        )
+    }
+
+    @Test
+    fun `minimization obligation cannot be downgraded to allow raw`() {
+        val euDeployment =
+            ProviderDeployment(
+                deploymentId = "eu-prod",
+                providerId = "openai",
+                trustZone = NamedTrustZone(TrustZoneName("eu-zone"), ProviderTrustZone.EU_CLOUD),
+            )
+
+        assertEquals(
+            ProviderInputReleaseDecision.Deny(euDeployment.deploymentId, ReleaseRefusal.MISSING_RELEASE_POLICY),
+            release.decide(
+                workloadZone = ProviderTrustZone.LOCAL,
+                classification = DataClassification.INTERNAL,
+                deployment = euDeployment,
+                minimizationRequired = true,
+                obligations = emptySet(),
+            ),
+        )
+
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            ProviderInputReleaseDecision.AllowWithMinimization(euDeployment.deploymentId, emptySet())
+        }
     }
 }
