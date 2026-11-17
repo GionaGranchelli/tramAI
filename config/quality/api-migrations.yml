@@ -549,3 +549,17 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "TASK-0.7.7m: Add JdbcSovereignOpsWorkflowCancellationStore and auto-configuration wiring for atomic single-transaction workflow checkpoint cancellation and audit outbox record persistence."
     migration: "No consumer action required: additive store implementation and bean definitions; existing callers require no change."
+
+  - module: ":tramai-core"
+    fromSha256: "b563848390d70ef2999c8ce5d856a767678fd1af56760376ebbef2c8e4a28845"
+    toSha256: "db578725d7d88a1e15b606b6192f455504a1c355d6663905e30957f405ff1332"
+    targetVersion: "0.7.0"
+    rationale: >-
+      TASK-0.7.7m (PR #596) landed OperatorCapability.CANCEL_WORKFLOW in tramai-core without
+      appending the link this ledger needs, so the chain from the previous entry's toSha256
+      no longer reached the current base dump. Additive only: all existing declarations and
+      binary-compatible descriptors are preserved. This entry records that transition so the
+      ledger stays reachable; it authorizes nothing new.
+    migration: >-
+      No consumer action required: additive enum constant only.
+
