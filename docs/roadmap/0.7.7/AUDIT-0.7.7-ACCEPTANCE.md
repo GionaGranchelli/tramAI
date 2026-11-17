@@ -124,22 +124,23 @@ All workflows running on `release/0.7.0` execute under the context of **open pul
 ### PR #597 Exact-Head CI Status
 
 On qualification pull request #597 (`task/0.7.7-release-evidence-integrity` -> `release/0.7.0`):
-- **CI Workflow (Run `43980988486` / `44051514311`):** **PASSED** (17/17 checks successful, including all test suites, quality gates, mutation ratchet against PR base, and zero-egress checks).
-- **Architecture Authority Workflow (Run `43980988705` / `44051514386`):** Previously failed on `api-migrations.yml` history walk.
+- **Architecture Authority Workflow (Run `44057602637`):** **PASSED** (✓ in 3m 29s, resolving the earlier history walk failure).
   - **Root Cause Identified:** PR #596 (`baad07bc037af28854b94ac95942426aab62347a`) added `OperatorCapability.CANCEL_WORKFLOW` to `:tramai-core` and refreshed its API dump (`b5638483...` → `db578725...`). Because `:tramai-core` is classified as `stable`, Contract-2 permitted this additive change without an individual authorization entry. However, the migration registry hygiene rule requires every retained historical entry for a module to reach the current base dump SHA (`db578725...`) via an unbroken transition chain in `config/quality/api-migrations.yml`. Because PR #596 omitted the link connecting `b5638483...` to `db578725...`, the registry walk was broken for any PR evaluated against `release/0.7.0` at or after `baad07bc...`.
-  - **Resolution Applied:** Appended the missing transition entry (`b5638483...` → `db578725...`) to `config/quality/api-migrations.yml`. With this link present, `./gradlew verify060Architecture -PchangePolicyBase=6f9c494cd10a6e8d54866c19337fba754ca67882` passes locally across all 10 architecture checks.
+  - **Resolution Applied:** Appended the missing transition entry (`b5638483...` → `db578725...`) to `config/quality/api-migrations.yml`. With this link present, exact-head Architecture Authority passes cleanly.
+- **Mutation Authority Integration Workflow (Run `44057602607`):** **PASSED** (✓ in 4m 25s).
+- **CI Workflow (Run `44057602706`):** **PASSED** (17/17 checks successful in 13m 7s, including all test suites, quality gates, mutation ratchet against PR base, and zero-egress checks).
 
 ### Non-Regression Verdict
 
-- **No regressions were introduced by PR #596 or PR #597.** Every failing CI check on `release/0.7.0` was present identically at pristine base `c27d3a15a13deb7fa95e6eb464f0b24f470bb823`.
-- In PR #596 itself (head `5df31693bbd9774a0404ad05729bb1632263a947`, evaluated against `release/0.7.0`), all required gates—including `Architecture Authority`, `Sovereign Runtime`, `Mutation Authority`, and `CI`—passed completely.
-- The failures observed on `release/0.7.0` stem entirely from evaluating the full release branch against `master` via PR #400 rather than evaluating release-line transitions against their respective base branches.
+PR #596 introduced no identified cancellation-runtime behavioral regression, but it omitted the :tramai-core API migration transition required for subsequent registry validation. PR #597 restores this transition, and the exact-head Architecture Authority gate now passes.
+
+Other release-versus-master gate failures were observed before PR #596 and remain subject to separate whole-release certification. Passing PR #597 does not certify the full release/0.7.0 → master promotion.
 
 ---
 
 ## 6. Final Certification Verdict
 
 1. **Epic 0.7.7 Component Acceptance:** **ACCEPTED & CLOSED**. All functionality, adversarial tests, authorization semantics, and documentation requirements of Epic 0.7.7 are fully satisfied.
-2. **Documentation & Verification CI Status:** **PASSED** (PR #597 CI run succeeded across all 17 checks).
-3. **Release Architecture Authority Gate:** **RECONCILED & GREEN** (Missing `:tramai-core` transition link added to `config/quality/api-migrations.yml`, resolving the `verify060Architecture` failure on PR #597).
+2. **Documentation & Verification CI Status:** **PASSED** (PR #597 CI run `44057602706` succeeded across all 17 checks; Mutation Authority run `44057602607` succeeded).
+3. **Release Architecture Authority Gate:** **RECONCILED & GREEN** (Missing `:tramai-core` transition link added to `config/quality/api-migrations.yml`, verified green in Architecture Authority run `44057602637`).
 4. **Overall Release-Head Status:** **PENDING WHOLE-RELEASE GATE RECONCILIATION FOR MASTER PROMOTION**. While PR #596 and PR #597 are fully verified and non-regressing on `release/0.7.0`, promoting the entire `release/0.7.0` branch into `master` via PR #400 requires reconciling master-relative baselines and build-logic test fixture isolation.
