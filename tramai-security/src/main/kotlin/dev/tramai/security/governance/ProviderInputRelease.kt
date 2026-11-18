@@ -45,6 +45,7 @@ class ProviderInputRelease(
     ) : this(trustZonePolicy, rules) {
         this.minimizationPolicy = minimizationPolicy
     }
+
     /**
      * True only when the zones are compatible AND the classification's rule
      * permits that zone. A classification with no rule releases nothing.
@@ -172,8 +173,7 @@ sealed interface MinimizationRequirement {
             }
         }
 
-        override fun equals(other: Any?): Boolean =
-            this === other || (other is Required && obligations == other.obligations)
+        override fun equals(other: Any?): Boolean = this === other || (other is Required && obligations == other.obligations)
 
         override fun hashCode(): Int = obligations.hashCode()
 
