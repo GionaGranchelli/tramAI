@@ -668,6 +668,8 @@ public final class dev/tramai/security/evidence/ToolPermissionRuntimeEvidenceExp
 public final class dev/tramai/security/governance/AuthorizationRefusal : java/lang/Enum {
 	public static final field CLASSIFICATION_ZONE_NOT_PERMITTED Ldev/tramai/security/governance/AuthorizationRefusal;
 	public static final field IDENTITY_DEPLOYMENT_MISMATCH Ldev/tramai/security/governance/AuthorizationRefusal;
+	public static final field INCONSISTENT_DEPLOYMENT_IDENTITY Ldev/tramai/security/governance/AuthorizationRefusal;
+	public static final field MISSING_RELEASE_POLICY Ldev/tramai/security/governance/AuthorizationRefusal;
 	public static final field PROVIDER_NOT_REGISTERED Ldev/tramai/security/governance/AuthorizationRefusal;
 	public static final field REQUIRED_CAPABILITY_NOT_SUPPORTED Ldev/tramai/security/governance/AuthorizationRefusal;
 	public static final field ZONE_PAIR_NOT_ALLOWED Ldev/tramai/security/governance/AuthorizationRefusal;
@@ -787,6 +789,40 @@ public final class dev/tramai/security/governance/EffectiveRoutingPolicyKt {
 	public static synthetic fun effectiveRoutingRules$default (Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;ILjava/lang/Object;)Ljava/util/Map;
 }
 
+public final class dev/tramai/security/governance/MinimizationObligation : java/lang/Enum {
+	public static final field MINIMIZE_TO_POLICY Ldev/tramai/security/governance/MinimizationObligation;
+	public static final field REDACT_PII Ldev/tramai/security/governance/MinimizationObligation;
+	public static final field REDACT_SECRETS Ldev/tramai/security/governance/MinimizationObligation;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/MinimizationObligation;
+	public static fun values ()[Ldev/tramai/security/governance/MinimizationObligation;
+}
+
+public abstract interface class dev/tramai/security/governance/MinimizationRequirement {
+}
+
+public final class dev/tramai/security/governance/MinimizationRequirement$MissingOrDenied : dev/tramai/security/governance/MinimizationRequirement {
+	public static final field INSTANCE Ldev/tramai/security/governance/MinimizationRequirement$MissingOrDenied;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/MinimizationRequirement$RawPermitted : dev/tramai/security/governance/MinimizationRequirement {
+	public static final field INSTANCE Ldev/tramai/security/governance/MinimizationRequirement$RawPermitted;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/MinimizationRequirement$Required : dev/tramai/security/governance/MinimizationRequirement {
+	public fun <init> (Ljava/util/Set;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getObligations ()Ljava/util/Set;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class dev/tramai/security/governance/NamedTrustZone {
 	public fun <init> (Ldev/tramai/security/governance/TrustZoneName;Ldev/tramai/security/ProviderTrustZone;)V
 	public final fun component1 ()Ldev/tramai/security/governance/TrustZoneName;
@@ -834,12 +870,57 @@ public final class dev/tramai/security/governance/ProviderInputRelease {
 	public fun <init> ()V
 	public fun <init> (Ldev/tramai/security/governance/TrustZonePolicy;Ljava/util/Map;)V
 	public synthetic fun <init> (Ldev/tramai/security/governance/TrustZonePolicy;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ldev/tramai/security/governance/TrustZonePolicy;Ljava/util/Map;Ldev/tramai/security/governance/ProviderMinimizationPolicy;)V
+	public final fun decide (Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/security/governance/ProviderDeployment;Ljava/lang/String;)Ldev/tramai/security/governance/ProviderInputReleaseDecision;
 	public final fun refusalFor (Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/security/ProviderTrustZone;)Ldev/tramai/security/governance/ReleaseRefusal;
 	public final fun releases (Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/security/ProviderTrustZone;)Z
 }
 
+public abstract interface class dev/tramai/security/governance/ProviderInputReleaseDecision {
+	public abstract fun getDeploymentId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/ProviderInputReleaseDecision$AllowRaw : dev/tramai/security/governance/ProviderInputReleaseDecision {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/security/governance/ProviderInputReleaseDecision$AllowRaw;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/ProviderInputReleaseDecision$AllowRaw;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/governance/ProviderInputReleaseDecision$AllowRaw;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getDeploymentId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/ProviderInputReleaseDecision$AllowWithMinimization : dev/tramai/security/governance/ProviderInputReleaseDecision {
+	public fun <init> (Ljava/lang/String;Ljava/util/Set;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getDeploymentId ()Ljava/lang/String;
+	public final fun getObligations ()Ljava/util/Set;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/ProviderInputReleaseDecision$Deny : dev/tramai/security/governance/ProviderInputReleaseDecision {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/security/governance/ReleaseRefusal;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/security/governance/ReleaseRefusal;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/security/governance/ReleaseRefusal;)Ldev/tramai/security/governance/ProviderInputReleaseDecision$Deny;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/ProviderInputReleaseDecision$Deny;Ljava/lang/String;Ldev/tramai/security/governance/ReleaseRefusal;ILjava/lang/Object;)Ldev/tramai/security/governance/ProviderInputReleaseDecision$Deny;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getDeploymentId ()Ljava/lang/String;
+	public final fun getRefusal ()Ldev/tramai/security/governance/ReleaseRefusal;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/security/governance/ProviderMinimizationPolicy {
+	public abstract fun resolve (Ldev/tramai/core/policy/DataClassification;Ldev/tramai/security/governance/ProviderDeployment;)Ldev/tramai/security/governance/MinimizationRequirement;
+}
+
 public final class dev/tramai/security/governance/ReleaseRefusal : java/lang/Enum {
 	public static final field CLASSIFICATION_ZONE_NOT_PERMITTED Ldev/tramai/security/governance/ReleaseRefusal;
+	public static final field INCONSISTENT_DEPLOYMENT_IDENTITY Ldev/tramai/security/governance/ReleaseRefusal;
+	public static final field MISSING_RELEASE_POLICY Ldev/tramai/security/governance/ReleaseRefusal;
 	public static final field ZONE_PAIR_NOT_ALLOWED Ldev/tramai/security/governance/ReleaseRefusal;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/ReleaseRefusal;

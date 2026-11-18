@@ -563,3 +563,19 @@ migrations:
     migration: >-
       No consumer action required: additive enum constant only.
 
+  - module: ":tramai-security"
+    fromSha256: "a0662d3459b4ae7a1523e39430bff3b0efe171867717601b93bcc1f24d0aa96b"
+    toSha256: "eb848b29c7396bc7c929d923b19b66ddc376c1081484aeba2dd118ebe043b757"
+    targetVersion: "0.7.0"
+    rationale: >-
+      TASK-0.7.0-P0-A1 (PR #599): add typed ProviderInputReleaseDecision (AllowRaw,
+      AllowWithMinimization, Deny), MinimizationObligation, ProviderMinimizationPolicy,
+      MinimizationRequirement, ProviderInputRelease.decide(...), and new ReleaseRefusal /
+      AuthorizationRefusal entries. Additive only: existing ProviderInputRelease constructor
+      descriptors remain binary-compatible, and the new minimization decisions are not yet
+      enforced by runtime transport (deferred to P0-A2/P0-A3).
+    migration: >-
+      No consumer action required: existing callers remain binary- and source-compatible.
+      Callers adopting ProviderInputRelease.decide(...) must supply ProviderMinimizationPolicy
+      and an explicit expectedDeploymentId.
+
