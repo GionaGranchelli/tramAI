@@ -298,7 +298,10 @@ class ProviderInputReleaseTest {
             ),
         )
         assertEquals(
-            ProviderInputReleaseDecision.Deny(euDeployment.deploymentId, ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY),
+            ProviderInputReleaseDecision.Deny(
+                euDeployment.deploymentId,
+                ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY,
+            ),
             governedRelease.decide(
                 workloadZone = ProviderTrustZone.LOCAL,
                 classification = DataClassification.INTERNAL,

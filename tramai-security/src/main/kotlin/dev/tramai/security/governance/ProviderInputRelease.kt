@@ -97,27 +97,42 @@ class ProviderInputRelease(
         classification: DataClassification?,
         deployment: ProviderDeployment?,
         expectedDeploymentId: String?,
-    ): ProviderInputReleaseDecision {
-        if (deployment == null || expectedDeploymentId.isNullOrBlank() || deployment.deploymentId != expectedDeploymentId) {
-            return ProviderInputReleaseDecision.Deny(
-                deploymentId = deployment?.deploymentId,
-                refusal = ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY,
-            )
+    ): ProviderInputReleaseDecision =
+        when {
+            deployment == null ||
+                expectedDeploymentId.isNullOrBlank() ||
+                deployment.deploymentId != expectedDeploymentId -> {
+                ProviderInputReleaseDecision.Deny(
+                    deploymentId = deployment?.deploymentId,
+                    refusal = ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY,
+                )
+            }
+
+            workloadZone == null || classification == null -> {
+                ProviderInputReleaseDecision.Deny(
+                    deploymentId = deployment.deploymentId,
+                    refusal = ReleaseRefusal.MISSING_RELEASE_POLICY,
+                )
+            }
+
+            else -> {
+                val baseRefusal = refusalFor(workloadZone, classification, deployment.trustZone.category)
+                if (baseRefusal != null) {
+                    ProviderInputReleaseDecision.Deny(
+                        deploymentId = deployment.deploymentId,
+                        refusal = baseRefusal,
+                    )
+                } else {
+                    resolveMinimization(classification, deployment)
+                }
+            }
         }
-        if (workloadZone == null || classification == null) {
-            return ProviderInputReleaseDecision.Deny(
-                deploymentId = deployment.deploymentId,
-                refusal = ReleaseRefusal.MISSING_RELEASE_POLICY,
-            )
-        }
-        val baseRefusal = refusalFor(workloadZone, classification, deployment.trustZone.category)
-        if (baseRefusal != null) {
-            return ProviderInputReleaseDecision.Deny(
-                deploymentId = deployment.deploymentId,
-                refusal = baseRefusal,
-            )
-        }
-        return when (val requirement = minimizationPolicy.resolve(classification, deployment)) {
+
+    private fun resolveMinimization(
+        classification: DataClassification,
+        deployment: ProviderDeployment,
+    ): ProviderInputReleaseDecision =
+        when (val requirement = minimizationPolicy.resolve(classification, deployment)) {
             MinimizationRequirement.MissingOrDenied -> {
                 ProviderInputReleaseDecision.Deny(
                     deploymentId = deployment.deploymentId,
@@ -136,7 +151,6 @@ class ProviderInputRelease(
                 )
             }
         }
-    }
 }
 
 /**
@@ -173,7 +187,10 @@ sealed interface MinimizationRequirement {
             }
         }
 
-        override fun equals(other: Any?): Boolean = this === other || (other is Required && obligations == other.obligations)
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            return other is Required && obligations == other.obligations
+        }
 
         override fun hashCode(): Int = obligations.hashCode()
 
@@ -220,7 +237,11 @@ sealed interface ProviderInputReleaseDecision {
 
         override fun equals(other: Any?): Boolean =
             this === other ||
-                (other is AllowWithMinimization && deploymentId == other.deploymentId && obligations == other.obligations)
+                (
+                    other is AllowWithMinimization &&
+                        deploymentId == other.deploymentId &&
+                        obligations == other.obligations
+                )
 
         override fun hashCode(): Int = 31 * deploymentId.hashCode() + obligations.hashCode()
 
