@@ -817,9 +817,6 @@ public final class dev/tramai/security/governance/MinimizationRequirement$RawPer
 
 public final class dev/tramai/security/governance/MinimizationRequirement$Required : dev/tramai/security/governance/MinimizationRequirement {
 	public fun <init> (Ljava/util/Set;)V
-	public final fun component1 ()Ljava/util/Set;
-	public final fun copy (Ljava/util/Set;)Ldev/tramai/security/governance/MinimizationRequirement$Required;
-	public static synthetic fun copy$default (Ldev/tramai/security/governance/MinimizationRequirement$Required;Ljava/util/Set;ILjava/lang/Object;)Ldev/tramai/security/governance/MinimizationRequirement$Required;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getObligations ()Ljava/util/Set;
 	public fun hashCode ()I
@@ -871,8 +868,9 @@ public final class dev/tramai/security/governance/ProviderDeployment {
 
 public final class dev/tramai/security/governance/ProviderInputRelease {
 	public fun <init> ()V
+	public fun <init> (Ldev/tramai/security/governance/TrustZonePolicy;Ljava/util/Map;)V
+	public synthetic fun <init> (Ldev/tramai/security/governance/TrustZonePolicy;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun <init> (Ldev/tramai/security/governance/TrustZonePolicy;Ljava/util/Map;Ldev/tramai/security/governance/ProviderMinimizationPolicy;)V
-	public synthetic fun <init> (Ldev/tramai/security/governance/TrustZonePolicy;Ljava/util/Map;Ldev/tramai/security/governance/ProviderMinimizationPolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun decide (Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/security/governance/ProviderDeployment;Ljava/lang/String;)Ldev/tramai/security/governance/ProviderInputReleaseDecision;
 	public final fun refusalFor (Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/security/ProviderTrustZone;)Ldev/tramai/security/governance/ReleaseRefusal;
 	public final fun releases (Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/security/ProviderTrustZone;)Z
@@ -895,10 +893,6 @@ public final class dev/tramai/security/governance/ProviderInputReleaseDecision$A
 
 public final class dev/tramai/security/governance/ProviderInputReleaseDecision$AllowWithMinimization : dev/tramai/security/governance/ProviderInputReleaseDecision {
 	public fun <init> (Ljava/lang/String;Ljava/util/Set;)V
-	public final fun component1 ()Ljava/lang/String;
-	public final fun component2 ()Ljava/util/Set;
-	public final fun copy (Ljava/lang/String;Ljava/util/Set;)Ldev/tramai/security/governance/ProviderInputReleaseDecision$AllowWithMinimization;
-	public static synthetic fun copy$default (Ldev/tramai/security/governance/ProviderInputReleaseDecision$AllowWithMinimization;Ljava/lang/String;Ljava/util/Set;ILjava/lang/Object;)Ldev/tramai/security/governance/ProviderInputReleaseDecision$AllowWithMinimization;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getDeploymentId ()Ljava/lang/String;
 	public final fun getObligations ()Ljava/util/Set;

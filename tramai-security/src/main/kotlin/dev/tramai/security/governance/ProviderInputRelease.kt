@@ -34,9 +34,17 @@ import dev.tramai.security.ProviderTrustZone
 class ProviderInputRelease(
     private val trustZonePolicy: TrustZonePolicy = TrustZonePolicy(),
     private val rules: Map<DataClassification, ClassificationRoutingRule> = emptyMap(),
-    private val minimizationPolicy: ProviderMinimizationPolicy =
-        ProviderMinimizationPolicy { _, _ -> MinimizationRequirement.MissingOrDenied },
 ) {
+    private var minimizationPolicy: ProviderMinimizationPolicy =
+        ProviderMinimizationPolicy { _, _ -> MinimizationRequirement.MissingOrDenied }
+
+    constructor(
+        trustZonePolicy: TrustZonePolicy,
+        rules: Map<DataClassification, ClassificationRoutingRule>,
+        minimizationPolicy: ProviderMinimizationPolicy,
+    ) : this(trustZonePolicy, rules) {
+        this.minimizationPolicy = minimizationPolicy
+    }
     /**
      * True only when the zones are compatible AND the classification's rule
      * permits that zone. A classification with no rule releases nothing.
@@ -132,6 +140,10 @@ class ProviderInputRelease(
 
 /**
  * Authoritative policy source for provider-input minimization obligations.
+ *
+ * Integration obligation (P0-A3): callers must derive this policy from TramAI's
+ * trusted governance configuration and bind `expectedDeploymentId` from the
+ * selected route, never from caller-supplied input.
  */
 fun interface ProviderMinimizationPolicy {
     fun resolve(
@@ -148,14 +160,24 @@ sealed interface MinimizationRequirement {
     data object RawPermitted : MinimizationRequirement
 
     /** Explicit policy requiring all [obligations] to be satisfied before release. */
-    data class Required(
-        val obligations: Set<MinimizationObligation>,
+    class Required(
+        obligations: Set<MinimizationObligation>,
     ) : MinimizationRequirement {
+        val obligations: Set<MinimizationObligation> =
+            java.util.Collections.unmodifiableSet(obligations.toSet())
+
         init {
-            require(obligations.isNotEmpty()) {
+            require(this.obligations.isNotEmpty()) {
                 "MinimizationRequirement.Required must declare at least one MinimizationObligation"
             }
         }
+
+        override fun equals(other: Any?): Boolean =
+            this === other || (other is Required && obligations == other.obligations)
+
+        override fun hashCode(): Int = obligations.hashCode()
+
+        override fun toString(): String = "Required(obligations=$obligations)"
     }
 
     /** Missing, conflicting, or insufficient release policy (fails closed). */
@@ -183,15 +205,26 @@ sealed interface ProviderInputReleaseDecision {
     ) : ProviderInputReleaseDecision
 
     /** Input may cross to [deploymentId] only after all [obligations] are satisfied. */
-    data class AllowWithMinimization(
+    class AllowWithMinimization(
         override val deploymentId: String,
-        val obligations: Set<MinimizationObligation>,
+        obligations: Set<MinimizationObligation>,
     ) : ProviderInputReleaseDecision {
+        val obligations: Set<MinimizationObligation> =
+            java.util.Collections.unmodifiableSet(obligations.toSet())
+
         init {
-            require(obligations.isNotEmpty()) {
+            require(this.obligations.isNotEmpty()) {
                 "AllowWithMinimization requires at least one MinimizationObligation"
             }
         }
+
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is AllowWithMinimization && deploymentId == other.deploymentId && obligations == other.obligations)
+
+        override fun hashCode(): Int = 31 * deploymentId.hashCode() + obligations.hashCode()
+
+        override fun toString(): String = "AllowWithMinimization(deploymentId=$deploymentId, obligations=$obligations)"
     }
 
     /** Input is withheld from [deploymentId] for [refusal]. */

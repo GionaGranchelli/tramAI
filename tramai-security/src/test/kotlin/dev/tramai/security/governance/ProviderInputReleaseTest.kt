@@ -332,5 +332,19 @@ class ProviderInputReleaseTest {
         org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
             ProviderInputReleaseDecision.AllowWithMinimization(euDeployment.deploymentId, emptySet())
         }
+
+        val callerObligations = mutableSetOf(MinimizationObligation.REDACT_PII)
+        val requirement = MinimizationRequirement.Required(callerObligations)
+        val decision = ProviderInputReleaseDecision.AllowWithMinimization(euDeployment.deploymentId, callerObligations)
+        callerObligations.clear()
+
+        assertEquals(setOf(MinimizationObligation.REDACT_PII), requirement.obligations)
+        assertEquals(setOf(MinimizationObligation.REDACT_PII), decision.obligations)
+        org.junit.jupiter.api.assertThrows<UnsupportedOperationException> {
+            (requirement.obligations as MutableSet<MinimizationObligation>).clear()
+        }
+        org.junit.jupiter.api.assertThrows<UnsupportedOperationException> {
+            (decision.obligations as MutableSet<MinimizationObligation>).clear()
+        }
     }
 }
