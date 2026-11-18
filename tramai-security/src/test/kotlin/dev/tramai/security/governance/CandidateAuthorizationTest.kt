@@ -187,12 +187,14 @@ class CandidateAuthorizationTest {
     }
 
     @Test
-    fun `the reason family has exactly the five restrictions this boundary consults`() {
+    fun `the reason family has exactly the restrictions this boundary consults`() {
         assertEquals(
             listOf(
                 AuthorizationRefusal.IDENTITY_DEPLOYMENT_MISMATCH,
                 AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED,
                 AuthorizationRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED,
+                AuthorizationRefusal.MISSING_RELEASE_POLICY,
+                AuthorizationRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY,
                 AuthorizationRefusal.PROVIDER_NOT_REGISTERED,
                 AuthorizationRefusal.REQUIRED_CAPABILITY_NOT_SUPPORTED,
             ),

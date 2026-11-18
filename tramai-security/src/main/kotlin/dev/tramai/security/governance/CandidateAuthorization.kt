@@ -84,6 +84,12 @@ enum class AuthorizationRefusal {
     /** The classification's routing rule does not permit the deployment's zone. */
     CLASSIFICATION_ZONE_NOT_PERMITTED,
 
+    /** Required release policy or minimization facts are missing or incomplete. */
+    MISSING_RELEASE_POLICY,
+
+    /** Deployment identity is missing or does not match the selected deployment. */
+    INCONSISTENT_DEPLOYMENT_IDENTITY,
+
     /**
      * The candidate's provider is not present in the authoritative registration snapshot.
      *
@@ -290,11 +296,16 @@ class CandidateAuthorization(
                 AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED
             }
 
-            ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED,
-            ReleaseRefusal.MISSING_RELEASE_POLICY,
-            ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY,
-            -> {
+            ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED -> {
                 AuthorizationRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED
+            }
+
+            ReleaseRefusal.MISSING_RELEASE_POLICY -> {
+                AuthorizationRefusal.MISSING_RELEASE_POLICY
+            }
+
+            ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY -> {
+                AuthorizationRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY
             }
         }
 

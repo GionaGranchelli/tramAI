@@ -193,9 +193,15 @@ class ProviderInputReleaseTest {
 
     @Test
     fun `two deployments with different obligations produce deny, allow raw, and allow with minimization`() {
-        val euDeployment =
+        val euRawDeployment =
             ProviderDeployment(
-                deploymentId = "eu-prod",
+                deploymentId = "eu-raw",
+                providerId = "openai",
+                trustZone = NamedTrustZone(TrustZoneName("eu-zone"), ProviderTrustZone.EU_CLOUD),
+            )
+        val euMinDeployment =
+            ProviderDeployment(
+                deploymentId = "eu-minimized",
                 providerId = "openai",
                 trustZone = NamedTrustZone(TrustZoneName("eu-zone"), ProviderTrustZone.EU_CLOUD),
             )
@@ -206,44 +212,52 @@ class ProviderInputReleaseTest {
                 trustZone = NamedTrustZone(TrustZoneName("global-zone"), ProviderTrustZone.GLOBAL_CLOUD),
             )
 
-        val allowRaw =
-            release.decide(
-                workloadZone = ProviderTrustZone.LOCAL,
-                classification = DataClassification.INTERNAL,
-                deployment = euDeployment,
-            )
-        assertEquals(ProviderInputReleaseDecision.AllowRaw(euDeployment.deploymentId), allowRaw)
+        val policy =
+            ProviderMinimizationPolicy { _, deployment ->
+                when (deployment.deploymentId) {
+                    "eu-raw" -> MinimizationRequirement.RawPermitted
+                    "eu-minimized" -> MinimizationRequirement.Required(setOf(MinimizationObligation.REDACT_PII))
+                    else -> MinimizationRequirement.MissingOrDenied
+                }
+            }
+        val governedRelease = ProviderInputRelease(zonesAllowLocalToEu, rules, policy)
 
-        val allowMinimized =
-            release.decide(
+        assertEquals(
+            ProviderInputReleaseDecision.AllowRaw(euRawDeployment.deploymentId),
+            governedRelease.decide(
                 workloadZone = ProviderTrustZone.LOCAL,
                 classification = DataClassification.INTERNAL,
-                deployment = euDeployment,
-                minimizationRequired = true,
-                obligations = setOf(MinimizationObligation.REDACT_PII),
-            )
-        assertEquals(
-            ProviderInputReleaseDecision.AllowWithMinimization(
-                euDeployment.deploymentId,
-                setOf(MinimizationObligation.REDACT_PII),
+                deployment = euRawDeployment,
+                expectedDeploymentId = euRawDeployment.deploymentId,
             ),
-            allowMinimized,
         )
 
-        val denied =
-            release.decide(
+        assertEquals(
+            ProviderInputReleaseDecision.AllowWithMinimization(
+                euMinDeployment.deploymentId,
+                setOf(MinimizationObligation.REDACT_PII),
+            ),
+            governedRelease.decide(
+                workloadZone = ProviderTrustZone.LOCAL,
+                classification = DataClassification.INTERNAL,
+                deployment = euMinDeployment,
+                expectedDeploymentId = euMinDeployment.deploymentId,
+            ),
+        )
+
+        assertEquals(
+            ProviderInputReleaseDecision.Deny(globalDeployment.deploymentId, ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED),
+            governedRelease.decide(
                 workloadZone = ProviderTrustZone.LOCAL,
                 classification = DataClassification.INTERNAL,
                 deployment = globalDeployment,
-            )
-        assertEquals(
-            ProviderInputReleaseDecision.Deny(globalDeployment.deploymentId, ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED),
-            denied,
+                expectedDeploymentId = globalDeployment.deploymentId,
+            ),
         )
     }
 
     @Test
-    fun `missing policy facts and inconsistent deployment identity fail closed`() {
+    fun `missing policy facts, omitted minimization policy, and cross-deployment reuse fail closed`() {
         val euDeployment =
             ProviderDeployment(
                 deploymentId = "eu-prod",
@@ -251,17 +265,41 @@ class ProviderInputReleaseTest {
                 trustZone = NamedTrustZone(TrustZoneName("eu-zone"), ProviderTrustZone.EU_CLOUD),
             )
 
+        // Default ProviderInputRelease has no minimization policy -> must fail closed, never AllowRaw
         assertEquals(
             ProviderInputReleaseDecision.Deny(euDeployment.deploymentId, ReleaseRefusal.MISSING_RELEASE_POLICY),
-            release.decide(workloadZone = null, classification = DataClassification.INTERNAL, deployment = euDeployment),
+            release.decide(
+                workloadZone = ProviderTrustZone.LOCAL,
+                classification = DataClassification.INTERNAL,
+                deployment = euDeployment,
+                expectedDeploymentId = euDeployment.deploymentId,
+            ),
+        )
+
+        val rawPolicy = ProviderMinimizationPolicy { _, _ -> MinimizationRequirement.RawPermitted }
+        val governedRelease = ProviderInputRelease(zonesAllowLocalToEu, rules, rawPolicy)
+
+        assertEquals(
+            ProviderInputReleaseDecision.Deny(euDeployment.deploymentId, ReleaseRefusal.MISSING_RELEASE_POLICY),
+            governedRelease.decide(
+                workloadZone = null,
+                classification = DataClassification.INTERNAL,
+                deployment = euDeployment,
+                expectedDeploymentId = euDeployment.deploymentId,
+            ),
         )
         assertEquals(
             ProviderInputReleaseDecision.Deny(euDeployment.deploymentId, ReleaseRefusal.MISSING_RELEASE_POLICY),
-            release.decide(workloadZone = ProviderTrustZone.LOCAL, classification = null, deployment = euDeployment),
+            governedRelease.decide(
+                workloadZone = ProviderTrustZone.LOCAL,
+                classification = null,
+                deployment = euDeployment,
+                expectedDeploymentId = euDeployment.deploymentId,
+            ),
         )
         assertEquals(
             ProviderInputReleaseDecision.Deny(euDeployment.deploymentId, ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY),
-            release.decide(
+            governedRelease.decide(
                 workloadZone = ProviderTrustZone.LOCAL,
                 classification = DataClassification.INTERNAL,
                 deployment = euDeployment,
@@ -270,10 +308,11 @@ class ProviderInputReleaseTest {
         )
         assertEquals(
             ProviderInputReleaseDecision.Deny(null, ReleaseRefusal.INCONSISTENT_DEPLOYMENT_IDENTITY),
-            release.decide(
+            governedRelease.decide(
                 workloadZone = ProviderTrustZone.LOCAL,
                 classification = DataClassification.INTERNAL,
                 deployment = null,
+                expectedDeploymentId = euDeployment.deploymentId,
             ),
         )
     }
@@ -287,17 +326,9 @@ class ProviderInputReleaseTest {
                 trustZone = NamedTrustZone(TrustZoneName("eu-zone"), ProviderTrustZone.EU_CLOUD),
             )
 
-        assertEquals(
-            ProviderInputReleaseDecision.Deny(euDeployment.deploymentId, ReleaseRefusal.MISSING_RELEASE_POLICY),
-            release.decide(
-                workloadZone = ProviderTrustZone.LOCAL,
-                classification = DataClassification.INTERNAL,
-                deployment = euDeployment,
-                minimizationRequired = true,
-                obligations = emptySet(),
-            ),
-        )
-
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            MinimizationRequirement.Required(emptySet())
+        }
         org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
             ProviderInputReleaseDecision.AllowWithMinimization(euDeployment.deploymentId, emptySet())
         }

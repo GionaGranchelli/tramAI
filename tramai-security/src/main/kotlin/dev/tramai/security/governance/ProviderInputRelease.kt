@@ -34,6 +34,8 @@ import dev.tramai.security.ProviderTrustZone
 class ProviderInputRelease(
     private val trustZonePolicy: TrustZonePolicy = TrustZonePolicy(),
     private val rules: Map<DataClassification, ClassificationRoutingRule> = emptyMap(),
+    private val minimizationPolicy: ProviderMinimizationPolicy =
+        ProviderMinimizationPolicy { _, _ -> MinimizationRequirement.MissingOrDenied },
 ) {
     /**
      * True only when the zones are compatible AND the classification's rule
@@ -75,18 +77,17 @@ class ProviderInputRelease(
         }
 
     /**
-     * Evaluates the explicit data-release decision for one selected [deployment].
+     * Evaluates the explicit data-release decision for one selected [deployment]
+     * against [expectedDeploymentId] and the authoritative [minimizationPolicy].
      *
-     * Fails closed on missing or inconsistent facts, and never downgrades a
-     * minimization obligation to [ProviderInputReleaseDecision.AllowRaw].
+     * Fails closed on missing or inconsistent facts, and never defaults missing
+     * minimization policy to [ProviderInputReleaseDecision.AllowRaw].
      */
     fun decide(
         workloadZone: ProviderTrustZone?,
         classification: DataClassification?,
         deployment: ProviderDeployment?,
-        expectedDeploymentId: String? = deployment?.deploymentId,
-        minimizationRequired: Boolean = false,
-        obligations: Set<MinimizationObligation> = emptySet(),
+        expectedDeploymentId: String?,
     ): ProviderInputReleaseDecision {
         if (deployment == null || expectedDeploymentId.isNullOrBlank() || deployment.deploymentId != expectedDeploymentId) {
             return ProviderInputReleaseDecision.Deny(
@@ -107,20 +108,58 @@ class ProviderInputRelease(
                 refusal = baseRefusal,
             )
         }
-        if (minimizationRequired && obligations.isEmpty()) {
-            return ProviderInputReleaseDecision.Deny(
-                deploymentId = deployment.deploymentId,
-                refusal = ReleaseRefusal.MISSING_RELEASE_POLICY,
-            )
+        return when (val requirement = minimizationPolicy.resolve(classification, deployment)) {
+            MinimizationRequirement.MissingOrDenied -> {
+                ProviderInputReleaseDecision.Deny(
+                    deploymentId = deployment.deploymentId,
+                    refusal = ReleaseRefusal.MISSING_RELEASE_POLICY,
+                )
+            }
+
+            MinimizationRequirement.RawPermitted -> {
+                ProviderInputReleaseDecision.AllowRaw(deploymentId = deployment.deploymentId)
+            }
+
+            is MinimizationRequirement.Required -> {
+                ProviderInputReleaseDecision.AllowWithMinimization(
+                    deploymentId = deployment.deploymentId,
+                    obligations = requirement.obligations,
+                )
+            }
         }
-        if (minimizationRequired || obligations.isNotEmpty()) {
-            return ProviderInputReleaseDecision.AllowWithMinimization(
-                deploymentId = deployment.deploymentId,
-                obligations = obligations,
-            )
-        }
-        return ProviderInputReleaseDecision.AllowRaw(deploymentId = deployment.deploymentId)
     }
+}
+
+/**
+ * Authoritative policy source for provider-input minimization obligations.
+ */
+fun interface ProviderMinimizationPolicy {
+    fun resolve(
+        classification: DataClassification,
+        deployment: ProviderDeployment,
+    ): MinimizationRequirement
+}
+
+/**
+ * Authoritative minimization requirement for a (classification, deployment) pair.
+ */
+sealed interface MinimizationRequirement {
+    /** Explicit policy permitting raw input without minimization. */
+    data object RawPermitted : MinimizationRequirement
+
+    /** Explicit policy requiring all [obligations] to be satisfied before release. */
+    data class Required(
+        val obligations: Set<MinimizationObligation>,
+    ) : MinimizationRequirement {
+        init {
+            require(obligations.isNotEmpty()) {
+                "MinimizationRequirement.Required must declare at least one MinimizationObligation"
+            }
+        }
+    }
+
+    /** Missing, conflicting, or insufficient release policy (fails closed). */
+    data object MissingOrDenied : MinimizationRequirement
 }
 
 /**
