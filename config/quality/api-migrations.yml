@@ -579,3 +579,15 @@ migrations:
       Callers adopting ProviderInputRelease.decide(...) must supply ProviderMinimizationPolicy
       and an explicit expectedDeploymentId.
 
+  - module: ":tramai-security"
+    fromSha256: "eb848b29c7396bc7c929d923b19b66ddc376c1081484aeba2dd118ebe043b757"
+    toSha256: "26deb6d550b9b71fcd8bc552c719fbe2f2af77611dabdfd9003cf21cc15b937f"
+    targetVersion: "0.7.0"
+    rationale: >-
+      TASK-0.7.0-P0-A2: add ProviderInputProjector, ObligationMinimizer, MinimizationOutcome,
+      ProjectionMetadata, ProviderInputProjectionResult (Projected, Refused), and
+      ProjectionRefusal. Additive only: no existing public signatures or descriptors changed;
+      runtime transport enforcement remains deferred to P0-A3.
+    migration: >-
+      No consumer action required: additive projection types only.
+

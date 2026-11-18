@@ -798,6 +798,19 @@ public final class dev/tramai/security/governance/MinimizationObligation : java/
 	public static fun values ()[Ldev/tramai/security/governance/MinimizationObligation;
 }
 
+public final class dev/tramai/security/governance/MinimizationOutcome {
+	public fun <init> (Ljava/lang/String;I)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun copy (Ljava/lang/String;I)Ldev/tramai/security/governance/MinimizationOutcome;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/MinimizationOutcome;Ljava/lang/String;IILjava/lang/Object;)Ldev/tramai/security/governance/MinimizationOutcome;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMinimizedText ()Ljava/lang/String;
+	public final fun getRedactionCount ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public abstract interface class dev/tramai/security/governance/MinimizationRequirement {
 }
 
@@ -836,6 +849,30 @@ public final class dev/tramai/security/governance/NamedTrustZone {
 	public fun toString ()Ljava/lang/String;
 }
 
+public abstract interface class dev/tramai/security/governance/ObligationMinimizer {
+	public abstract fun minimize (Ljava/lang/String;)Ldev/tramai/security/governance/MinimizationOutcome;
+}
+
+public final class dev/tramai/security/governance/ProjectionMetadata {
+	public fun <init> (Ljava/util/Set;I)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAppliedObligations ()Ljava/util/Set;
+	public final fun getRedactionCount ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/ProjectionRefusal : java/lang/Enum {
+	public static final field DEPLOYMENT_MISMATCH Ldev/tramai/security/governance/ProjectionRefusal;
+	public static final field MISSING_OBLIGATION_HANDLER Ldev/tramai/security/governance/ProjectionRefusal;
+	public static final field RELEASE_DENIED Ldev/tramai/security/governance/ProjectionRefusal;
+	public static final field TRANSFORMATION_FAILED Ldev/tramai/security/governance/ProjectionRefusal;
+	public static final field UNSUPPORTED_CONTENT_PART Ldev/tramai/security/governance/ProjectionRefusal;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/ProjectionRefusal;
+	public static fun values ()[Ldev/tramai/security/governance/ProjectionRefusal;
+}
+
 public final class dev/tramai/security/governance/ProviderCandidate {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/ProviderDeployment;)V
 	public final fun component1 ()Ljava/lang/String;
@@ -864,6 +901,45 @@ public final class dev/tramai/security/governance/ProviderDeployment {
 	public final fun getTrustZone ()Ldev/tramai/security/governance/NamedTrustZone;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/security/governance/ProviderInputProjectionResult {
+	public abstract fun getDeploymentId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/ProviderInputProjectionResult$Projected : dev/tramai/security/governance/ProviderInputProjectionResult {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/model/ModelRequest;Ldev/tramai/security/governance/ProjectionMetadata;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/core/model/ModelRequest;
+	public final fun component3 ()Ldev/tramai/security/governance/ProjectionMetadata;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/model/ModelRequest;Ldev/tramai/security/governance/ProjectionMetadata;)Ldev/tramai/security/governance/ProviderInputProjectionResult$Projected;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/ProviderInputProjectionResult$Projected;Ljava/lang/String;Ldev/tramai/core/model/ModelRequest;Ldev/tramai/security/governance/ProjectionMetadata;ILjava/lang/Object;)Ldev/tramai/security/governance/ProviderInputProjectionResult$Projected;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getDeploymentId ()Ljava/lang/String;
+	public final fun getMetadata ()Ldev/tramai/security/governance/ProjectionMetadata;
+	public final fun getProviderBoundRequest ()Ldev/tramai/core/model/ModelRequest;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/ProviderInputProjectionResult$Refused : dev/tramai/security/governance/ProviderInputProjectionResult {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/security/governance/ProjectionRefusal;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/security/governance/ProjectionRefusal;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/security/governance/ProjectionRefusal;)Ldev/tramai/security/governance/ProviderInputProjectionResult$Refused;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/ProviderInputProjectionResult$Refused;Ljava/lang/String;Ldev/tramai/security/governance/ProjectionRefusal;ILjava/lang/Object;)Ldev/tramai/security/governance/ProviderInputProjectionResult$Refused;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getDeploymentId ()Ljava/lang/String;
+	public final fun getReason ()Ldev/tramai/security/governance/ProjectionRefusal;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/ProviderInputProjector {
+	public fun <init> ()V
+	public fun <init> (Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun project (Ldev/tramai/core/model/ModelRequest;Ldev/tramai/security/governance/ProviderDeployment;Ldev/tramai/security/governance/ProviderInputReleaseDecision;)Ldev/tramai/security/governance/ProviderInputProjectionResult;
 }
 
 public final class dev/tramai/security/governance/ProviderInputRelease {
