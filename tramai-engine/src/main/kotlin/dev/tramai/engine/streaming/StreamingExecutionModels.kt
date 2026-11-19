@@ -47,6 +47,7 @@ internal data class StreamingCandidate(
     val route: ResolvedProviderRoute,
     val routeIndex: Int,
     val nextRoute: ResolvedProviderRoute?,
+    val releaseEnforcement: ((dev.tramai.core.model.ModelRequest) -> dev.tramai.core.model.ModelRequest)? = null,
 )
 
 /** What admitting the next route produced: the step, and the narrowed envelope it left behind. */
@@ -132,4 +133,5 @@ internal data class StreamingExecutionRoute(
     val conversationId: String?,
     val emitChunk: suspend (StreamChunk) -> Unit,
     val permit: CircuitBreakerPermit,
+    val releaseEnforcement: ((dev.tramai.core.model.ModelRequest) -> dev.tramai.core.model.ModelRequest)? = null,
 )

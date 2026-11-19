@@ -7,6 +7,7 @@ import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelRequest
+import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.core.provider.ResolvedProviderRoute
@@ -16,6 +17,7 @@ import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.ProviderCircuitBreaker
+import dev.tramai.security.ProviderTrustZone
 import dev.tramai.security.governance.CandidateAuthorization
 import dev.tramai.security.governance.CandidateSelection
 import dev.tramai.security.governance.CandidateSelectionDecision
@@ -183,16 +185,13 @@ internal class ProviderExecutionCoordinator(
         }
 
         var lastFailure: Throwable? = null
-        var lastCircuitOpen: CircuitBreakerOpenException? = null
         val candidateSet = walk.governedCandidateSet(request, resolvedRoutes, configuration, run)
         val authorizedSet = candidateSet.authorizedSet
         val configuredOrder = candidateSet.configuredOrder
         val routeOf = candidateSet.routeOf
         var remaining = candidateSet.remaining
-
-        lastCircuitOpen =
+        var lastCircuitOpen =
             walk.announceAvailabilityTransitions(authorizedSet, remaining, configuredOrder, routeOf, request)
-                ?: lastCircuitOpen
 
         while (true) {
             // Configured order is a preference over the viable envelope — never a source of membership.
@@ -222,9 +221,11 @@ internal class ProviderExecutionCoordinator(
                     val permit = (admission as CircuitBreakerAdmission.Allowed).permit
                     try {
                         request.beforeRoute.beforeRoute()
-                        return attemptExecutor.execute(
-                            routeRequest(route, resolvedRoutes.indexOf(route), request, permit),
-                        )
+                        val attempt =
+                            routeRequest(route, resolvedRoutes.indexOf(route), request, permit).copy(
+                                releaseEnforcement = releaseEnforcementFor(candidateSet, candidate),
+                            )
+                        return attemptExecutor.execute(attempt)
                     } catch (error: Throwable) {
                         error.rethrowIfCancellation()
                         lastFailure = error
@@ -420,6 +421,12 @@ private class GovernedCandidateWalk(
             configuredOrder = configuredOrder,
             routeOf = routeOf,
             remaining = viability.viableCandidates(authorized),
+            releaseContext =
+                GovernedReleaseContext(
+                    workloadZone = governanceFacts.trustZone,
+                    effectiveClassification = governanceFacts.classification,
+                    transportGate = ProviderInputTransportGate(configuration),
+                ),
         )
     }
 
@@ -602,10 +609,19 @@ private class GovernedCandidateWalk(
     }
 }
 
+private fun releaseEnforcementFor(
+    candidateSet: GovernedCandidateSet,
+    candidate: ProviderCandidate,
+): (dev.tramai.core.model.ModelRequest) -> dev.tramai.core.model.ModelRequest =
+    { finalRequest ->
+        candidateSet.releaseContext.enforce(finalRequest, candidate.deployment)
+    }
+
 /** What one governed execution may run, in what order, and where each candidate's route is. */
 private class GovernedCandidateSet(
     val authorizedSet: Set<ProviderCandidate>,
     val configuredOrder: List<ProviderCandidate>,
     val routeOf: Map<ProviderCandidate, ResolvedProviderRoute>,
     val remaining: ViableCandidates,
+    val releaseContext: GovernedReleaseContext,
 )

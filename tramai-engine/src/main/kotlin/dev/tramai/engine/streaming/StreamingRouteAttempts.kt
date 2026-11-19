@@ -138,6 +138,7 @@ internal class StreamingRouteAttempts(
                 conversationId = run.conversationId,
                 emitChunk = run.emitChunk,
                 permit = budget.permit,
+                releaseEnforcement = candidate.releaseEnforcement,
             )
         return attemptStreamingRoute(template, handoff, budget, attemptCounter, run.arguments)
     }

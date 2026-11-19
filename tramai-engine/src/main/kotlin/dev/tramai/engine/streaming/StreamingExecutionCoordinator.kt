@@ -386,10 +386,11 @@ internal class StreamingExecutionCoordinator(
                 ?: support.failStreamingCapability(route, request, circuitBreaker)
         val modelRequest = request.operation.toRequest(arguments, modelName = route.effectiveModelName)
         val memoryInjectedRequest = modelRequest.copy(messages = request.memoryMessages)
+        val releasedRequest = enforceStreamingRelease(request, memoryInjectedRequest)
         return collectStreamingRoute(
             StreamingRouteCall(
                 streamCapable,
-                memoryInjectedRequest,
+                releasedRequest,
                 request.operation,
                 route,
                 request.attempt,
@@ -400,6 +401,21 @@ internal class StreamingExecutionCoordinator(
             ),
         )
     }
+
+    private fun enforceStreamingRelease(
+        request: StreamingExecutionRoute,
+        memoryInjectedRequest: ModelRequest,
+    ): ModelRequest =
+        try {
+            request.releaseEnforcement?.invoke(memoryInjectedRequest) ?: memoryInjectedRequest
+        } catch (error: CancellationException) {
+            circuitBreaker.onAbandoned(request.permit)
+            throw error
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            circuitBreaker.onAbandoned(request.permit)
+            throw error
+        }
 
     private suspend fun collectStreamingRoute(call: StreamingRouteCall): StreamingRouteResult {
         val streamCapable = call.streamCapable

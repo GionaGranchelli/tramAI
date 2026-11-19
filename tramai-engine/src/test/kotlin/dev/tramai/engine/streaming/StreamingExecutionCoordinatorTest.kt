@@ -168,6 +168,10 @@ class StreamingExecutionCoordinatorTest {
                     ),
             ),
         trustZonePolicy = TrustZonePolicy(setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL)),
+        minimizationPolicy =
+            dev.tramai.security.governance.ProviderMinimizationPolicy { _, _ ->
+                dev.tramai.security.governance.MinimizationRequirement.RawPermitted
+            },
         deploymentOf = { providerId ->
             if (plan.providers.keys.none { it.value == providerId }) {
                 null

@@ -94,8 +94,10 @@ internal class ProviderAttemptExecutor(
                 // A capability refusal is a pre-call check too: it must run before recording is
                 // armed, or a provider that is never called is written to attempt history.
                 requireVisionSupport(request.provider, request.request)
-                observation = recordingObservation(attempt, request)
-                val sanitized = callProvider(attempt, request, observation)
+                val releasedRequest = request.releaseEnforcement?.invoke(attempt.request) ?: attempt.request
+                val releasedAttempt = attempt.copy(request = releasedRequest)
+                observation = recordingObservation(releasedAttempt, request)
+                val sanitized = callProvider(releasedAttempt, request, observation)
                 observation.onProviderResponse(sanitized)
                 // Synchronous success must reach the breaker symmetrically with the
                 // streaming path: a healthy completion resets the failure history.
@@ -107,6 +109,10 @@ internal class ProviderAttemptExecutor(
                     request.request.model,
                     attempt.approvedModel,
                 )
+            } catch (error: ProviderInputReleaseException) {
+                observation.onCallCompleted(parseSuccess = null)
+                circuitBreaker.onAbandoned(request.permit)
+                throw error
             } catch (error: DlpInspectionException) {
                 observation.onCallCompleted(parseSuccess = null)
                 circuitBreaker.onAbandoned(request.permit)
@@ -298,6 +304,8 @@ internal data class ProviderRetryRequest(
     val invocationId: String,
     /** Governed run the invocation belongs to, when one exists. */
     val governedRun: GovernedRunIdentity? = null,
+    /** Pre-transport release and projection gate for governed executions. */
+    val releaseEnforcement: ((ModelRequest) -> ModelRequest)? = null,
 )
 
 private data class ProviderRetryAttempt(

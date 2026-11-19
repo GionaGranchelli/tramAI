@@ -44,6 +44,7 @@ internal class GovernedProviderEnvelope(
     /** Configured route order: a preference over the envelope, never a source of membership. */
     val configuredOrder: List<ProviderCandidate>,
 ) {
+    lateinit var releaseContext: GovernedReleaseContext
     val selection = CandidateSelection()
 
     /** The exactly one configured route this candidate came from. */
@@ -183,7 +184,14 @@ internal fun governProviderExecution(
         routesByCandidate,
         indexByRoute,
         configuredOrder,
-    )
+    ).apply {
+        releaseContext =
+            GovernedReleaseContext(
+                workloadZone = workload.trustZone,
+                effectiveClassification = workload.classification,
+                transportGate = ProviderInputTransportGate(governed),
+            )
+    }
 }
 
 /** Maps each resolved route to its exact candidate through the route's authoritative deployment. */
