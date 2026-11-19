@@ -15,6 +15,7 @@ import dev.tramai.security.governance.CandidateSelection
 import dev.tramai.security.governance.CandidateSelectionStrategy
 import dev.tramai.security.governance.CandidateViability
 import dev.tramai.security.governance.ProviderCandidate
+import dev.tramai.security.governance.ProviderDeployment
 import dev.tramai.security.governance.ProviderInputRelease
 import dev.tramai.security.governance.ViabilityRefusal
 import dev.tramai.security.governance.ViableCandidates
@@ -46,11 +47,11 @@ internal class GovernedProviderEnvelope(
 ) {
     lateinit var releaseContext: GovernedReleaseContext
     val selection = CandidateSelection()
-    private val deploymentByRoute: Map<ResolvedProviderRoute, dev.tramai.security.governance.ProviderDeployment> =
+    private val deploymentByRoute: Map<ResolvedProviderRoute, ProviderDeployment> =
         routesByCandidate.entries.associate { (candidate, route) -> route to candidate.deployment }
 
     /** The exactly one authorized deployment this route was selected for. */
-    fun deploymentOf(route: ResolvedProviderRoute): dev.tramai.security.governance.ProviderDeployment = deploymentByRoute.getValue(route)
+    fun deploymentOf(route: ResolvedProviderRoute): ProviderDeployment = deploymentByRoute.getValue(route)
 
     /** The exactly one configured route this candidate came from. */
     fun routeOf(candidate: ProviderCandidate): ResolvedProviderRoute = routesByCandidate.getValue(candidate)
