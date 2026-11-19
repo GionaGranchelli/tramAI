@@ -106,6 +106,8 @@ public final class dev/tramai/security/ProviderRoutingConfiguration {
 	public final fun setMinimizationPolicy (Ldev/tramai/security/governance/ProviderMinimizationPolicy;)V
 	public final fun setMinimizers (Ljava/util/Map;)V
 	public fun toString ()Ljava/lang/String;
+	public final fun withMinimization (Ldev/tramai/security/governance/ProviderMinimizationPolicy;Ljava/util/Map;)Ldev/tramai/security/ProviderRoutingConfiguration;
+	public static synthetic fun withMinimization$default (Ldev/tramai/security/ProviderRoutingConfiguration;Ldev/tramai/security/governance/ProviderMinimizationPolicy;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/security/ProviderRoutingConfiguration;
 }
 
 public final class dev/tramai/security/ProviderRoutingConfiguration$Companion {
