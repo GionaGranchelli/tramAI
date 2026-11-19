@@ -1,11 +1,13 @@
 package dev.tramai.security.governance
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolDefinition
 import java.util.Collections
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Deterministic, fail-closed projector that derives a deployment-bound [ModelRequest]
@@ -16,6 +18,8 @@ class ProviderInputProjector(
 ) {
     private val minimizers: Map<MinimizationObligation, ObligationMinimizer> =
         Collections.unmodifiableMap(minimizers.toMap())
+
+    private val jsonMapper = ObjectMapper()
 
     fun project(
         canonicalInput: ModelRequest,
@@ -126,7 +130,9 @@ class ProviderInputProjector(
                         redactionCount = totalRedactions,
                     ),
             )
-        } catch (_: Throwable) {
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
             ProviderInputProjectionResult.Refused(
                 deploymentId = selectedDeployment.deploymentId,
                 reason = ProjectionRefusal.TRANSFORMATION_FAILED,
@@ -165,7 +171,8 @@ class ProviderInputProjector(
         val projectedToolCalls =
             message.toolCalls?.map { call ->
                 val outcome = applyMinimizers(call.argumentsJson, minimizers)
-                count += outcome.redactionCount
+                validateJson(outcome.minimizedText)
+                count = Math.addExact(count, outcome.redactionCount)
                 ToolCall(id = call.id, name = call.name, argumentsJson = outcome.minimizedText)
             }
         return message.copy(
@@ -181,10 +188,17 @@ class ProviderInputProjector(
     ): Pair<ToolDefinition, Int> {
         val descOutcome = applyMinimizers(tool.description, minimizers)
         val schemaOutcome = applyMinimizers(tool.inputSchemaJson, minimizers)
+        validateJson(schemaOutcome.minimizedText)
         return tool.copy(
             description = descOutcome.minimizedText,
             inputSchemaJson = schemaOutcome.minimizedText,
-        ) to (descOutcome.redactionCount + schemaOutcome.redactionCount)
+        ) to Math.addExact(descOutcome.redactionCount, schemaOutcome.redactionCount)
+    }
+
+    private fun validateJson(json: String) {
+        if (json.isNotBlank()) {
+            jsonMapper.readTree(json)
+        }
     }
 
     private fun applyMinimizers(
@@ -195,10 +209,11 @@ class ProviderInputProjector(
         var count = 0
         for (minimizer in minimizers) {
             val outcome = minimizer.minimize(current)
+            check(outcome.inspectionCompleted) { "Minimizer did not complete inspection" }
             current = outcome.minimizedText
-            count += outcome.redactionCount
+            count = Math.addExact(count, outcome.redactionCount)
         }
-        return MinimizationOutcome(minimizedText = current, redactionCount = count)
+        return MinimizationOutcome(minimizedText = current, redactionCount = count, inspectionCompleted = true)
     }
 
     private fun isolateRequest(request: ModelRequest): ModelRequest {
@@ -249,7 +264,17 @@ fun interface ObligationMinimizer {
 data class MinimizationOutcome(
     val minimizedText: String,
     val redactionCount: Int,
-)
+    val inspectionCompleted: Boolean = true,
+) {
+    init {
+        require(redactionCount >= 0) { "redactionCount must be non-negative" }
+    }
+
+    override fun toString(): String =
+        "MinimizationOutcome(" +
+            "redactionCount=$redactionCount, " +
+            "inspectionCompleted=$inspectionCompleted)"
+}
 
 /**
  * Safe, non-sensitive metadata describing a completed projection.
@@ -258,6 +283,10 @@ class ProjectionMetadata(
     appliedObligations: Set<MinimizationObligation>,
     val redactionCount: Int,
 ) {
+    init {
+        require(redactionCount >= 0) { "redactionCount must be non-negative" }
+    }
+
     val appliedObligations: Set<MinimizationObligation> =
         Collections.unmodifiableSet(appliedObligations.toSet())
 
@@ -286,7 +315,9 @@ sealed interface ProviderInputProjectionResult {
         override val deploymentId: String,
         val providerBoundRequest: ModelRequest,
         val metadata: ProjectionMetadata,
-    ) : ProviderInputProjectionResult
+    ) : ProviderInputProjectionResult {
+        override fun toString(): String = "Projected(deploymentId=$deploymentId, metadata=$metadata)"
+    }
 
     /** Projection was refused; no provider-bound request is produced. */
     data class Refused(

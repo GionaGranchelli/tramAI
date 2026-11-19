@@ -10,9 +10,11 @@ import dev.tramai.security.ProviderTrustZone
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import kotlin.coroutines.cancellation.CancellationException
 
 class ProviderInputProjectorTest {
     private val euDeployment =
@@ -229,6 +231,114 @@ class ProviderInputProjectorTest {
                 ProjectionRefusal.UNSUPPORTED_CONTENT_PART,
             ),
             result,
+        )
+    }
+
+    @Test
+    fun `cancellation exception propagates as exact instance`() {
+        val cancelled = CancellationException("cancelled-by-caller")
+        val projector =
+            ProviderInputProjector(
+                mapOf(MinimizationObligation.REDACT_PII to ObligationMinimizer { throw cancelled }),
+            )
+        val request = ModelRequest(model = "gpt-4o", messages = listOf(Message.text("hello")))
+        val decision =
+            ProviderInputReleaseDecision.AllowWithMinimization(
+                euDeployment.deploymentId,
+                setOf(MinimizationObligation.REDACT_PII),
+            )
+
+        val thrown = assertThrows<CancellationException> { projector.project(request, euDeployment, decision) }
+        assertSame(cancelled, thrown)
+    }
+
+    @Test
+    fun `incomplete inspection fails closed`() {
+        val unverifiedMinimizer =
+            ObligationMinimizer { text ->
+                MinimizationOutcome(text, redactionCount = 0, inspectionCompleted = false)
+            }
+        val projector = ProviderInputProjector(mapOf(MinimizationObligation.REDACT_SECRETS to unverifiedMinimizer))
+        val request = ModelRequest(model = "gpt-4o", messages = listOf(Message.text("sk-secret-12345")))
+        val decision =
+            ProviderInputReleaseDecision.AllowWithMinimization(
+                euDeployment.deploymentId,
+                setOf(MinimizationObligation.REDACT_SECRETS),
+            )
+
+        val result = projector.project(request, euDeployment, decision)
+        assertEquals(
+            ProviderInputProjectionResult.Refused(euDeployment.deploymentId, ProjectionRefusal.TRANSFORMATION_FAILED),
+            result,
+        )
+    }
+
+    @Test
+    fun `malformed json from minimizer fails closed`() {
+        val corruptingMinimizer =
+            ObligationMinimizer { _ ->
+                MinimizationOutcome("{not-valid-json", redactionCount = 1)
+            }
+        val projector = ProviderInputProjector(mapOf(MinimizationObligation.REDACT_PII to corruptingMinimizer))
+        val request =
+            ModelRequest(
+                model = "gpt-4o",
+                messages =
+                    listOf(
+                        Message(
+                            role = MessageRole.ASSISTANT,
+                            content = "",
+                            toolCalls = listOf(ToolCall("call-1", "lookup", """{"email":"alice@example.com"}""")),
+                        ),
+                    ),
+            )
+        val decision =
+            ProviderInputReleaseDecision.AllowWithMinimization(
+                euDeployment.deploymentId,
+                setOf(MinimizationObligation.REDACT_PII),
+            )
+
+        val result = projector.project(request, euDeployment, decision)
+        assertEquals(
+            ProviderInputProjectionResult.Refused(euDeployment.deploymentId, ProjectionRefusal.TRANSFORMATION_FAILED),
+            result,
+        )
+    }
+
+    @Test
+    fun `diagnostic toString is content-free and negative or overflowing counts are rejected`() {
+        val outcome = MinimizationOutcome("secret-payload", redactionCount = 1)
+        assertFalse(outcome.toString().contains("secret-payload"))
+
+        val projector = ProviderInputProjector()
+        val request = ModelRequest(model = "gpt-4o", messages = listOf(Message.text("secret-payload")))
+        val projected =
+            projector.project(
+                request,
+                euDeployment,
+                ProviderInputReleaseDecision.AllowRaw(euDeployment.deploymentId),
+            ) as ProviderInputProjectionResult.Projected
+        assertFalse(projected.toString().contains("secret-payload"))
+
+        assertThrows<IllegalArgumentException> { MinimizationOutcome("x", redactionCount = -1) }
+        assertThrows<IllegalArgumentException> { ProjectionMetadata(emptySet(), redactionCount = -1) }
+
+        val overflowingMinimizer =
+            ObligationMinimizer { text -> MinimizationOutcome(text, redactionCount = Int.MAX_VALUE) }
+        val overflowProjector = ProviderInputProjector(mapOf(MinimizationObligation.REDACT_PII to overflowingMinimizer))
+        val overflowRequest = ModelRequest(model = "gpt-4o", messages = listOf(Message.text("a"), Message.text("b")))
+        val overflowResult =
+            overflowProjector.project(
+                overflowRequest,
+                euDeployment,
+                ProviderInputReleaseDecision.AllowWithMinimization(
+                    euDeployment.deploymentId,
+                    setOf(MinimizationObligation.REDACT_PII),
+                ),
+            )
+        assertEquals(
+            ProviderInputProjectionResult.Refused(euDeployment.deploymentId, ProjectionRefusal.TRANSFORMATION_FAILED),
+            overflowResult,
         )
     }
 }
