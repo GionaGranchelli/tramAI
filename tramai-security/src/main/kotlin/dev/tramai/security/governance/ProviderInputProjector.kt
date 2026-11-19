@@ -1,6 +1,7 @@
 package dev.tramai.security.governance
 
 import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
@@ -226,12 +227,7 @@ class ProviderInputProjector(
         require(transformed.isNotBlank()) { "Transformed JSON must not be blank" }
         val originalTree = jsonMapper.readTree(original)
         val transformedTree = jsonMapper.readTree(transformed)
-        if (originalTree.isObject) {
-            require(transformedTree.isObject) { "Transformed JSON must remain an object" }
-            val originalKeys = originalTree.fieldNames().asSequence().toSet()
-            val transformedKeys = transformedTree.fieldNames().asSequence().toSet()
-            require(transformedKeys == originalKeys) { "Transformed JSON object keys must be preserved" }
-        }
+        assertJsonStructurePreserved(originalTree, transformedTree)
     }
 
     private fun applyMinimizers(
@@ -281,6 +277,32 @@ class ProviderInputProjector(
             messages = Collections.unmodifiableList(isolatedMessages),
             tools = isolatedTools?.let { Collections.unmodifiableList(it) },
         )
+    }
+}
+
+private fun assertJsonStructurePreserved(
+    original: JsonNode,
+    transformed: JsonNode,
+) {
+    require(transformed.nodeType == original.nodeType) {
+        "Transformed JSON node type must be preserved"
+    }
+    when {
+        original.isObject -> {
+            val originalKeys = original.fieldNames().asSequence().toSet()
+            val transformedKeys = transformed.fieldNames().asSequence().toSet()
+            require(transformedKeys == originalKeys) { "Transformed JSON object keys must be preserved" }
+            for (key in originalKeys) {
+                assertJsonStructurePreserved(original.get(key), transformed.get(key))
+            }
+        }
+
+        original.isArray -> {
+            require(transformed.size() == original.size()) { "Transformed JSON array size must be preserved" }
+            for (index in 0 until original.size()) {
+                assertJsonStructurePreserved(original.get(index), transformed.get(index))
+            }
+        }
     }
 }
 

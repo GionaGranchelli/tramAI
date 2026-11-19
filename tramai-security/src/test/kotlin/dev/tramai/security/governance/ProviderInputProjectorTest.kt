@@ -409,4 +409,40 @@ class ProviderInputProjectorTest {
             )
         }
     }
+
+    @Test
+    fun `nested json schema key removal fails closed`() {
+        val strippingMinimizer =
+            ObligationMinimizer { _ ->
+                MinimizationOutcome(
+                    """{"type":"object","properties":{}}""",
+                    redactionCount = 1,
+                    inspectionCompleted = true,
+                )
+            }
+        val projector = ProviderInputProjector(mapOf(MinimizationObligation.REDACT_PII to strippingMinimizer))
+        val request =
+            ModelRequest(
+                model = "gpt-4o",
+                messages = listOf(Message.text("hello")),
+                tools =
+                    listOf(
+                        ToolDefinition(
+                            name = "lookup",
+                            description = "ok",
+                            inputSchemaJson = """{"type":"object","properties":{"email":{"type":"string"}}}""",
+                        ),
+                    ),
+            )
+        val decision =
+            ProviderInputReleaseDecision.AllowWithMinimization(
+                euDeployment.deploymentId,
+                setOf(MinimizationObligation.REDACT_PII),
+            )
+
+        assertEquals(
+            ProviderInputProjectionResult.Refused(euDeployment.deploymentId, ProjectionRefusal.TRANSFORMATION_FAILED),
+            projector.project(request, euDeployment, decision),
+        )
+    }
 }
