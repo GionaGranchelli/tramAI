@@ -34,14 +34,14 @@ class ProviderInputProjectorTest {
         ObligationMinimizer { text ->
             val replaced = text.replace("alice@example.com", "[REDACTED_EMAIL]")
             val count = if (replaced != text) 1 else 0
-            MinimizationOutcome(replaced, count)
+            MinimizationOutcome(replaced, count, inspectionCompleted = true)
         }
 
     private val secretMinimizer =
         ObligationMinimizer { text ->
             val replaced = text.replace("sk-secret-12345", "[REDACTED_SECRET]")
             val count = if (replaced != text) 1 else 0
-            MinimizationOutcome(replaced, count)
+            MinimizationOutcome(replaced, count, inspectionCompleted = true)
         }
 
     @Test
@@ -274,40 +274,46 @@ class ProviderInputProjectorTest {
     }
 
     @Test
-    fun `malformed json from minimizer fails closed`() {
-        val corruptingMinimizer =
-            ObligationMinimizer { _ ->
-                MinimizationOutcome("{not-valid-json", redactionCount = 1)
-            }
-        val projector = ProviderInputProjector(mapOf(MinimizationObligation.REDACT_PII to corruptingMinimizer))
-        val request =
-            ModelRequest(
-                model = "gpt-4o",
-                messages =
-                    listOf(
-                        Message(
-                            role = MessageRole.ASSISTANT,
-                            content = "",
-                            toolCalls = listOf(ToolCall("call-1", "lookup", """{"email":"alice@example.com"}""")),
+    fun `empty, scalar, trailing-token, or malformed json from minimizer fails closed`() {
+        val badOutputs = listOf("{not-valid-json", "", "   ", "123", "{} extra")
+        for (bad in badOutputs) {
+            val corruptingMinimizer =
+                ObligationMinimizer { _ ->
+                    MinimizationOutcome(bad, redactionCount = 1, inspectionCompleted = true)
+                }
+            val projector = ProviderInputProjector(mapOf(MinimizationObligation.REDACT_PII to corruptingMinimizer))
+            val request =
+                ModelRequest(
+                    model = "gpt-4o",
+                    messages =
+                        listOf(
+                            Message(
+                                role = MessageRole.ASSISTANT,
+                                content = "",
+                                toolCalls = listOf(ToolCall("call-1", "lookup", """{"email":"alice@example.com"}""")),
+                            ),
                         ),
-                    ),
-            )
-        val decision =
-            ProviderInputReleaseDecision.AllowWithMinimization(
-                euDeployment.deploymentId,
-                setOf(MinimizationObligation.REDACT_PII),
-            )
+                )
+            val decision =
+                ProviderInputReleaseDecision.AllowWithMinimization(
+                    euDeployment.deploymentId,
+                    setOf(MinimizationObligation.REDACT_PII),
+                )
 
-        val result = projector.project(request, euDeployment, decision)
-        assertEquals(
-            ProviderInputProjectionResult.Refused(euDeployment.deploymentId, ProjectionRefusal.TRANSFORMATION_FAILED),
-            result,
-        )
+            val result = projector.project(request, euDeployment, decision)
+            assertEquals(
+                ProviderInputProjectionResult.Refused(
+                    euDeployment.deploymentId,
+                    ProjectionRefusal.TRANSFORMATION_FAILED,
+                ),
+                result,
+            )
+        }
     }
 
     @Test
     fun `diagnostic toString is content-free and negative or overflowing counts are rejected`() {
-        val outcome = MinimizationOutcome("secret-payload", redactionCount = 1)
+        val outcome = MinimizationOutcome("secret-payload", redactionCount = 1, inspectionCompleted = true)
         assertFalse(outcome.toString().contains("secret-payload"))
 
         val projector = ProviderInputProjector()
@@ -320,13 +326,21 @@ class ProviderInputProjectorTest {
             ) as ProviderInputProjectionResult.Projected
         assertFalse(projected.toString().contains("secret-payload"))
 
-        assertThrows<IllegalArgumentException> { MinimizationOutcome("x", redactionCount = -1) }
+        assertThrows<IllegalArgumentException> {
+            MinimizationOutcome("x", redactionCount = -1, inspectionCompleted = true)
+        }
         assertThrows<IllegalArgumentException> { ProjectionMetadata(emptySet(), redactionCount = -1) }
 
         val overflowingMinimizer =
-            ObligationMinimizer { text -> MinimizationOutcome(text, redactionCount = Int.MAX_VALUE) }
+            ObligationMinimizer { text ->
+                MinimizationOutcome(text, redactionCount = Int.MAX_VALUE, inspectionCompleted = true)
+            }
         val overflowProjector = ProviderInputProjector(mapOf(MinimizationObligation.REDACT_PII to overflowingMinimizer))
-        val overflowRequest = ModelRequest(model = "gpt-4o", messages = listOf(Message.text("a"), Message.text("b")))
+        val overflowRequest =
+            ModelRequest(
+                model = "gpt-4o",
+                messages = listOf(Message.text("a"), Message.text("b"), Message.text("c")),
+            )
         val overflowResult =
             overflowProjector.project(
                 overflowRequest,

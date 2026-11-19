@@ -1,5 +1,6 @@
 package dev.tramai.security.governance
 
+import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
@@ -19,7 +20,8 @@ class ProviderInputProjector(
     private val minimizers: Map<MinimizationObligation, ObligationMinimizer> =
         Collections.unmodifiableMap(minimizers.toMap())
 
-    private val jsonMapper = ObjectMapper()
+    private val jsonMapper =
+        ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
 
     fun project(
         canonicalInput: ModelRequest,
@@ -107,13 +109,13 @@ class ProviderInputProjector(
             val projectedMessages =
                 canonicalInput.messages.map { message ->
                     val (projectedMessage, count) = projectMessage(message, activeMinimizers)
-                    totalRedactions += count
+                    totalRedactions = Math.addExact(totalRedactions, count)
                     projectedMessage
                 }
             val projectedTools =
                 canonicalInput.tools?.map { tool ->
                     val (projectedTool, count) = projectToolDefinition(tool, activeMinimizers)
-                    totalRedactions += count
+                    totalRedactions = Math.addExact(totalRedactions, count)
                     projectedTool
                 }
             val isolated =
@@ -147,7 +149,7 @@ class ProviderInputProjector(
         val projectedContent =
             if (message.content.isNotEmpty()) {
                 val outcome = applyMinimizers(message.content, minimizers)
-                count += outcome.redactionCount
+                count = Math.addExact(count, outcome.redactionCount)
                 outcome.minimizedText
             } else {
                 message.content
@@ -157,7 +159,7 @@ class ProviderInputProjector(
                 when (part) {
                     is ContentPart.TextPart -> {
                         val outcome = applyMinimizers(part.text, minimizers)
-                        count += outcome.redactionCount
+                        count = Math.addExact(count, outcome.redactionCount)
                         ContentPart.TextPart(outcome.minimizedText)
                     }
 
@@ -171,7 +173,7 @@ class ProviderInputProjector(
         val projectedToolCalls =
             message.toolCalls?.map { call ->
                 val outcome = applyMinimizers(call.argumentsJson, minimizers)
-                validateJson(outcome.minimizedText)
+                validateJson(call.argumentsJson, outcome.minimizedText)
                 count = Math.addExact(count, outcome.redactionCount)
                 ToolCall(id = call.id, name = call.name, argumentsJson = outcome.minimizedText)
             }
@@ -188,16 +190,24 @@ class ProviderInputProjector(
     ): Pair<ToolDefinition, Int> {
         val descOutcome = applyMinimizers(tool.description, minimizers)
         val schemaOutcome = applyMinimizers(tool.inputSchemaJson, minimizers)
-        validateJson(schemaOutcome.minimizedText)
+        validateJson(tool.inputSchemaJson, schemaOutcome.minimizedText)
         return tool.copy(
             description = descOutcome.minimizedText,
             inputSchemaJson = schemaOutcome.minimizedText,
         ) to Math.addExact(descOutcome.redactionCount, schemaOutcome.redactionCount)
     }
 
-    private fun validateJson(json: String) {
-        if (json.isNotBlank()) {
-            jsonMapper.readTree(json)
+    private fun validateJson(
+        original: String,
+        transformed: String,
+    ) {
+        if (original.isNotBlank()) {
+            require(transformed.isNotBlank()) { "Transformed JSON must not be blank" }
+            val originalTree = jsonMapper.readTree(original)
+            val transformedTree = jsonMapper.readTree(transformed)
+            if (originalTree.isObject) {
+                require(transformedTree.isObject) { "Transformed JSON must remain an object" }
+            }
         }
     }
 
@@ -253,6 +263,9 @@ class ProviderInputProjector(
 
 /**
  * Deterministic text minimizer for a single [MinimizationObligation].
+ *
+ * Trusted-computing-base contract: only policy-backed, verified minimizer
+ * implementations should be registered.
  */
 fun interface ObligationMinimizer {
     fun minimize(text: String): MinimizationOutcome
@@ -264,7 +277,7 @@ fun interface ObligationMinimizer {
 data class MinimizationOutcome(
     val minimizedText: String,
     val redactionCount: Int,
-    val inspectionCompleted: Boolean = true,
+    val inspectionCompleted: Boolean,
 ) {
     init {
         require(redactionCount >= 0) { "redactionCount must be non-negative" }

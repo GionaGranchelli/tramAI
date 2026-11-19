@@ -581,7 +581,7 @@ migrations:
 
   - module: ":tramai-security"
     fromSha256: "eb848b29c7396bc7c929d923b19b66ddc376c1081484aeba2dd118ebe043b757"
-    toSha256: "2f61ff9da8f97bd3e19d6bee59b178076adaafa8538208ad94dfb3f4f13fa0da"
+    toSha256: "6e242530d3b1d5e6c4ef73697733cb4beb74ad7dfae589741231e33af9b4d686"
     targetVersion: "0.7.0"
     rationale: >-
       TASK-0.7.0-P0-A2: add ProviderInputProjector, ObligationMinimizer, MinimizationOutcome,
