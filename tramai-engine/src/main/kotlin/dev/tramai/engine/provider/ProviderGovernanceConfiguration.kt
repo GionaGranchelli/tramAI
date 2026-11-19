@@ -53,6 +53,8 @@ internal class ProviderGovernanceConfiguration(
                     rules = routing.rules,
                     trustZonePolicy = TrustZonePolicy(routing.allowedZonePairs),
                     deploymentOf = { routing.providerDeployments[it] },
+                    minimizationPolicy = routing.minimizationPolicy,
+                    minimizers = routing.minimizers,
                 )
             }
         }

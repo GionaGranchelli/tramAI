@@ -386,11 +386,10 @@ internal class StreamingExecutionCoordinator(
                 ?: support.failStreamingCapability(route, request, circuitBreaker)
         val modelRequest = request.operation.toRequest(arguments, modelName = route.effectiveModelName)
         val memoryInjectedRequest = modelRequest.copy(messages = request.memoryMessages)
-        val releasedRequest = enforceStreamingRelease(request, memoryInjectedRequest)
         return collectStreamingRoute(
             StreamingRouteCall(
                 streamCapable,
-                releasedRequest,
+                memoryInjectedRequest,
                 request.operation,
                 route,
                 request.attempt,
@@ -398,24 +397,10 @@ internal class StreamingExecutionCoordinator(
                 request.tokenBudgetTracker,
                 request.emitChunk,
                 request.permit,
+                request.releaseEnforcement,
             ),
         )
     }
-
-    private fun enforceStreamingRelease(
-        request: StreamingExecutionRoute,
-        memoryInjectedRequest: ModelRequest,
-    ): ModelRequest =
-        try {
-            request.releaseEnforcement?.invoke(memoryInjectedRequest) ?: memoryInjectedRequest
-        } catch (error: CancellationException) {
-            circuitBreaker.onAbandoned(request.permit)
-            throw error
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            circuitBreaker.onAbandoned(request.permit)
-            throw error
-        }
 
     private suspend fun collectStreamingRoute(call: StreamingRouteCall): StreamingRouteResult {
         val streamCapable = call.streamCapable
@@ -446,15 +431,20 @@ internal class StreamingExecutionCoordinator(
                 },
             )
         return try {
+            val releasedRequest = call.releaseEnforcement?.invoke(interceptedRequest) ?: interceptedRequest
             collectStreamingRouteChunks(
                 streamCapable,
-                interceptedRequest,
+                releasedRequest,
                 support.timeoutMillisOf(request, operation),
                 ctx,
             )
             error("Streaming route completed without a terminal result")
         } catch (finished: StreamingRouteFinished) {
             finished.result
+        } catch (error: dev.tramai.engine.provider.ProviderInputReleaseException) {
+            observation.onCallCompleted(parseSuccess = null)
+            circuitBreaker.onAbandoned(permit)
+            throw error
         } catch (error: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
             val timeout = support.streamingTimeout(route, operation, request, error)
@@ -482,6 +472,7 @@ internal class StreamingExecutionCoordinator(
         val tokenBudgetTracker: TokenBudgetTracker,
         val emitChunk: suspend (StreamChunk) -> Unit,
         val permit: CircuitBreakerPermit,
+        val releaseEnforcement: ((ModelRequest) -> ModelRequest)? = null,
     )
 
     private data class StreamingRouteContext(

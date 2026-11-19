@@ -591,3 +591,16 @@ migrations:
     migration: >-
       No consumer action required: additive projection types only.
 
+  - module: ":tramai-security"
+    fromSha256: "6e242530d3b1d5e6c4ef73697733cb4beb74ad7dfae589741231e33af9b4d686"
+    toSha256: "ee61d9c0797aff16c6e2b554323d691a3fc5c9f972692a77b099cc65e76cdd01"
+    targetVersion: "0.7.0"
+    rationale: >-
+      TASK-0.7.0-P0-A3 (PR #601): add minimizationPolicy and minimizers properties on
+      ProviderRoutingConfiguration (defaulting to MissingOrDenied and emptyMap()) so
+      production governed routing can explicitly authorize AllowRaw or mandatory minimization
+      while preserving all existing constructor/copy/componentN descriptors.
+    migration: >-
+      No consumer action required: existing ProviderRoutingConfiguration callers remain
+      binary- and source-compatible.
+

@@ -342,8 +342,7 @@ internal class StreamingGovernedWalk(
     ): StreamingCandidate =
         candidate.copy(
             releaseEnforcement = { finalRequest ->
-                val deployment = governance!!.deploymentOf(candidate.route.providerName)!!
-                envelope.releaseContext.enforce(finalRequest, deployment)
+                envelope.releaseContext.enforce(finalRequest, envelope.deploymentOf(candidate.route))
             },
         )
 }

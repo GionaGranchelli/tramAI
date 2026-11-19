@@ -46,6 +46,11 @@ internal class GovernedProviderEnvelope(
 ) {
     lateinit var releaseContext: GovernedReleaseContext
     val selection = CandidateSelection()
+    private val deploymentByRoute: Map<ResolvedProviderRoute, dev.tramai.security.governance.ProviderDeployment> =
+        routesByCandidate.entries.associate { (candidate, route) -> route to candidate.deployment }
+
+    /** The exactly one authorized deployment this route was selected for. */
+    fun deploymentOf(route: ResolvedProviderRoute): dev.tramai.security.governance.ProviderDeployment = deploymentByRoute.getValue(route)
 
     /** The exactly one configured route this candidate came from. */
     fun routeOf(candidate: ProviderCandidate): ResolvedProviderRoute = routesByCandidate.getValue(candidate)

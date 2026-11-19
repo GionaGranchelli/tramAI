@@ -149,4 +149,16 @@ data class ProviderRoutingConfiguration(
             )
         }
     }
+
+    /** Authoritative minimization policy for governed provider-input release (fails closed by default). */
+    var minimizationPolicy: dev.tramai.security.governance.ProviderMinimizationPolicy =
+        dev.tramai.security.governance.ProviderMinimizationPolicy { _, _ ->
+            dev.tramai.security.governance.MinimizationRequirement.MissingOrDenied
+        }
+
+    /** Registered obligation minimizers for governed provider-input projection. */
+    var minimizers: Map<
+        dev.tramai.security.governance.MinimizationObligation,
+        dev.tramai.security.governance.ObligationMinimizer,
+    > = emptyMap()
 }
