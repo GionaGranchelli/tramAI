@@ -274,8 +274,8 @@ class ProviderInputProjectorTest {
     }
 
     @Test
-    fun `empty, scalar, trailing-token, or malformed json from minimizer fails closed`() {
-        val badOutputs = listOf("{not-valid-json", "", "   ", "123", "{} extra")
+    fun `empty, scalar, trailing-token, dropped-key, blank-to-nonblank, or malformed json fails closed`() {
+        val badOutputs = listOf("{not-valid-json", "", "   ", "123", "{} extra", "{}")
         for (bad in badOutputs) {
             val corruptingMinimizer =
                 ObligationMinimizer { _ ->
@@ -354,5 +354,59 @@ class ProviderInputProjectorTest {
             ProviderInputProjectionResult.Refused(euDeployment.deploymentId, ProjectionRefusal.TRANSFORMATION_FAILED),
             overflowResult,
         )
+    }
+
+    @Test
+    fun `sensitive canaries in tool or message identifiers fail closed`() {
+        val projector = ProviderInputProjector(mapOf(MinimizationObligation.REDACT_SECRETS to secretMinimizer))
+        val decision =
+            ProviderInputReleaseDecision.AllowWithMinimization(
+                euDeployment.deploymentId,
+                setOf(MinimizationObligation.REDACT_SECRETS),
+            )
+        val requests =
+            listOf(
+                ModelRequest(
+                    model = "gpt-4o",
+                    messages = listOf(Message.text("hello")),
+                    tools = listOf(ToolDefinition("sk-secret-12345", "ok", "{}")),
+                ),
+                ModelRequest(
+                    model = "gpt-4o",
+                    messages =
+                        listOf(
+                            Message(
+                                MessageRole.ASSISTANT,
+                                "",
+                                toolCalls = listOf(ToolCall("sk-secret-12345", "lookup", "{}")),
+                            ),
+                        ),
+                ),
+                ModelRequest(
+                    model = "gpt-4o",
+                    messages =
+                        listOf(
+                            Message(
+                                MessageRole.ASSISTANT,
+                                "",
+                                toolCalls = listOf(ToolCall("call-1", "sk-secret-12345", "{}")),
+                            ),
+                        ),
+                ),
+                ModelRequest(
+                    model = "gpt-4o",
+                    messages = listOf(Message(MessageRole.TOOL, "ok", toolCallId = "sk-secret-12345")),
+                ),
+            )
+
+        for (req in requests) {
+            assertEquals(
+                ProviderInputProjectionResult.Refused(
+                    euDeployment.deploymentId,
+                    ProjectionRefusal.TRANSFORMATION_FAILED,
+                ),
+                projector.project(req, euDeployment, decision),
+            )
+        }
     }
 }

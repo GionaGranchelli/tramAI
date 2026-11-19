@@ -170,8 +170,12 @@ class ProviderInputProjector(
                     }
                 }
             }
+        val projectedToolCallId =
+            message.toolCallId?.also { ensureIdentifierSafe(it, minimizers) }
         val projectedToolCalls =
             message.toolCalls?.map { call ->
+                ensureIdentifierSafe(call.id, minimizers)
+                ensureIdentifierSafe(call.name, minimizers)
                 val outcome = applyMinimizers(call.argumentsJson, minimizers)
                 validateJson(call.argumentsJson, outcome.minimizedText)
                 count = Math.addExact(count, outcome.redactionCount)
@@ -180,6 +184,7 @@ class ProviderInputProjector(
         return message.copy(
             content = projectedContent,
             contentParts = projectedParts?.let { Collections.unmodifiableList(it) },
+            toolCallId = projectedToolCallId,
             toolCalls = projectedToolCalls?.let { Collections.unmodifiableList(it) },
         ) to count
     }
@@ -188,6 +193,7 @@ class ProviderInputProjector(
         tool: ToolDefinition,
         minimizers: List<ObligationMinimizer>,
     ): Pair<ToolDefinition, Int> {
+        ensureIdentifierSafe(tool.name, minimizers)
         val descOutcome = applyMinimizers(tool.description, minimizers)
         val schemaOutcome = applyMinimizers(tool.inputSchemaJson, minimizers)
         validateJson(tool.inputSchemaJson, schemaOutcome.minimizedText)
@@ -197,17 +203,34 @@ class ProviderInputProjector(
         ) to Math.addExact(descOutcome.redactionCount, schemaOutcome.redactionCount)
     }
 
+    private fun ensureIdentifierSafe(
+        identifier: String,
+        minimizers: List<ObligationMinimizer>,
+    ) {
+        if (identifier.isNotBlank()) {
+            val outcome = applyMinimizers(identifier, minimizers)
+            check(outcome.redactionCount == 0 && outcome.minimizedText == identifier) {
+                "Provider-bound identifier cannot be safely preserved under minimization"
+            }
+        }
+    }
+
     private fun validateJson(
         original: String,
         transformed: String,
     ) {
-        if (original.isNotBlank()) {
-            require(transformed.isNotBlank()) { "Transformed JSON must not be blank" }
-            val originalTree = jsonMapper.readTree(original)
-            val transformedTree = jsonMapper.readTree(transformed)
-            if (originalTree.isObject) {
-                require(transformedTree.isObject) { "Transformed JSON must remain an object" }
-            }
+        if (original.isBlank()) {
+            require(transformed.isBlank()) { "Blank JSON field must remain blank" }
+            return
+        }
+        require(transformed.isNotBlank()) { "Transformed JSON must not be blank" }
+        val originalTree = jsonMapper.readTree(original)
+        val transformedTree = jsonMapper.readTree(transformed)
+        if (originalTree.isObject) {
+            require(transformedTree.isObject) { "Transformed JSON must remain an object" }
+            val originalKeys = originalTree.fieldNames().asSequence().toSet()
+            val transformedKeys = transformedTree.fieldNames().asSequence().toSet()
+            require(transformedKeys == originalKeys) { "Transformed JSON object keys must be preserved" }
         }
     }
 
