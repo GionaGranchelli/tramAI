@@ -96,12 +96,18 @@ public final class dev/tramai/security/ProviderRoutingConfiguration {
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAllowedZonePairs ()Ljava/util/Set;
 	public final fun getEnabled ()Z
+	public final fun getMinimizationPolicy ()Ldev/tramai/security/governance/ProviderMinimizationPolicy;
+	public final fun getMinimizers ()Ljava/util/Map;
 	public final fun getProviderDeployments ()Ljava/util/Map;
 	public final fun getProviderZones ()Ljava/util/Map;
 	public final fun getRules ()Ljava/util/Map;
 	public final fun getWorkloadZones ()Ljava/util/Map;
 	public fun hashCode ()I
+	public final fun setMinimizationPolicy (Ldev/tramai/security/governance/ProviderMinimizationPolicy;)V
+	public final fun setMinimizers (Ljava/util/Map;)V
 	public fun toString ()Ljava/lang/String;
+	public final fun withMinimization (Ldev/tramai/security/governance/ProviderMinimizationPolicy;Ljava/util/Map;)Ldev/tramai/security/ProviderRoutingConfiguration;
+	public static synthetic fun withMinimization$default (Ldev/tramai/security/ProviderRoutingConfiguration;Ldev/tramai/security/governance/ProviderMinimizationPolicy;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/security/ProviderRoutingConfiguration;
 }
 
 public final class dev/tramai/security/ProviderRoutingConfiguration$Companion {

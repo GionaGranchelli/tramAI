@@ -168,6 +168,10 @@ class StreamingExecutionCoordinatorTest {
                     ),
             ),
         trustZonePolicy = TrustZonePolicy(setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL)),
+        minimizationPolicy =
+            dev.tramai.security.governance.ProviderMinimizationPolicy { _, _ ->
+                dev.tramai.security.governance.MinimizationRequirement.RawPermitted
+            },
         deploymentOf = { providerId ->
             if (plan.providers.keys.none { it.value == providerId }) {
                 null
@@ -525,7 +529,7 @@ class StreamingExecutionCoordinatorTest {
             services =
                 StreamingCoordinationServices(
                     operationObserver = observer,
-                    operationInterceptor = NoOpOperationInterceptor,
+                    operationInterceptor = options.operationInterceptor,
                     toolExposureCoordinator =
                         ToolExposureCoordinator(
                             ToolRegistry(),
@@ -2689,6 +2693,324 @@ class StreamingExecutionCoordinatorTest {
     }
 
 /** The knobs the streaming tests turn, with the defaults they expect when they turn none. */
+    @org.junit.jupiter.api.Nested
+    inner class StreamingInputReleaseTransportTest {
+        private val minimizer =
+            dev.tramai.security.governance.ObligationMinimizer { text ->
+                val replaced = text.replace("sk-secret-12345", "[REDACTED]")
+                dev.tramai.security.governance.MinimizationOutcome(
+                    replaced,
+                    if (replaced != text) 1 else 0,
+                    inspectionCompleted = true,
+                )
+            }
+
+        private val secretInjector =
+            object : dev.tramai.core.observation.OperationInterceptor {
+                override fun interceptRequest(
+                    context: OperationCallContext,
+                    messages: List<Message>,
+                ): List<Message> = messages + Message.text("leaked sk-secret-12345")
+            }
+
+        private fun streamGovernance(
+            routingPlan: ProviderRoutingPlan,
+            policy: (
+                DataClassification,
+                dev.tramai.security.governance.ProviderDeployment,
+            ) -> dev.tramai.security.governance.MinimizationRequirement,
+        ): ProviderGovernanceConfiguration {
+            val providers = routingPlan.providers.keys
+            val deployments =
+                providers.associate { id ->
+                    id.value to
+                        dev.tramai.security.governance.ProviderDeployment(
+                            "dep-${id.value}",
+                            id.value,
+                            dev.tramai.security.governance.NamedTrustZone(
+                                dev.tramai.security.governance
+                                    .TrustZoneName("eu-${id.value}"),
+                                ProviderTrustZone.EU_CLOUD,
+                            ),
+                        )
+                }
+            val routing =
+                dev.tramai.security
+                    .ProviderRoutingConfiguration(
+                        enabled = true,
+                        workloadZones = mapOf(governedRun.deployment to ProviderTrustZone.LOCAL),
+                        providerDeployments = deployments,
+                        allowedZonePairs = setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.EU_CLOUD),
+                        rules =
+                            mapOf(
+                                DataClassification.INTERNAL to
+                                    ClassificationRoutingRule(
+                                        allowedZones = setOf(ProviderTrustZone.LOCAL, ProviderTrustZone.EU_CLOUD),
+                                        allowedFallbackZones = setOf(ProviderTrustZone.EU_CLOUD),
+                                    ),
+                            ),
+                    ).withMinimization(
+                        minimizationPolicy = policy,
+                        minimizers =
+                            mapOf(
+                                dev.tramai.security.governance.MinimizationObligation.REDACT_SECRETS to minimizer,
+                            ),
+                    )
+            return ProviderGovernanceConfiguration.from(routing)!!
+        }
+
+        private fun streamRequest() = request()
+
+        @Test
+        fun `streaming interceptor-injected secret is redacted before streamCapable stream`() {
+            runBlocking {
+                val sink = OrderedSink()
+                val provider =
+                    RecordingProvider("p") {
+                        kotlinx.coroutines.flow.flowOf(
+                            StreamChunk.Token("tok"),
+                            StreamChunk.Complete(""),
+                        )
+                    }
+                val routingPlan = plan("p" to provider)
+                val governance =
+                    streamGovernance(routingPlan) { _, _ ->
+                        dev.tramai.security.governance.MinimizationRequirement.Required(
+                            setOf(dev.tramai.security.governance.MinimizationObligation.REDACT_SECRETS),
+                        )
+                    }
+                val coord =
+                    coordinator(
+                        routingPlan,
+                        RecordingOperationObserver(sink),
+                        StreamingCoordinatorTestOptions(
+                            sink = sink,
+                            governance = governance,
+                            operationInterceptor = secretInjector,
+                        ),
+                    )
+
+                val chunks = coord.execute(streamRequest()).toList()
+                kotlin.test.assertEquals(listOf(StreamChunk.Token("tok"), StreamChunk.Complete("")), chunks)
+                kotlin.test.assertEquals(1, provider.streamRequests.size)
+                val sent = provider.streamRequests.single()
+                kotlin.test.assertEquals("leaked [REDACTED]", sent.messages.last().content)
+                kotlin.test.assertFalse(sent.toString().contains("sk-secret-12345"))
+            }
+        }
+
+        @Test
+        fun `streaming missing minimization policy makes zero stream calls and zero emitted tokens`() {
+            runBlocking {
+                val sink = OrderedSink()
+                val provider =
+                    RecordingProvider("p") {
+                        kotlinx.coroutines.flow.flowOf(
+                            StreamChunk.Token("tok"),
+                            StreamChunk.Complete(""),
+                        )
+                    }
+                val routingPlan = plan("p" to provider)
+                val governance =
+                    streamGovernance(routingPlan) { _, _ ->
+                        dev.tramai.security.governance.MinimizationRequirement.MissingOrDenied
+                    }
+                val breaker =
+                    dev.tramai.engine.provider.RecordingCircuitBreaker(
+                        CircuitBreakerSettings(enabled = true, failureThreshold = 1),
+                    )
+                val coord =
+                    coordinator(
+                        routingPlan,
+                        RecordingOperationObserver(sink),
+                        StreamingCoordinatorTestOptions(
+                            sink = sink,
+                            governance = governance,
+                            circuitBreaker = breaker,
+                        ),
+                    )
+
+                val emitted = mutableListOf<StreamChunk>()
+                org.junit.jupiter.api.assertThrows<dev.tramai.engine.provider.ProviderInputReleaseException> {
+                    coord.execute(streamRequest()).collect { emitted.add(it) }
+                }
+                kotlin.test.assertEquals(0, provider.streamRequests.size)
+                kotlin.test.assertEquals(emptyList<StreamChunk>(), emitted)
+                kotlin.test.assertEquals(null, breaker.openUntilMillis("p"))
+                kotlin.test.assertEquals(
+                    listOf(dev.tramai.engine.provider.BreakerDisposition.NEUTRAL),
+                    breaker.dispositions,
+                )
+            }
+        }
+
+        @Test
+        fun `streaming startup retry re-evaluates release policy and projection on every attempt`() {
+            runBlocking {
+                val sink = OrderedSink()
+                var policyEvaluations = 0
+                val provider =
+                    RecordingProvider("p") {
+                        if (streamRequests.size == 1) {
+                            kotlinx.coroutines.flow.flow {
+                                throw ProviderException("transient", retryable = true)
+                            }
+                        } else {
+                            kotlinx.coroutines.flow.flowOf(StreamChunk.Token("ok"), StreamChunk.Complete(""))
+                        }
+                    }
+                val routingPlan = plan("p" to provider)
+                val governance =
+                    streamGovernance(routingPlan) { _, _ ->
+                        policyEvaluations++
+                        dev.tramai.security.governance.MinimizationRequirement.Required(
+                            setOf(dev.tramai.security.governance.MinimizationObligation.REDACT_SECRETS),
+                        )
+                    }
+                val coord =
+                    coordinator(
+                        routingPlan,
+                        RecordingOperationObserver(sink),
+                        StreamingCoordinatorTestOptions(
+                            sink = sink,
+                            governance = governance,
+                            operationInterceptor = secretInjector,
+                        ),
+                    )
+
+                val chunks = coord.execute(streamRequest()).toList()
+                kotlin.test.assertEquals(listOf(StreamChunk.Token("ok"), StreamChunk.Complete("")), chunks)
+                kotlin.test.assertEquals(2, provider.streamRequests.size)
+                kotlin.test.assertEquals(2, policyEvaluations)
+                provider.streamRequests.forEach { req ->
+                    kotlin.test.assertEquals("leaked [REDACTED]", req.messages.last().content)
+                    kotlin.test.assertFalse(req.toString().contains("sk-secret-12345"))
+                }
+            }
+        }
+
+        private fun fallbackPlan(
+            primary: RecordingProvider,
+            fallback: RecordingProvider,
+        ) = ProviderRoutingPlan
+            .builder()
+            .provider("primary", primary)
+            .provider("fallback", fallback)
+            .model("logical-model", "primary")
+            .defaultProvider("primary")
+            .fallbackProvider("logical-model", "fallback")
+            .build()
+
+        @Test
+        fun `streaming cross-deployment fallback projects independently for fallback deployment`() {
+            runBlocking {
+                val sink = OrderedSink()
+                val evaluatedDeployments = mutableListOf<String>()
+                val primary =
+                    RecordingProvider("primary") {
+                        kotlinx.coroutines.flow.flow {
+                            throw ProviderException("primary down", retryable = true)
+                        }
+                    }
+                val fallback =
+                    RecordingProvider("fallback") {
+                        kotlinx.coroutines.flow.flowOf(
+                            StreamChunk.Token("fb-tok"),
+                            StreamChunk.Complete(""),
+                        )
+                    }
+                val routingPlan = fallbackPlan(primary, fallback)
+                val governance =
+                    streamGovernance(routingPlan) { _, dep ->
+                        evaluatedDeployments.add(dep.deploymentId)
+                        dev.tramai.security.governance.MinimizationRequirement.Required(
+                            setOf(dev.tramai.security.governance.MinimizationObligation.REDACT_SECRETS),
+                        )
+                    }
+                val coord =
+                    coordinator(
+                        routingPlan,
+                        RecordingOperationObserver(sink),
+                        StreamingCoordinatorTestOptions(
+                            sink = sink,
+                            governance = governance,
+                            operationInterceptor = secretInjector,
+                        ),
+                    )
+
+                val chunks = coord.execute(streamRequest()).toList()
+                kotlin.test.assertEquals(listOf(StreamChunk.Token("fb-tok"), StreamChunk.Complete("")), chunks)
+                kotlin.test.assertEquals(4, primary.streamRequests.size)
+                kotlin.test.assertEquals(1, fallback.streamRequests.size)
+                kotlin.test.assertEquals(listOf("dep-primary", "dep-fallback"), evaluatedDeployments.distinct())
+                kotlin.test.assertEquals(
+                    "leaked [REDACTED]",
+                    fallback.streamRequests
+                        .single()
+                        .messages
+                        .last()
+                        .content,
+                )
+                kotlin.test.assertFalse(
+                    fallback.streamRequests
+                        .single()
+                        .toString()
+                        .contains("sk-secret-12345"),
+                )
+            }
+        }
+
+        @Test
+        fun `streaming cross-deployment fallback denial makes zero fallback stream calls`() {
+            runBlocking {
+                val sink = OrderedSink()
+                val evaluatedDeployments = mutableListOf<String>()
+                val primary =
+                    RecordingProvider("primary") {
+                        kotlinx.coroutines.flow.flow {
+                            throw ProviderException("primary down", retryable = true)
+                        }
+                    }
+                val fallback =
+                    RecordingProvider("fallback") {
+                        kotlinx.coroutines.flow.flowOf(
+                            StreamChunk.Token("fb-tok"),
+                            StreamChunk.Complete(""),
+                        )
+                    }
+                val routingPlan = fallbackPlan(primary, fallback)
+                val governance =
+                    streamGovernance(routingPlan) { _, dep ->
+                        evaluatedDeployments.add(dep.deploymentId)
+                        if (dep.deploymentId == "dep-primary") {
+                            dev.tramai.security.governance.MinimizationRequirement.Required(
+                                setOf(dev.tramai.security.governance.MinimizationObligation.REDACT_SECRETS),
+                            )
+                        } else {
+                            dev.tramai.security.governance.MinimizationRequirement.MissingOrDenied
+                        }
+                    }
+                val coord =
+                    coordinator(
+                        routingPlan,
+                        RecordingOperationObserver(sink),
+                        StreamingCoordinatorTestOptions(
+                            sink = sink,
+                            governance = governance,
+                            operationInterceptor = secretInjector,
+                        ),
+                    )
+
+                org.junit.jupiter.api.assertThrows<dev.tramai.engine.provider.ProviderInputReleaseException> {
+                    coord.execute(streamRequest()).toList()
+                }
+                kotlin.test.assertEquals(4, primary.streamRequests.size)
+                kotlin.test.assertEquals(0, fallback.streamRequests.size)
+                kotlin.test.assertEquals(listOf("dep-primary", "dep-fallback"), evaluatedDeployments.distinct())
+            }
+        }
+    }
+
     private data class StreamingCoordinatorTestOptions(
         val sink: OrderedSink? = null,
         val memory: RecordingMemory? = null,
@@ -2702,6 +3024,7 @@ class StreamingExecutionCoordinatorTest {
         val retryPolicy: ProviderRetryPolicy =
             ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
         val governance: ProviderGovernanceConfiguration? = null,
+        val operationInterceptor: dev.tramai.core.observation.OperationInterceptor = NoOpOperationInterceptor,
         /**
          * Supplies no governed topology at all. Passing `governance = null` cannot express that: the
          * fixture reads a null override as "derive the topology from the routing plan", so a test that

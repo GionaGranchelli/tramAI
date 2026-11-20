@@ -5,7 +5,11 @@ import dev.tramai.core.policy.DataClassification
 import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderRoutingConfiguration
 import dev.tramai.security.ProviderTrustZone
+import dev.tramai.security.governance.MinimizationObligation
+import dev.tramai.security.governance.MinimizationRequirement
+import dev.tramai.security.governance.ObligationMinimizer
 import dev.tramai.security.governance.ProviderDeployment
+import dev.tramai.security.governance.ProviderMinimizationPolicy
 import dev.tramai.security.governance.TrustZonePolicy
 
 /**
@@ -25,6 +29,9 @@ internal class ProviderGovernanceConfiguration(
     val rules: Map<DataClassification, ClassificationRoutingRule>,
     val trustZonePolicy: TrustZonePolicy,
     val deploymentOf: (String) -> ProviderDeployment?,
+    val minimizationPolicy: ProviderMinimizationPolicy =
+        ProviderMinimizationPolicy { _, _ -> MinimizationRequirement.MissingOrDenied },
+    val minimizers: Map<MinimizationObligation, ObligationMinimizer> = emptyMap(),
 ) {
     companion object {
         /** Projects the configured routing topology; the configured zone pairs feed the existing policy. */
@@ -46,6 +53,8 @@ internal class ProviderGovernanceConfiguration(
                     rules = routing.rules,
                     trustZonePolicy = TrustZonePolicy(routing.allowedZonePairs),
                     deploymentOf = { routing.providerDeployments[it] },
+                    minimizationPolicy = routing.minimizationPolicy,
+                    minimizers = routing.minimizers,
                 )
             }
         }

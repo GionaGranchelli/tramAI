@@ -136,6 +136,10 @@ abstract class ProviderGovernedExecutionPathTestBase {
                     ),
             ),
         trustZonePolicy = TrustZonePolicy(pairs),
+        minimizationPolicy =
+            dev.tramai.security.governance.ProviderMinimizationPolicy { _, _ ->
+                dev.tramai.security.governance.MinimizationRequirement.RawPermitted
+            },
         workloadZones = mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
         deploymentOf = { providerId -> deployments[providerId]?.let { deployment(providerId, it) } },
     )

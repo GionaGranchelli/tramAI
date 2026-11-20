@@ -15,6 +15,7 @@ import dev.tramai.security.governance.CandidateSelection
 import dev.tramai.security.governance.CandidateSelectionStrategy
 import dev.tramai.security.governance.CandidateViability
 import dev.tramai.security.governance.ProviderCandidate
+import dev.tramai.security.governance.ProviderDeployment
 import dev.tramai.security.governance.ProviderInputRelease
 import dev.tramai.security.governance.ViabilityRefusal
 import dev.tramai.security.governance.ViableCandidates
@@ -44,7 +45,13 @@ internal class GovernedProviderEnvelope(
     /** Configured route order: a preference over the envelope, never a source of membership. */
     val configuredOrder: List<ProviderCandidate>,
 ) {
+    lateinit var releaseContext: GovernedReleaseContext
     val selection = CandidateSelection()
+    private val deploymentByRoute: Map<ResolvedProviderRoute, ProviderDeployment> =
+        routesByCandidate.entries.associate { (candidate, route) -> route to candidate.deployment }
+
+    /** The exactly one authorized deployment this route was selected for. */
+    fun deploymentOf(route: ResolvedProviderRoute): ProviderDeployment = deploymentByRoute.getValue(route)
 
     /** The exactly one configured route this candidate came from. */
     fun routeOf(candidate: ProviderCandidate): ResolvedProviderRoute = routesByCandidate.getValue(candidate)
@@ -183,7 +190,14 @@ internal fun governProviderExecution(
         routesByCandidate,
         indexByRoute,
         configuredOrder,
-    )
+    ).apply {
+        releaseContext =
+            GovernedReleaseContext(
+                workloadZone = workload.trustZone,
+                effectiveClassification = workload.classification,
+                transportGate = ProviderInputTransportGate(governed),
+            )
+    }
 }
 
 /** Maps each resolved route to its exact candidate through the route's authoritative deployment. */

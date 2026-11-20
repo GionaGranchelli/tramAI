@@ -236,12 +236,13 @@ internal class StreamingGovernedWalk(
             // After any token, retry/fallback authority is
             // permanently gone (handleFallbackResult's
             // emittedAnyTokens gate).
+            val governedCandidate = governedCandidateFor(envelope, admitted.step.candidate)
             when (
                 val outcome =
                     routeAttempts.attemptStreamingCandidate(
                         run,
                         authority,
-                        admitted.step.candidate,
+                        governedCandidate,
                         permit,
                         attemptCounter,
                     )
@@ -334,4 +335,14 @@ internal class StreamingGovernedWalk(
                 }
             }.firstOrNull()
     }
+
+    private fun governedCandidateFor(
+        envelope: GovernedProviderEnvelope,
+        candidate: StreamingCandidate,
+    ): StreamingCandidate =
+        candidate.copy(
+            releaseEnforcement = { finalRequest ->
+                envelope.releaseContext.enforce(finalRequest, envelope.deploymentOf(candidate.route))
+            },
+        )
 }

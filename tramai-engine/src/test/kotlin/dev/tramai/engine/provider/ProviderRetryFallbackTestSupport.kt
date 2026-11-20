@@ -307,6 +307,10 @@ internal fun governanceFor(routingPlan: ProviderRoutingPlan) =
                     ),
             ),
         trustZonePolicy = TrustZonePolicy(setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL)),
+        minimizationPolicy =
+            dev.tramai.security.governance.ProviderMinimizationPolicy { _, _ ->
+                dev.tramai.security.governance.MinimizationRequirement.RawPermitted
+            },
         deploymentOf = { providerId ->
             if (routingPlan.providers.keys.none { it.value == providerId }) {
                 null
