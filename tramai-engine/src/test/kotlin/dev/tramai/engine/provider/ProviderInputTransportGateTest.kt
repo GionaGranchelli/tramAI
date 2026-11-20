@@ -336,6 +336,7 @@ class ProviderInputTransportGateTest {
         runBlocking {
             val primaryCaptured = mutableListOf<ModelRequest>()
             val fallbackCaptured = mutableListOf<ModelRequest>()
+            val evaluatedDeployments = mutableListOf<String>()
             val primaryProvider =
                 object : ModelProvider {
                     override suspend fun complete(request: ModelRequest): ModelResponse {
@@ -351,13 +352,6 @@ class ProviderInputTransportGateTest {
                         return ModelResponse("ok-fallback")
                     }
                 }
-            val injectingInterceptor =
-                object : OperationInterceptor {
-                    override fun interceptRequest(
-                        context: OperationCallContext,
-                        messages: List<Message>,
-                    ): List<Message> = messages + Message.text("leaked sk-secret-12345")
-                }
             val plan =
                 ProviderRoutingPlan
                     .builder()
@@ -367,12 +361,18 @@ class ProviderInputTransportGateTest {
                     .defaultProvider("openai")
                     .fallbackProvider("model", "anthropic")
                     .build()
+            val routing =
+                fallbackRouting { _, dep ->
+                    evaluatedDeployments.add(dep.deploymentId)
+                    MinimizationRequirement.Required(setOf(MinimizationObligation.REDACT_SECRETS))
+                }
             val coord =
-                syncCoordinator(plan, ProviderGovernanceConfiguration.from(fallbackRouting())!!, injectingInterceptor)
+                syncCoordinator(plan, ProviderGovernanceConfiguration.from(routing)!!, injectingInterceptor)
 
             coord.execute(syncRequest(retries = 0))
             assertEquals(1, primaryCaptured.size)
             assertEquals(1, fallbackCaptured.size)
+            assertEquals(listOf("eu-prod", "eu-fallback"), evaluatedDeployments)
             assertEquals(
                 "leaked [REDACTED]",
                 fallbackCaptured
@@ -385,7 +385,60 @@ class ProviderInputTransportGateTest {
         }
     }
 
-    private fun fallbackRouting(): ProviderRoutingConfiguration =
+    @Test
+    fun `sync cross-deployment fallback denial makes zero fallback provider calls`() {
+        runBlocking {
+            val primaryCaptured = mutableListOf<ModelRequest>()
+            val fallbackCaptured = mutableListOf<ModelRequest>()
+            val evaluatedDeployments = mutableListOf<String>()
+            val primaryProvider =
+                object : ModelProvider {
+                    override suspend fun complete(request: ModelRequest): ModelResponse {
+                        primaryCaptured.add(request)
+                        throw dev.tramai.core.exception
+                            .ProviderException("primary down", retryable = true)
+                    }
+                }
+            val fallbackProvider =
+                object : ModelProvider {
+                    override suspend fun complete(request: ModelRequest): ModelResponse {
+                        fallbackCaptured.add(request)
+                        return ModelResponse("ok-fallback")
+                    }
+                }
+            val plan =
+                ProviderRoutingPlan
+                    .builder()
+                    .provider("openai", primaryProvider)
+                    .provider("anthropic", fallbackProvider)
+                    .model("model", "openai")
+                    .defaultProvider("openai")
+                    .fallbackProvider("model", "anthropic")
+                    .build()
+            val routing =
+                fallbackRouting { _, dep ->
+                    evaluatedDeployments.add(dep.deploymentId)
+                    if (dep.deploymentId == "eu-prod") {
+                        MinimizationRequirement.Required(setOf(MinimizationObligation.REDACT_SECRETS))
+                    } else {
+                        MinimizationRequirement.MissingOrDenied
+                    }
+                }
+            val coord =
+                syncCoordinator(plan, ProviderGovernanceConfiguration.from(routing)!!, injectingInterceptor)
+
+            assertThrows<ProviderInputReleaseException> {
+                coord.execute(syncRequest(retries = 0))
+            }
+            assertEquals(1, primaryCaptured.size)
+            assertEquals(0, fallbackCaptured.size)
+            assertEquals(listOf("eu-prod", "eu-fallback"), evaluatedDeployments)
+        }
+    }
+
+    private fun fallbackRouting(
+        minimizationPolicy: (DataClassification, ProviderDeployment) -> MinimizationRequirement,
+    ): ProviderRoutingConfiguration =
         ProviderRoutingConfiguration(
             enabled = true,
             workloadZones = mapOf(workloadId to ProviderTrustZone.LOCAL),
@@ -409,9 +462,7 @@ class ProviderInputTransportGateTest {
                         ),
                 ),
         ).withMinimization(
-            minimizationPolicy = { _, _ ->
-                MinimizationRequirement.Required(setOf(MinimizationObligation.REDACT_SECRETS))
-            },
+            minimizationPolicy = minimizationPolicy,
             minimizers = mapOf(MinimizationObligation.REDACT_SECRETS to minimizer),
         )
 
