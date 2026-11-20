@@ -94,7 +94,7 @@ internal class ProviderAttemptExecutor(
                 // A capability refusal is a pre-call check too: it must run before recording is
                 // armed, or a provider that is never called is written to attempt history.
                 requireVisionSupport(request.provider, request.request)
-                val releasedRequest = request.releaseEnforcement?.invoke(attempt.request) ?: attempt.request
+                val releasedRequest = request.releaseEnforcement?.invoke(attempt.request, attempt.context.attempt) ?: attempt.request
                 val releasedAttempt = attempt.copy(request = releasedRequest)
                 observation = recordingObservation(releasedAttempt, request)
                 val sanitized = callProvider(releasedAttempt, request, observation)
@@ -305,7 +305,7 @@ internal data class ProviderRetryRequest(
     /** Governed run the invocation belongs to, when one exists. */
     val governedRun: GovernedRunIdentity? = null,
     /** Pre-transport release and projection gate for governed executions. */
-    val releaseEnforcement: ((ModelRequest) -> ModelRequest)? = null,
+    val releaseEnforcement: ((ModelRequest, Int) -> ModelRequest)? = null,
 )
 
 private data class ProviderRetryAttempt(

@@ -3054,6 +3054,7 @@ class StreamingExecutionCoordinatorTest {
                     ev.outcome,
                 )
                 kotlin.test.assertEquals(1, ev.redactionCount)
+                kotlin.test.assertEquals(1, ev.attempt)
                 kotlin.test.assertFalse(ev.toString().contains("sk-secret-12345"))
             }
         }

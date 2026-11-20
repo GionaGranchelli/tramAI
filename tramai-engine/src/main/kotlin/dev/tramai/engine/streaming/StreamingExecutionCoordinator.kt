@@ -431,7 +431,7 @@ internal class StreamingExecutionCoordinator(
                 },
             )
         return try {
-            val releasedRequest = call.releaseEnforcement?.invoke(interceptedRequest) ?: interceptedRequest
+            val releasedRequest = call.releaseEnforcement?.invoke(interceptedRequest, callContext.attempt) ?: interceptedRequest
             collectStreamingRouteChunks(
                 streamCapable,
                 releasedRequest,
@@ -472,7 +472,7 @@ internal class StreamingExecutionCoordinator(
         val tokenBudgetTracker: TokenBudgetTracker,
         val emitChunk: suspend (StreamChunk) -> Unit,
         val permit: CircuitBreakerPermit,
-        val releaseEnforcement: ((ModelRequest) -> ModelRequest)? = null,
+        val releaseEnforcement: ((ModelRequest, Int) -> ModelRequest)? = null,
     )
 
     private data class StreamingRouteContext(

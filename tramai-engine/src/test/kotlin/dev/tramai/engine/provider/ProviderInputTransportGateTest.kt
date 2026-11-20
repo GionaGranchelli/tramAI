@@ -533,6 +533,7 @@ class ProviderInputTransportGateTest {
             assertEquals("eu-prod", ev.selectedDeploymentId)
             assertEquals(ProviderInputReleaseOutcome.MINIMIZED, ev.outcome)
             assertEquals(1, ev.redactionCount)
+            assertEquals(1, ev.attempt)
             assertFalse(ev.toString().contains("sk-secret-12345"))
         }
     }
