@@ -191,14 +191,21 @@ internal fun governProviderExecution(
         indexByRoute,
         configuredOrder,
     ).apply {
-        releaseContext =
-            GovernedReleaseContext(
-                workloadZone = workload.trustZone,
-                effectiveClassification = workload.classification,
-                transportGate = ProviderInputTransportGate(governed),
-            )
+        releaseContext = releaseContextOf(workload, governed, run)
     }
 }
+
+private fun releaseContextOf(
+    workload: WorkloadGovernanceResolution.Resolved,
+    governed: ProviderGovernanceConfiguration,
+    run: GovernedRunIdentity,
+): GovernedReleaseContext =
+    GovernedReleaseContext(
+        workloadZone = workload.trustZone,
+        effectiveClassification = workload.classification,
+        transportGate = ProviderInputTransportGate(governed),
+        run = run,
+    )
 
 /** Maps each resolved route to its exact candidate through the route's authoritative deployment. */
 private fun routeCandidates(

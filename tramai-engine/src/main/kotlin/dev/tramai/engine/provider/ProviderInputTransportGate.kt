@@ -23,7 +23,7 @@ internal class ProviderInputReleaseException(
  */
 internal class ProviderInputTransportGate(
     private val configuration: ProviderGovernanceConfiguration,
-    private val evidenceRecorder: ProviderInputReleaseEvidenceRecorder = ProviderInputReleaseEvidenceRecorder {},
+    private val evidenceRecorder: ProviderInputReleaseEvidenceRecorder = configuration.releaseEvidenceRecorder,
 ) {
     private val release =
         ProviderInputRelease(
@@ -142,15 +142,18 @@ internal class GovernedReleaseContext(
     val workloadZone: ProviderTrustZone,
     val effectiveClassification: DataClassification,
     private val transportGate: ProviderInputTransportGate,
+    private val run: dev.tramai.core.identity.GovernedRunIdentity? = null,
 ) {
     fun enforce(
         finalRequest: ModelRequest,
         selectedDeployment: ProviderDeployment,
+        attempt: Int? = null,
     ): ModelRequest =
         transportGate.authorizeAndProject(
             finalRequest = finalRequest,
             selectedDeployment = selectedDeployment,
             effectiveClassification = effectiveClassification,
             workloadZone = workloadZone,
+            correlation = ProviderInputReleaseCorrelation(run = run, attempt = attempt),
         )
 }

@@ -426,6 +426,7 @@ private class GovernedCandidateWalk(
                     workloadZone = governanceFacts.trustZone,
                     effectiveClassification = governanceFacts.classification,
                     transportGate = ProviderInputTransportGate(configuration),
+                    run = run,
                 ),
         )
     }
