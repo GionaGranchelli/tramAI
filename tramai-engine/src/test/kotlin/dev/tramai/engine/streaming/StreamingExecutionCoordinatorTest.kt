@@ -2815,7 +2815,10 @@ class StreamingExecutionCoordinatorTest {
                     streamGovernance(routingPlan) { _, _ ->
                         dev.tramai.security.governance.MinimizationRequirement.MissingOrDenied
                     }
-                val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1))
+                val breaker =
+                    dev.tramai.engine.provider.RecordingCircuitBreaker(
+                        CircuitBreakerSettings(enabled = true, failureThreshold = 1),
+                    )
                 val coord =
                     coordinator(
                         routingPlan,
@@ -2834,6 +2837,10 @@ class StreamingExecutionCoordinatorTest {
                 kotlin.test.assertEquals(0, provider.streamRequests.size)
                 kotlin.test.assertEquals(emptyList<StreamChunk>(), emitted)
                 kotlin.test.assertEquals(null, breaker.openUntilMillis("p"))
+                kotlin.test.assertEquals(
+                    listOf(dev.tramai.engine.provider.BreakerDisposition.NEUTRAL),
+                    breaker.dispositions,
+                )
             }
         }
 
