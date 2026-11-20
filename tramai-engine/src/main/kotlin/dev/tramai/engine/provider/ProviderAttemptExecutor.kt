@@ -94,7 +94,7 @@ internal class ProviderAttemptExecutor(
                 // A capability refusal is a pre-call check too: it must run before recording is
                 // armed, or a provider that is never called is written to attempt history.
                 requireVisionSupport(request.provider, request.request)
-                val releasedRequest = request.releaseEnforcement?.invoke(attempt.request, attempt.context.attempt) ?: attempt.request
+                val releasedRequest = enforceRelease(request, attempt.request, attempt.context.attempt)
                 val releasedAttempt = attempt.copy(request = releasedRequest)
                 observation = recordingObservation(releasedAttempt, request)
                 val sanitized = callProvider(releasedAttempt, request, observation)
@@ -167,6 +167,12 @@ internal class ProviderAttemptExecutor(
             },
         )
     }
+
+    private fun enforceRelease(
+        request: ProviderRetryRequest,
+        attemptRequest: ModelRequest,
+        attemptNumber: Int,
+    ): ModelRequest = request.releaseEnforcement?.invoke(attemptRequest, attemptNumber) ?: attemptRequest
 
     private suspend fun callProvider(
         attempt: ProviderRetryAttempt,
