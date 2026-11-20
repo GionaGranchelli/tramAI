@@ -23,6 +23,7 @@ internal class ProviderInputReleaseException(
  */
 internal class ProviderInputTransportGate(
     private val configuration: ProviderGovernanceConfiguration,
+    private val evidenceRecorder: ProviderInputReleaseEvidenceRecorder = ProviderInputReleaseEvidenceRecorder {},
 ) {
     private val release =
         ProviderInputRelease(
@@ -37,6 +38,7 @@ internal class ProviderInputTransportGate(
         selectedDeployment: ProviderDeployment,
         effectiveClassification: DataClassification,
         workloadZone: ProviderTrustZone,
+        correlation: ProviderInputReleaseCorrelation? = null,
     ): ModelRequest {
         val decision =
             release.decide(
@@ -46,6 +48,7 @@ internal class ProviderInputTransportGate(
                 expectedDeploymentId = selectedDeployment.deploymentId,
             )
         if (decision is ProviderInputReleaseDecision.Deny) {
+            recordDenied(correlation, selectedDeployment.deploymentId, decision.refusal.name)
             refuse(
                 "Provider-input release denied for deployment " +
                     "'${selectedDeployment.deploymentId}': ${decision.refusal.name}",
@@ -54,21 +57,82 @@ internal class ProviderInputTransportGate(
         return when (val projection = projector.project(finalRequest, selectedDeployment, decision)) {
             is ProviderInputProjectionResult.Projected -> {
                 if (projection.deploymentId != selectedDeployment.deploymentId) {
+                    recordDenied(correlation, selectedDeployment.deploymentId, "DEPLOYMENT_MISMATCH")
                     refuse(
                         "Provider-input projection deployment mismatch for " +
                             "'${selectedDeployment.deploymentId}'",
                     )
                 }
+                val outcome =
+                    if (decision is ProviderInputReleaseDecision.AllowWithMinimization) {
+                        ProviderInputReleaseOutcome.MINIMIZED
+                    } else {
+                        ProviderInputReleaseOutcome.RAW_PERMITTED
+                    }
+                recordEvidence(
+                    correlation = correlation,
+                    deploymentId = selectedDeployment.deploymentId,
+                    outcome = outcome,
+                    redactionCount = projection.metadata.redactionCount,
+                )
                 projection.providerBoundRequest
             }
 
             is ProviderInputProjectionResult.Refused -> {
+                recordDenied(correlation, selectedDeployment.deploymentId, projection.reason.name)
                 refuse(
                     "Provider-input projection refused for deployment " +
                         "'${selectedDeployment.deploymentId}': ${projection.reason.name}",
                 )
             }
         }
+    }
+
+    private fun recordDenied(
+        correlation: ProviderInputReleaseCorrelation?,
+        deploymentId: String,
+        reasonCode: String,
+    ) {
+        evidenceRecorder.record(
+            ProviderInputReleaseEvidence(
+                workloadId =
+                    correlation
+                        ?.run
+                        ?.deployment
+                        ?.workloadId
+                        ?.value,
+                runId = correlation?.run?.runId?.value,
+                selectedDeploymentId = deploymentId,
+                outcome = ProviderInputReleaseOutcome.DENIED,
+                reasonCode = reasonCode,
+                redactionCount = null,
+                attempt = correlation?.attempt,
+            ),
+        )
+    }
+
+    private fun recordEvidence(
+        correlation: ProviderInputReleaseCorrelation?,
+        deploymentId: String,
+        outcome: ProviderInputReleaseOutcome,
+        redactionCount: Int,
+    ) {
+        evidenceRecorder.record(
+            ProviderInputReleaseEvidence(
+                workloadId =
+                    correlation
+                        ?.run
+                        ?.deployment
+                        ?.workloadId
+                        ?.value,
+                runId = correlation?.run?.runId?.value,
+                selectedDeploymentId = deploymentId,
+                outcome = outcome,
+                reasonCode = null,
+                redactionCount = redactionCount,
+                attempt = correlation?.attempt,
+            ),
+        )
     }
 
     private fun refuse(message: String): Nothing = throw ProviderInputReleaseException(message)
