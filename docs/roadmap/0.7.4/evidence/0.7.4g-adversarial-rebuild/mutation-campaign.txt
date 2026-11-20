@@ -1,0 +1,121 @@
+0.7.4g hand-authored mutation campaign - governance authority, integrity and privacy rules
+
+Base: 33a1830f4edd9604ac40f6ac4e5676d20b01c616 (branch task/0.7.4g-adversarial-rebuild-mutation-proof)
+Toolchain: JDK 21 for every run (JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64)
+Method: PIT cannot express these mutants - the pinned PIT configuration in
+build-logic (MutationProbeInitScript.kt) is the executable mutation authority and supplies only
+syntactic mutators - so each is a hand-authored single-anchor patch run against a matched JUnit
+discriminator, per AGENTS.md Engineering Evidence Protocol item 5.
+
+Per mutant: tree clean check -> matched control green -> apply by exact anchor (proven single
+occurrence) -> prove applied (sha256 changed, git diff) -> run the discriminator with
+--rerun-tasks --no-build-cache (the build cache would otherwise serve a cached pass and execute
+nothing) -> verdict from the JUnit XML -> restore -> prove byte-identical restoration by sha256.
+
+No mutation configuration, population, classification, baseline, deviation ceiling or CI workflow was
+changed. No generate*Baseline task was run. No mutant was judged by a narrowed population.
+
+M01  ignore audit hash-chain mismatch                              KILLED   (1 failing of 23)
+     AuditBackedGovernanceDecisionFactSource.kt  55c3bdf3b7e9 -> 679f1c6f289b  restore byte-identical
+     mechanism: expected an AuditDecisionIntegrityException, read completed successfully with records
+
+M02  elect the newest record by arrival order instead of source sequence  KILLED  (2 failing of 33)
+     GovernanceDecisionFold.kt  93437367071b -> fdb394672d57  restore byte-identical
+     mechanism: expected 3L but was 1L (the older record was elected)
+
+M03  accept contradictory records at one source position           KILLED   (1 failing of 33)
+     GovernanceDecisionFold.kt  93437367071b -> 1c58751d935f  restore byte-identical
+     mechanism: expected null but was RecordedDecision(... decision=ALLOW ... sourceSequence=7)
+
+M04  allow a stale projection to replace a newer one               KILLED   (3 failing of 23)
+     JdbcGovernanceProjectionStore.kt (UPSERT_HEADER ordering >  -> <>)  3e098956eaad -> d2c1b75fd263
+     restore byte-identical
+
+M05  let a newer publication overwrite a corrupted identity        KILLED   (2 failing of 4)
+     JdbcGovernanceProjectionStore.kt (requireStoredIdentity throw removed)  3e098956eaad -> 40e31723ba4a
+     restore byte-identical
+
+M06  skip stored semantic-digest verification                      KILLED   (1 failing of 23)
+     JdbcGovernanceProjectionStore.kt  3e098956eaad -> a2375a5fec6f  restore byte-identical
+
+M07  accept an unknown stored format as supported                  KILLED   (2 failing of 23)
+     JdbcGovernanceProjectionStore.kt  3e098956eaad -> a21a33414d73  restore byte-identical
+
+M08  promote unknown freshness to current                          SURVIVED then KILLED after strengthening
+     GovernanceFactClassification.kt  18e1b601cc07 -> 570fd0bc9c70  restore byte-identical
+     First run: SURVIVED against MaterializedReadModelQualificationTest. Diagnosis, not a re-run:
+     the mutated branch is the `else` of freshnessFor, and the only caller
+     (GovernanceProjectionReader.kt:100-105) always supplies a watermark when the read is not
+     authoritative, so the branch is unreachable through any production path today. That makes the
+     mutant behaviourally equivalent for the current call site, but an unpinned branch in an authority
+     table is a defect waiting for its second caller, and the task's rule is to strengthen an
+     inadequate discriminator rather than reason a survivor away.
+     Strengthened: GovernanceFactClassificationTest pins all three branches directly.
+     Re-run: control 3 tests 0 failures; mutant KILLED (1 failing of 3),
+     "expected: STALE_OR_UNKNOWN but was: CURRENT_AT_VERSION"; restore byte-identical.
+
+M09  derive COMPLETE decision records from a verified raw range    KILLED   (4 failing of 33)
+     GovernanceFactClassification.kt  18e1b601cc07 -> 1aa689285c64  restore byte-identical
+
+M10  promote a policy authorization record to persisted execution authority  KILLED  (1 failing of 1)
+     GovernanceFactClassification.kt  18e1b601cc07 -> 81dea50ca8d0  restore byte-identical
+     discriminator: GovernanceTelemetryExportPostgresTest (real PostgreSQL)
+
+M11  export unapproved reason-code text instead of the approved decision token  KILLED  (1 failing of 6)
+     GovernanceExposure.kt  00904df5b6a8 -> 2dc33bff1c34  restore byte-identical
+     discriminator: GovernanceExposurePrivacyTest (the canary suite added in this task)
+
+M12  write to the projection store while querying (read path is not read-only)  KILLED  (7 failing of 8)
+     JdbcGovernanceProjectionStore.kt  3e098956eaad -> c5326194ce53  restore byte-identical
+     discriminator: GovernanceCorruptionPreservationTest - the write-rejecting DataSource wrapper
+     refuses the statement and seven of eight tests fail
+
+M13  merge arbitrary metadata into the emitted event (re-run of the 0.7.4f M6)  KILLED  (2 failing of 13)
+     GovernanceTelemetryExporter.kt  85d2533a8c8d -> 9cc6e07307f7  restore byte-identical
+     mechanism: "every emitted event conforms to the catalogue schema" rejects the extra
+     tramai.governance.debug key in the rendered attributes, and "equivalent exposures render
+     identically" shows the merged value as ...=dev.tramai.core.observation.event.RuntimeEvent@242b6e1a
+     Correction recorded: 0.7.4f's campaign file recorded M6 as SURVIVED (benign) and the 0.7.4f
+     completion report then described it as "impossible, not argued". The mutant does reach telemetry;
+     what stops it is detection by these two tests, added in the 0.7.4f review-round-1 rework. The
+     claim is corrected here: detected, not impossible.
+
+Result: 15 of 15 valid, security-relevant mutants KILLED, every one with a stated detection mechanism
+and a byte-identical restoration. No surviving or undetermined mutant remains, so nothing blocks
+qualification under the task's acceptance rule.
+
+M14  let a publication replace a stored row it cannot verify  KILLED  (3 failing of 8)
+     JdbcGovernanceProjectionStore.kt (the pre-upsert verification call removed)
+     86f06ce36f35 -> 0bdc7ab1a3ef  restore byte-identical
+     mechanism: three tests fail with "a publication must not replace a row it cannot verify -
+     Expecting actual not to be null", i.e. without the guard the publication succeeds and the
+     corruption is repaired. This is the mutation that pins the I3 fix from review round 1.
+     Restore note: this mutant was run by hand against a tree with uncommitted changes, and the first
+     `git checkout` restored the file to HEAD instead of to the working state - discarding the fix
+     under test. The three edits were re-applied and the suites re-run (76 tests, 0 failures) before
+     committing. Recorded because a restore that silently reverts the change under test is exactly the
+     failure this protocol exists to catch.
+
+M15  let arrival order pick which agreeing unsequenced record stands for the fact  KILLED  (1 failing of 38)
+     GovernanceDecisionFold.kt (the unsequenced consensus election reverted to distinct.first())
+     d5ec2daaf373 -> 3e0952ce302b  restore byte-identical
+     mechanism: `agreeing unpositioned records project identically in either delivery order` fails on the
+     sourceVersion assertion - the elected record's position reaches the snapshot digest, so reversing the
+     two records produced a different digest for the same evidence. This pins the review-round-2 fix.
+     Measured at f8c7b5aa, source_sha printed by the runner.
+
+Correction, M08 (review round 2): the runner named MaterializedReadModelQualificationTest as M08's
+discriminator, but that suite SURVIVES the mutant - the mutated branch is unreachable from the production call
+site. The kill was measured with GovernanceFactClassificationTest, which is what the runner now names.
+Re-measured at f8c7b5aa: KILLED, 1 failing of 3, restore byte-identical.
+
+Reproducing this campaign: the harness is committed beside this file as `mutation-campaign.py`. It
+holds the exact file, anchor, replacement, module and discriminator for every mutant above, applies one
+mutant at a time with a single-occurrence assertion, proves application by sha256, reads the verdict
+from the JUnit XML, restores, and proves byte-identical restoration. It is resumable via a state file,
+never touches config/quality/**, and never runs a generate*Baseline task. Run it with JDK 21 from the
+repository root.
+
+Not established here: the repository-wide PIT population is unaffected by this campaign - no PIT run was
+executed, and verifyMutationRatchet was exercised only to confirm the committed authority still passes.
+(11s, no campaign).

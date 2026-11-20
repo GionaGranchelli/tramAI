@@ -1,0 +1,262 @@
+{
+ "schemaVersion": 1,
+ "task": "TASK-0.7.1g1G4 (increments g1G4f and g1G4g)",
+ "purpose": "evidence only - NOT mutation authority: no classification, admission, baseline, timeout or gate authority is granted by this file",
+ "base": "16f4cbadad4205a8917fdf84d8e4309e781b7706",
+ "parentManifest": "TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json",
+ "residualDigest": "6b1e6e22472013a27f112a10e7c8fc4d46913c4ce1133df43182cab077fded10",
+ "residualCount": 11,
+ "baseCensus": {
+  "SURVIVED": 11
+ },
+ "adjudication": {
+  "killed": 8,
+  "equivalent": 3,
+  "unreachable": 0,
+  "toolingLimitation": 0,
+  "undetermined": 0
+ },
+ "identities": [
+  {
+   "identity": "63e5372ba37bc3b097def60c22bddd050404d168b26c2fa73bc94a99a6705c1e",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "authorizeResume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/approval/ApprovalResumeCoordinator$ResumePreparation;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "block": 55,
+   "index": 292,
+   "pc": 531,
+   "case": 4,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "SURVIVED",
+   "killingTest": null,
+   "disposition": "EQUIVALENT",
+   "numberOfTestsRun": "5",
+   "proof": "EQUIVALENT: forwarded to resume case-2 check pc160 (ceba69cd43), which precedes the checkcast at pc165",
+   "campaign": "g1G4f"
+  },
+  {
+   "identity": "5397c6bf591a7da840a173f7ef0d751fca2db96db65a57b0de194c6d2e1b2930",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "block": 56,
+   "index": 395,
+   "pc": 701,
+   "case": 5,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "KILLED",
+   "killingTest": "ApprovalResumeSuspensionContractTest.a ordinary executor failure after suspension inside the governed resume reaches the caller",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "1",
+   "proof": "KILLED: governed withContext branch selected (observedIdentity != null); executor entered, suspended and resumed; ordinary RuntimeException delivered as a resume value to case 5 and propagated to the public caller",
+   "campaign": "g1G4g"
+  },
+  {
+   "identity": "ef13cbec0d70fb8ec493cc6ed0709275f5ea9d9d73b2a661ef9c4d782f531af3",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "block": 69,
+   "index": 501,
+   "pc": 879,
+   "case": 6,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest]/[method:a cancellation resumed into the nested-approval uncertain path is not replaced by the primary failure()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "2",
+   "campaign": "g1G4f"
+  },
+  {
+   "identity": "ecb1e83af59393d1b5232a58ff15d691a148b163c854160584245a09ca6b31a5",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "block": 87,
+   "index": 617,
+   "pc": 1079,
+   "case": 7,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest]/[method:a cancellation resumed into the structured-parse uncertain path is not replaced by the primary failure()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "1",
+   "campaign": "g1G4f"
+  },
+  {
+   "identity": "9026b993fd997eb85a94ed6bde3b111ec4e411a59c6362b6fb0af2e99bca27bf",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "resume",
+   "methodDescription": "(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "block": 107,
+   "index": 746,
+   "pc": 1292,
+   "case": 8,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest]/[method:a cancellation resumed into the generic resume-failure uncertain path is not replaced()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "1",
+   "campaign": "g1G4f"
+  },
+  {
+   "identity": "62911071da6c7a9fe85f76a41c5a23d56b1156e2d1447dd96ccce962aabeff3b",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator",
+   "method": "revealAndValidateReplayPayload",
+   "methodDescription": "(Ldev/tramai/engine/approval/ResumeUncertainOutcome;Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "block": 33,
+   "index": 205,
+   "pc": 386,
+   "case": 2,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "SURVIVED",
+   "killingTest": null,
+   "disposition": "EQUIVALENT",
+   "numberOfTestsRun": "1",
+   "proof": "EQUIVALENT: the frame's only child is emitResumeUncertainOutcomeOnce, whose only escape is CancellationException (it catches Exception); removal is measured unobservable for the cancellation that can arrive",
+   "campaign": "g1G4f"
+  },
+  {
+   "identity": "492f9a132e141f512c5690d8b0d43c6e5925b488de13d80ef71504bcf61b62d4",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalResumeCoordinator$resume$2",
+   "method": "invokeSuspend",
+   "methodDescription": "(Ljava/lang/Object;)Ljava/lang/Object;",
+   "block": 7,
+   "index": 40,
+   "pc": 75,
+   "case": 1,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "SURVIVED",
+   "killingTest": null,
+   "disposition": "EQUIVALENT",
+   "numberOfTestsRun": "2",
+   "campaign": "g1G4f"
+  },
+  {
+   "identity": "887313eb0142a0add13da39b7d198c8bcc351ac8cd2dd1639028d47d7a2fd38e",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "compensateSuspension",
+   "methodDescription": "(Ljava/lang/String;JLdev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ApprovalGateCoordinator;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "block": 22,
+   "index": 196,
+   "pc": 390,
+   "case": 2,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest]/[method:a cancellation delivered to the second compensation action after suspension reaches the caller()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "2",
+   "campaign": "g1G4f"
+  },
+  {
+   "identity": "4fc586ff85c68cfdeca566abb58fcfc7986945efb5540844990d16a75ed127bb",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator",
+   "method": "compensateSuspension",
+   "methodDescription": "(Ljava/lang/String;JLdev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ApprovalGateCoordinator;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+   "block": 32,
+   "index": 271,
+   "pc": 538,
+   "case": 3,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest]/[method:a cancellation delivered to the third compensation action after suspension reaches the caller()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "3",
+   "campaign": "g1G4f"
+  },
+  {
+   "identity": "1c4ca901fd8d56ace18e167d294242db6cfdd8a6f551c7860dfaa934ea26ce54",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator$compensateSuspension$2$2",
+   "method": "invokeSuspend",
+   "methodDescription": "(Ljava/lang/Object;)Ljava/lang/Object;",
+   "block": 6,
+   "index": 37,
+   "pc": 70,
+   "case": 1,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest]/[method:a cancellation delivered to the second compensation action after suspension reaches the caller()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "2",
+   "campaign": "g1G4f"
+  },
+  {
+   "identity": "a15f9807befc68bd1e00747e77a09e147656195cac0833b68904cb326ccf0a5b",
+   "group": "VoidMethodCall",
+   "className": "dev.tramai.engine.approval.ApprovalSuspensionCoordinator$compensateSuspension$2$3",
+   "method": "invokeSuspend",
+   "methodDescription": "(Ljava/lang/Object;)Ljava/lang/Object;",
+   "block": 6,
+   "index": 37,
+   "pc": 69,
+   "case": 1,
+   "controlStatus": "SURVIVED",
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest]/[method:a cancellation delivered to the third compensation action after suspension reaches the caller()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "3",
+   "campaign": "g1G4f"
+  }
+ ],
+ "provenance": "Two certified campaigns, not one. The ten identities other than 5397c6bf591a7da840a173f7ef0d751fca2db96db65a57b0de194c6d2e1b2930 are certified by the g1G4f campaign: control 16f4cbadad4205a8917fdf84d8e4309e781b7706 / e20cc29b, certified candidate at test commit 382ec7146b1f92683c8e84970c5ef6ed286a88ff / f1a4ba66. 5397c6bf591a7da840a173f7ef0d751fca2db96db65a57b0de194c6d2e1b2930 is certified separately by the g1G4g campaign: control 3e32020797ec1dcff037f140a1f674f582ab573c / f118383f (the post-#458 epic tip), certified candidate at test commit e04037bf06d62dd16ad0c5254cfd54d447411251 / e745d320, where it moved SURVIVED -> KILLED with numberOfTestsRun = 1. The g1G4g campaign supersedes ONLY the status and disposition evidence for 5397c6bf591a7da840a173f7ef0d751fca2db96db65a57b0de194c6d2e1b2930; it does not supersede, replace or re-measure the prior certification of the other ten identities. The top-level `base` field records the frozen residual-11 cohort's original base and remains historically legitimate as the cohort's provenance.",
+ "secondWave": {
+  "commits": [
+   "e110c1dc4a47d7981c24333c3d726f3c3372a54c",
+   "271b34f1e0e6ab4302a83bd07d51b705740ea2dd"
+  ],
+  "result": "3 durable tests pass; 0 new kills; cancellation cannot discriminate a state-machine check because the coroutine machinery delivers it out-of-band"
+ },
+ "parentClosed": "TASK-0.7.1g1G4 closed at 11/11 settled (8 KILLED, 3 EQUIVALENT, 0 UNDETERMINED)",
+ "campaigns": {
+  "g1G4f": {
+   "scope": "the ten identities other than 5397c6bf591a7da840a173f7ef0d751fca2db96db65a57b0de194c6d2e1b2930",
+   "control": {
+    "commit": "16f4cbadad4205a8917fdf84d8e4309e781b7706",
+    "narrowing": "e20cc29b"
+   },
+   "certifiedCandidate": {
+    "testCommit": "382ec7146b1f92683c8e84970c5ef6ed286a88ff",
+    "narrowing": "f1a4ba66"
+   },
+   "testCommitHistory": [
+    "7e5c055369898d3bc163955fd029eb1127c93d9b",
+    "324b256cfce379b5451e9ce9b7d95218dbe9d218",
+    "24de7e9770b5a09299e102cb9e5a7a4faa9027b8",
+    "382ec7146b1f92683c8e84970c5ef6ed286a88ff"
+   ],
+   "supersedes": "324b256cfce379b5451e9ce9b7d95218dbe9d218 / 04c0a936: two compensation tests were silently skipped there and it is not citable"
+  },
+  "g1G4g": {
+   "scope": "5397c6bf591a7da840a173f7ef0d751fca2db96db65a57b0de194c6d2e1b2930",
+   "control": {
+    "commit": "3e32020797ec1dcff037f140a1f674f582ab573c",
+    "narrowing": "f118383f",
+    "note": "post-#458 epic tip"
+   },
+   "certifiedCandidate": {
+    "testCommit": "e04037bf06d62dd16ad0c5254cfd54d447411251",
+    "narrowing": "e745d320"
+   },
+   "transition": "SURVIVED -> KILLED, numberOfTestsRun = 1"
+  }
+ },
+ "testCommitHistory": [
+  "7e5c055369898d3bc163955fd029eb1127c93d9b",
+  "324b256cfce379b5451e9ce9b7d95218dbe9d218",
+  "24de7e9770b5a09299e102cb9e5a7a4faa9027b8",
+  "382ec7146b1f92683c8e84970c5ef6ed286a88ff",
+  "e110c1dc4a47d7981c24333c3d726f3c3372a54c",
+  "271b34f1e0e6ab4302a83bd07d51b705740ea2dd",
+  "e04037bf06d62dd16ad0c5254cfd54d447411251"
+ ]
+}

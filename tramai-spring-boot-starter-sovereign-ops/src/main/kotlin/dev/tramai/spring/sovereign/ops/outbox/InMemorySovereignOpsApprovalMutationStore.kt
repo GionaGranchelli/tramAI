@@ -2,6 +2,7 @@ package dev.tramai.spring.sovereign.ops.outbox
 
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
+import dev.tramai.core.exception.ApprovalStoreConflictException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 
@@ -30,6 +31,8 @@ class InMemorySovereignOpsApprovalMutationStore(
     private val approvalStore: ApprovalStore,
     private val outboxStore: SovereignOpsAuditOutboxStore,
 ) : SovereignOpsApprovalMutationStore {
+    /** A lost compare-and-set is a conflict, not a programming error. */
+    private fun throwVersionConflict(approvalId: String): Nothing = throw ApprovalStoreConflictException(approvalId)
 
     /** Per-approval locks for atomic transition + outbox. */
     private val approvalLocks = ConcurrentHashMap<String, ReentrantLock>()
@@ -40,14 +43,13 @@ class InMemorySovereignOpsApprovalMutationStore(
         actor: String,
         reason: String,
         auditIntent: SovereignOpsAuditOutboxRecord,
-    ): SovereignOpsApprovalMutationResult {
-        return mutateApprovalWithAuditIntent(
+    ): SovereignOpsApprovalMutationResult =
+        mutateApprovalWithAuditIntent(
             approvalId = approvalId,
             expectedVersion = expectedVersion,
             auditIntent = auditIntent,
             transition = ApprovalTransition.Deny(decidedBy = actor, comment = reason),
         )
-    }
 
     override suspend fun approveApprovalWithAuditIntent(
         approvalId: String,
@@ -55,14 +57,13 @@ class InMemorySovereignOpsApprovalMutationStore(
         actor: String,
         reason: String,
         auditIntent: SovereignOpsAuditOutboxRecord,
-    ): SovereignOpsApprovalMutationResult {
-        return mutateApprovalWithAuditIntent(
+    ): SovereignOpsApprovalMutationResult =
+        mutateApprovalWithAuditIntent(
             approvalId = approvalId,
             expectedVersion = expectedVersion,
             auditIntent = auditIntent,
             transition = ApprovalTransition.Approve(decidedBy = actor, comment = reason),
         )
-    }
 
     private suspend fun mutateApprovalWithAuditIntent(
         approvalId: String,
@@ -74,10 +75,13 @@ class InMemorySovereignOpsApprovalMutationStore(
         lock.lock()
         try {
             // 1. Re-read under lock for consistency
-            val current = approvalStore.get(approvalId)
-                ?: throw IllegalStateException("tramai-sovereign-ops-invalid-approval-id")
-            require(current.version == expectedVersion) {
-                "tramai-sovereign-ops-approval-version-conflict"
+            val current =
+                approvalStore.get(approvalId)
+                    ?: throw IllegalStateException("tramai-sovereign-ops-invalid-approval-id")
+            // Same signal as the JDBC store's compare-and-set: a version mismatch is a conflict, not a
+            // programming error, and the control plane turns it into a typed stale outcome.
+            if (current.version != expectedVersion) {
+                throwVersionConflict(approvalId)
             }
 
             // 2. Write outbox record as PREPARED (not dispatchable)
@@ -88,11 +92,12 @@ class InMemorySovereignOpsApprovalMutationStore(
             //    Optimistic concurrency in ApprovalStore catches any
             //    external mutation that bypassed this lock.
             return try {
-                val updated = approvalStore.transition(
-                    approvalId = approvalId,
-                    expectedVersion = expectedVersion,
-                    transition = transition,
-                )
+                val updated =
+                    approvalStore.transition(
+                        approvalId = approvalId,
+                        expectedVersion = expectedVersion,
+                        transition = transition,
+                    )
                 // 4. Mark the outbox as PENDING — now dispatchable
                 outboxStore.markReadyForDispatch(
                     outboxId = auditIntent.outboxId,

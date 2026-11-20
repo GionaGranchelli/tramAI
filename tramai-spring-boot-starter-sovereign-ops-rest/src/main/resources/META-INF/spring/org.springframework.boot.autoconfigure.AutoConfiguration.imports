@@ -1,1 +1,3 @@
 dev.tramai.spring.sovereign.ops.rest.ApprovalControlPlaneRestAutoConfiguration
+dev.tramai.spring.sovereign.ops.rest.security.OperatorAuthenticationAutoConfiguration
+dev.tramai.spring.sovereign.ops.rest.security.OperatorAuthenticationDependencyCheckAutoConfiguration

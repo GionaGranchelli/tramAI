@@ -7,6 +7,7 @@ import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class MutationReportParserTest {
     @TempDir
@@ -115,6 +116,46 @@ class MutationReportParserTest {
                 .single()
                 .status,
         )
+    }
+
+    @Test
+    fun `a non-PITest root element fails closed`() {
+        val failure =
+            assertFailsWith<GradleException> {
+                MutationReportParser().parse(":engine", "routing", xml("<reports><report/></reports>"))
+            }
+        assertTrue(
+            failure.message.orEmpty().contains("expected <mutations> root"),
+            "expected a root-element diagnostic, got: ${failure.message}",
+        )
+    }
+
+    @Test
+    fun `a truncated report fails closed instead of parsing as an empty measurement`() {
+        // The exact artifact an aborted campaign leaves behind: the root is still open when the
+        // writer stops. Reading it as "no mutants" would silently shrink a measurement.
+        val truncated =
+            """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <mutations partial="true">
+              <mutation status="KILLED"><mutatedClass>dev.tramai.Router
+            """.trimIndent()
+        assertFailsWith<GradleException> {
+            MutationReportParser().parse(":engine", "routing", xml(truncated))
+        }
+    }
+
+    @Test
+    fun `a valid PITest root carrying zero mutations is a measurement concern not a syntax failure`() {
+        // Structural validity is all this parser owns. Emptiness must reach the aggregator's
+        // non-vacuity check rather than being reported as malformedness.
+        val report =
+            MutationReportParser().parse(
+                ":engine",
+                "routing",
+                xml("""<?xml version="1.0" encoding="UTF-8"?><mutations partial="true"></mutations>"""),
+            )
+        assertEquals(0, report.mutants.size)
     }
 
     private fun mutation(

@@ -1,0 +1,24 @@
+diff --git a/tramai-core/src/main/kotlin/dev/tramai/core/policy/PolicyContext.kt b/tramai-core/src/main/kotlin/dev/tramai/core/policy/PolicyContext.kt
+index a0adc5e7..700f6716 100644
+--- a/tramai-core/src/main/kotlin/dev/tramai/core/policy/PolicyContext.kt
++++ b/tramai-core/src/main/kotlin/dev/tramai/core/policy/PolicyContext.kt
+@@ -1,5 +1,7 @@
+ package dev.tramai.core.policy
+ 
++import dev.tramai.core.identity.GovernedRunIdentity
++
+ /**
+  * Context passed to [PolicyEngine.evaluate] at every enforcement point.
+  *
+@@ -41,4 +43,11 @@ data class PolicyContext @JvmOverloads constructor(
+     val workflowDigest: String? = null,
+     // Extensibility
+     val attributes: Map<String, String> = emptyMap(),
++    /**
++     * CANDIDATE DESIGN UNDER TEST (G1a.1) — appended last so that every existing `@JvmOverloads`
++     * constructor descriptor and every `componentN` survives. Measured and reverted: it breaks
++     * compiled Kotlin consumers through the synthetic default-arguments constructor and through
++     * `copy`/`copy$default`. See docs/roadmap/0.7.4/0.7.4b1-G1A-ABI-FINDINGS.md.
++     */
++    val governedRunIdentity: GovernedRunIdentity? = null,
+ )

@@ -1,6 +1,9 @@
-package dev.tramai.engine.invocation
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 
+package dev.tramai.engine.invocation
 import dev.tramai.core.exception.ConfigurationException
+import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.engine.planning.ServiceDefinition
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -38,15 +41,20 @@ internal class TramaiInvocationHandler(
     private val contextFactory: InvocationContextFactory,
     private val executionCoordinator: InvocationExecutionCoordinator,
 ) : InvocationHandler {
-    override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
+    override fun invoke(
+        proxy: Any,
+        method: Method,
+        args: Array<out Any?>?,
+    ): Any? {
         if (method.declaringClass == Any::class.java) {
             return handleObjectMethod(proxy, method, args.orEmpty())
         }
 
         check(!isClosed.get()) { "Tramai runtime is closed" }
 
-        val plan = serviceDefinition.operations[method]
-            ?: throw ConfigurationException("No operation metadata registered for ${method.name}")
+        val plan =
+            serviceDefinition.operations[method]
+                ?: throw ConfigurationException("No operation metadata registered for ${method.name}")
 
         // Conversation-ID resolution happens here — before the suspend/blocking
         // dispatch — exactly as in the monolithic handler, so timing/error
@@ -68,23 +76,45 @@ internal class TramaiInvocationHandler(
         // marker marks this coroutine as engine-owned so a blocking call
         // that itself invokes close() skips the join (avoiding a
         // self-deadlock on lifecycleJob).
-        val result = runBlocking(lifecycleJob + engineThreadMarker.asContextElement(true)) {
-            executionCoordinator.execute(context)
-        }
+        //
+        // 0.7.1d: a blocking invocation starts its OWN coroutine context, so the governed
+        // attribution in force on the calling thread is captured BEFORE runBlocking and
+        // re-installed inside it. Without this bridge a blocking proxy call made from a
+        // governed run would silently lose its identity and the engine would mint a
+        // second run id for the same execution. The bridge is transport only: nothing is
+        // inferred or regenerated when no governed execution is in force.
+        val governedRun = GovernedRunScope.currentThreadIdentity()
+        val engineContext =
+            if (governedRun == null) {
+                lifecycleJob + engineThreadMarker.asContextElement(true)
+            } else {
+                lifecycleJob +
+                    engineThreadMarker.asContextElement(true) +
+                    GovernedRunScope(governedRun)
+            }
+        val result =
+            runBlocking(engineContext) {
+                executionCoordinator.execute(context)
+            }
         // The engine may have closed while this blocking call was in
         // flight. Never deliver a result computed against a closed engine:
         // the caller sees the fixed lifecycle error instead.
         check(!isClosed.get()) { "Tramai runtime is closed" }
         return result
     }
+
     private fun invokeSuspend(
         context: InvocationExecutionContext,
         args: Array<out Any?>,
     ): Any {
         // Kotlin suspend proxies receive the continuation as the last JVM argument.
         @Suppress("UNCHECKED_CAST")
-        val continuation = args.lastOrNull() as? Continuation<Any?>
-            ?: throw ConfigurationException("Suspend invocation for ${context.plan.definition.method.name} is missing its continuation")
+        val continuation =
+            args.lastOrNull() as? Continuation<Any?>
+                ?: throw ConfigurationException(
+                    "Suspend invocation for ${context.plan.definition.method.name} is missing " +
+                        "its continuation",
+                )
 
         val callArguments = args.dropLast(1)
         // Launch as a child of the CALLER's job (continuation.context, with the
@@ -102,27 +132,34 @@ internal class TramaiInvocationHandler(
         // invokeOnCompletion resumes with a cancellation when the block never
         // ran (job cancelled pre-start by close()) — otherwise the caller's
         // suspension would freeze forever.
-        val resumed = java.util.concurrent.atomic.AtomicReference<Result<Any?>?>(null)
-        val launched = synchronized(activeInvocationJobs) {
-            check(!isClosed.get()) { "Tramai runtime is closed" }
-            val job = lifecycleScope.launch(
-                continuation.context.minusKey(kotlin.coroutines.ContinuationInterceptor) +
-                    engineThreadMarker.asContextElement(true),
-            ) {
-                var result = runCatching { executionCoordinator.execute(context.copy(arguments = callArguments)) }
-                // Never deliver a success computed against a closed engine: the
-                // engine may have closed while the invocation was in flight.
-                // The caller sees the fixed lifecycle error instead (mirrors
-                // the blocking path).
-                if (isClosed.get() && result.isSuccess) {
-                    result = Result.failure(IllegalStateException("Tramai runtime is closed"))
-                }
-                resumed.set(result)
-                continuation.resumeWith(result)
+        val resumed =
+            java.util.concurrent.atomic
+                .AtomicReference<Result<Any?>?>(null)
+        val launched =
+            synchronized(activeInvocationJobs) {
+                check(!isClosed.get()) { "Tramai runtime is closed" }
+                val job =
+                    lifecycleScope.launch(
+                        continuation.context.minusKey(kotlin.coroutines.ContinuationInterceptor) +
+                            engineThreadMarker.asContextElement(true),
+                    ) {
+                        var result =
+                            runCatching {
+                                executionCoordinator.execute(context.copy(arguments = callArguments))
+                            }
+                        // Never deliver a success computed against a closed engine: the
+                        // engine may have closed while the invocation was in flight.
+                        // The caller sees the fixed lifecycle error instead (mirrors
+                        // the blocking path).
+                        if (isClosed.get() && result.isSuccess) {
+                            result = Result.failure(IllegalStateException("Tramai runtime is closed"))
+                        }
+                        resumed.set(result)
+                        continuation.resumeWith(result)
+                    }
+                activeInvocationJobs += job
+                job
             }
-            activeInvocationJobs += job
-            job
-        }
         launched.invokeOnCompletion { cause ->
             // Registry mutations obey the same monitor: launch+add (above) and
             // close()'s snapshot (in close()) are synchronized on
@@ -146,15 +183,16 @@ internal class TramaiInvocationHandler(
         }
         return COROUTINE_SUSPENDED
     }
+
     private fun handleObjectMethod(
         proxy: Any,
         method: Method,
         args: Array<out Any?>,
-    ): Any? = when (method.name) {
-        "toString" -> "TramaiProxy(${serviceDefinition.serviceType.qualifiedName})"
-        "hashCode" -> System.identityHashCode(proxy)
-        "equals" -> proxy === args.firstOrNull()
-        else -> throw UnsupportedOperationException("Unsupported Object method: ${method.name}")
-    }
+    ): Any? =
+        when (method.name) {
+            "toString" -> "TramaiProxy(${serviceDefinition.serviceType.qualifiedName})"
+            "hashCode" -> System.identityHashCode(proxy)
+            "equals" -> proxy === args.firstOrNull()
+            else -> throw UnsupportedOperationException("Unsupported Object method: ${method.name}")
+        }
 }
-

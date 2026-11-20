@@ -46,6 +46,11 @@ dependencies {
     // REST control plane (for sovereign-lab profile)
     implementation(project(":tramai-spring-boot-starter-sovereign-ops-rest"))
 
+    // Operator security: the sovereign-lab profile enables the REST control plane, which 0.7.6e refuses to
+    // publish without verified operator identity. The REST starter keeps Spring Security optional, so the
+    // application supplies it - exactly what a consumer adding the control plane has to do.
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+
     // OpenAI provider (for sovereign-lab local model endpoint)
     implementation(project(":tramai-openai"))
 

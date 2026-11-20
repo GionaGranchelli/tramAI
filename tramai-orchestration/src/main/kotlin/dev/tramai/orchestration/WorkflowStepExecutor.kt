@@ -1,6 +1,7 @@
 package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
+import kotlinx.coroutines.withContext
 
 /**
  * The one shared execution wrapper for every built-in workflow step.
@@ -12,11 +13,13 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
  * [InternalWorkflowStep.execute]; this class never dispatches on a concrete
  * step type.
  *
- * Frozen contract (unchanged by the #246/#247 refactors):
+ * Frozen contract (unchanged by the #246/#247 refactors, extended by 0.7.7b E11 and D7-A1):
  * ```
- * stepCounter.beforeStep
+ * stepAdmission                     (governed runs only; a refusal stops the step here)
+ *   → stepCounter.beforeStep        (budget check before attempt persistence)
+ *   → stepAttemptAuthority.beginAttempt (synchronously persists STARTED attempt record)
  *   → observer.onStepStarted
- *   → step.execute(request)
+ *   → withContext(StepAttemptScope) { step.execute(request) }
  *   → Completed?  YES → observer.onStepCompleted
  *                 NO  → no completion event (Suspended)
  * ```
@@ -37,16 +40,35 @@ internal class WorkflowStepExecutor<S>(
         step: InternalWorkflowStep<S>,
         request: WorkflowStepExecutionRequest<S>,
     ): WorkflowStepExecutionResult<S> {
+        // E11: the durable authority gets asked before the step exists as work. A cancelled run never gets here,
+        // because the refusal happens at this line rather than somewhere inside a step that already began.
+        request.services.stepAdmission?.admit(step.name)
         request.stepCounter.beforeStep(workflowName, step.name)
+        val attempt =
+            request.services.stepAttemptAuthority?.beginAttempt(
+                workflowName = workflowName,
+                workflowId = request.context.workflowId,
+                stepName = step.name,
+            )
         request.observer.onStepStarted(workflowName, step.name, request.context)
-        val result = try {
-            step.execute(request)
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            val sanitized = sanitizeStepFailure(step, workflowName, failureDiagnosticObserver, error)
-            request.observer.onStepFailed(workflowName, step.name, sanitized, request.context)
-            throw sanitized
-        }
+        val result =
+            try {
+                if (attempt != null) {
+                    withContext(StepAttemptScope(attempt)) {
+                        step.execute(request)
+                    }
+                } else {
+                    step.execute(request)
+                }
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                // A refusal is not a step failure: it keeps its own type so a caller can tell "the authority said no"
+                // from "the step broke", and never becomes a sanitized domain failure.
+                error.rethrowIfAuthoritativeRefusal()
+                val sanitized = sanitizeStepFailure(step, workflowName, failureDiagnosticObserver, error)
+                request.observer.onStepFailed(workflowName, step.name, sanitized, request.context)
+                throw sanitized
+            }
         if (result is WorkflowStepExecutionResult.Completed) {
             request.observer.onStepCompleted(workflowName, step.name, request.context)
         }

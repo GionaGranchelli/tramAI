@@ -1,21 +1,21 @@
 @file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.scheduler
 
-
-import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
-import dev.tramai.core.observation.event.RuntimeEvents
-
-import dev.tramai.core.observation.event.RuntimeEvent
-
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.observation.event.RuntimeAttributes
-
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.orchestration.FailureIsolatingWorkflowObserver
+import dev.tramai.orchestration.GovernedRun
 import dev.tramai.orchestration.NoOpWorkflowObserver
 import dev.tramai.orchestration.Workflow
 import dev.tramai.orchestration.WorkflowContext
 import dev.tramai.orchestration.WorkflowObserver
 import dev.tramai.orchestration.WorkflowPersistence
 import dev.tramai.orchestration.WorkflowSuspendedException
+import dev.tramai.orchestration.recoverGovernedRun
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,6 +39,13 @@ class ScheduledWorkflowTimer(
     private val observer: WorkflowObserver = NoOpWorkflowObserver,
     private val scope: CoroutineScope = OwnedSchedulerScope(SupervisorJob() + Dispatchers.Default),
 ) : AutoCloseable {
+    /**
+     * Durable binding authority, discovered from the STORE rather than from the current
+     * registration (0.7.1d). A registration only declares intent; a later ordinary
+     * registration must not be able to hide an existing durable governed binding.
+     */
+    private val bindings: GovernedScheduleBindingStore? = store as? GovernedScheduleBindingStore
+
     // Epic 5.3: the scheduler owns WorkflowObserver instances and invokes
     // tick callbacks BEFORE durable scheduler transitions (markTickSkipped /
     // markTickMisfired / markTickStarted / releaseDelayWakeupClaim). A
@@ -53,10 +60,11 @@ class ScheduledWorkflowTimer(
     // 8.3c: one lifecycle owner. The default-created scope is timer-owned
     // (marked via OwnedSchedulerScope) and is cancelled on close(); a
     // caller-supplied scope is borrowed and never cancelled.
-    private val loopOwner = SchedulerLoopOwner(
-        parentScope = scope,
-        ownsParentScope = scope is OwnedSchedulerScope,
-    )
+    private val loopOwner =
+        SchedulerLoopOwner(
+            parentScope = scope,
+            ownsParentScope = scope is OwnedSchedulerScope,
+        )
 
     init {
         require(!pollInterval.isNegative && !pollInterval.isZero) {
@@ -78,24 +86,50 @@ class ScheduledWorkflowTimer(
         initialState: suspend (ClaimedScheduledTick) -> S,
         observer: WorkflowObserver = NoOpWorkflowObserver,
         persistence: WorkflowPersistence<S>? = null,
+    ) = register(workflow, initialState, observer, persistence, governed = null)
+
+    /**
+     * Registers a GOVERNED schedule (0.7.1d): the schedule is durably bound to the
+     * workload deployment whose runs it creates.
+     *
+     * The schedule stores no run identity — a schedule is not a run. Each tick creates a
+     * fresh run id, and `deployment + freshRunId` is the governed identity of that tick's
+     * execution. A binding, once declared, is never silently dropped by a later
+     * registration that omits it: downgrading a governed schedule to ungoverned ticks is
+     * exactly the attribution loss 0.7.1d removes.
+     */
+    suspend fun <S, R> register(
+        workflow: Workflow<S, R>,
+        initialState: suspend (ClaimedScheduledTick) -> S,
+        observer: WorkflowObserver,
+        persistence: WorkflowPersistence<S>?,
+        governed: GovernedScheduleRegistration?,
     ) {
-        val schedule = workflow.schedule
-            ?: throw IllegalArgumentException("Workflow '${workflow.name}' does not declare a schedule")
+        val schedule =
+            workflow.schedule
+                ?: throw IllegalArgumentException("Workflow '${workflow.name}' does not declare a schedule")
         require(schedule is CronSchedule) {
             "ScheduledWorkflowTimer currently supports cron schedules only; workflow '${workflow.name}' declared kind='${schedule.kind}'"
         }
         schedule.validate()
         val scheduleId = scheduleId(workflow.name)
-        val registration = ScheduledWorkflowRegistration(
-            workflow = workflow,
-            initialState = initialState,
-            // Epic 5.3: per-registration observer wrapped at the boundary too
-            // (registration.observer is invoked directly by pollOnce).
-            observer = FailureIsolatingWorkflowObserver(observer),
-            persistence = persistence,
-        )
-        synchronized(monitor) {
-            registrations[scheduleId] = registration
+        val registration =
+            ScheduledWorkflowRegistration(
+                workflow = workflow,
+                initialState = initialState,
+                // Epic 5.3: per-registration observer wrapped at the boundary too
+                // (registration.observer is invoked directly by pollOnce).
+                observer = FailureIsolatingWorkflowObserver(observer),
+                persistence = persistence,
+                governed = governed,
+            )
+        // Fail-safe order (0.7.1d): a durable binding write that throws must leave NO
+        // executable schedule behind, so the binding lands first, then the schedule, and the
+        // in-memory registration is published last.
+        governed?.let { declaration ->
+            declaration.bindingStore.putGovernedScheduleBinding(
+                GovernedScheduleBinding(scheduleId = scheduleId, deploymentIdentity = declaration.deploymentIdentity),
+            )
         }
         store.upsertSchedule(
             ScheduleRecord(
@@ -105,14 +139,18 @@ class ScheduledWorkflowTimer(
                 nextFireAt = schedule.nextFireAfter(clock.instant()),
             ),
         )
-    }
-
-    fun start(): Job = loopOwner.start {
-        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-            pollOnce()
-            delay(pollInterval.toMillis())
+        synchronized(monitor) {
+            registrations[scheduleId] = registration
         }
     }
+
+    fun start(): Job =
+        loopOwner.start {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                pollOnce()
+                delay(pollInterval.toMillis())
+            }
+        }
 
     suspend fun stop() {
         loopOwner.stop()
@@ -120,22 +158,24 @@ class ScheduledWorkflowTimer(
 
     suspend fun pollOnce() {
         val now = clock.instant()
-        val ticks = store.claimDueTicks(
-            now = now,
-            ownerId = ownerId,
-            claimDuration = claimDuration,
-            limit = batchSize,
-        )
-        for (tick in ticks) {
-            handleTick(tick = tick, now = now)
-        }
-        if (hasDelayRegistrations()) {
-            val wakeups = store.claimDueDelayWakeups(
+        val ticks =
+            store.claimDueTicks(
                 now = now,
                 ownerId = ownerId,
                 claimDuration = claimDuration,
                 limit = batchSize,
             )
+        for (tick in ticks) {
+            handleTick(tick = tick, now = now)
+        }
+        if (hasDelayRegistrations()) {
+            val wakeups =
+                store.claimDueDelayWakeups(
+                    now = now,
+                    ownerId = ownerId,
+                    claimDuration = claimDuration,
+                    limit = batchSize,
+                )
             for (wakeup in wakeups) {
                 handleDelayWakeup(wakeup)
             }
@@ -162,7 +202,25 @@ class ScheduledWorkflowTimer(
             store.markTickSkipped(tick.tickId, tick.claimToken, reason)
             return
         }
-        val context = scheduledTickContext(tick)
+        // A tick is a NEW execution: the SAME deployment identity, a FRESH run id created
+        // here, exactly once, by the execution envelope. Classification is DURABLE, never
+        // registration-local: the binding is read from the store, so a later ordinary
+        // registration cannot downgrade a schedule that is durably governed.
+        val binding = bindings?.getGovernedScheduleBinding(tick.scheduleId)
+        if (binding == null && registration.governed != null) {
+            // Explicitly governed registration with no durable binding: fail closed. Runtime
+            // authority is never reconstructed from the transient declaration.
+            val reason = GOVERNED_BINDING_MISSING_REASON
+            val context = scheduledTickContext(tick)
+            isolatedObserver.onSkippedTick(tick.workflowName, tick.scheduledFireAt, reason, context)
+            store.markTickSkipped(tick.tickId, tick.claimToken, reason)
+            return
+        }
+        val governedRun =
+            binding?.let { bound ->
+                GovernedRun.start(deployment = bound.deploymentIdentity, attributes = scheduledTickAttributes(tick))
+            }
+        val context = governedRun?.context ?: scheduledTickContext(tick)
         val observer = registration.observer
         if (Duration.between(tick.scheduledFireAt, now) > misfireThreshold) {
             val reason = "misfire_threshold_exceeded"
@@ -174,7 +232,7 @@ class ScheduledWorkflowTimer(
         isolatedObserver.onScheduledTick(tick.workflowName, tick.scheduledFireAt, context)
         store.markTickStarted(tick.tickId, tick.claimToken, runId)
         try {
-            registration.run(tick, context)
+            registration.run(tick, context, governedRun)
         } catch (_: WorkflowSuspendedException) {
             synchronized(monitor) {
                 delayRegistrations[runId] = registration
@@ -189,15 +247,17 @@ class ScheduledWorkflowTimer(
             store.releaseDelayWakeupClaim(wakeup.runId, wakeup.stepId, wakeup.claimToken)
             return
         }
-        val registration = synchronized(monitor) {
-            delayRegistrations[wakeup.runId]
-        }
-        if (registration == null) {
-            val unregisteredEvent = RuntimeEvent.of(RuntimeEvents.SCHEDULER_DELAY_WAKEUP_UNREGISTERED) {
-                set(RuntimeAttributes.WORKFLOW_ID_BARE, wakeup.runId)
-                set(RuntimeAttributes.STEP_ID, wakeup.stepId)
-                set(RuntimeAttributes.RESUME_AT_EPOCH_MILLIS, wakeup.resumeAt.toEpochMilli())
+        val registration =
+            synchronized(monitor) {
+                delayRegistrations[wakeup.runId]
             }
+        if (registration == null) {
+            val unregisteredEvent =
+                RuntimeEvent.of(RuntimeEvents.SCHEDULER_DELAY_WAKEUP_UNREGISTERED) {
+                    set(RuntimeAttributes.WORKFLOW_ID_BARE, wakeup.runId)
+                    set(RuntimeAttributes.STEP_ID, wakeup.stepId)
+                    set(RuntimeAttributes.RESUME_AT_EPOCH_MILLIS, wakeup.resumeAt.toEpochMilli())
+                }
             isolatedObserver.onWorkflowEvent(
                 workflowName = "unknown",
                 name = unregisteredEvent.name,
@@ -207,13 +267,15 @@ class ScheduledWorkflowTimer(
             store.releaseDelayWakeupClaim(wakeup.runId, wakeup.stepId, wakeup.claimToken)
             return
         }
-        val context = WorkflowContext(
-            workflowId = wakeup.runId,
-            attributes = mapOf(
-                RuntimeAttributes.SCHEDULER_DELAY_STEP_ID.name to wakeup.stepId,
-                RuntimeAttributes.SCHEDULER_DELAY_RESUME_AT.name to wakeup.resumeAt.toEpochMilli(),
-            ),
-        )
+        val context =
+            WorkflowContext(
+                workflowId = wakeup.runId,
+                attributes =
+                    mapOf(
+                        RuntimeAttributes.SCHEDULER_DELAY_STEP_ID.name to wakeup.stepId,
+                        RuntimeAttributes.SCHEDULER_DELAY_RESUME_AT.name to wakeup.resumeAt.toEpochMilli(),
+                    ),
+            )
         try {
             registration.resume(context)
             synchronized(monitor) {
@@ -226,51 +288,89 @@ class ScheduledWorkflowTimer(
         }
     }
 
-    private fun hasDelayRegistrations(): Boolean = synchronized(monitor) {
-        delayRegistrations.isNotEmpty()
-    }
+    private fun hasDelayRegistrations(): Boolean =
+        synchronized(monitor) {
+            delayRegistrations.isNotEmpty()
+        }
 
-    private fun registrationFor(scheduleId: String): ScheduledWorkflowRegistration<*, *>? = synchronized(monitor) {
-        registrations[scheduleId]
-    }
-
-    private fun scheduledTickContext(tick: ClaimedScheduledTick): WorkflowContext = WorkflowContext(
-        attributes = mapOf(
-            RuntimeAttributes.SCHEDULE_TICK_ID.name to tick.tickId,
-            RuntimeAttributes.SCHEDULE_SCHEDULE_ID.name to tick.scheduleId,
-            RuntimeAttributes.SCHEDULE_SCHEDULED_FIRE_AT.name to tick.scheduledFireAt.toEpochMilli(),
-        ),
-    )
+    private fun registrationFor(scheduleId: String): ScheduledWorkflowRegistration<*, *>? =
+        synchronized(monitor) {
+            registrations[scheduleId]
+        }
 
     private data class ScheduledWorkflowRegistration<S, R>(
         val workflow: Workflow<S, R>,
         val initialState: suspend (ClaimedScheduledTick) -> S,
         val observer: WorkflowObserver,
         val persistence: WorkflowPersistence<S>?,
+        val governed: GovernedScheduleRegistration? = null,
     ) {
         suspend fun run(
             tick: ClaimedScheduledTick,
             context: WorkflowContext,
+            governedRun: GovernedRun?,
         ) {
-            workflow.run(
-                initialState = initialState(tick),
-                context = context,
-                observer = observer,
-                persistence = persistence,
-            )
+            val state = initialState(tick)
+            if (governedRun == null) {
+                workflow.run(
+                    initialState = state,
+                    context = context,
+                    observer = observer,
+                    persistence = persistence,
+                )
+            } else {
+                workflow.run(
+                    initialState = state,
+                    run = governedRun,
+                    observer = observer,
+                    persistence = persistence,
+                )
+            }
         }
+
         suspend fun resume(context: WorkflowContext) {
             val persistence = persistence ?: return
-            workflow.resume(
-                context = context,
-                observer = observer,
-                persistence = persistence,
-            )
+            // Continuation RECOVERS identity from the run's own durable witness and never
+            // rebuilds it: a schedule binding or configuration change between suspension
+            // and wake-up must not rewrite the identity of an existing run. Attribution
+            // that is partial or malformed fails closed here instead of degrading into a
+            // legacy un-attributed wake-up.
+            val governedRun = persistence.recoverGovernedRun(workflow.name, context.workflowId)
+            if (governedRun == null) {
+                workflow.resume(
+                    context = context,
+                    observer = observer,
+                    persistence = persistence,
+                )
+            } else {
+                workflow.resume(
+                    run = governedRun,
+                    observer = observer,
+                    persistence = persistence,
+                )
+            }
         }
     }
 }
 
 private fun scheduleId(workflowName: String): String = "workflow:$workflowName"
 
+/**
+ * Operational tick identity (schedule id, tick id, fire time) — deliberately NOT workload
+ * attribution: these identify the tick, never the run's governed identity.
+ */
+private fun scheduledTickAttributes(tick: ClaimedScheduledTick): Map<String, Any?> =
+    mapOf(
+        RuntimeAttributes.SCHEDULE_TICK_ID.name to tick.tickId,
+        RuntimeAttributes.SCHEDULE_SCHEDULE_ID.name to tick.scheduleId,
+        RuntimeAttributes.SCHEDULE_SCHEDULED_FIRE_AT.name to tick.scheduledFireAt.toEpochMilli(),
+    )
 
+/** Why a tick was skipped: the schedule declares governance but no binding is durable. */
+private const val GOVERNED_BINDING_MISSING_REASON = "governed_schedule_binding_missing"
 
+/** Operational tick context — schedule/tick identity, never workload attribution. */
+private fun scheduledTickContext(tick: ClaimedScheduledTick): WorkflowContext =
+    WorkflowContext(
+        attributes = scheduledTickAttributes(tick),
+    )

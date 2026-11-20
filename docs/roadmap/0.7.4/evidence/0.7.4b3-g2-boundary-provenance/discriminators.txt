@@ -1,0 +1,113 @@
+G2 discriminators - recorded transcript
+========================================================================
+Isolated worktree: /home/gionag/tramai-g2-disc (detached at the release base)
+Mutations were applied to the COPY. Test sources were never modified.
+Every phase forced execution (--rerun --no-build-cache); the task line is recorded so a
+cache hit or a compile error cannot be mistaken for a negative-test verdict.
+
+========= G2 DISCRIMINATORS (serialized, fresh-result) 2026-10-13T15:06:15+02:00 =========
+########## CONTROL ##########
+---------- PHASE control ----------
+  gradle exit=0
+  task line: > Task :tramai-spring-boot-starter-sovereign-ops:test
+  execution: PROVEN
+   ok   curity.evidence.ToolPermissionBoundaryProvenanceTest tests=14 failures=0 errors=0
+   ok   ringaiboundary.ToolPermissionEvidenceAttributionTest tests=5 failures=0 errors=0
+   ok   gn.ops.evidence.RuntimeEvidenceBundleIntegrationTest tests=9 failures=0 errors=0
+########## D1: remove trusted provenance binding ##########
+  mutation check: 1 emptyMap site(s) (1 expected)
+---------- PHASE d1 ----------
+  gradle exit=1
+  task line: > Task :tramai-spring-boot-starter-sovereign-ops:test FAILED
+  execution: PROVEN
+   FAIL curity.evidence.ToolPermissionBoundaryProvenanceTest tests=14 failures=4 errors=0
+   FAIL ringaiboundary.ToolPermissionEvidenceAttributionTest tests=5 failures=3 errors=0
+   FAIL gn.ops.evidence.RuntimeEvidenceBundleIntegrationTest tests=9 failures=1 errors=0
+  restored byte-identically: YES
+########## D2: bypass the strength-registration check ##########
+  mutation check: 1 bypass site(s) (1 expected)
+---------- PHASE d2 ----------
+  gradle exit=1
+  task line: > Task :tramai-spring-boot-starter-sovereign-ops:test
+  execution: PROVEN
+   FAIL curity.evidence.ToolPermissionBoundaryProvenanceTest tests=14 failures=1 errors=0
+   ok   gn.ops.evidence.RuntimeEvidenceBundleIntegrationTest tests=9 failures=0 errors=0
+  restored byte-identically: YES
+########## D3: remove provenance from the canonical digest input ##########
+  mutation check: 1 pre-provenance digest site(s) (1 expected)
+---------- PHASE d3 ----------
+  gradle exit=1
+  task line: > Task :tramai-security:test FAILED
+  execution: PROVEN
+   FAIL curity.evidence.ToolPermissionBoundaryProvenanceTest tests=14 failures=1 errors=0
+  restored byte-identically: YES
+########## D4: remove the shell verifier's provenance support ##########
+  mutation check: 0 GOVERNED_BOUNDARY_KEYS (0 expected)
+---------- PHASE d4 ----------
+  gradle exit=1
+  task line: > Task :tramai-spring-boot-starter-sovereign-ops:test FAILED
+  execution: PROVEN
+   FAIL gn.ops.evidence.RuntimeEvidenceBundleIntegrationTest tests=9 failures=2 errors=0
+  restored byte-identically: YES
+########## RESTORED CONTROL ##########
+---------- PHASE restored ----------
+  gradle exit=0
+  task line: > Task :tramai-spring-boot-starter-sovereign-ops:test
+  execution: PROVEN
+   ok   curity.evidence.ToolPermissionBoundaryProvenanceTest tests=14 failures=0 errors=0
+   ok   ringaiboundary.ToolPermissionEvidenceAttributionTest tests=5 failures=0 errors=0
+   ok   gn.ops.evidence.RuntimeEvidenceBundleIntegrationTest tests=9 failures=0 errors=0
+=== mutated files identical to the source tree? ===
+  IDENTICAL: RuntimeBoundaryProvenance.kt
+  IDENTICAL: ToolPermissionRuntimeEvidenceExporter.kt
+  IDENTICAL: verify-evidence-bundle.sh
+========= DONE 2026-10-13T15:06:49+02:00 =========
+
+Failure identities per phase (from each phase's own log, not from retained XML)
+------------------------------------------------------------------------
+control: none
+d1: 
+    FAILED  > Task :examples:spring-ai-authority-boundary:test
+    FAILED  > Task :tramai-security:test
+    FAILED  > Task :tramai-spring-boot-starter-sovereign-ops:test
+    FAILED  RuntimeEvidenceBundleIntegrationTest > reviewer verifier refuses boundary provenance the registration does not cover()
+    FAILED  ToolPermissionBoundaryProvenanceTest > a boundary registered for another enforcement point is refused()
+    FAILED  ToolPermissionBoundaryProvenanceTest > a registered boundary's strength is resolved from the registration and reaches the record()
+    FAILED  ToolPermissionBoundaryProvenanceTest > an unregistered boundary identifier is refused()
+    FAILED  ToolPermissionBoundaryProvenanceTest > identity and provenance coexist in the same record()
+    FAILED  ToolPermissionEvidenceAttributionTest > exported evidence names the registered boundary that enforced the decision()
+    FAILED  ToolPermissionEvidenceAttributionTest > exported tool permission evidence carries the complete identity and the run it belongs to()
+    FAILED  ToolPermissionEvidenceAttributionTest > the boundary's record satisfies the evidence contract and keeps its provenance serialized(Path)
+d2: 
+    FAILED  > Task :tramai-security:test
+    FAILED  ToolPermissionBoundaryProvenanceTest > an unregistered boundary identifier is refused()
+d3: 
+    FAILED  > Task :tramai-security:test
+    FAILED  ToolPermissionBoundaryProvenanceTest > the exported record's digest binds the provenance it advertises()
+d4: 
+    FAILED  > Task :tramai-spring-boot-starter-sovereign-ops:test
+    FAILED  RuntimeEvidenceBundleIntegrationTest > reviewer verifier accepts a registered boundary's provenance and the legacy control()
+    FAILED  RuntimeEvidenceBundleIntegrationTest > reviewer verifier refuses boundary provenance the registration does not cover()
+restored: none
+
+Mechanism of each kill
+------------------------------------------------------------------------
+D1 removes the framework's provenance binding (provenanceFor returns emptyMap).
+   The positive tests assert the record carries boundary.id + the registered strength, so they
+   fail on assertion. Tests that assert a REFUSAL also fail, because with provenance absent
+   there is nothing to refuse - the refusal no longer occurs. Both are honest kills.
+D2 lets resolve() grant any identifier AUTHORITATIVE without a registration.
+   Only the negative discriminator fails: the unregistered identifier is no longer refused.
+   The reviewer-verifier leg is unaffected by design - the shell owns its own registration
+   table, so a JVM-side bypass cannot silently widen the reviewer-facing contract.
+D3 computes the canonical digest before provenance is overlaid.
+   The digest-binding test fails on assertion, comparing the advertised digest against the
+   digest of the metadata the record actually carries.
+D4 reverts the shell verifier to the release base (0 occurrences of GOVERNED_BOUNDARY_KEYS).
+   The two reviewer-verifier provenance tests fail; the legacy control still verifies.
+
+Restoration
+------------------------------------------------------------------------
+  RuntimeBoundaryProvenance.kt: restored byte-identically (cmp against the shipped tree) - see the transcript above
+  ToolPermissionRuntimeEvidenceExporter.kt: restored byte-identically (cmp against the shipped tree) - see the transcript above
+  verify-evidence-bundle.sh: restored byte-identically (cmp against the shipped tree) - see the transcript above

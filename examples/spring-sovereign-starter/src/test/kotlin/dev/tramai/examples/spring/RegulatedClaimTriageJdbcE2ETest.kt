@@ -4,17 +4,17 @@ import com.zaxxer.hikari.HikariDataSource
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.annotations.User
-import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalContinuationStatus
+import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalGateway
 import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApprovalRecommendation
 import dev.tramai.core.approval.gateway.ApprovalRequestResult
-import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
+import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.model.FinishReason
@@ -25,6 +25,8 @@ import dev.tramai.core.model.SideEffectLevel
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.TramaiTool
+import dev.tramai.core.operator.OperatorCapability
+import dev.tramai.core.operator.OperatorPrincipal
 import dev.tramai.core.policy.ApprovalMode
 import dev.tramai.core.policy.AuditDetail
 import dev.tramai.core.policy.ManagedNetworkEgress
@@ -32,35 +34,49 @@ import dev.tramai.core.policy.RiskLevel
 import dev.tramai.core.policy.ToolSecurityMetadata
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditHashAlgorithm
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.calculateHash
+import dev.tramai.sovereign.SovereignProfileConfiguration
+import dev.tramai.sovereign.SovereignTramai
+import dev.tramai.sovereign.SovereignTramaiRuntime
+import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
+import dev.tramai.spring.sovereign.ops.ApprovalGatewayAuditIntentFactory
+import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
-import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
-import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
-import dev.tramai.spring.sovereign.ops.ApprovalGatewayAuditIntentFactory
-import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
+import dev.tramai.spring.sovereign.ops.OperatorApprovalPolicy
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import dev.tramai.spring.sovereign.ops.SovereignOpsTransactionalApprovalGateway
-import dev.tramai.sovereign.SovereignProfileConfiguration
-import dev.tramai.sovereign.SovereignTramai
-import dev.tramai.sovereign.SovereignTramaiRuntime
-import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataFactory
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQueryService
-import dev.tramai.spring.sovereign.persistence.jdbc.inbox.ApprovalInboxQueryAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
+import dev.tramai.spring.sovereign.persistence.jdbc.inbox.ApprovalInboxQueryAutoConfiguration
+import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Tag
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import org.springframework.boot.autoconfigure.AutoConfigurations
+import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.time.Clock
@@ -70,18 +86,6 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.sql.DataSource
-import kotlinx.coroutines.runBlocking
-import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Tag
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
-import org.springframework.boot.test.context.runner.ApplicationContextRunner
-import org.springframework.boot.autoconfigure.AutoConfigurations
-import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
 
 /**
  * JDBC-backed end-to-end proof for the regulated claim triage scenario.
@@ -99,7 +103,6 @@ import org.springframework.context.annotation.Configuration
  */
 @Tag("e2e")
 class RegulatedClaimTriageJdbcE2ETest {
-
     companion object {
         private val VALID_BASE64_KEY: String =
             Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
@@ -141,14 +144,12 @@ class RegulatedClaimTriageJdbcE2ETest {
                     ApprovalDecisionControlPlaneAutoConfiguration::class.java,
                     ApprovalResumeControlPlaneAutoConfiguration::class.java,
                 ),
-            )
-            .withUserConfiguration(
+            ).withUserConfiguration(
                 JdbcE2eDataSourceConfig::class.java,
                 DemoProviderConfiguration::class.java,
                 RegulatedClaimTriageGatewayConfig::class.java,
                 ApprovalResumeRuntimeConfig::class.java,
-            )
-            .withPropertyValues(
+            ).withPropertyValues(
                 "tramai.sovereign.enabled=true",
                 "tramai.sovereign.ops.mutations-enabled=true",
                 "tramai.sovereign.ops.resume-enabled=true",
@@ -170,13 +171,14 @@ class RegulatedClaimTriageJdbcE2ETest {
     fun `high risk claim suspends through approval gateway and survives restart`() {
         val claimId = "claim-hr-${UUID.randomUUID()}"
         val workflowRunId = "wf-$claimId"
-        val input = ClaimTriageInput(
-            claimId = claimId,
-            claimantName = "Alpha",
-            diagnosisText = "rib fracture",
-            invoiceAmount = 2500,
-            paymentReference = "PAY-REF-001",
-        )
+        val input =
+            ClaimTriageInput(
+                claimId = claimId,
+                claimantName = "Alpha",
+                diagnosisText = "rib fracture",
+                invoiceAmount = 2500,
+                paymentReference = "PAY-REF-001",
+            )
 
         // IDs to carry across context restart (durable, not in-memory)
         lateinit var persistedApprovalId: String
@@ -210,9 +212,10 @@ class RegulatedClaimTriageJdbcE2ETest {
                     .isEqualTo(pendingApproval.binding.argumentsDigest)
 
                 // Gateway also created approval-requested audit outbox intent atomically
-                val approvalRequestedOutbox = workflow.outboxStore.findByEventKey(
-                    "regulated-claim-triage.approval-requested.${result.approvalId!!}",
-                )
+                val approvalRequestedOutbox =
+                    workflow.outboxStore.findByEventKey(
+                        "regulated-claim-triage.approval-requested.${result.approvalId!!}",
+                    )
                 assertThat(approvalRequestedOutbox).isNotNull
                 assertThat(approvalRequestedOutbox!!.status)
                     .isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
@@ -235,27 +238,29 @@ class RegulatedClaimTriageJdbcE2ETest {
                 }
 
                 // Execute denial — version 0 → deny → version 1
-                val auditIntent = SovereignOpsAuditOutboxRecord(
-                    outboxId = UUID.randomUUID().toString(),
-                    eventKey = "outbox-${UUID.randomUUID()}",
-                    aggregateIdDigest = sha256Hex(claimId),
-                    actor = "medical-ops-reviewer",
-                    workflowRunId = workflowRunId,
-                    correlationId = claimId,
-                    approvalStatus = ApprovalStatus.PENDING.name,
-                    approvalVersion = 0,
-                    reasonDigest = sha256Hex("medical-necessity-not-established"),
-                    reasonLength = 34,
-                    createdAt = Instant.now(),
-                )
+                val auditIntent =
+                    SovereignOpsAuditOutboxRecord(
+                        outboxId = UUID.randomUUID().toString(),
+                        eventKey = "outbox-${UUID.randomUUID()}",
+                        aggregateIdDigest = sha256Hex(claimId),
+                        actor = "medical-ops-reviewer",
+                        workflowRunId = workflowRunId,
+                        correlationId = claimId,
+                        approvalStatus = ApprovalStatus.PENDING.name,
+                        approvalVersion = 0,
+                        reasonDigest = sha256Hex("medical-necessity-not-established"),
+                        reasonLength = 34,
+                        createdAt = Instant.now(),
+                    )
 
-                val mutationResult = workflow.mutationStore.denyApprovalWithAuditIntent(
-                    approvalId = result.approvalId!!,
-                    expectedVersion = 0,
-                    actor = "medical-ops-reviewer",
-                    reason = "Medical necessity not established",
-                    auditIntent = auditIntent,
-                )
+                val mutationResult =
+                    workflow.mutationStore.denyApprovalWithAuditIntent(
+                        approvalId = result.approvalId!!,
+                        expectedVersion = 0,
+                        actor = "medical-ops-reviewer",
+                        reason = "Medical necessity not established",
+                        auditIntent = auditIntent,
+                    )
 
                 assertThat(mutationResult.approval.status).isEqualTo(ApprovalStatus.DENIED)
                 assertThat(mutationResult.approval.version).isEqualTo(1)
@@ -295,9 +300,12 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(events[2].previousEventHash).isEqualTo(events[1].eventHash)
 
                 // Exact denial outbox is claimable and dispatchable
-                val claimed = workflow.outboxStore.claimPending(
-                    "worker-1", limit = 10, now = Instant.now(),
-                )
+                val claimed =
+                    workflow.outboxStore.claimPending(
+                        "worker-1",
+                        limit = 10,
+                        now = Instant.now(),
+                    )
                 assertThat(claimed.map { it.outboxId }).contains(denialOutboxId)
 
                 val claim = claimed.first { it.outboxId == denialOutboxId }
@@ -327,55 +335,59 @@ class RegulatedClaimTriageJdbcE2ETest {
     @Test
     fun `regulated claim triage denial through control plane persists decision and outbox intent`() {
         val claimId = "claim-cp-${UUID.randomUUID()}"
-        val input = ClaimTriageInput(
-            claimId = claimId,
-            claimantName = "Delta",
-            diagnosisText = "lumbar radiculopathy",
-            invoiceAmount = 4100,
-            paymentReference = "PAY-REF-CP-001",
-        )
+        val input =
+            ClaimTriageInput(
+                claimId = claimId,
+                claimantName = "Delta",
+                diagnosisText = "lumbar radiculopathy",
+                invoiceAmount = 4100,
+                paymentReference = "PAY-REF-CP-001",
+            )
 
         createJdbcRunner().run { ctx ->
-                val workflow = ctx.workflow()
-                runBlocking {
-                    val result = workflow.triage(input, RequestedRoute.LOCAL_ONLY)
+            val workflow = ctx.workflow()
+            runBlocking {
+                val result = workflow.triage(input, RequestedRoute.LOCAL_ONLY)
 
-                    assertThat(result.requiredApproval).isTrue()
-                    assertThat(result.approvalId).isNotNull()
+                assertThat(result.requiredApproval).isTrue()
+                assertThat(result.approvalId).isNotNull()
 
-                    val decisionResult = workflow.decisionControlPlane.deny(
-                        ApprovalDecisionCommand(
-                            approvalId = dev.tramai.core.approval.gateway.ApprovalId(result.approvalId!!),
-                            actorId = "medical-ops-reviewer",
-                            actorRole = ApproverRole("medical-reviewer"),
-                            comment = "Medical necessity not established",
-                            correlationId = claimId,
+                val decisionResult =
+                    workflow.decisionControlPlane.deny(
+                        decisionCommand(
+                            dev.tramai.core.approval.gateway
+                                .ApprovalId(result.approvalId!!),
+                            0L,
+                            "Medical necessity not established",
+                            claimId,
                         ),
+                        exampleAuthority(),
                     )
 
-                    assertThat(decisionResult).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
-                    val denied = decisionResult as ApprovalDecisionResult.Denied
-                    assertThat(denied.approvalId.value).isEqualTo(result.approvalId)
-                    assertThat(denied.decidedBy).isEqualTo("medical-ops-reviewer")
+                assertThat(decisionResult).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
+                val denied = decisionResult as ApprovalDecisionResult.Denied
+                assertThat(denied.approvalId.value).isEqualTo(result.approvalId)
+                assertThat(denied.decidedBy).isEqualTo("medical-ops-reviewer")
 
-                    val approval = workflow.approvalStore.get(result.approvalId!!)
-                    assertThat(approval).isNotNull
-                    assertThat(approval!!.status).isEqualTo(ApprovalStatus.DENIED)
+                val approval = workflow.approvalStore.get(result.approvalId!!)
+                assertThat(approval).isNotNull
+                assertThat(approval!!.status).isEqualTo(ApprovalStatus.DENIED)
 
-                    val denialOutbox = workflow.outboxStore.findByEventKey("approval-denied.${result.approvalId!!}")
-                    assertThat(denialOutbox).isNotNull
-                    assertThat(denialOutbox!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
-                    assertThat(denialOutbox.approvalStatus).isEqualTo(ApprovalStatus.DENIED.name)
-                    assertThat(denialOutbox.actor).isEqualTo("medical-ops-reviewer")
+                val denialOutbox = workflow.outboxStore.findByEventKey("approval-denied.${result.approvalId!!}")
+                assertThat(denialOutbox).isNotNull
+                assertThat(denialOutbox!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+                assertThat(denialOutbox.approvalStatus).isEqualTo(ApprovalStatus.DENIED.name)
+                assertThat(denialOutbox.actor).isEqualTo("medical-ops-reviewer")
 
-                    val approvalRequestedOutbox = workflow.outboxStore.findByEventKey(
+                val approvalRequestedOutbox =
+                    workflow.outboxStore.findByEventKey(
                         "regulated-claim-triage.approval-requested.${result.approvalId!!}",
                     )
-                    assertThat(approvalRequestedOutbox).isNotNull
-                    assertThat(approvalRequestedOutbox!!.status)
-                        .isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
-                }
+                assertThat(approvalRequestedOutbox).isNotNull
+                assertThat(approvalRequestedOutbox!!.status)
+                    .isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
             }
+        }
     }
 
     @Test
@@ -385,26 +397,28 @@ class RegulatedClaimTriageJdbcE2ETest {
         createJdbcRunner().run { ctx ->
             val workflow = ctx.workflow()
             runBlocking {
-                val suspension = try {
-                    val service = workflow.runtime.create(RegulatedClaimApprovalResumeService::class)
-                    service.triageAndExecutePayout(claimId)
-                    error("Expected approval suspension")
-                } catch (e: ApprovalSuspendedException) {
-                    e
-                }
+                val suspension =
+                    try {
+                        val service = workflow.runtime.create(RegulatedClaimApprovalResumeService::class)
+                        service.triageAndExecutePayout(claimId)
+                        error("Expected approval suspension")
+                    } catch (e: ApprovalSuspendedException) {
+                        e
+                    }
 
                 assertThat(suspension.approvalId).isNotNull
                 assertThat(workflow.suspendedInvocationStore.get(suspension.approvalId)).isNotNull
 
-                val approvalResult = workflow.decisionControlPlane.approve(
-                    ApprovalDecisionCommand(
-                        approvalId = ApprovalId(suspension.approvalId),
-                        actorId = "medical-ops-reviewer",
-                        actorRole = ApproverRole("medical-reviewer"),
-                        comment = "Approved for regulated claim payout",
-                        correlationId = claimId,
-                    ),
-                )
+                val approvalResult =
+                    workflow.decisionControlPlane.approve(
+                        decisionCommand(
+                            ApprovalId(suspension.approvalId),
+                            0L,
+                            "Approved for regulated claim payout",
+                            claimId,
+                        ),
+                        exampleAuthority(),
+                    )
 
                 assertThat(approvalResult).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
 
@@ -412,15 +426,10 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(approved).isNotNull
                 assertThat(approved!!.status).isEqualTo(ApprovalStatus.APPROVED)
 
-                val resumeResult = workflow.resumeControlPlane.resume(
-                    ApprovalResumeCommand(
-                        approvalId = ApprovalId(suspension.approvalId),
-                        resumeToken = ResumeToken(suspension.challenge.token.reveal()),
-                        resumedBy = "medical-ops-reviewer",
-                        expectedApprovalVersion = approved.version,
-                        expectedContinuationVersion = suspension.continuationVersion,
-                    ),
-                )
+                val resumeResult =
+                    workflow.resumeControlPlane.resume(
+                        medicalResumeCommand(suspension, approved.version),
+                    )
 
                 assertThat(resumeResult).isInstanceOf(ApprovalResumeResult.Resumed::class.java)
                 val resumed = resumeResult as ApprovalResumeResult.Resumed
@@ -430,15 +439,10 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(workflow.claimPayoutLedger.executionCount()).isEqualTo(1)
 
                 // Subsequent resume is AlreadyCompleted — no duplicate side effect
-                val secondResume = workflow.resumeControlPlane.resume(
-                    ApprovalResumeCommand(
-                        approvalId = ApprovalId(suspension.approvalId),
-                        resumeToken = ResumeToken(suspension.challenge.token.reveal()),
-                        resumedBy = "medical-ops-reviewer",
-                        expectedApprovalVersion = approved.version + 1,
-                        expectedContinuationVersion = suspension.continuationVersion + 1,
-                    ),
-                )
+                val secondResume =
+                    workflow.resumeControlPlane.resume(
+                        medicalResumeCommand(suspension, approved.version + 1, suspension.continuationVersion + 1),
+                    )
                 assertThat(secondResume).isInstanceOf(ApprovalResumeResult.AlreadyCompleted::class.java)
                 assertThat(workflow.claimPayoutLedger.executionCount()).isEqualTo(1)
 
@@ -457,13 +461,14 @@ class RegulatedClaimTriageJdbcE2ETest {
     fun `restricted medical claim is denied before cloud model invocation`() {
         val claimId = "claim-fc-${UUID.randomUUID()}"
         val cloudModel = RecordingCloudClaimModel()
-        val input = ClaimTriageInput(
-            claimId = claimId,
-            claimantName = "Beta",
-            diagnosisText = "cardiac arrhythmia",
-            invoiceAmount = 8000,
-            paymentReference = "PAY-REF-002",
-        )
+        val input =
+            ClaimTriageInput(
+                claimId = claimId,
+                claimantName = "Beta",
+                diagnosisText = "cardiac arrhythmia",
+                invoiceAmount = 8000,
+                paymentReference = "PAY-REF-002",
+            )
 
         createJdbcRunner().run { ctx ->
             val workflow = ctx.workflow(cloudModel = cloudModel)
@@ -494,13 +499,14 @@ class RegulatedClaimTriageJdbcE2ETest {
     fun `low risk missing document recommendation completes without approval suspension`() {
         val claimId = "claim-lr-${UUID.randomUUID()}"
         val workflowRunId = "wf-$claimId"
-        val input = ClaimTriageInput(
-            claimId = claimId,
-            claimantName = "Gamma",
-            diagnosisText = "",
-            invoiceAmount = 0,
-            paymentReference = "",
-        )
+        val input =
+            ClaimTriageInput(
+                claimId = claimId,
+                claimantName = "Gamma",
+                diagnosisText = "",
+                invoiceAmount = 0,
+                paymentReference = "",
+            )
 
         createJdbcRunner().run { ctx ->
             val workflow = ctx.workflow()
@@ -524,9 +530,12 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(events[1].previousEventHash).isEqualTo(events[0].eventHash)
 
                 // Outbox dispatchable
-                val claimed = workflow.outboxStore.claimPending(
-                    "worker-1", limit = 10, now = Instant.now(),
-                )
+                val claimed =
+                    workflow.outboxStore.claimPending(
+                        "worker-1",
+                        limit = 10,
+                        now = Instant.now(),
+                    )
                 assertThat(claimed).isNotEmpty
             }
         }
@@ -539,13 +548,14 @@ class RegulatedClaimTriageJdbcE2ETest {
     @Test
     fun `regulated claim approval appears in inbox with safe metadata`() {
         val claimId = "claim-inbox-${UUID.randomUUID()}"
-        val input = ClaimTriageInput(
-            claimId = claimId,
-            claimantName = "Epsilon",
-            diagnosisText = "hip fracture",
-            invoiceAmount = 3200,
-            paymentReference = "PAY-REF-INBOX-001",
-        )
+        val input =
+            ClaimTriageInput(
+                claimId = claimId,
+                claimantName = "Epsilon",
+                diagnosisText = "hip fracture",
+                invoiceAmount = 3200,
+                paymentReference = "PAY-REF-INBOX-001",
+            )
 
         createJdbcRunner().run { ctx ->
             val workflow = ctx.workflow()
@@ -557,9 +567,11 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(result.approvalId).isNotNull()
 
                 // 2. Query inbox for pending items
-                val page = inboxQueryService.search(
-                    dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQuery(),
-                )
+                val page =
+                    inboxQueryService.search(
+                        dev.tramai.spring.sovereign.ops.inbox
+                            .ApprovalInboxQuery(),
+                    )
                 assertThat(page.items).isNotEmpty
 
                 // 3. Find our approval by ID
@@ -574,20 +586,26 @@ class RegulatedClaimTriageJdbcE2ETest {
                 // The class itself has no resumeToken, tokenDigest, replayEnvelope, raw arguments fields
 
                 // 5. Filter by requiredRole
-                val filteredPage = inboxQueryService.search(
-                    dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQuery(
-                        requiredRole = dev.tramai.core.approval.gateway.ApproverRole("medical-reviewer"),
-                    ),
-                )
+                val filteredPage =
+                    inboxQueryService.search(
+                        dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQuery(
+                            requiredRole =
+                                dev.tramai.core.approval.gateway
+                                    .ApproverRole("medical-reviewer"),
+                        ),
+                    )
                 assertThat(filteredPage.items).isNotEmpty
                 assertThat(filteredPage.items.all { it.requiredRole?.value == "medical-reviewer" }).isTrue()
 
                 // 6. Filter by wrong role returns empty
-                val wrongRolePage = inboxQueryService.search(
-                    dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQuery(
-                        requiredRole = dev.tramai.core.approval.gateway.ApproverRole("fraud-reviewer"),
-                    ),
-                )
+                val wrongRolePage =
+                    inboxQueryService.search(
+                        dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQuery(
+                            requiredRole =
+                                dev.tramai.core.approval.gateway
+                                    .ApproverRole("fraud-reviewer"),
+                        ),
+                    )
                 assertThat(wrongRolePage.items).isEmpty()
 
                 // 7. Work item query returns same fields
@@ -626,6 +644,24 @@ class RegulatedClaimTriageJdbcE2ETest {
 
     @Configuration
     class RegulatedClaimTriageGatewayConfig {
+        /**
+         * The approver-role requirement for the policy version these approvals actually persist (0.7.6e).
+         *
+         * The decision plane only publishes with an [OperatorApprovalPolicy], and 0.7.6e deleted the
+         * permissive authorizer that used to stand in for it, so the example supplies a real, configured
+         * requirement: a HIGH-risk claim asks for `medical-reviewer`, the low-risk path for `reviewer`.
+         *
+         * The key is `0.4.0-preview` because that is the policy version the sovereign gateway stamps on an
+         * approval (0.7.6e F5 residual: the requirement is keyed by the persisted version, not by the
+         * requested role). A test that keyed this map to a different version would deny every decision with
+         * APPROVAL_POLICY_UNAVAILABLE, which is exactly what the first attempt did.
+         */
+        @Bean
+        fun operatorApprovalPolicy(): OperatorApprovalPolicy =
+            OperatorApprovalPolicy(
+                mapOf("0.4.0-preview" to setOf(ApproverRole("medical-reviewer"), ApproverRole("reviewer"))),
+            )
+
         @Bean
         fun regulatedClaimTriageApprovalGatewayRequestFactory(): ApprovalGatewayRequestFactory =
             RegulatedClaimTriageApprovalGatewayRequestFactory()
@@ -633,10 +669,6 @@ class RegulatedClaimTriageJdbcE2ETest {
         @Bean
         fun regulatedClaimTriageApprovalGatewayAuditIntentFactory(): ApprovalGatewayAuditIntentFactory =
             RegulatedClaimTriageApprovalGatewayAuditIntentFactory()
-
-        @Bean
-        fun regulatedClaimTriageApprovalDecisionControlPlaneAuthorizer(): RegulatedClaimTriageApprovalDecisionControlPlaneAuthorizer =
-            RegulatedClaimTriageApprovalDecisionControlPlaneAuthorizer()
 
         @Bean
         fun regulatedClaimTriageApprovalInboxMetadataFactory(): ApprovalInboxMetadataFactory =
@@ -657,16 +689,18 @@ class RegulatedClaimTriageJdbcE2ETest {
             clock: Clock,
             claimPayoutLedger: ClaimPayoutLedger,
         ): SovereignTramai {
-            val builder = SovereignTramai.builder()
-                .profile(profile)
-                .modelRegistry(modelRegistry)
-                .auditStore(auditStore)
-                .provider(ResumeAwareDemoProvider(), name = "deterministic-local-provider", default = true)
-                .model("local-invoice-model", "deterministic-local-provider")
-                .tools(ClaimPayoutTool(claimPayoutLedger))
-                .approvalContinuationStore(infrastructure.approvalContinuationStore)
-                .approvalGateCoordinator(infrastructure.approvalGateCoordinator)
-                .clock(clock)
+            val builder =
+                SovereignTramai
+                    .builder()
+                    .profile(profile)
+                    .modelRegistry(modelRegistry)
+                    .auditStore(auditStore)
+                    .provider(ResumeAwareDemoProvider(), name = "deterministic-local-provider", default = true)
+                    .model("local-invoice-model", "deterministic-local-provider")
+                    .tools(ClaimPayoutTool(claimPayoutLedger))
+                    .approvalContinuationStore(infrastructure.approvalContinuationStore)
+                    .approvalGateCoordinator(infrastructure.approvalGateCoordinator)
+                    .clock(clock)
 
             infrastructure.suspendedInvocationStore?.let { builder.suspendedInvocationStore(it) }
             infrastructure.toolArgumentsDigester?.let { builder.toolArgumentsDigester(it) }
@@ -708,14 +742,18 @@ enum class ClassificationLevel { NON_SENSITIVE, RESTRICTED }
 
 class FakeDlpClassifier {
     fun classify(input: ClaimTriageInput): ClassificationLevel =
-        if (input.diagnosisText.isNotBlank() || input.paymentReference.isNotBlank())
+        if (input.diagnosisText.isNotBlank() || input.paymentReference.isNotBlank()) {
             ClassificationLevel.RESTRICTED
-        else
+        } else {
             ClassificationLevel.NON_SENSITIVE
+        }
 }
 
 class FakePolicyEvaluator {
-    fun evaluate(classification: ClassificationLevel, route: RequestedRoute): String =
+    fun evaluate(
+        classification: ClassificationLevel,
+        route: RequestedRoute,
+    ): String =
         when {
             classification == ClassificationLevel.RESTRICTED && route == RequestedRoute.APPROVED_CLOUD -> "DENY_CLOUD"
             classification == ClassificationLevel.RESTRICTED && route == RequestedRoute.LOCAL_ONLY -> "ALLOW_LOCAL"
@@ -726,12 +764,17 @@ class FakePolicyEvaluator {
 class FakeLocalClaimModel {
     fun recommend(input: ClaimTriageInput): FakeRecommendation =
         when {
-            input.diagnosisText.isNotBlank() && input.invoiceAmount > 1000 && input.paymentReference.isNotBlank() ->
+            input.diagnosisText.isNotBlank() && input.invoiceAmount > 1000 && input.paymentReference.isNotBlank() -> {
                 FakeRecommendation("SUGGEST_PAYOUT", "HIGH", true)
-            input.diagnosisText.isBlank() && input.invoiceAmount == 0 ->
+            }
+
+            input.diagnosisText.isBlank() && input.invoiceAmount == 0 -> {
                 FakeRecommendation("REQUEST_MISSING_DOCUMENT", "LOW", false)
-            else ->
+            }
+
+            else -> {
                 FakeRecommendation("MANUAL_REVIEW", "MEDIUM", false)
+            }
         }
 }
 
@@ -754,7 +797,7 @@ fun interface RegulatedClaimApprovalResumeService {
         """
         Review the regulated claim and execute payout when the claim is approved.
         Claim ID: {claimId}
-        """
+        """,
     )
     suspend fun triageAndExecutePayout(claimId: String): String
 }
@@ -793,21 +836,23 @@ class ClaimPayoutTool(
     override val inputType = ClaimPayoutInput::class
     override val idempotent: Boolean = true
     override val sideEffectLevel: SideEffectLevel = SideEffectLevel.WRITE
-    override val security: ToolSecurityMetadata = ToolSecurityMetadata(
-        permission = "claim.payout",
-        risk = RiskLevel.HIGH,
-        approval = ApprovalMode.HUMAN_REQUIRED,
-        managedNetworkEgress = ManagedNetworkEgress.DENY,
-        audit = AuditDetail.FULL,
-    )
+    override val security: ToolSecurityMetadata =
+        ToolSecurityMetadata(
+            permission = "claim.payout",
+            risk = RiskLevel.HIGH,
+            approval = ApprovalMode.HUMAN_REQUIRED,
+            managedNetworkEgress = ManagedNetworkEgress.DENY,
+            audit = AuditDetail.FULL,
+        )
 
     override suspend fun execute(
         input: ClaimPayoutInput,
         context: ToolExecutionContext,
     ): ClaimPayoutResult {
-        val idempotencyKey = requireNotNull(context.idempotencyKey) {
-            "claim-payout requires an idempotencyKey from the engine"
-        }
+        val idempotencyKey =
+            requireNotNull(context.idempotencyKey) {
+                "claim-payout requires an idempotencyKey from the engine"
+            }
         return ledger.executeExactlyOnce(idempotencyKey, input)
     }
 }
@@ -823,13 +868,14 @@ class ResumeAwareDemoProvider : ModelProvider {
             val claimId = extractClaimId(request)
             return ModelResponse(
                 content = "The claim payout requires tool execution.",
-                toolCalls = listOf(
-                    ToolCall(
-                        id = "call-claim-payout-001",
-                        name = "claim-payout",
-                        argumentsJson = """{"claimId":"$claimId"}""",
+                toolCalls =
+                    listOf(
+                        ToolCall(
+                            id = "call-claim-payout-001",
+                            name = "claim-payout",
+                            argumentsJson = """{"claimId":"$claimId"}""",
+                        ),
                     ),
-                ),
                 finishReason = FinishReason.OTHER,
             )
         }
@@ -841,7 +887,11 @@ class ResumeAwareDemoProvider : ModelProvider {
     }
 
     private fun extractClaimId(request: ModelRequest): String {
-        val content = request.messages.lastOrNull()?.content.orEmpty()
+        val content =
+            request.messages
+                .lastOrNull()
+                ?.content
+                .orEmpty()
         return Regex("Claim ID: ([^\\s]+)")
             .find(content)
             ?.groupValues
@@ -878,7 +928,10 @@ class ClaimTriageWorkflow(
     private val localModel: FakeLocalClaimModel = FakeLocalClaimModel(),
     private val cloudModel: RecordingCloudClaimModel = RecordingCloudClaimModel(),
 ) {
-    suspend fun triage(input: ClaimTriageInput, requestedRoute: RequestedRoute): ClaimTriageResult {
+    suspend fun triage(
+        input: ClaimTriageInput,
+        requestedRoute: RequestedRoute,
+    ): ClaimTriageResult {
         val workflowRunId = "wf-${input.claimId}"
         val auditStreamId = "audit-${UUID.randomUUID()}"
 
@@ -890,45 +943,24 @@ class ClaimTriageWorkflow(
 
         // 3. Route: cloud denied for restricted data
         if (policyDecision == "DENY_CLOUD") {
-            emitAuditEvent(
-                auditStreamId, workflowRunId, input.claimId,
-                actor = "triage-policy-engine",
-                enforcementPoint = "policy-decision",
-                decision = "deny-cloud-route",
-                reasonCode = "restricted-medical-data-denied-cloud-route",
-            )
-            return ClaimTriageResult(
-                recommendationType = "N/A",
-                riskLevel = "N/A",
-                requiredApproval = false,
-                policyDecision = policyDecision,
-                classification = classification.name,
-                auditStreamId = auditStreamId,
-                approvalId = null,
-            )
+            return deniedCloudRoute(input, policyDecision, classification.name, auditStreamId, workflowRunId)
         }
 
         // 4. Audit: policy decision for allowed routes
-        emitAuditEvent(
-            auditStreamId, workflowRunId, input.claimId,
-            actor = "triage-policy-engine",
-            enforcementPoint = "policy-decision",
-            decision = when (policyDecision) {
-                "ALLOW_LOCAL" -> "allow-local-route"
-                else -> "allow-route"
-            },
-            reasonCode = if (policyDecision == "ALLOW_LOCAL") "restricted-medical-data-local-only" else null,
-        )
+        emitAllowedRouteAudit(input, policyDecision, auditStreamId, workflowRunId)
 
         // 5. Model recommendation
-        val recommendation = when (requestedRoute) {
-            RequestedRoute.LOCAL_ONLY -> localModel.recommend(input)
-            RequestedRoute.APPROVED_CLOUD -> cloudModel.recommend(input)
-        }
+        val recommendation =
+            when (requestedRoute) {
+                RequestedRoute.LOCAL_ONLY -> localModel.recommend(input)
+                RequestedRoute.APPROVED_CLOUD -> cloudModel.recommend(input)
+            }
 
         // 6. Audit: recommendation
         emitAuditEvent(
-            auditStreamId, workflowRunId, input.claimId,
+            auditStreamId,
+            workflowRunId,
+            input.claimId,
             actor = "local-claim-model",
             enforcementPoint = "recommendation",
             decision = "${recommendation.recommendationType.lowercase()}-${recommendation.riskLevel.lowercase()}-risk",
@@ -936,9 +968,94 @@ class ClaimTriageWorkflow(
         )
 
         // 7. Audit outbox: recommendation emitted
+        recordRecommendationOutbox(input, workflowRunId, recommendation)
+
+        // 8. Approval gate: high-risk requires approval, then a single return covers both outcomes
+        val approvalOutcome =
+            if (recommendation.requiredApproval) requestApproval(input, recommendation) else null
+        if (approvalOutcome != null) {
+            // Audit: approval requested
+            emitAuditEvent(
+                auditStreamId,
+                workflowRunId,
+                input.claimId,
+                actor = "triage-system",
+                enforcementPoint = "approval-gate",
+                decision = approvalOutcome.second,
+                reasonCode = null,
+            )
+        }
+
+        return ClaimTriageResult(
+            recommendationType = recommendation.recommendationType,
+            riskLevel = recommendation.riskLevel,
+            requiredApproval = recommendation.requiredApproval,
+            policyDecision = policyDecision,
+            classification = classification.name,
+            auditStreamId = auditStreamId,
+            approvalId = approvalOutcome?.first,
+        )
+    }
+
+    /** Audit fact for an allowed route, with the local-only reason code when applicable. */
+    private suspend fun emitAllowedRouteAudit(
+        input: ClaimTriageInput,
+        policyDecision: String,
+        auditStreamId: String,
+        workflowRunId: String,
+    ) {
+        emitAuditEvent(
+            auditStreamId,
+            workflowRunId,
+            input.claimId,
+            actor = "triage-policy-engine",
+            enforcementPoint = "policy-decision",
+            decision =
+                when (policyDecision) {
+                    "ALLOW_LOCAL" -> "allow-local-route"
+                    else -> "allow-route"
+                },
+            reasonCode = if (policyDecision == "ALLOW_LOCAL") "restricted-medical-data-local-only" else null,
+        )
+    }
+
+    /** Cloud route denied for restricted data: audit the enforcement point, then refuse. */
+    private suspend fun deniedCloudRoute(
+        input: ClaimTriageInput,
+        policyDecision: String,
+        classification: String,
+        auditStreamId: String,
+        workflowRunId: String,
+    ): ClaimTriageResult {
+        emitAuditEvent(
+            auditStreamId,
+            workflowRunId,
+            input.claimId,
+            actor = "triage-policy-engine",
+            enforcementPoint = "policy-decision",
+            decision = "deny-cloud-route",
+            reasonCode = "restricted-medical-data-denied-cloud-route",
+        )
+        return ClaimTriageResult(
+            recommendationType = "N/A",
+            riskLevel = "N/A",
+            requiredApproval = false,
+            policyDecision = policyDecision,
+            classification = classification,
+            auditStreamId = auditStreamId,
+            approvalId = null,
+        )
+    }
+
+    /** Emits the recommendation audit-outbox fact and marks it ready for dispatch. */
+    private suspend fun recordRecommendationOutbox(
+        input: ClaimTriageInput,
+        workflowRunId: String,
+        recommendation: FakeRecommendation,
+    ) {
         val outboxId = UUID.randomUUID().toString()
         val eventKey = "outbox-${UUID.randomUUID()}"
-        val outboxRecord = outboxStore.append(
+        outboxStore.append(
             SovereignOpsAuditOutboxRecord(
                 outboxId = outboxId,
                 eventKey = eventKey,
@@ -954,66 +1071,45 @@ class ClaimTriageWorkflow(
             ),
         )
         outboxStore.markReadyForDispatch(outboxId, SovereignOpsAuditOutboxStatus.PREPARED)
+    }
 
-        // 8. Approval gate: high-risk requires approval
-        if (recommendation.requiredApproval) {
-            val approvalResult = approvalGateway.requestApproval(
+    /** Requests the approval and reports the approval id plus the audit decision for it. */
+    private suspend fun requestApproval(
+        input: ClaimTriageInput,
+        recommendation: FakeRecommendation,
+    ): Pair<String, String> {
+        val requiredApprover = if (recommendation.riskLevel == "HIGH") "medical-reviewer" else "reviewer"
+        val approvalResult =
+            approvalGateway.requestApproval(
                 subject = ApprovalSubject(input.claimId),
-                recommendation = ApprovalRecommendation(
-                    type = "regulated-claim-triage",
-                    summary = recommendation.recommendationType,
-                    payload = mapOf(
-                        "riskLevel" to recommendation.riskLevel,
-                        "requiredApprover" to if (recommendation.riskLevel == "HIGH") "medical-reviewer" else "reviewer",
+                recommendation =
+                    ApprovalRecommendation(
+                        type = "regulated-claim-triage",
+                        summary = recommendation.recommendationType,
+                        payload =
+                            mapOf(
+                                "riskLevel" to recommendation.riskLevel,
+                                "requiredApprover" to requiredApprover,
+                            ),
                     ),
-                ),
-                requiredRole = ApproverRole(
-                    if (recommendation.riskLevel == "HIGH") "medical-reviewer" else "reviewer",
-                ),
-                workflowRunId = WorkflowRunId(workflowRunId),
+                requiredRole = ApproverRole(requiredApprover),
+                workflowRunId = WorkflowRunId("wf-${input.claimId}"),
             )
-            val approvalId = when (approvalResult) {
+        val approvalId =
+            when (approvalResult) {
                 is ApprovalRequestResult.Suspended -> approvalResult.approvalId.value
                 is ApprovalRequestResult.AlreadyApproved -> approvalResult.decision.approvalId.value
                 is ApprovalRequestResult.AlreadyDenied -> approvalResult.decision.approvalId.value
                 is ApprovalRequestResult.Expired -> approvalResult.approvalId.value
             }
-            val approvalAuditDecision = when (approvalResult) {
+        val auditDecision =
+            when (approvalResult) {
                 is ApprovalRequestResult.Suspended -> "approval-requested-high-risk"
                 is ApprovalRequestResult.AlreadyApproved -> "approval-already-approved"
                 is ApprovalRequestResult.AlreadyDenied -> "approval-already-denied"
                 is ApprovalRequestResult.Expired -> "approval-expired"
             }
-
-            // Audit: approval requested
-            emitAuditEvent(
-                auditStreamId, workflowRunId, input.claimId,
-                actor = "triage-system",
-                enforcementPoint = "approval-gate",
-                decision = approvalAuditDecision,
-                reasonCode = null,
-            )
-
-            return ClaimTriageResult(
-                recommendationType = recommendation.recommendationType,
-                riskLevel = recommendation.riskLevel,
-                requiredApproval = true,
-                policyDecision = policyDecision,
-                classification = classification.name,
-                auditStreamId = auditStreamId,
-                approvalId = approvalId,
-            )
-        }
-
-        return ClaimTriageResult(
-            recommendationType = recommendation.recommendationType,
-            riskLevel = recommendation.riskLevel,
-            requiredApproval = false,
-            policyDecision = policyDecision,
-            classification = classification.name,
-            auditStreamId = auditStreamId,
-            approvalId = null,
-        )
+        return approvalId to auditDecision
     }
 
     private suspend fun emitAuditEvent(
@@ -1050,19 +1146,20 @@ class ClaimTriageWorkflow(
     /** Count approvals whose metadata contains the given workflowRunId. */
     fun countApprovalsForWorkflowRun(workflowRunId: String): Int =
         dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                SELECT count(*)
-                FROM approvals
-                WHERE sanitized_metadata::text LIKE ?
-                """.trimIndent(),
-            ).use { stmt ->
-                stmt.setString(1, "%$workflowRunId%")
-                stmt.executeQuery().use { rs ->
-                    check(rs.next())
-                    rs.getInt(1)
+            conn
+                .prepareStatement(
+                    """
+                    SELECT count(*)
+                    FROM approvals
+                    WHERE sanitized_metadata::text LIKE ?
+                    """.trimIndent(),
+                ).use { stmt ->
+                    stmt.setString(1, "%$workflowRunId%")
+                    stmt.executeQuery().use { rs ->
+                        check(rs.next())
+                        rs.getInt(1)
+                    }
                 }
-            }
         }
 
     private fun sha256Hex(input: String): String {
@@ -1076,18 +1173,66 @@ class ClaimTriageWorkflow(
 
 private fun org.springframework.context.ApplicationContext.workflow(
     cloudModel: RecordingCloudClaimModel = RecordingCloudClaimModel(),
-): ClaimTriageWorkflow = ClaimTriageWorkflow(
-    approvalStore = getBean(ApprovalStore::class.java),
-    auditStore = getBean(AuditStore::class.java),
-    mutationStore = getBean(SovereignOpsApprovalMutationStore::class.java),
-    outboxStore = getBean(SovereignOpsAuditOutboxStore::class.java),
-    decisionControlPlane = getBean(ApprovalDecisionControlPlane::class.java),
-    resumeControlPlane = getBean(ApprovalResumeControlPlane::class.java),
-    suspendedInvocationStore = getBean(SuspendedInvocationStore::class.java),
-    approvalContinuationStore = getBean(ApprovalContinuationStore::class.java),
-    runtime = getBean(SovereignTramaiRuntime::class.java),
-    claimPayoutLedger = getBean(ClaimPayoutLedger::class.java),
-    approvalGateway = getBean(ApprovalGateway::class.java),
-    dataSource = getBean(DataSource::class.java),
-    cloudModel = cloudModel,
-)
+): ClaimTriageWorkflow =
+    ClaimTriageWorkflow(
+        approvalStore = getBean(ApprovalStore::class.java),
+        auditStore = getBean(AuditStore::class.java),
+        mutationStore = getBean(SovereignOpsApprovalMutationStore::class.java),
+        outboxStore = getBean(SovereignOpsAuditOutboxStore::class.java),
+        decisionControlPlane = getBean(ApprovalDecisionControlPlane::class.java),
+        resumeControlPlane = getBean(ApprovalResumeControlPlane::class.java),
+        suspendedInvocationStore = getBean(SuspendedInvocationStore::class.java),
+        approvalContinuationStore = getBean(ApprovalContinuationStore::class.java),
+        runtime = getBean(SovereignTramaiRuntime::class.java),
+        claimPayoutLedger = getBean(ClaimPayoutLedger::class.java),
+        approvalGateway = getBean(ApprovalGateway::class.java),
+        dataSource = getBean(DataSource::class.java),
+        cloudModel = cloudModel,
+    )
+
+/** One-line command builder: the decision tests stay readable and inside the length ceiling. */
+private fun decisionCommand(
+    approvalId: dev.tramai.core.approval.gateway.ApprovalId,
+    expectedVersion: Long,
+    comment: String? = null,
+    correlationId: String? = null,
+): ApprovalDecisionCommand =
+    ApprovalDecisionCommand(
+        approvalId = approvalId,
+        expectedVersion = expectedVersion,
+        comment = comment,
+        correlationId = correlationId,
+    )
+
+/**
+ * The verified operator the example decides under (0.7.6e). The example used to name the reviewer inside the
+ * command and let an allow-all authorizer accept it; it now passes the identity the authentication boundary
+ * would issue, against a configured per-approval role requirement.
+ */
+private fun exampleAuthority(
+    subject: String = "medical-ops-reviewer",
+    approverRoles: Set<ApproverRole> = setOf(ApproverRole("medical-reviewer")),
+): OperatorAuthority =
+    OperatorAuthority(
+        OperatorPrincipal(
+            subject = subject,
+            issuer = "https://issuer.example",
+            authenticatedAt = java.time.Instant.parse("2026-10-25T09:00:00Z"),
+            capabilities = setOf(OperatorCapability.DECIDE_APPROVAL),
+            approverRoles = approverRoles,
+        ),
+    )
+
+/** Resume command for the regulated-claim workflow, one line at the call sites. */
+private fun medicalResumeCommand(
+    suspension: ApprovalSuspendedException,
+    expectedApprovalVersion: Long,
+    expectedContinuationVersion: Long = suspension.continuationVersion,
+): ApprovalResumeCommand =
+    ApprovalResumeCommand(
+        approvalId = ApprovalId(suspension.approvalId),
+        resumeToken = ResumeToken(suspension.challenge.token.reveal()),
+        resumedBy = "medical-ops-reviewer",
+        expectedApprovalVersion = expectedApprovalVersion,
+        expectedContinuationVersion = expectedContinuationVersion,
+    )

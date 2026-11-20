@@ -105,6 +105,11 @@ val approvalRecords = ApprovalDecisionRuntimeEvidenceExporter().export(approvalO
 val routingRecords = ProviderRoutingRuntimeEvidenceExporter().export(routeDecisions)
 ```
 
+> **These inputs are supplied by the caller.** In this walkthrough `routeDecisions` is your own list of
+> `ProviderRouteDecisionEvidenceSource` records: **no engine producer emits provider route decisions today**, so
+> writing `provider-routing.jsonl` here shows the writer working on supplied records and is not evidence that live
+> routing was captured. See the [G4 task record](../../docs/roadmap/0.7.4/0.7.4b6-G4-PROVIDER-ROUTING-EVIDENCE.md).
+
 ### 3. Write runtime-evidence JSONL
 
 ```kotlin

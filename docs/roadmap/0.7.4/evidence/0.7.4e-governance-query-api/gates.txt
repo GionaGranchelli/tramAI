@@ -1,0 +1,46 @@
+0.7.4e — gate results at the frozen head
+(recorded by the run that opened the PR; every line is that command's exit status and output)
+
+=== FINAL GATES at the frozen head ===
+spotless=0
+compiler_warnings=0
+static=0
+new/unbaselined findings   : 0
+baseline additions         : 0
+baseline removals          : 0
+new findings by rule:
+  (none)
+reports: detekt.xml, detekt.sarif, detekt.html
+  tests=266 failures=0 errors=0
+architecture_canonical=0
+0.6.0 architecture verification PASSED — see /home/gionag/tramai-e/build/reports/tramai/architecture/architecture-report.json
+change_policy=0
+gates_green_lines=8
+GATES GREEN
+=== staged ===
+config/quality/api-migrations.yml
+docs/roadmap/0.7.4/TASK-0.7.4e-GOVERNANCE-QUERY-API.md
+docs/roadmap/0.7.4/evidence/0.7.4e-governance-query-api/mutation-battery.txt
+tramai-security/api/tramai-security.api
+tramai-security/src/main/kotlin/dev/tramai/security/governance/StoreBackedGovernanceQueryService.kt
+tramai-security/src/main/kotlin/dev/tramai/security/governance/query/GovernanceQueryContract.kt
+tramai-security/src/main/kotlin/dev/tramai/security/governance/query/GovernanceQueryView.kt
+tramai-security/src/test/java/dev/tramai/security/governance/consumer/JavaGovernanceQueryConsumerTest.java
+tramai-security/src/test/kotlin/dev/tramai/security/governance/GovernanceQueryServicePostgresTest.kt
+tramai-security/src/test/kotlin/dev/tramai/security/governance/consumer/GovernanceQueryKotlinConsumerTest.kt
+COMMITTED=e62a5b1260fff4941567deabbb83a46f11433100
+ * [new branch]        task/0.7.4e-governance-query-api -> task/0.7.4e-governance-query-api
+branch 'task/0.7.4e-governance-query-api' set up to track 'origin/task/0.7.4e-governance-query-api'.
+
+=== REQUALIFICATION of the two non-kill results ===
+=== REQUALIFY M3 (with the fix-round-3 discriminator in place) ===
+  mutation applied
+  tests=266 failures=1 errors=0
+    FAILED: 15 accounted positions are the recorded positions not the span of the verified range()
+  restored identical: yes
+=== REQUALIFY M5 (compiling form: unsupported format reported as a false absence) ===
+  mutation applied
+  tests=266 failures=1 errors=0
+    FAILED: 12 unknown stored format version is refused as UnsupportedFormat with no automatic upgrade()
+  restored identical: yes
+=== FINAL GATES at the frozen head ===

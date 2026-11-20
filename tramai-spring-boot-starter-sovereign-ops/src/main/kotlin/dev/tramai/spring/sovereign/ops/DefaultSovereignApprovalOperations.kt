@@ -5,6 +5,7 @@ import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.spring.sovereign.ops.outbox.DefaultSovereignOpsAuditDigestService
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditDigestService
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditEvidenceKind
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
@@ -35,7 +36,6 @@ class DefaultSovereignApprovalOperations(
     private val outboxStore: SovereignOpsAuditOutboxStore,
     private val digestService: SovereignOpsAuditDigestService = DefaultSovereignOpsAuditDigestService,
 ) : SovereignApprovalOperations {
-
     private companion object {
         private val SAFE_ID = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")
         private val SAFE_ACTOR = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}")
@@ -67,32 +67,38 @@ class DefaultSovereignApprovalOperations(
             "tramai-sovereign-ops-audit-outbox-not-durable"
         }
 
-        val request = approvalStore.get(approvalId)
-            ?: throw IllegalStateException(ERROR_INVALID_APPROVAL_ID)
+        val request =
+            approvalStore.get(approvalId)
+                ?: throw IllegalStateException(ERROR_INVALID_APPROVAL_ID)
 
         val approvalIdDigest = digestService.approvalIdDigest(approvalId)
         val reasonDigest = digestService.reasonDigest(reason)
         val eventKey = "deny:$approvalIdDigest:${request.version + 1}"
 
-        val auditIntent = SovereignOpsAuditOutboxRecord(
-            aggregateIdDigest = approvalIdDigest,
-            eventKey = eventKey,
-            actor = actor,
-            workflowRunId = request.binding.workflowRunId,
-            correlationId = null,
-            approvalStatus = "DENIED",
-            approvalVersion = request.version + 1,
-            reasonDigest = reasonDigest,
-            reasonLength = reason.length,
-        )
+        val auditIntent =
+            SovereignOpsAuditOutboxRecord(
+                aggregateIdDigest = approvalIdDigest,
+                eventKey = eventKey,
+                actor = actor,
+                workflowRunId = request.binding.workflowRunId,
+                correlationId = null,
+                approvalStatus = "DENIED",
+                approvalVersion = request.version + 1,
+                reasonDigest = reasonDigest,
+                reasonLength = reason.length,
+                previousApprovalStatus = request.status.name,
+                previousApprovalVersion = request.version,
+                evidenceKind = SovereignOpsAuditEvidenceKind.APPROVAL_DENIED,
+            )
 
-        val result = mutationStore.denyApprovalWithAuditIntent(
-            approvalId = approvalId,
-            expectedVersion = request.version,
-            actor = actor,
-            reason = reason,
-            auditIntent = auditIntent,
-        )
+        val result =
+            mutationStore.denyApprovalWithAuditIntent(
+                approvalId = approvalId,
+                expectedVersion = request.version,
+                actor = actor,
+                reason = reason,
+                auditIntent = auditIntent,
+            )
 
         // Dispatch the outbox record. If dispatch fails, the mutation + outbox
         // are already durable — the record can be retried later.

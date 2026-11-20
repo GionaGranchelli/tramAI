@@ -1,16 +1,64 @@
 @file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.engine.approval
 
-
-import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
-import dev.tramai.core.approval.*
+import dev.tramai.core.approval.ApprovalAuthorization
+import dev.tramai.core.approval.ApprovalContinuation
+import dev.tramai.core.approval.ApprovalContinuationStatus
+import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ApprovalRecoveryCoordinator
+import dev.tramai.core.approval.ApprovalResumeAdmission
+import dev.tramai.core.approval.ApprovalResumeAdmissionRequest
+import dev.tramai.core.approval.ApprovalResumeEvidenceHandle
+import dev.tramai.core.approval.ApprovalResumePermit
+import dev.tramai.core.approval.ClaimedApprovalContinuation
+import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.ForceCancelClaimedCommand
+import dev.tramai.core.approval.SensitiveToolArguments
+import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.approval.WorkflowEvidenceDiagnosticCategory
 import dev.tramai.core.coroutines.rethrowIfCancellation
-import dev.tramai.core.exception.*
+import dev.tramai.core.exception.ApprovalNotFoundException
+import dev.tramai.core.exception.ApprovalResumeAdmissionRefusedException
+import dev.tramai.core.exception.ApprovalTokenRejectedException
+import dev.tramai.core.exception.ConfigurationException
+import dev.tramai.core.exception.NestedApprovalNotSupportedException
+import dev.tramai.core.exception.StructuredOutputException
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.core.identity.SuspensionBindingProvenance
+import dev.tramai.core.identity.WorkflowCheckpointBinding
 import dev.tramai.core.model.ResolvedTool
-import dev.tramai.engine.*
-import kotlinx.coroutines.CancellationException
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
 import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
+import dev.tramai.engine.EngineEventObserver
+import dev.tramai.engine.GovernedSuspendedInvocation
+import dev.tramai.engine.GovernedSuspendedInvocationStore
+import dev.tramai.engine.RehydratedReplayPayload
+import dev.tramai.engine.ReplayEnvelopeDigestHelper
+import dev.tramai.engine.ReplayEnvelopeFactory
+import dev.tramai.engine.ReplayPayload
+import dev.tramai.engine.ResumeApprovalCommand
+import dev.tramai.engine.ResumeToolDeclarationDigestHelper
+import dev.tramai.engine.ResumeToolReference
+import dev.tramai.engine.SensitiveReplayEnvelope
+import dev.tramai.engine.SuspendedInvocationMetadata
+import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.engine.ToolRegistry
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
+
+/** Reason codes for a refused post-claim resume; all match the privileged-recovery pattern. */
+private const val REASON_NO_AUTHORITY: String = "resume-admission-authority-missing"
+private const val REASON_AUTHORITY_REFUSED: String = "resume-admission-refused"
+private const val REASON_IDENTITY_MISMATCH: String = "resume-admission-identity-mismatch"
+private const val REASON_NO_BINDING: String = "resume-admission-binding-missing"
+private const val REASON_LEGACY_PROVENANCE: String = "resume-admission-provenance-unknown"
 
 /**
  * Orchestrates the resume state machine for a suspended approval.
@@ -21,6 +69,7 @@ import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
  * dispatch. The executor used for the claimed resume is resolved from the
  * [ResumeOperationRegistry] — the registry knows how to dispatch.
  */
+@Suppress("LongParameterList")
 internal class ApprovalResumeCoordinator(
     private val approvalContinuationStore: ApprovalContinuationStore?,
     private val suspendedInvocationStore: SuspendedInvocationStore,
@@ -31,53 +80,135 @@ internal class ApprovalResumeCoordinator(
     private val engineEventObserver: EngineEventObserver,
     private val claimService: ContinuationClaimService,
     private val authorizationService: ReplayAuthorizationService,
+    /**
+     * E9: the workflow-bound resume authority, or null when this deployment claims no workflow-level admission. Absent
+     * means a standalone engine; a suspension that a workflow claims to own is then refused rather than waved through.
+     */
+    private val approvalResumeAdmission: ApprovalResumeAdmission? = null,
+    /**
+     * The audited CLAIMED → CANCELLED_UNCERTAIN transition. Required to close a continuation whose resume was admitted
+     * and then refused; without it the claim is left for the operator recovery sweep, and said so out loud.
+     */
+    private val approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
+    private val evidenceRequired: Boolean = false,
 ) {
     suspend fun resume(command: ResumeApprovalCommand): Any? {
-        val store = requireApprovalContinuationStore()
-        val continuationSnapshot = store.get(command.approvalId)
-
-        if (
-            continuationSnapshot != null &&
-            continuationSnapshot.status == ApprovalContinuationStatus.COMPLETED
-        ) {
-            throw ApprovalTokenRejectedException(command.approvalId)
-        }
-
-        val metadata = suspendedInvocationStore.get(command.approvalId)
-            ?: throw ApprovalNotFoundException(command.approvalId)
-        val registered = resumeOperationRegistry.resolve(metadata.operationReference)
-        val existingContinuation = claimService.loadPendingForResume(store, command, metadata, registered)
-        val resolvedTool = resolveAndValidateResumeTool(command, metadata, existingContinuation)
-
-        authorizationService.validateToken(command, metadata, existingContinuation)
-        when (val decision = authorizationService.decideResumePolicy(command, metadata, resolvedTool)) {
-            is ReplayAuthorizationDecision.Denied -> authorizationService.denyAndCancel(command, metadata, decision.decision, store)
-            ReplayAuthorizationDecision.RequiresNestedApproval -> authorizationService.cancelForNestedApproval(command, metadata, store)
-            is ReplayAuthorizationDecision.Allowed -> Unit
-        }
-
-        val authorization = authorizationService.authorize(command, metadata, existingContinuation)
-        authorizationService.emitAuthorizationReplayed(authorization.replayed, command, metadata)
+        val prepared = prepareResume(command)
+        val authorization = authorizeResume(command, prepared)
+        authorizationService.emitAuthorizationReplayed(authorization.replayed, command, prepared.metadata)
         val claimed = claimService.claim(command.approvalId, command.continuationExpectedVersion, command.resumedBy)
         val uncertainOutcome = ResumeUncertainOutcome()
-        val context = ResumeExecutionContext(command, metadata, registered, resolvedTool, uncertainOutcome)
+        val context =
+            ResumeExecutionContext(
+                command,
+                prepared.metadata,
+                prepared.registered,
+                prepared.resolvedTool,
+                uncertainOutcome,
+                prepared.persistedGoverned,
+            )
 
         return try {
-            executeClaimedResume(context, claimed, store)
+            if (prepared.persistedGoverned == null) {
+                executeClaimedResume(context, claimed, prepared.store)
+            } else {
+                // Install the RECOVERED identity around the resumed execution, so the engine
+                // invocation that continues this run carries its canonical run id.
+                withContext(GovernedRunScope(prepared.persistedGoverned)) {
+                    executeClaimedResume(context, claimed, prepared.store)
+                }
+            }
         } catch (e: NestedApprovalNotSupportedException) {
-            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "nested-approval-not-supported")
+            emitResumeUncertainOutcomeOnce(
+                uncertainOutcome,
+                command,
+                prepared.metadata,
+                "nested-approval-not-supported",
+            )
+            throw e
+        } catch (e: ApprovalResumeAdmissionRefusedException) {
+            // Not an uncertain outcome: nothing was dispatched. Reporting it as one would claim a tool may have run.
+            throw e
+        } catch (e: dev.tramai.core.exception.ApprovalResumeEvidencePersistenceException) {
+            // Checkpoint admission committed, but child evidence persistence failed. The executor was not dispatched,
+            // and the continuation remains CLAIMED for reconciliation rather than falsely treated as a refusal.
             throw e
         } catch (e: StructuredOutputException) {
-            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "structured-parse-failed: ${e::class.simpleName ?: "unknown"}")
+            emitResumeUncertainOutcomeOnce(
+                uncertainOutcome,
+                command,
+                prepared.metadata,
+                "structured-parse-failed: ${e::class.simpleName ?: "unknown"}",
+            )
             throw e
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "resume-failed: ${e::class.simpleName ?: "unknown"}")
+            emitResumeUncertainOutcomeOnce(
+                uncertainOutcome,
+                command,
+                prepared.metadata,
+                "resume-failed: ${e::class.simpleName ?: "unknown"}",
+            )
             throw e
         }
     }
+
+    private suspend fun prepareResume(command: ResumeApprovalCommand): ResumePreparation {
+        val store = requireApprovalContinuationStore()
+        val continuationSnapshot = store.get(command.approvalId)
+        if (continuationSnapshot != null && continuationSnapshot.status == ApprovalContinuationStatus.COMPLETED) {
+            throw ApprovalTokenRejectedException(command.approvalId)
+        }
+        val metadata =
+            suspendedInvocationStore.get(command.approvalId)
+                ?: throw ApprovalNotFoundException(command.approvalId)
+        // 0.7.1d: recover the persisted identity before claim or execution.
+        val persistedGoverned =
+            (suspendedInvocationStore as? GovernedSuspendedInvocationStore)
+                ?.governedRunIdentity(command.approvalId)
+        requireGovernedContinuity(
+            approvalId = command.approvalId,
+            persisted = persistedGoverned,
+            requested = GovernedRunScope.resolve(currentCoroutineContext()),
+        )
+        val registered = resumeOperationRegistry.resolve(metadata.operationReference)
+        val continuation = claimService.loadPendingForResume(store, command, metadata, registered)
+        val resolvedTool = resolveAndValidateResumeTool(command, metadata, continuation)
+        authorizationService.validateToken(command, metadata, continuation)
+        return ResumePreparation(store, metadata, persistedGoverned, registered, continuation, resolvedTool)
+    }
+
+    private suspend fun authorizeResume(
+        command: ResumeApprovalCommand,
+        prepared: ResumePreparation,
+    ): ApprovalAuthorization {
+        val decision = authorizationService.decideResumePolicy(command, prepared.metadata, prepared.resolvedTool)
+        when (decision) {
+            is ReplayAuthorizationDecision.Denied -> {
+                authorizationService.denyAndCancel(command, prepared.metadata, decision.decision, prepared.store)
+            }
+
+            ReplayAuthorizationDecision.RequiresNestedApproval -> {
+                authorizationService.cancelForNestedApproval(command, prepared.metadata, prepared.store)
+            }
+
+            is ReplayAuthorizationDecision.Allowed -> {
+                Unit
+            }
+        }
+        return authorizationService.authorize(command, prepared.metadata, prepared.continuation)
+    }
+
+    private data class ResumePreparation(
+        val store: ApprovalContinuationStore,
+        val metadata: SuspendedInvocationMetadata,
+        val persistedGoverned: dev.tramai.core.identity.GovernedRunIdentity?,
+        val registered: RegisteredResumeOperation,
+        val continuation: ApprovalContinuation,
+        val resolvedTool: ResolvedTool,
+    )
 
     private suspend fun executeClaimedResume(
         context: ResumeExecutionContext,
@@ -87,28 +218,290 @@ internal class ApprovalResumeCoordinator(
         val command = context.command
         val metadata = context.metadata
         val replayPayload = revealAndValidateReplayPayload(context.uncertainOutcome, command, metadata)
-        val expectedArgsDigest = validateClaimedResumeArguments(
-            context.uncertainOutcome, command, metadata, claimed, requireToolArgumentsDigester(),
-        )
+        val expectedArgsDigest =
+            validateClaimedResumeArguments(
+                context.uncertainOutcome,
+                command,
+                metadata,
+                claimed,
+                requireToolArgumentsDigester(),
+            )
         val validatedInput = claimed.arguments.reveal()
         val rehydratedPayload = ReplayEnvelopeFactory.rehydrateAfterClaim(replayPayload, metadata, validatedInput)
         val emitter: suspend (String) -> Unit = { reason ->
             emitResumeUncertainOutcomeOnce(context.uncertainOutcome, command, metadata, reason)
         }
-        val result = context.registered.resumeExecutor.execute(
-            ClaimedResumeExecutionRequest(
-                command,
-                metadata,
-                context.registered,
-                context.resolvedTool,
-                rehydratedPayload,
-                validatedInput,
-                expectedArgsDigest,
-                emitter,
-            ),
-        )
+        val permit = admitResumeBeforeDispatch(context, claimed)
+        val handle = permit?.evidenceHandle
+        if (evidenceRequired && permit != null && handle == null) {
+            error(
+                "Approval resume for '${context.command.approvalId}' requires durable evidence tracking, " +
+                    "but admission authority returned permit without evidenceHandle",
+            )
+        }
+        val result =
+            dispatchClaimedResume(
+                context = context,
+                rehydratedPayload = rehydratedPayload,
+                validatedInput = validatedInput,
+                expectedArgsDigest = expectedArgsDigest,
+                emitter = emitter,
+                handle = handle,
+            )
         completeClaimedResume(command, metadata, claimed, store)
         return result
+    }
+
+    private suspend fun dispatchClaimedResume(
+        context: ResumeExecutionContext,
+        rehydratedPayload: RehydratedReplayPayload,
+        validatedInput: String,
+        expectedArgsDigest: Sha256Digest,
+        emitter: suspend (String) -> Unit,
+        handle: ApprovalResumeEvidenceHandle?,
+    ): Any? {
+        val executed =
+            executeClaimedResumePayload(
+                context = context,
+                rehydratedPayload = rehydratedPayload,
+                validatedInput = validatedInput,
+                expectedArgsDigest = expectedArgsDigest,
+                emitter = emitter,
+                handle = handle,
+            )
+        recordDispatchedAndCompleted(handle)
+        return executed
+    }
+
+    private suspend fun executeClaimedResumePayload(
+        context: ResumeExecutionContext,
+        rehydratedPayload: RehydratedReplayPayload,
+        validatedInput: String,
+        expectedArgsDigest: Sha256Digest,
+        emitter: suspend (String) -> Unit,
+        handle: ApprovalResumeEvidenceHandle?,
+    ): Any? =
+        try {
+            context.registered.resumeExecutor.execute(
+                ClaimedResumeExecutionRequest(
+                    context.command,
+                    context.metadata,
+                    context.registered,
+                    context.resolvedTool,
+                    rehydratedPayload,
+                    validatedInput,
+                    expectedArgsDigest,
+                    emitter,
+                ),
+            )
+        } catch (
+            @Suppress("TooGenericExceptionCaught") e: Throwable,
+        ) {
+            when (e) {
+                is kotlinx.coroutines.TimeoutCancellationException -> {
+                    recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_TIMEOUT)
+                }
+
+                is CancellationException -> {
+                    recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_CANCELLED)
+                }
+
+                else -> {
+                    recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.TOOL_EXECUTION_FAILED)
+                }
+            }
+            throw e
+        }
+
+    private suspend fun recordDispatchedAndCompleted(handle: ApprovalResumeEvidenceHandle?) {
+        if (handle == null) return
+        try {
+            handle.recordDispatched()
+            handle.recordCompleted()
+        } catch (
+            @Suppress("TooGenericExceptionCaught") e: Throwable,
+        ) {
+            recordUncertainSafely(handle, e, WorkflowEvidenceDiagnosticCategory.PERSISTENCE_FAILED)
+            throw e
+        }
+    }
+
+    private suspend fun recordUncertainSafely(
+        handle: ApprovalResumeEvidenceHandle?,
+        error: Throwable,
+        category: WorkflowEvidenceDiagnosticCategory,
+    ) {
+        try {
+            handle?.recordUncertain(error, category)
+        } catch (
+            @Suppress("TooGenericExceptionCaught") suppressed: Throwable,
+        ) {
+            if (error is CancellationException) {
+                if (error.suppressed.none { it is SanitizedEvidenceDiagnosticException }) {
+                    error.addSuppressed(SanitizedEvidenceDiagnosticException())
+                }
+            } else {
+                if (error !== suppressed && error.suppressed.none { it === suppressed }) {
+                    error.addSuppressed(suppressed)
+                }
+            }
+        }
+    }
+
+    /**
+     * E9: the owning workflow's durable authority must admit this resumed invocation, after the claim and immediately
+     * before dispatch.
+     *
+     * Three provenances, three outcomes, and no inferred fourth:
+     * - [SuspensionBindingProvenance.WORKFLOW_BOUND] — the record names its checkpoint, so a fresh durable grant is
+     *   required. Without the capability or without the binding, the resume is refused.
+     * - [SuspensionBindingProvenance.STANDALONE] — the suspension declared at creation that no workflow owns it. No
+     *   workflow cancellation guarantee applies, and this release does not invent one.
+     * - [SuspensionBindingProvenance.LEGACY_UNKNOWN] — the record states nothing. A deployment that claims
+     *   workflow-level admission (that is, one that installed this capability) must not treat silence as
+     *   standalone, so it refuses.
+     */
+    private suspend fun admitResumeBeforeDispatch(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+    ): ApprovalResumePermit? {
+        val suspension =
+            (suspendedInvocationStore as? GovernedSuspendedInvocationStore)
+                ?.governedSuspension(context.command.approvalId)
+        val runIdentity = suspension?.runIdentity ?: context.persistedGovernedRunIdentity ?: return null
+        requireAdmissionIdentityContinuity(context, claimed, runIdentity)
+        val authority = approvalResumeAdmission
+        return when (suspension?.provenance ?: SuspensionBindingProvenance.LEGACY_UNKNOWN) {
+            SuspensionBindingProvenance.STANDALONE -> {
+                null
+            }
+
+            SuspensionBindingProvenance.WORKFLOW_BOUND -> {
+                admitWorkflowBound(context, claimed, authority, suspension?.checkpointBinding, runIdentity)
+            }
+
+            SuspensionBindingProvenance.LEGACY_UNKNOWN -> {
+                if (authority == null) {
+                    null
+                } else {
+                    refuseClaimedResume(
+                        context,
+                        claimed,
+                        REASON_LEGACY_PROVENANCE,
+                        "the suspension records no binding provenance, so workflow authority cannot be established",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * The identity offered for admission must be the one recovered before the claim and installed in the resumed scope.
+     * A store answering two identities for one run would otherwise have one authorized and another executed.
+     */
+    private suspend fun requireAdmissionIdentityContinuity(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+        offered: GovernedRunIdentity,
+    ) {
+        val persisted = context.persistedGovernedRunIdentity ?: return
+        if (persisted != offered) {
+            refuseClaimedResume(
+                context,
+                claimed,
+                REASON_IDENTITY_MISMATCH,
+                "the governed identity offered for admission is not the one persisted for this continuation",
+            )
+        }
+    }
+
+    private suspend fun admitWorkflowBound(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+        authority: ApprovalResumeAdmission?,
+        checkpointBinding: WorkflowCheckpointBinding?,
+        runIdentity: GovernedRunIdentity,
+    ): ApprovalResumePermit {
+        if (authority == null) {
+            refuseClaimedResume(
+                context,
+                claimed,
+                REASON_NO_AUTHORITY,
+                "no workflow admission authority is wired",
+            )
+        }
+        if (checkpointBinding == null) {
+            refuseClaimedResume(context, claimed, REASON_NO_BINDING, "the suspension names no checkpoint")
+        }
+        val permit =
+            try {
+                authority.admitResume(
+                    ApprovalResumeAdmissionRequest(
+                        approvalId = context.command.approvalId,
+                        toolName = context.metadata.toolName,
+                        runIdentity = runIdentity,
+                        checkpointBinding = checkpointBinding,
+                        continuationVersion = claimed.continuation.version,
+                    ),
+                )
+            } catch (refused: ApprovalResumeAdmissionRefusedException) {
+                // The authority said no after the claim. The claim must not be left behind, and the refusal must not be
+                // reclassified: it goes through the same audited terminal transition as every other refusal.
+                refuseClaimedResume(context, claimed, REASON_AUTHORITY_REFUSED, refused.message ?: "refused")
+            }
+        permit.tryConsume()
+        return permit
+    }
+
+    /**
+     * Refuse a resume whose continuation is already claimed, and close the claim through the audited privileged
+     * transition so it cannot sit CLAIMED forever.
+     *
+     * The recovery coordinator, not the raw store, is the only sanctioned path: it emits the durable
+     * request-before-mutation audit, validates the reason code, and maps store failures. If it is unavailable or fails,
+     * the continuation stays CLAIMED — which is safe, because a CLAIMED continuation is rejected by every later resume
+     * (`continuation-not-pending`) and is swept by the existing stale-claim recovery — and the exception says so rather
+     * than pretending the claim was closed.
+     */
+    private suspend fun refuseClaimedResume(
+        context: ResumeExecutionContext,
+        claimed: ClaimedApprovalContinuation,
+        reasonCode: String,
+        detail: String,
+    ): Nothing {
+        val command = context.command
+        val recovery = approvalRecoveryCoordinator
+        var closed = false
+        if (recovery != null) {
+            closed =
+                try {
+                    recovery.forceCancelClaimed(
+                        ForceCancelClaimedCommand(
+                            approvalId = command.approvalId,
+                            expectedVersion = claimed.continuation.version,
+                            operatorId = command.resumedBy,
+                            reasonCode = reasonCode,
+                        ),
+                    )
+                    true
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") failure: Exception,
+                ) {
+                    // The audit or the store may fail in any way; none of them may leave the claim looking closed.
+                    failure.rethrowIfCancellation()
+                    false
+                }
+        }
+        throw ApprovalResumeAdmissionRefusedException(
+            "approval '${command.approvalId}' cannot be resumed: $detail" +
+                if (closed) {
+                    "; the claimed continuation was cancelled through the audited recovery transition"
+                } else {
+                    "; the continuation remains CLAIMED and only the stale-claim recovery may reconcile it"
+                },
+        )
     }
 
     private suspend fun revealAndValidateReplayPayload(
@@ -116,8 +509,9 @@ internal class ApprovalResumeCoordinator(
         command: ResumeApprovalCommand,
         metadata: SuspendedInvocationMetadata,
     ): ReplayPayload {
-        val replayEnvelope = suspendedInvocationStore.revealReplayEnvelope(command.approvalId)
-            ?: throw ConfigurationException("replay-envelope-not-found")
+        val replayEnvelope =
+            suspendedInvocationStore.revealReplayEnvelope(command.approvalId)
+                ?: throw ConfigurationException("replay-envelope-not-found")
         val replayPayload = replayEnvelope.revealForResume()
         val actualDigest = ReplayEnvelopeDigestHelper.compute(metadata.operationReference, replayPayload.messages)
         if (actualDigest != metadata.replayEnvelopeDigest) {
@@ -253,8 +647,9 @@ internal class ApprovalResumeCoordinator(
         metadata: SuspendedInvocationMetadata,
         continuation: ApprovalContinuation,
     ): ResolvedTool {
-        val resolvedTool = toolRegistry.resolve(metadata.toolName)
-            ?: throw ConfigurationException("approved-tool-not-registered")
+        val resolvedTool =
+            toolRegistry.resolve(metadata.toolName)
+                ?: throw ConfigurationException("approved-tool-not-registered")
         require(ResumeToolDeclarationDigestHelper.compute(resolvedTool) == metadata.toolReference.declarationDigest) {
             "resume-tool-declaration-drift"
         }
@@ -265,3 +660,12 @@ internal class ApprovalResumeCoordinator(
         return resolvedTool
     }
 }
+
+/**
+ * Cause-free, fixed-text diagnostic marker attached to a primary [CancellationException]
+ * when secondary evidence persistence/cleanup encounters a failure or diagnostic.
+ *
+ * This ensures that database messages, connection strings, filesystem paths, or other sensitive
+ * details from secondary persistence subsystems never leak onto cancellation control flow.
+ */
+internal class SanitizedEvidenceDiagnosticException : RuntimeException("Evidence persistence had diagnostics")

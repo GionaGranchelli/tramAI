@@ -283,7 +283,7 @@ class ProviderCircuitBreakerLifecycleDiscriminatorTest {
         val attempt =
             executor(
                 observation = RecordingObservation(),
-                circuitBreaker = breaker,
+                resilience = ExecutorResilience(circuitBreaker = breaker),
             )
         return ProviderExecutionCoordinator(
             routingPlan = plan,
@@ -291,7 +291,7 @@ class ProviderCircuitBreakerLifecycleDiscriminatorTest {
             attemptExecutor = attempt,
             fallbackPolicy = ProviderFallbackPolicy(),
             beforeResolution = ProviderResolutionGate { _, _, _ -> },
-            fallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> },
+            fallbackGate = ProviderFallbackGate { _ -> },
         )
     }
 }

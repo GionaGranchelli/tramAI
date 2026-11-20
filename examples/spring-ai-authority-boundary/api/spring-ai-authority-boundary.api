@@ -1,0 +1,118 @@
+public final class dev/tramai/examples/springaiboundary/BoundaryContext {
+	public fun <init> (Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ldev/tramai/core/identity/GovernedRunIdentity;
+	public final fun component2 ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy (Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/examples/springaiboundary/BoundaryContext;
+	public static synthetic fun copy$default (Ldev/tramai/examples/springaiboundary/BoundaryContext;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/examples/springaiboundary/BoundaryContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActorId ()Ljava/lang/String;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getIdentity ()Ldev/tramai/core/identity/GovernedRunIdentity;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getRunId ()Ljava/lang/String;
+	public final fun getSecurity ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/examples/springaiboundary/BoundaryEvidenceRecorder {
+	public static final field DECISION_ALLOW Ljava/lang/String;
+	public static final field DECISION_DENY Ljava/lang/String;
+	public static final field DECISION_REQUIRE_APPROVAL Ljava/lang/String;
+	public fun <init> (Ldev/tramai/security/audit/AuditEngine;Ldev/tramai/examples/springaiboundary/BoundaryContext;)V
+	public final fun events ()Ljava/util/List;
+	public final fun evidence ()Ljava/util/List;
+	public final fun recordAllow (Ljava/lang/String;)V
+	public final fun recordRefusal (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun recordRequireApproval (Ljava/lang/String;Ljava/lang/String;)V
+}
+
+public final class dev/tramai/examples/springaiboundary/BoundaryOutcome : java/lang/Enum {
+	public static final field EXECUTED Ldev/tramai/examples/springaiboundary/BoundaryOutcome;
+	public static final field REFUSED_DENY Ldev/tramai/examples/springaiboundary/BoundaryOutcome;
+	public static final field REFUSED_GOVERNANCE_UNAVAILABLE Ldev/tramai/examples/springaiboundary/BoundaryOutcome;
+	public static final field REFUSED_REQUIRE_APPROVAL Ldev/tramai/examples/springaiboundary/BoundaryOutcome;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/examples/springaiboundary/BoundaryOutcome;
+	public static fun values ()[Ldev/tramai/examples/springaiboundary/BoundaryOutcome;
+}
+
+public final class dev/tramai/examples/springaiboundary/BoundaryRefusal {
+	public static final field ESCAPE_WIDTH I
+	public static final field HEX_RADIX I
+	public static final field ZERO C
+	public fun <init> (Ldev/tramai/examples/springaiboundary/BoundaryOutcome;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/examples/springaiboundary/EnforcementStrength;)V
+	public final fun component1 ()Ldev/tramai/examples/springaiboundary/BoundaryOutcome;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ldev/tramai/examples/springaiboundary/EnforcementStrength;
+	public final fun copy (Ldev/tramai/examples/springaiboundary/BoundaryOutcome;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/examples/springaiboundary/EnforcementStrength;)Ldev/tramai/examples/springaiboundary/BoundaryRefusal;
+	public static synthetic fun copy$default (Ldev/tramai/examples/springaiboundary/BoundaryRefusal;Ldev/tramai/examples/springaiboundary/BoundaryOutcome;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/examples/springaiboundary/EnforcementStrength;ILjava/lang/Object;)Ldev/tramai/examples/springaiboundary/BoundaryRefusal;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getEnforcementStrength ()Ldev/tramai/examples/springaiboundary/EnforcementStrength;
+	public final fun getOutcome ()Ldev/tramai/examples/springaiboundary/BoundaryOutcome;
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getReasonCode ()Ljava/lang/String;
+	public final fun getRunId ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/examples/springaiboundary/EnforcementStrength : java/lang/Enum {
+	public static final field AUTHORITATIVE Ldev/tramai/examples/springaiboundary/EnforcementStrength;
+	public static final field OBSERVED Ldev/tramai/examples/springaiboundary/EnforcementStrength;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/examples/springaiboundary/EnforcementStrength;
+	public static fun values ()[Ldev/tramai/examples/springaiboundary/EnforcementStrength;
+}
+
+public final class dev/tramai/examples/springaiboundary/GovernedToolCallback : org/springframework/ai/tool/ToolCallback {
+	public static final field REQUIRE_APPROVAL_REASON_CODE Ljava/lang/String;
+	public static final field UNAVAILABLE_REASON_CODE Ljava/lang/String;
+	public fun <init> (Lorg/springframework/ai/tool/ToolCallback;Ldev/tramai/core/policy/PolicyEngine;Ldev/tramai/security/audit/AuditEngine;Ldev/tramai/examples/springaiboundary/BoundaryContext;)V
+	public fun call (Ljava/lang/String;)Ljava/lang/String;
+	public fun call (Ljava/lang/String;Lorg/springframework/ai/chat/model/ToolContext;)Ljava/lang/String;
+	public final fun events ()Ljava/util/List;
+	public final fun evidence ()Ljava/util/List;
+	public fun getToolDefinition ()Lorg/springframework/ai/tool/definition/ToolDefinition;
+}
+
+public final class dev/tramai/examples/springaiboundary/SideEffectfulToolCallback : org/springframework/ai/tool/ToolCallback {
+	public static final field Companion Ldev/tramai/examples/springaiboundary/SideEffectfulToolCallback$Companion;
+	public static final field TOOL_NAME Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun call (Ljava/lang/String;)Ljava/lang/String;
+	public fun getToolDefinition ()Lorg/springframework/ai/tool/definition/ToolDefinition;
+	public final fun invocations ()Ljava/util/List;
+}
+
+public final class dev/tramai/examples/springaiboundary/SideEffectfulToolCallback$Companion {
+}
+
+public final class dev/tramai/examples/springaiboundary/SpringAiBoundaryMain {
+	public static final field INSTANCE Ldev/tramai/examples/springaiboundary/SpringAiBoundaryMain;
+	public static final fun main ([Ljava/lang/String;)V
+}
+
+public final class dev/tramai/examples/springaiboundary/StubToolRequestingChatModel : org/springframework/ai/chat/model/ChatModel {
+	public static final field CALL_ID Ljava/lang/String;
+	public static final field TOOL_CALL_TYPE Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun call (Lorg/springframework/ai/chat/prompt/Prompt;)Lorg/springframework/ai/chat/model/ChatResponse;
+	public synthetic fun call (Lorg/springframework/ai/model/ModelRequest;)Lorg/springframework/ai/model/ModelResponse;
+	public fun getDefaultOptions ()Lorg/springframework/ai/chat/prompt/ChatOptions;
+	public final fun promptsSeen ()Ljava/util/List;
+	public final fun receivedToolResult ()Z
+}
+

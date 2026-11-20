@@ -6,6 +6,7 @@ Generated from `RuntimeEventCatalogue`; do not edit by hand. Deterministic and C
 
 | Event | Domain | Required attributes | Sensitivity | Audit | Evidence | Metric | Span | Failure policy |
 |---|---|---|---|---|---|---|---|---|
+|`tramai.governance.evidence.exported`|EVIDENCE|`tramai.governance.state`|INTERNAL|no|no|—|yes|FAIL_OPEN|
 |`tramai.worker.heartbeat`|WORKER|`tramai.worker.id`, `tramai.worker.uptime_ms`|INTERNAL|no|no|`tramai.worker.heartbeats`|yes|FAIL_OPEN|
 |`tramai.worker.lease.acquired`|WORKER|`tramai.worker.id`, `tramai.worker.workflow_id`|INTERNAL|yes|yes|`tramai.worker.leases`|yes|FAIL_OPEN|
 |`tramai.worker.lease.released`|WORKER|`tramai.worker.id`, `tramai.worker.workflow_id`|INTERNAL|yes|yes|`tramai.worker.leases`|yes|FAIL_OPEN|

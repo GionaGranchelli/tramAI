@@ -52,9 +52,8 @@ class WorkflowBindingRegistry internal constructor(
          * duplicate registrations fail deterministically and cannot surface later
          * as runtime side effects.
          */
-        operator fun invoke(
-            configure: WorkflowBindingRegistryBuilder.() -> Unit,
-        ): WorkflowBindingRegistry = WorkflowBindingRegistryBuilder().apply(configure).build()
+        operator fun invoke(configure: WorkflowBindingRegistryBuilder.() -> Unit): WorkflowBindingRegistry =
+            WorkflowBindingRegistryBuilder().apply(configure).build()
     }
 }
 
@@ -105,12 +104,14 @@ class WorkflowBindingRegistryBuilder internal constructor() {
                     "is registered more than once",
             )
         }
-        bindings[key] = WorkflowBinding(
-            workflow = workflow,
-            stateCodec = persistence.stateCodec,
-            delayWakeupScheduler = persistence.delayWakeupScheduler,
-            deleteCheckpointOnCompletion = persistence.deleteCheckpointOnCompletion,
-        )
+        bindings[key] =
+            WorkflowBinding(
+                workflow = workflow,
+                stateCodec = persistence.stateCodec,
+                delayWakeupScheduler = persistence.delayWakeupScheduler,
+                deleteCheckpointOnCompletion = persistence.deleteCheckpointOnCompletion,
+                evidenceStore = persistence.evidenceStore ?: persistence.checkpointStore.resolveEvidenceStore(),
+            )
     }
 
     internal fun build(): WorkflowBindingRegistry = WorkflowBindingRegistry(bindings.toMap())
@@ -140,18 +141,21 @@ internal class WorkflowBinding<S, R>(
     val stateCodec: WorkflowStateCodec<S>,
     val delayWakeupScheduler: WorkflowDelayWakeupScheduler? = null,
     val deleteCheckpointOnCompletion: Boolean = true,
+    val evidenceStore: WorkflowEffectEvidenceRecordStore? = null,
 ) {
     /**
      * Erased execution view. Safe by construction: S and R are subtypes of Any?,
      * and the compiler has already verified that the codec and workflow share S.
      */
     @Suppress("UNCHECKED_CAST")
-    val erased: ErasedWorkflowBinding = ErasedWorkflowBinding(
-        workflow = workflow as Workflow<Any?, Any?>,
-        stateCodec = stateCodec as WorkflowStateCodec<Any?>,
-        delayWakeupScheduler = delayWakeupScheduler,
-        deleteCheckpointOnCompletion = deleteCheckpointOnCompletion,
-    )
+    val erased: ErasedWorkflowBinding =
+        ErasedWorkflowBinding(
+            workflow = workflow as Workflow<Any?, Any?>,
+            stateCodec = stateCodec as WorkflowStateCodec<Any?>,
+            delayWakeupScheduler = delayWakeupScheduler,
+            deleteCheckpointOnCompletion = deleteCheckpointOnCompletion,
+            evidenceStore = evidenceStore,
+        )
 }
 
 /**
@@ -166,13 +170,15 @@ internal class ErasedWorkflowBinding(
     val stateCodec: WorkflowStateCodec<Any?>,
     val delayWakeupScheduler: WorkflowDelayWakeupScheduler?,
     val deleteCheckpointOnCompletion: Boolean,
+    val evidenceStore: WorkflowEffectEvidenceRecordStore? = null,
 ) {
     suspend fun replayDescriptor(
         checkpoint: WorkflowCheckpoint,
         context: WorkflowContext,
-    ): WorkflowStepReplayDescriptor? = workflow.replayDescriptorAt(
-        stepIndex = checkpoint.nextStepIndex,
-        state = stateCodec.decode(checkpoint.statePayload),
-        context = context,
-    )
+    ): WorkflowStepReplayDescriptor? =
+        workflow.replayDescriptorAt(
+            stepIndex = checkpoint.nextStepIndex,
+            state = stateCodec.decode(checkpoint.statePayload),
+            context = context,
+        )
 }

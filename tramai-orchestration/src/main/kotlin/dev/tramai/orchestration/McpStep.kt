@@ -1,9 +1,9 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
-import dev.tramai.core.coroutines.rethrowIfCancellation
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StdioClientTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
@@ -16,13 +16,14 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.job
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.io.Source
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.io.Sink
+import kotlinx.io.Source
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
@@ -31,6 +32,14 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import kotlin.time.Duration.Companion.seconds
+
+internal const val MCP_SERVER_START_FAILED_DIAGNOSTIC = "mcp_server_start_failed"
+internal const val MCP_INITIALIZATION_FAILED_DIAGNOSTIC = "mcp_initialization_failed"
+internal const val MCP_TOOL_EXECUTION_FAILED_DIAGNOSTIC = "mcp_tool_execution_failed"
+internal const val MCP_TIMEOUT_DIAGNOSTIC = "mcp_timeout"
+internal const val MCP_CANCELLED_DIAGNOSTIC = "mcp_cancelled"
+internal const val MCP_CLEANUP_FAILED_DIAGNOSTIC = "mcp_cleanup_failed"
+private const val MCP_CLIENT_CLOSE_TIMEOUT_MILLIS = 5_000L
 
 data class McpToolCall(
     val serverCommand: List<String>,
@@ -109,11 +118,16 @@ data class McpStepConfig(
 class WorkflowMcpException : RuntimeException {
     val stepName: String
     constructor(stepName: String, message: String, cause: Throwable? = null) :
-        super("Workflow MCP step '$stepName' $message", cause) { this.stepName = stepName }
+        super("Workflow MCP step '$stepName' $message", cause) {
+        this.stepName = stepName
+    }
+
     var failureCode: WorkflowStepFailureCode? = null
         internal set
     internal var safeFactoryTrusted: Boolean = false
-    internal constructor(stepName: String, safeMessage: String, safe: Boolean) : super(safeMessage) { this.stepName = stepName }
+    internal constructor(stepName: String, safeMessage: String, safe: Boolean) : super(safeMessage) {
+        this.stepName = stepName
+    }
 }
 
 /**
@@ -151,21 +165,24 @@ data class McpTransportConnection(
  */
 internal class SubprocessMcpTransportProvider : McpTransportProvider {
     override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
-        val process = try {
-            ProcessBuilder(toolCall.serverCommand)
-                .apply {
-                    environment().putAll(toolCall.serverEnv)
-                    redirectErrorStream(false)
-                }
-                .start()
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            throw WorkflowMcpException(
-                stepName = "<transport>",
-                message = "failed to start MCP server: ${error.message ?: error::class.java.simpleName}",
-                cause = error,
-            )
-        }
+        val process =
+            try {
+                ProcessBuilder(toolCall.serverCommand)
+                    .apply {
+                        environment().putAll(toolCall.serverEnv)
+                        redirectErrorStream(false)
+                    }.start()
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                // No authoritative-refusal guard here on purpose: the E4 grant is taken by the caller before connect()
+                // is invoked, so this catch only ever sees transport errors. A guard no path can reach would read as
+                // coverage it does not provide.
+                throw WorkflowMcpException(
+                    stepName = "<transport>",
+                    message = "failed to start MCP server: ${error.message ?: error::class.java.simpleName}",
+                    cause = error,
+                )
+            }
 
         val lifecycle = CancellableProcessLifecycle(process)
         // Attach-then-active-check: parent cancellation (or the withTimeout firing)
@@ -219,18 +236,19 @@ internal data class McpWorkflowStep<S>(
     val merge: suspend (S, McpToolResult, WorkflowContext) -> S,
     val config: McpStepConfig = McpStepConfig(),
     val transportProvider: McpTransportProvider = SubprocessMcpTransportProvider(),
+    val clientCloser: suspend (Client) -> Unit = { it.close() },
+    val clientCloseTimeoutMillis: Long = MCP_CLIENT_CLOSE_TIMEOUT_MILLIS,
 ) : InternalWorkflowStep<S> {
-    override suspend fun execute(
-        request: WorkflowStepExecutionRequest<S>,
-    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
-        execute(
-            workflowName = request.workflowName,
-            state = request.state,
-            context = request.context,
-            observer = request.observer,
-            failureDiagnosticObserver = request.services.failureDiagnosticObserver,
-        ),
-    )
+    override suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S> =
+        WorkflowStepExecutionResult.Completed(
+            execute(
+                workflowName = request.workflowName,
+                state = request.state,
+                context = request.context,
+                observer = request.observer,
+                failureDiagnosticObserver = request.services.failureDiagnosticObserver,
+            ),
+        )
 
     internal fun validateStaticCommandPolicy(workflowName: String) {
         val commandIdentifiers = definition.serverCommand.commandIdentifiers()
@@ -250,12 +268,13 @@ internal data class McpWorkflowStep<S>(
         observer: WorkflowObserver,
         failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     ): S {
-        val toolCall = try {
-            toolCallBuilder(state, context)
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            throw failure(workflowName, error, WorkflowStepFailureCode.PREPARATION_FAILED, 1, false, failureDiagnosticObserver)
-        }
+        val toolCall =
+            try {
+                toolCallBuilder(state, context)
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                throw failure(workflowName, error, WorkflowStepFailureCode.PREPARATION_FAILED, 1, false, failureDiagnosticObserver)
+            }
 
         try {
             validateDefinition(toolCall)
@@ -271,12 +290,16 @@ internal data class McpWorkflowStep<S>(
                 val policyType = if (error.message?.contains("allowlist") == true) "allowlist" else "deny-list"
                 observer.emitWorkflowEvent(
                     workflowName = workflowName,
-                    event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SECURITY_COMMAND_DENIED) {
-                        set(RuntimeAttributes.STEP_NAME, name)
-                        set(RuntimeAttributes.COMMAND_DIGEST, File(toolCall.serverCommand.first()).name.sha256Digest())
-                        set(RuntimeAttributes.POLICY_TYPE, policyType)
-                        set(RuntimeAttributes.STEP_FAMILY, "mcp")
-                    },
+                    event =
+                        RuntimeEvent.of(RuntimeEvents.WORKFLOW_SECURITY_COMMAND_DENIED) {
+                            set(RuntimeAttributes.STEP_NAME, name)
+                            set(
+                                RuntimeAttributes.COMMAND_DIGEST,
+                                File(toolCall.serverCommand.first()).name.sha256Digest(),
+                            )
+                            set(RuntimeAttributes.POLICY_TYPE, policyType)
+                            set(RuntimeAttributes.STEP_FAMILY, "mcp")
+                        },
                     context = context,
                 )
                 throw error
@@ -288,29 +311,32 @@ internal data class McpWorkflowStep<S>(
 
         observer.emitWorkflowEvent(
             workflowName = workflowName,
-            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_MCP_STARTED) {
-                set(RuntimeAttributes.STEP_NAME, name)
-                set(RuntimeAttributes.TOOL_NAME_DIGEST, toolCall.toolName.sha256Digest())
-            },
+            event =
+                RuntimeEvent.of(RuntimeEvents.WORKFLOW_MCP_STARTED) {
+                    set(RuntimeAttributes.STEP_NAME, name)
+                    set(RuntimeAttributes.TOOL_NAME_DIGEST, toolCall.toolName.sha256Digest())
+                },
             context = context,
         )
 
-        val result = runMcpCall(
-            toolCall = toolCall,
-            workflowName = workflowName,
-            context = context,
-            observer = observer,
-            failureDiagnosticObserver = failureDiagnosticObserver,
-        )
+        val result =
+            runMcpCall(
+                toolCall = toolCall,
+                workflowName = workflowName,
+                context = context,
+                observer = observer,
+                failureDiagnosticObserver = failureDiagnosticObserver,
+            )
 
         observer.emitWorkflowEvent(
             workflowName = workflowName,
-            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_MCP_COMPLETED) {
-                set(RuntimeAttributes.STEP_NAME, name)
-                set(RuntimeAttributes.TOOL_NAME_DIGEST, toolCall.toolName.sha256Digest())
-                set(RuntimeAttributes.IS_ERROR, result.isError)
-                set(RuntimeAttributes.CONTENT_SIZE_BYTES, (result.content?.length ?: 0).toLong())
-            },
+            event =
+                RuntimeEvent.of(RuntimeEvents.WORKFLOW_MCP_COMPLETED) {
+                    set(RuntimeAttributes.STEP_NAME, name)
+                    set(RuntimeAttributes.TOOL_NAME_DIGEST, toolCall.toolName.sha256Digest())
+                    set(RuntimeAttributes.IS_ERROR, result.isError)
+                    set(RuntimeAttributes.CONTENT_SIZE_BYTES, (result.content?.length ?: 0).toLong())
+                },
             context = context,
         )
 
@@ -334,23 +360,36 @@ internal data class McpWorkflowStep<S>(
 
         for (attempt in 1..maxAttempts) {
             try {
-                return executeMcpCall(toolCall)
+                return executeMcpCall(
+                    toolCall = toolCall,
+                    workflowName = workflowName,
+                    context = context,
+                )
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
+                // A refusal is not a reconnectable transport failure and has no step failure code.
+                error.rethrowIfAuthoritativeRefusal()
                 lastError = error
                 val code = mcpFailureCode(error)
                 val willReconnect = attempt < maxAttempts && error.isTransientForReconnect()
-                val safeFailure = failure(
-                    workflowName, error, code, attempt, willReconnect, failureDiagnosticObserver,
-                )
+                val safeFailure =
+                    failure(
+                        workflowName,
+                        error,
+                        code,
+                        attempt,
+                        willReconnect,
+                        failureDiagnosticObserver,
+                    )
                 if (willReconnect) {
                     observer.emitWorkflowEvent(
                         workflowName = workflowName,
-                        event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_MCP_RECONNECTING) {
-                            set(RuntimeAttributes.STEP_NAME, name)
-                            set(RuntimeAttributes.ATTEMPT, attempt.toLong())
-                            set(RuntimeAttributes.FAILURE_CODE, code.value)
-                        },
+                        event =
+                            RuntimeEvent.of(RuntimeEvents.WORKFLOW_MCP_RECONNECTING) {
+                                set(RuntimeAttributes.STEP_NAME, name)
+                                set(RuntimeAttributes.ATTEMPT, attempt.toLong())
+                                set(RuntimeAttributes.FAILURE_CODE, code.value)
+                            },
                         context = context,
                     )
                 } else {
@@ -362,147 +401,35 @@ internal data class McpWorkflowStep<S>(
         throw checkNotNull(lastError)
     }
 
-    private suspend fun executeMcpCall(toolCall: McpToolCall): McpToolResult {
-        return try {
-            withTimeout(config.timeoutSeconds.seconds) {
-                val connection = transportProvider.connect(toolCall)
+    private suspend fun executeMcpCall(
+        toolCall: McpToolCall,
+        workflowName: String,
+        context: WorkflowContext,
+    ): McpToolResult =
+        McpCallSession(
+            step = this,
+            toolCall = toolCall,
+            workflowName = workflowName,
+            context = context,
+        ).run()
 
-                var primaryFailure: Throwable? = null
-                val result: McpToolResult = try {
-                    var client: Client? = null
-                    try {
-                        // Client construction is inside the tracked lifecycle: a setup
-                        // failure here is reconnectable (no tool result was produced).
-                        client = Client(
-                            clientInfo = Implementation(
-                                name = "tramai-mcp-step",
-                                version = MCP_STEP_VERSION,
-                            ),
-                        )
-                        client.connect(
-                            StdioClientTransport(
-                                input = connection.input,
-                                output = connection.output,
-                            ),
-                        )
+    internal fun toMcpToolResult(result: CallToolResult): McpToolResult {
+        val textContent =
+            result.content
+                .filterIsInstance<TextContent>()
+                .joinToString("\n") { it.text }
+                .takeIf { it.isNotEmpty() }
 
-                        val argumentsJson: Map<String, JsonElement> = toolCall.arguments.mapValues { (_, value) ->
-                            JsonPrimitive(value)
-                        }
-
-                        val callResult: CallToolResult = client.callTool(toolCall.toolName, argumentsJson)
-                        toMcpToolResult(callResult)
-                    } catch (error: Throwable) {
-                        // Track the primary BEFORE rethrowing cancellation: the finally
-                        // cleanup must see it so cleanup failures never replace it.
-                        primaryFailure = error
-                        if (error is CancellationException) throw error
-                        // The step's withTimeout may have fired concurrently. If the
-                        // server process was terminated by the timeout's cleanup, a
-                        // transport error surfacing now is a CONSEQUENCE of that
-                        // timeout, not an independent transport failure — report
-                        // TIMEOUT deterministically instead of racing with
-                        // TRANSPORT_FAILED (CI flake: WorkflowMcpStepTest
-                        // descendant-cleanup timeout). A genuine parent cancellation is
-                        // rethrown by ensureActive before this conversion.
-                        currentCoroutineContext().ensureActive()
-                        if (connection.terminationRequested()) {
-                            throw McpTimeoutException(error)
-                        }
-                        throw error
-                    } finally {
-                        // client.close() must never replace a primary failure (especially a
-                        // CancellationException): run it under NonCancellable and suppress any
-                        // close failure onto the primary. If there is no primary failure and
-                        // close itself fails, the tool may already have executed exactly once,
-                        // so the failure is wrapped as non-reconnectable (never retry the tool).
-                        try {
-                            withContext(NonCancellable) { client?.close() }
-                        } catch (closeError: Throwable) {
-                            if (primaryFailure != null) {
-                                // A primary failure (typically cancellation) wins: suppress
-                                // the close failure onto it, never replace it. Raw close text
-                                // never bypasses the safe boundary via suppressed.
-                                primaryFailure!!.suppressCleanupDiagnostic(closeError)
-                            } else {
-                                if (closeError is CancellationException) {
-                                    // Cancellation becomes the tracked primary itself before
-                                    // being rethrown, so a later transport-cleanup failure is
-                                    // suppressed onto the exception that is actually thrown.
-                                    primaryFailure = closeError
-                                    throw closeError
-                                }
-                                val cleanupException = McpPostCallCleanupException(closeError)
-                                // Track it as primary so a subsequent transport cleanup
-                                // failure is suppressed onto it instead of replacing it.
-                                primaryFailure = cleanupException
-                                throw cleanupException
-                            }
-                        }
-                    }
-                } finally {
-                    // Exactly-once transport cleanup; suppression semantics live in
-                    // cleanupConnection (primary failure wins over any cleanup throwable).
-                    cleanupConnection(connection, primaryFailure)
-                }
-                result
+        val structured =
+            result.structuredContent?.let {
+                val raw =
+                    Json.encodeToString(
+                        kotlinx.serialization.json.JsonObject
+                            .serializer(),
+                        it,
+                    )
+                truncateToMaxBytes(raw)
             }
-        } catch (error: TimeoutCancellationException) {
-            currentCoroutineContext().ensureActive()
-            throw McpTimeoutException(error)
-        }
-    }
-
-    /**
-     * Invokes the transport cleanup exactly once per connection.
-     *
-     * - Runs under `NonCancellable` so a custom suspend cleanup always executes, even in
-     *   an already-cancelled context.
-     * - When a primary failure exists, every cleanup throwable — including a cleanup
-     *   [CancellationException] — is suppressed onto the primary; the primary (typically
-     *   cancellation) is preserved.
-     * - When no primary failure exists, cancellation is preserved via
-     *   [rethrowIfCancellation] and other cleanup errors are wrapped in
-     *   [McpPostCallCleanupException] (never silently swallowed): the tool may
-     *   already have executed, so the failure must never trigger a reconnect.
-     */
-    private suspend fun cleanupConnection(
-        connection: McpTransportConnection,
-        primary: Throwable?,
-    ) {
-        if (connection.cleanup == null) return
-        val cleanupError: Throwable? = try {
-            withContext(NonCancellable) { connection.cleanup.invoke() }
-            null
-        } catch (error: Throwable) {
-            if (primary != null) {
-                // A primary failure (typically cancellation) wins: suppress every cleanup
-                // throwable — including a cleanup CancellationException — onto it. Raw
-                // cleanup text never bypasses the safe boundary via suppressed.
-                primary.suppressCleanupDiagnostic(error)
-                null
-            } else {
-                if (error is CancellationException) throw error
-                // No primary: the tool call already completed (or never produced a
-                // failure). Wrap so the reconnect classifier never retries the tool.
-                McpPostCallCleanupException(error)
-            }
-        }
-        if (cleanupError != null) {
-            throw cleanupError
-        }
-    }
-
-    private fun toMcpToolResult(result: CallToolResult): McpToolResult {
-        val textContent = result.content
-            .filterIsInstance<TextContent>()
-            .joinToString("\n") { it.text }
-            .takeIf { it.isNotEmpty() }
-
-        val structured = result.structuredContent?.let {
-            val raw = Json.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), it)
-            truncateToMaxBytes(raw)
-        }
 
         val text = textContent?.let { truncateToMaxBytes(it) }
 
@@ -590,14 +517,411 @@ internal data class McpWorkflowStep<S>(
     }
 
     private suspend fun failure(
-        workflowName: String, error: Throwable, code: WorkflowStepFailureCode, attempt: Int, willReconnect: Boolean,
+        workflowName: String,
+        error: Throwable,
+        code: WorkflowStepFailureCode,
+        attempt: Int,
+        willReconnect: Boolean,
         failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
     ): RuntimeException {
         val detail = boundedWorkflowDetailPreview(error.message ?: error::class.java.name)
-        deliverWorkflowStepFailure(failureDiagnosticObserver, WorkflowStepFailureDiagnosticEvent(
-            workflowName, name, WorkflowStepKind.MCP, code, attempt, willReconnect, error, detail.text, detail.truncated,
-        ))
-        return safeWorkflowStepFailure(WorkflowStepKind.MCP, code, fixedWorkflowStepMessage(WorkflowStepKind.MCP, code), name, attempt)
+        deliverWorkflowStepFailure(
+            failureDiagnosticObserver,
+            WorkflowStepFailureDiagnosticEvent(
+                workflowName,
+                name,
+                WorkflowStepKind.MCP,
+                code,
+                attempt,
+                willReconnect,
+                error,
+                detail.text,
+                detail.truncated,
+            ),
+        )
+        return safeWorkflowStepFailure(
+            WorkflowStepKind.MCP,
+            code,
+            fixedWorkflowStepMessage(WorkflowStepKind.MCP, code),
+            name,
+            attempt,
+        )
+    }
+}
+
+private data class McpEvidenceContext(
+    val workflowName: String,
+    val workflowId: String,
+    val stepName: String,
+    val evidenceStore: WorkflowEffectEvidenceRecordStore?,
+    val stepAttempt: PersistedStepAttempt?,
+)
+
+private class McpCallSession(
+    private val step: McpWorkflowStep<*>,
+    private val toolCall: McpToolCall,
+    private val workflowName: String,
+    private val context: WorkflowContext,
+) {
+    private var mcpAdmission: WorkflowMcpAdmission? = null
+    private var evidenceStore: WorkflowEffectEvidenceRecordStore? = null
+    private var stepAttempt: PersistedStepAttempt? = null
+    private lateinit var evidenceContext: McpEvidenceContext
+
+    private var activeEvidenceKey: WorkflowEffectEvidenceKey? = null
+    private var activeFailureSummary: String = MCP_SERVER_START_FAILED_DIAGNOSTIC
+    private var connection: McpTransportConnection? = null
+    private var client: Client? = null
+    private var primaryFailure: Throwable? = null
+
+    suspend fun run(): McpToolResult {
+        mcpAdmission = currentMcpAdmission()
+        evidenceStore = currentEffectEvidenceStore()
+        stepAttempt = currentStepAttempt()
+        evidenceContext =
+            McpEvidenceContext(workflowName, context.workflowId, step.name, evidenceStore, stepAttempt)
+
+        return try {
+            withTimeout(step.config.timeoutSeconds.seconds) {
+                if (evidenceStore != null) {
+                    requireEvidenceLineageIfEnabled(
+                        workflowName = workflowName,
+                        workflowId = context.workflowId,
+                        stepName = step.name,
+                        admissionAvailable = mcpAdmission != null,
+                        stepAttempt = stepAttempt,
+                    )
+                }
+                dispatchCall()
+            }
+        } catch (error: TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
+            throw McpTimeoutException(error)
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun dispatchCall(): McpToolResult {
+        val serverStartPermit = mcpAdmission?.admitServerStart(step.name)
+        serverStartPermit?.tryConsume()
+        val serverStartKey =
+            McpEvidenceOps.recordAdmitted(
+                permit = serverStartPermit,
+                context = evidenceContext,
+                effectKind = MCP_SERVER_START_EFFECT_KIND,
+                checkpointGeneration = serverStartPermit?.checkpointGeneration ?: "",
+            )
+        activeEvidenceKey = serverStartKey
+        try {
+            return performConnectedCall(serverStartKey)
+        } catch (cancelled: CancellationException) {
+            primaryFailure = cancelled
+            throw cancelled
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            primaryFailure = error
+            McpEvidenceOps.handleCallFailure(error, connection)
+        } finally {
+            performCleanup()
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught", "ThrowsCount")
+    private suspend fun performConnectedCall(serverStartKey: WorkflowEffectEvidenceKey?): McpToolResult {
+        val conn = step.transportProvider.connect(toolCall)
+        connection = conn
+        McpEvidenceOps.updateState(serverStartKey, evidenceStore, WorkflowEffectEvidenceState.DISPATCHED)
+
+        activeFailureSummary = MCP_INITIALIZATION_FAILED_DIAGNOSTIC
+        val mcpClient =
+            Client(
+                clientInfo = Implementation(name = "tramai-mcp-step", version = MCP_STEP_VERSION),
+            )
+        client = mcpClient
+        try {
+            mcpClient.connect(StdioClientTransport(input = conn.input, output = conn.output))
+        } catch (initError: Throwable) {
+            initError.rethrowIfCancellation()
+            initError.rethrowIfAuthoritativeRefusal()
+            throw McpHandshakeException(initError)
+        }
+        McpEvidenceOps.updateState(serverStartKey, evidenceStore, WorkflowEffectEvidenceState.COMPLETED)
+        activeEvidenceKey = null
+
+        val toolPermit =
+            try {
+                mcpAdmission?.admitToolCall(step.name)
+            } catch (admitError: Throwable) {
+                admitError.rethrowIfCancellation()
+                admitError.rethrowIfAuthoritativeRefusal()
+                throw McpToolExecutionException(admitError)
+            }
+        toolPermit?.tryConsume()
+        val toolKey =
+            try {
+                McpEvidenceOps.recordAdmitted(
+                    permit = toolPermit,
+                    context = evidenceContext,
+                    effectKind = MCP_TOOL_EFFECT_KIND,
+                    checkpointGeneration = toolPermit?.checkpointGeneration ?: "",
+                )
+            } catch (admittedError: Throwable) {
+                admittedError.rethrowIfCancellation()
+                admittedError.rethrowIfAuthoritativeRefusal()
+                throw McpToolExecutionException(admittedError)
+            }
+        activeEvidenceKey = toolKey
+        activeFailureSummary = MCP_TOOL_EXECUTION_FAILED_DIAGNOSTIC
+
+        val callResult = McpEvidenceOps.invokeToolCall(mcpClient, toolCall)
+        return recordCompletedResult(toolKey, callResult)
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun recordCompletedResult(
+        toolKey: WorkflowEffectEvidenceKey?,
+        callResult: CallToolResult,
+    ): McpToolResult =
+        try {
+            McpEvidenceOps.updateState(toolKey, evidenceStore, WorkflowEffectEvidenceState.DISPATCHED)
+            val converted = step.toMcpToolResult(callResult)
+            activeEvidenceKey = null
+            McpEvidenceOps.updateState(toolKey, evidenceStore, WorkflowEffectEvidenceState.COMPLETED)
+            converted
+        } catch (postCallError: Throwable) {
+            postCallError.rethrowIfCancellation()
+            postCallError.rethrowIfAuthoritativeRefusal()
+            throw McpToolExecutionException(postCallError)
+        }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun closeClientGracefully(): Throwable? {
+        var failure: Throwable? = null
+        val closeCompleted =
+            try {
+                withContext(NonCancellable) {
+                    withTimeoutOrNull(step.clientCloseTimeoutMillis) {
+                        client?.let { step.clientCloser(it) }
+                        true
+                    }
+                }
+            } catch (closeError: CancellationException) {
+                failure = closeError
+                true
+            } catch (closeError: Throwable) {
+                closeError.rethrowIfCancellation()
+                failure = closeError
+                true
+            }
+        return when {
+            failure != null -> {
+                failure
+            }
+
+            closeCompleted == null && client != null -> {
+                java.util.concurrent.TimeoutException(
+                    "MCP client close timed out after ${step.clientCloseTimeoutMillis}ms",
+                )
+            }
+
+            else -> {
+                null
+            }
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun performCleanup() {
+        var cleanupFailure: Throwable? = null
+        try {
+            val closeError = closeClientGracefully()
+            if (closeError != null) {
+                if (primaryFailure != null) {
+                    primaryFailure?.suppressCleanupDiagnostic(closeError)
+                } else {
+                    cleanupFailure = closeError
+                }
+            }
+        } finally {
+            try {
+                McpEvidenceOps.cleanupConnection(connection, primaryFailure ?: cleanupFailure)
+            } catch (connError: Throwable) {
+                connError.rethrowIfCancellation()
+                if (primaryFailure == null && cleanupFailure == null) {
+                    cleanupFailure = connError
+                } else {
+                    (primaryFailure ?: cleanupFailure)?.suppressCleanupDiagnostic(connError)
+                }
+            } finally {
+                val terminalError = primaryFailure ?: cleanupFailure
+                McpEvidenceOps.recordUncertainty(
+                    evidenceKey = activeEvidenceKey,
+                    evidenceStore = evidenceContext.evidenceStore,
+                    terminalError = terminalError,
+                    defaultDiagnostic = activeFailureSummary,
+                )
+            }
+        }
+
+        if (primaryFailure == null && cleanupFailure != null) {
+            throw McpPostCallCleanupException(cleanupFailure)
+        }
+    }
+}
+
+private object McpEvidenceOps {
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun invokeToolCall(
+        client: Client,
+        toolCall: McpToolCall,
+    ): CallToolResult {
+        val argumentsJson: Map<String, JsonElement> =
+            toolCall.arguments.mapValues { (_, value) -> JsonPrimitive(value) }
+        return try {
+            client.callTool(toolCall.toolName, argumentsJson)
+        } catch (callError: Throwable) {
+            callError.rethrowIfCancellation()
+            callError.rethrowIfAuthoritativeRefusal()
+            throw McpToolExecutionException(callError)
+        }
+    }
+
+    suspend fun handleCallFailure(
+        error: Throwable,
+        connection: McpTransportConnection?,
+    ): Nothing {
+        if (error is CancellationException) throw error
+        error.rethrowIfAuthoritativeRefusal()
+        currentCoroutineContext().ensureActive()
+        val terminal =
+            if (connection?.terminationRequested?.invoke() == true) {
+                McpTimeoutException(error)
+            } else {
+                error
+            }
+        throw terminal
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun cleanupConnection(
+        connection: McpTransportConnection?,
+        primary: Throwable?,
+    ) {
+        if (connection?.cleanup == null) return
+        val cleanupError: Throwable? =
+            try {
+                withContext(NonCancellable) { connection.cleanup.invoke() }
+                null
+            } catch (error: CancellationException) {
+                if (primary != null) {
+                    primary.suppressCleanupDiagnostic(error)
+                    null
+                } else {
+                    throw error
+                }
+            } catch (error: Exception) {
+                if (primary != null) {
+                    primary.suppressCleanupDiagnostic(error)
+                    null
+                } else {
+                    McpPostCallCleanupException(error)
+                }
+            }
+        if (cleanupError != null) throw cleanupError
+    }
+
+    suspend fun recordUncertainty(
+        evidenceKey: WorkflowEffectEvidenceKey?,
+        evidenceStore: WorkflowEffectEvidenceRecordStore?,
+        terminalError: Throwable?,
+        defaultDiagnostic: String,
+    ) {
+        if (terminalError != null && evidenceKey != null) {
+            val diagnostic =
+                when (terminalError) {
+                    is McpTimeoutException, is TimeoutCancellationException -> MCP_TIMEOUT_DIAGNOSTIC
+                    is CancellationException -> MCP_CANCELLED_DIAGNOSTIC
+                    else -> defaultDiagnostic
+                }
+            recordUncertainFailure(
+                evidenceKey = evidenceKey,
+                evidenceStore = evidenceStore,
+                error = terminalError,
+                diagnosticSummary = diagnostic,
+            )
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun recordAdmitted(
+        permit: EffectPermit?,
+        context: McpEvidenceContext,
+        effectKind: String,
+        checkpointGeneration: String,
+    ): WorkflowEffectEvidenceKey? {
+        if (permit == null || context.evidenceStore == null || context.stepAttempt == null) return null
+        val key =
+            WorkflowEffectEvidenceKey(
+                workflowName = context.workflowName,
+                workflowId = context.workflowId,
+                checkpointGeneration = checkpointGeneration,
+                admissionSeq = permit.admissionSequence,
+            )
+        try {
+            context.evidenceStore.recordEvidence(
+                WorkflowEffectEvidenceRecord(
+                    key = key,
+                    stepName = context.stepName,
+                    stepAttemptId = context.stepAttempt.attemptId,
+                    effectKind = effectKind,
+                    state = WorkflowEffectEvidenceState.ADMITTED,
+                    createdAtEpochMillis =
+                        currentEffectEvidenceClockMillis() ?: context.stepAttempt.startedAtEpochMillis,
+                ),
+            )
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            error.rethrowIfAuthoritativeRefusal()
+            throw McpEvidencePersistenceException(error)
+        }
+        return key
+    }
+
+    @Suppress("TooGenericExceptionCaught", "ThrowsCount")
+    suspend fun updateState(
+        evidenceKey: WorkflowEffectEvidenceKey?,
+        evidenceStore: WorkflowEffectEvidenceRecordStore?,
+        targetState: WorkflowEffectEvidenceState,
+    ) {
+        if (evidenceKey == null || evidenceStore == null) return
+        val record =
+            try {
+                evidenceStore.getEvidence(evidenceKey)
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                error.rethrowIfAuthoritativeRefusal()
+                throw McpEvidencePersistenceException(error)
+            } ?: throw WorkflowEvidenceResolutionException(
+                "Missing expected evidence record for key: $evidenceKey (target state: $targetState)",
+            )
+        val completedAt =
+            if (targetState == WorkflowEffectEvidenceState.COMPLETED) {
+                currentEffectEvidenceClockMillis() ?: record.createdAtEpochMillis
+            } else {
+                record.completedAtEpochMillis
+            }
+        try {
+            evidenceStore.updateEvidence(
+                record.copy(
+                    state = targetState,
+                    completedAtEpochMillis = completedAt,
+                ),
+            )
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            error.rethrowIfAuthoritativeRefusal()
+            throw McpEvidencePersistenceException(error)
+        }
     }
 }
 
@@ -606,32 +930,123 @@ internal data class McpWorkflowStep<S>(
  * completed (no earlier primary failure). The tool may have executed exactly
  * once, so this is never reconnectable — a retry would duplicate the call.
  */
-private class McpPostCallCleanupException(cause: Throwable) :
-    RuntimeException("MCP cleanup failed after tool completion", cause)
+internal class McpPostCallCleanupException(
+    cause: Throwable,
+) : RuntimeException("MCP cleanup failed after tool completion", cause)
 
-private class McpTimeoutException(cause: Throwable) : RuntimeException("MCP call timed out", cause)
+internal class McpTimeoutException(
+    cause: Throwable,
+) : RuntimeException("MCP call timed out", cause)
 
 /**
- * Only retry on transport/setup failures, not timeouts or tool-level errors.
+ * Failure during the tool call invocation phase. Because the tool may already have executed
+ * on the remote server, this exception must never trigger an automatic reconnect.
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+internal class McpToolExecutionException(
+    cause: Throwable,
+) : RuntimeException("MCP tool execution failed", cause),
+    kotlinx.coroutines.CopyableThrowable<McpToolExecutionException> {
+    override fun createCopy(): McpToolExecutionException =
+        McpToolExecutionException(cause ?: this).also { copy ->
+            for (s in suppressed) {
+                copy.addSuppressed(s)
+            }
+        }
+}
+
+/**
+ * Failure when reading or writing durable effect evidence records.
+ * Evidence store failures must never trigger an automatic reconnect.
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+internal class McpEvidencePersistenceException(
+    cause: Throwable,
+) : RuntimeException("MCP evidence persistence failed", cause),
+    kotlinx.coroutines.CopyableThrowable<McpEvidencePersistenceException> {
+    override fun createCopy(): McpEvidencePersistenceException =
+        McpEvidencePersistenceException(cause ?: this).also { copy ->
+            for (s in suppressed) {
+                copy.addSuppressed(s)
+            }
+        }
+}
+
+/**
+ * Failure during the MCP client initialization / protocol handshake phase.
+ * Because transport acquisition has already succeeded, handshake failures
+ * must fail closed and never trigger an automatic reconnect.
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+internal class McpHandshakeException(
+    cause: Throwable,
+) : RuntimeException("MCP client handshake failed", cause),
+    kotlinx.coroutines.CopyableThrowable<McpHandshakeException> {
+    override fun createCopy(): McpHandshakeException =
+        McpHandshakeException(cause ?: this).also { copy ->
+            for (s in suppressed) {
+                copy.addSuppressed(s)
+            }
+        }
+}
+
+/**
+ * Only retry on proven transient E4 transport/setup failures, not timeouts,
+ * tool-level errors, or evidence store failures.
  * A non-idempotent MCP tool must not run twice after partial completion.
  */
-private fun Throwable.isTransientForReconnect(): Boolean = when (this) {
-    is TimeoutCancellationException -> false
-    is CancellationException -> false
-    is McpTimeoutException, is McpPostCallCleanupException -> false
-    is WorkflowMcpException -> failureCode == WorkflowStepFailureCode.TRANSPORT_FAILED || failureCode == null
-    else -> mcpFailureCode(this) == WorkflowStepFailureCode.TRANSPORT_FAILED
-}
+private fun Throwable.isTransientForReconnect(): Boolean =
+    when (this) {
+        is TimeoutCancellationException -> {
+            false
+        }
 
-private fun mcpFailureCode(error: Throwable): WorkflowStepFailureCode = when (error) {
-    is McpTimeoutException, is TimeoutCancellationException -> WorkflowStepFailureCode.TIMEOUT
-    is McpPostCallCleanupException -> WorkflowStepFailureCode.CLEANUP_FAILED
-    is WorkflowMcpException -> error.failureCode ?: WorkflowStepFailureCode.TRANSPORT_FAILED
-    else -> WorkflowStepFailureCode.TRANSPORT_FAILED
-}
+        is CancellationException -> {
+            false
+        }
 
-private fun String.sha256Digest(): String = java.security.MessageDigest.getInstance("SHA-256")
-    .digest(toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        is McpTimeoutException,
+        is McpPostCallCleanupException,
+        is McpToolExecutionException,
+        is McpEvidencePersistenceException,
+        is McpHandshakeException,
+        -> {
+            false
+        }
+
+        is WorkflowEvidenceResolutionException -> {
+            false
+        }
+
+        is WorkflowMcpException -> {
+            failureCode == WorkflowStepFailureCode.TRANSPORT_FAILED || failureCode == null
+        }
+
+        is java.io.IOException -> {
+            true
+        }
+
+        else -> {
+            false
+        }
+    }
+
+private fun mcpFailureCode(error: Throwable): WorkflowStepFailureCode =
+    when (error) {
+        is McpTimeoutException, is TimeoutCancellationException -> WorkflowStepFailureCode.TIMEOUT
+        is McpPostCallCleanupException -> WorkflowStepFailureCode.CLEANUP_FAILED
+        is McpToolExecutionException -> mcpFailureCode(error.cause ?: error)
+        is McpEvidencePersistenceException -> WorkflowStepFailureCode.TRANSPORT_FAILED
+        is McpHandshakeException -> WorkflowStepFailureCode.TRANSPORT_FAILED
+        is WorkflowMcpException -> error.failureCode ?: WorkflowStepFailureCode.TRANSPORT_FAILED
+        else -> WorkflowStepFailureCode.TRANSPORT_FAILED
+    }
+
+private fun String.sha256Digest(): String =
+    java.security.MessageDigest
+        .getInstance("SHA-256")
+        .digest(toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
 
 private fun List<String>.commandIdentifiers(): Set<String> {
     val executable = first()

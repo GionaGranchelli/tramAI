@@ -1,0 +1,95 @@
+
+REVIEW ROUND 2 (owner findings: 2 P1 + 1 P2) — fixes and re-qualification
+================================================================================
+Reviewed head: d7ba1895d7bc77c8a9410e22c0f2dd821f643ab0 (HOLD, do not merge)
+Fix head:      f4a48f1508eeb0879175e40bdf0e428744b23192
+Mutation battery measured against working-tree sha
+             5ece23bd152566ec56d9e4b73d9188ea0be037531d2f675e06a9d8dab0c8cfa0
+             (the adapter file at f4a48f15)
+
+FINDING P1-A — a wrong-stream response still produced governance facts
+--------------------------------------------------------------------------------
+Was: the stream-identity check only withheld the attested range, so a page read answered from
+another stream still became POLICY_AUTHORIZATION_RECORD facts with unknown completeness. The
+adversarial test asserted that behaviour, which is what the review objected to.
+Now: a foreign stream id is an integrity failure. `AuditDecisionStreamMismatchException` names the
+requested stream and the offending event's stream and position, and the read is refused. The
+per-event stream check inside `attestedRange` is removed, because the refusal supersedes it.
+Discriminator: `a read answered from another stream is refused, not narrowed` (rewritten from the
+former "is not attested as this stream's range", whose assertions accepted the records).
+
+FINDING P1-B — non-decision audit events manufactured GAPS_PRESENT
+--------------------------------------------------------------------------------
+Was: a verified stream [policy ALLOW, DLP REDACTED, policy DENY] produced projected positions
+[1, 3] against an attested range 1..3, and `GovernanceFactClassification.completenessOf` read that
+as a gap. The stream had none.
+Now: a range is attested only when every verified event became a fact (`projectedCount==
+events.size`). A filtered read reports no range, and coverage null makes the folded completeness
+UNKNOWN. This is the conservative option the review allowed: the frozen completeness contract is
+untouched, so its semantics for a range stay exactly as qualified in 0.7.4c1.
+Consequence, stated because it is a real loss: a stream that carries any non-decision event can
+never report COMPLETE through this source. Expressing "the stream was read in full" separately from
+"these decisions were projected" needs a contract change, which is a different slice.
+Expectation update in `an unrecognised enforcement point is not reclassified as a policy decision`:
+it asserted `assertedRange == 1..1` for a single filtered event, which encoded the old rule. It now
+asserts no range, with the reason in place. The family-partition guarantee it names is unchanged and
+still discriminated (M3).
+Discriminators: `a verified stream with non-decision events does not manufacture gaps` (adapter),
+and `an interleaved non-decision event does not report a gap` (through the projection: policy
+completeness UNKNOWN, not GAPS_PRESENT, latest at source position 3).
+
+FINDING P2 — maxEventsPerRead could be exceeded
+--------------------------------------------------------------------------------
+Was: the loop asked for a full `pageSize` while fewer slots remained, so pageSize 2 with a cap of 3
+read four events and could attest a range of 1..4 over a three-event cap.
+Now: each page asks for `minOf(pageSize, maxEventsPerRead - events.size)`.
+Discriminator: `a bounded read never exceeds maxEventsPerRead` — a non-divisible boundary (4 events,
+page 2, cap 3) asserting records [1, 2, 3] and no range.
+
+MUTATION BATTERY ON THE FIXED HEAD — 8 mutations, 8 kills
+--------------------------------------------------------------------------------
+Control before and after: 21 tests, 0 failures. Restores verified by sha256 against the pristine
+value above. Results are cleared before each run, so a mutation that does not compile yields no
+result file instead of a stale one.
+
+  R1  wrong-stream refusal removed        APPLIED -> KILLED  a read answered from another stream is
+                                                             refused, not narrowed
+  R2  unfiltered-read requirement dropped APPLIED -> KILLED  a verified stream with non-decision
+                                                             events does not manufacture gaps
+                                                             + an unrecognised enforcement point is
+                                                             not reclassified as a policy decision
+  R3  remaining-capacity limit removed    APPLIED -> KILLED  a bounded read never exceeds
+                                                             maxEventsPerRead
+  M1  head-stability check dropped        APPLIED -> KILLED  an append that lands after the pages
+                                                             were read is not miscounted as complete
+  D1  attribution guard removed           APPLIED -> KILLED  a foreign-run event in a run-named
+                                                             stream refuses the read...
+  D3  head-hash anchor dropped            APPLIED -> KILLED  a head that is not the event last read
+                                                             does not attest the range
+  M4  chain-integrity throw removed       APPLIED -> KILLED  a broken hash chain refuses the read
+                                                             instead of projecting unverified records
+  M3  policy family degenerate            APPLIED -> KILLED  an unrecognised enforcement point is not
+                                                             reclassified as a policy decision
+
+ONE ENVIRONMENTAL ARTIFACT, RECORDED RATHER THAN READ AS A VERDICT
+--------------------------------------------------------------------------------
+M3's first run reported "NO RESULT FILE", which the battery labels as "did not compile". Re-checked
+directly: `:tramai-security:compileKotlin` succeeds with the mutation applied, and re-running the same
+mutation with a 400s budget killed it with its named test. The cause was the 200s timeout killing the
+build, not the mutation. The verdict above is from the second run.
+
+GATE RE-RUN AT f4a48f15
+--------------------------------------------------------------------------------
+spotlessCheck                                              exit 0
+verifyStaticAnalysis                                       exit 0, 0 new findings
+                                                           (baseline 4792 -> 4792)
+verifyChangePolicy -PchangeClass=runtime-behaviour
+    -PchangePolicyBase=80d59e2b...                         PASSED
+verify060Architecture                                      api-architecture FAIL (only)
+    dependency-boundaries PASS, global-state PASS, all others PASS
+    api-architecture diagnostic identity vs pristine base: base 10, head 10,
+    head-only 0, base-only 0
+:tramai-security:test                                      tests=1139 failures=0 errors=0
+:tramai-control-plane:test                                 tests=61   failures=0 errors=0
+:tramai-server:test                                        tests=89   failures=0 errors=0
+governance subset                                          tests=198 failures=0 errors=0

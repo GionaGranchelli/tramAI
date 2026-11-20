@@ -35,6 +35,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 | Inspect the complete sovereign reference architecture | [Sovereign Document Intelligence](#sovereign-document-intelligence) |
 | Verify offline/zero-egress runtime behavior | [Sovereign Offline Verification](#sovereign-offline-verification) |
 | Run a real local-model sovereign environment | [Sovereign Lab](#sovereign-lab) |
+| Reconstruct a run's history from recorded evidence (Kotlin and Java) | [Timeline Reconstruction](#timeline-reconstruction) |
 
 ---
 
@@ -51,6 +52,18 @@ It is deterministic, requires no credentials or external model, and shows typed 
 | Sovereign Document Intelligence | Reference workflow | Repository-local example provider | None required | Runtime stores/artifacts | Full reference architecture | `./gradlew :examples:sovereign-document-intelligence:run` |
 | Sovereign Offline Verification | Verification harness | Loopback provider | Docker + Python 3 | Evidence files | Offline verification | `./scripts/verify-zero-egress.sh` |
 | Sovereign Lab | Physical lab | Yes, local | PostgreSQL, local model, optional Docker | JDBC | Full local evaluation | Follow lab quickstart in [sovereign-lab/README.md](sovereign-lab/README.md) |
+| Timeline Reconstruction | Reconstruction reference (Kotlin + Java) | No | PostgreSQL for the qualification tests | JDBC read-only | Historical evidence reading | `./gradlew :examples:timeline-reconstruction:run` |
+
+---
+
+## Timeline Reconstruction
+
+[`timeline-reconstruction`](timeline-reconstruction/README.md) reads a run's recorded evidence through the
+shipped timeline query and reconstructs it — no provider, tool, approval or network call, because
+reconstruction is a read. It ships both a Kotlin and a Java version of the same example, and its tests
+qualify every reconstruction status against real PostgreSQL. Its narrative is a lesson in honest output:
+`unknown` totals instead of `0`, `PARTIAL` instead of an implied `SUPPORTED`, and
+`HISTORICAL_CONFIGURATION_UNVERIFIED` instead of an assumed provenance.
 
 ---
 

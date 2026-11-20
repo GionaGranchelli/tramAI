@@ -1,5 +1,6 @@
 package dev.tramai.observability
 
+import com.sun.net.httpserver.HttpServer
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.model.ModelRequest
@@ -16,9 +17,8 @@ import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.I
 import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.OUTPUT_TOKENS
 import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.PARSE_FAILURES
 import dev.tramai.structured.JacksonStructuredOutputHandler
-import com.sun.net.httpserver.HttpServer
-import io.opentelemetry.exporter.otlp.http.metrics.OtlpHttpMetricExporter
 import io.opentelemetry.api.common.AttributeKey
+import io.opentelemetry.exporter.otlp.http.metrics.OtlpHttpMetricExporter
 import io.opentelemetry.sdk.OpenTelemetrySdk
 import io.opentelemetry.sdk.metrics.SdkMeterProvider
 import io.opentelemetry.sdk.metrics.data.HistogramPointData
@@ -41,16 +41,22 @@ import kotlin.test.Test
 class OpenTelemetryOperationObserverTest {
     private val exporter = InMemorySpanExporter.create()
     private val metricReader = InMemoryMetricReader.create()
-    private val tracerProvider = SdkTracerProvider.builder()
-        .addSpanProcessor(SimpleSpanProcessor.create(exporter))
-        .build()
-    private val meterProvider = SdkMeterProvider.builder()
-        .registerMetricReader(metricReader)
-        .build()
-    private val openTelemetry = OpenTelemetrySdk.builder()
-        .setTracerProvider(tracerProvider)
-        .setMeterProvider(meterProvider)
-        .build()
+    private val tracerProvider =
+        SdkTracerProvider
+            .builder()
+            .addSpanProcessor(SimpleSpanProcessor.create(exporter))
+            .build()
+    private val meterProvider =
+        SdkMeterProvider
+            .builder()
+            .registerMetricReader(metricReader)
+            .build()
+    private val openTelemetry =
+        OpenTelemetrySdk
+            .builder()
+            .setTracerProvider(tracerProvider)
+            .setMeterProvider(meterProvider)
+            .build()
 
     @AfterTest
     fun tearDown() {
@@ -61,18 +67,20 @@ class OpenTelemetryOperationObserverTest {
 
     @Test
     fun `records span attributes for successful provider call`() {
-        val provider = RecordingProvider("anthropic") {
-            ModelResponse(
-                content = "hello",
-                inputTokens = 12,
-                outputTokens = 5,
-                modelUsed = "claude-sonnet-4-20250514",
+        val provider =
+            RecordingProvider("anthropic") {
+                ModelResponse(
+                    content = "hello",
+                    inputTokens = 12,
+                    outputTokens = 5,
+                    modelUsed = "claude-sonnet-4-20250514",
+                )
+            }
+        val engine =
+            TramaiEngine(
+                provider = provider,
+                operationObserver = OpenTelemetryOperationObserver(openTelemetry),
             )
-        }
-        val engine = TramaiEngine(
-            provider = provider,
-            operationObserver = OpenTelemetryOperationObserver(openTelemetry),
-        )
         val service = engine.create<RawService>()
 
         val result = runBlocking { service.respond("world") }
@@ -97,16 +105,18 @@ class OpenTelemetryOperationObserverTest {
 
     @Test
     fun `records parse failure event before successful retry`() {
-        val provider = SequencedProvider(
-            "anthropic",
-            ModelResponse(content = "not json"),
-            ModelResponse(content = """{"status":"ok"}"""),
-        )
-        val engine = TramaiEngine(
-            provider = provider,
-            structuredOutputHandler = JacksonStructuredOutputHandler(),
-            operationObserver = OpenTelemetryOperationObserver(openTelemetry),
-        )
+        val provider =
+            SequencedProvider(
+                "anthropic",
+                ModelResponse(content = "not json"),
+                ModelResponse(content = """{"status":"ok"}"""),
+            )
+        val engine =
+            TramaiEngine(
+                provider = provider,
+                structuredOutputHandler = JacksonStructuredOutputHandler(),
+                operationObserver = OpenTelemetryOperationObserver(openTelemetry),
+            )
         val service = engine.create<StructuredService>()
 
         val result = runBlocking { service.status("tenant-a") }
@@ -120,8 +130,12 @@ class OpenTelemetryOperationObserverTest {
             assertThat(event.attributes.asMap())
                 .containsEntry(AttributeKey.booleanKey("tramai.structured.parse_success"), false)
                 .containsEntry(AttributeKey.stringKey("tramai.structured.failure_code"), "output_rejected")
-            assertThat(event.attributes.asMap().keys.map { it.key })
-                .doesNotContain("tramai.raw_response_length")
+            assertThat(
+                event.attributes
+                    .asMap()
+                    .keys
+                    .map { it.key },
+            ).doesNotContain("tramai.raw_response_length")
                 .doesNotContain("tramai.validation_error")
         }
         assertThat(firstAttempt.attributes.asMap())
@@ -136,15 +150,16 @@ class OpenTelemetryOperationObserverTest {
 
     @Test
     fun `records cancellation as span outcome attribute and metric`() {
-        val observation = OpenTelemetryOperationObserver(openTelemetry).onCallStarted(
-            OperationCallContext(
-                serviceInterface = "test.Service",
-                methodName = "respond",
-                providerId = "openai",
-                requestedModel = "gpt-4o",
-                attempt = 0,
-            ),
-        )
+        val observation =
+            OpenTelemetryOperationObserver(openTelemetry).onCallStarted(
+                OperationCallContext(
+                    serviceInterface = "test.Service",
+                    methodName = "respond",
+                    providerId = "openai",
+                    requestedModel = "gpt-4o",
+                    attempt = 0,
+                ),
+            )
 
         observation.onCallCancelled()
 
@@ -158,64 +173,81 @@ class OpenTelemetryOperationObserverTest {
         assertThat(attemptMetric.attributes.asMap())
             .containsEntry(AttributeKey.stringKey("tramai.outcome"), "cancelled")
         // No error type attribute should be present
-        assertThat(attemptMetric.attributes.asMap().keys.map { it.key })
-            .doesNotContain("tramai.error.type")
+        assertThat(
+            attemptMetric.attributes
+                .asMap()
+                .keys
+                .map { it.key },
+        ).doesNotContain("tramai.error.type")
     }
 
     @Test
     fun `provider failure telemetry excludes transport diagnostics`() {
         val secretFixture = "sk-secret-222 /path/customer/alice"
-        val error = providerTransportFailure(
-            "openai",
-            IOException("connection to $secretFixture refused"),
-        )
-        val observation = OpenTelemetryOperationObserver(openTelemetry).onCallStarted(
-            OperationCallContext(
-                serviceInterface = "test.Service",
-                methodName = "respond",
-                providerId = "openai",
-                requestedModel = "gpt-5.1-chat-latest",
-                attempt = 0,
-            ),
-        )
+        val error =
+            providerTransportFailure(
+                "openai",
+                IOException("connection to $secretFixture refused"),
+            )
+        val observation =
+            OpenTelemetryOperationObserver(openTelemetry).onCallStarted(
+                OperationCallContext(
+                    serviceInterface = "test.Service",
+                    methodName = "respond",
+                    providerId = "openai",
+                    requestedModel = "gpt-5.1-chat-latest",
+                    attempt = 0,
+                ),
+            )
 
         observation.onProviderFailure(error)
         observation.onCallCompleted(parseSuccess = null)
 
         val span = exporter.finishedSpanItems.single()
-        val exportedAttributeValues = span.attributes.asMap().values +
-            span.events.flatMap { event -> event.attributes.asMap().values }
+        val exportedAttributeValues =
+            span.attributes.asMap().values +
+                span.events.flatMap { event -> event.attributes.asMap().values }
         assertThat(exportedAttributeValues.map { it.toString() }).allSatisfy { value ->
             assertThat(value).doesNotContain(secretFixture)
         }
 
         val exceptionEvent = span.events.single { it.name == "exception" }
-        val exceptionMessage = exceptionEvent.attributes.get(AttributeKey.stringKey("exception.message"))
-        assertThat(exceptionMessage).isEqualTo("Provider transport failed")
-        assertThat(exceptionMessage).doesNotContain(secretFixture)
-        assertThat(span.status.description).isEqualTo("Provider transport failed")
+        // 0.7.5g: no message and no stack trace are exported at all, for any provider failure. The
+        // engine only sanitizes failures that travel through its factory, so trusting `error.message`
+        // here was unsound for exceptions a provider throws directly.
+        assertThat(
+            exceptionEvent.attributes
+                .asMap()
+                .keys
+                .map { it.key },
+        ).containsExactlyInAnyOrder("exception.type", "exception.escaped")
+        assertThat(exceptionEvent.attributes.get(AttributeKey.stringKey("exception.type")))
+            .isEqualTo("dev.tramai.core.exception.ProviderException")
+        assertThat(span.status.description).isEqualTo("Provider call failed")
         assertThat(span.status.description).doesNotContain(secretFixture)
     }
 
     @Test
     fun `records engine events as span events and metrics`() {
-        val observation = OpenTelemetryOperationObserver(openTelemetry).onCallStarted(
-            OperationCallContext(
-                serviceInterface = "test.Service",
-                methodName = "respond",
-                providerId = "openai",
-                requestedModel = "gpt-5.1-chat-latest",
-                attempt = 0,
-            ),
-        )
+        val observation =
+            OpenTelemetryOperationObserver(openTelemetry).onCallStarted(
+                OperationCallContext(
+                    serviceInterface = "test.Service",
+                    methodName = "respond",
+                    providerId = "openai",
+                    requestedModel = "gpt-5.1-chat-latest",
+                    attempt = 0,
+                ),
+            )
 
         observation.onEngineEvent(
             name = "tramai.retry.scheduled",
-            attributes = mapOf(
-                "delay_millis" to 42L,
-                "delay_source" to "retry_after",
-                "is_fallback" to false,
-            ),
+            attributes =
+                mapOf(
+                    "delay_millis" to 42L,
+                    "delay_source" to "retry_after",
+                    "is_fallback" to false,
+                ),
         )
         observation.onCallCompleted(parseSuccess = null)
 
@@ -239,76 +271,100 @@ class OpenTelemetryOperationObserverTest {
 
     @Test
     fun `exports operation metrics over OTLP HTTP`() {
-        val exportLatch = CountDownLatch(1)
-        var capturedRequestPath = ""
-        var capturedContentType = ""
-        var capturedBody = ByteArray(0)
-        val server = HttpServer.create(InetSocketAddress(0), 0)
-        server.createContext("/v1/metrics") { exchange ->
-            capturedRequestPath = exchange.requestURI.path
-            capturedContentType = exchange.requestHeaders.getFirst("Content-Type")
-            capturedBody = exchange.requestBody.readBytes()
-            exchange.sendResponseHeaders(200, -1)
-            exchange.close()
-            exportLatch.countDown()
-        }
-        server.start()
+        val (server, capture) = otlpCaptureServer()
 
-        val metricExporter = OtlpHttpMetricExporter.builder()
-            .setEndpoint("http://localhost:${server.address.port}/v1/metrics")
-            .build()
-        val periodicMetricReader = PeriodicMetricReader.builder(metricExporter)
-            .setInterval(Duration.ofHours(1))
-            .build()
-        val otlpMeterProvider = SdkMeterProvider.builder()
-            .registerMetricReader(periodicMetricReader)
-            .build()
-        val otlpOpenTelemetry = OpenTelemetrySdk.builder()
-            .setMeterProvider(otlpMeterProvider)
-            .build()
+        val metricExporter =
+            OtlpHttpMetricExporter
+                .builder()
+                .setEndpoint("http://localhost:${server.address.port}/v1/metrics")
+                .build()
+        val periodicMetricReader =
+            PeriodicMetricReader
+                .builder(metricExporter)
+                .setInterval(Duration.ofHours(1))
+                .build()
+        val otlpMeterProvider =
+            SdkMeterProvider
+                .builder()
+                .registerMetricReader(periodicMetricReader)
+                .build()
+        val otlpOpenTelemetry =
+            OpenTelemetrySdk
+                .builder()
+                .setMeterProvider(otlpMeterProvider)
+                .build()
 
         try {
-            val provider = RecordingProvider("openai") {
-                ModelResponse(
-                    content = "hello",
-                    inputTokens = 9,
-                    outputTokens = 4,
-                    modelUsed = "gpt-5.1-chat-latest",
+            val provider =
+                RecordingProvider("openai") {
+                    ModelResponse(
+                        content = "hello",
+                        inputTokens = 9,
+                        outputTokens = 4,
+                        modelUsed = "gpt-5.1-chat-latest",
+                    )
+                }
+            val engine =
+                TramaiEngine(
+                    provider = provider,
+                    operationObserver = OpenTelemetryOperationObserver(otlpOpenTelemetry),
                 )
-            }
-            val engine = TramaiEngine(
-                provider = provider,
-                operationObserver = OpenTelemetryOperationObserver(otlpOpenTelemetry),
-            )
             val service = engine.create<RawService>()
 
             val result = runBlocking { service.respond("world") }
 
             assertThat(result).isEqualTo("hello")
             assertThat(otlpMeterProvider.forceFlush().join(15, TimeUnit.SECONDS).isSuccess()).isTrue()
-            assertThat(exportLatch.await(15, TimeUnit.SECONDS)).isTrue()
-            assertThat(capturedRequestPath).isEqualTo("/v1/metrics")
-            assertThat(capturedContentType).startsWith("application/x-protobuf")
-            assertThat(capturedBody).isNotEmpty()
+            assertThat(capture.exportLatch.await(15, TimeUnit.SECONDS)).isTrue()
+            assertThat(capture.path).isEqualTo("/v1/metrics")
+            assertThat(capture.contentType).startsWith("application/x-protobuf")
+            assertThat(capture.body).isNotEmpty()
         } finally {
             otlpMeterProvider.shutdown()
             server.stop(0)
         }
     }
 
+    /** Local OTLP endpoint and what it received; extracted so the export test stays readable. */
+    private class OtlpCapture {
+        val exportLatch = CountDownLatch(1)
+        var path = ""
+        var contentType = ""
+        var body = ByteArray(0)
+    }
+
+    private fun otlpCaptureServer(): Pair<HttpServer, OtlpCapture> {
+        val capture = OtlpCapture()
+        val server = HttpServer.create(InetSocketAddress(0), 0)
+        server.createContext("/v1/metrics") { exchange ->
+            capture.path = exchange.requestURI.path
+            capture.contentType = exchange.requestHeaders.getFirst("Content-Type")
+            capture.body = exchange.requestBody.readBytes()
+            exchange.sendResponseHeaders(200, -1)
+            exchange.close()
+            capture.exportLatch.countDown()
+        }
+        server.start()
+        return server to capture
+    }
+
     private fun longSumPoint(
         metrics: Collection<io.opentelemetry.sdk.metrics.data.MetricData>,
         name: String,
-    ): LongPointData {
-        return metrics.single { it.name == name }.longSumData.points.single()
-    }
+    ): LongPointData =
+        metrics
+            .single { it.name == name }
+            .longSumData.points
+            .single()
 
     private fun histogramPoint(
         metrics: Collection<io.opentelemetry.sdk.metrics.data.MetricData>,
         name: String,
-    ): HistogramPointData {
-        return metrics.single { it.name == name }.histogramData.points.single()
-    }
+    ): HistogramPointData =
+        metrics
+            .single { it.name == name }
+            .histogramData.points
+            .single()
 
     private object MetricNames {
         const val ATTEMPTS = "tramai.operation.attempts"
@@ -357,9 +413,7 @@ private class SequencedProvider(
 ) : ModelProvider {
     private val queuedResponses = ArrayDeque(responses.toList())
 
-    override suspend fun complete(request: ModelRequest): ModelResponse {
-        return queuedResponses.removeFirst()
-    }
+    override suspend fun complete(request: ModelRequest): ModelResponse = queuedResponses.removeFirst()
 
     override fun providerId(): String = name
 }

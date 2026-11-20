@@ -1,0 +1,48 @@
+=== static gates, CI invocation form (no base-ref property)
+$ ./gradlew spotlessCheck verifyStaticAnalysis verifyStaticSafetyGuards
+static-analysis: Detekt baseline OK: base 4792 -> current 4792; 0 removed, 0 added.
+BUILD SUCCESSFUL in 43s
+
+=== findings from the report oracle
+0 findings (16 at the first run: LongMethod 123/60 and 66/60, CyclomaticComplexMethod 21/15,
+ TooManyFunctions 12/11, ReturnCount 3/2, LongParameterList 6/6, LargeClass,
+ TooGenericExceptionCaught, LoopWithTooManyJumpStatements, 8x MaxLineLength, 3x MagicNumber)
+
+=== verifier suite
+tests="29" skipped="0" failures="0" errors="0"
+
+=== live re-proof after the rewrite (transcript)
+=== self-check (4 named refusals + positive control)
+    ok [unknown pull request]: refused with [checks-unavailable]
+    ok [wrong head]: refused with [head-mismatch]
+    ok [missing required check]: refused with [required-check-missing]
+    ok [no properties]: refused
+    ok: merge gate PASSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: checks complete and green, required workflows successful
+  SELF-CHECK PASSED: four named refusals hold, and the positive control still passes.
+  self-check exit=0
+
+=== scenario 1: the true head of the merged #518 (must PASS)
+  merge gate PASSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: checks complete and green, required workflows successful
+  VERIFIED: 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3 is safe to merge. To merge it with that exact commit pinned:
+
+=== scenario 2: a wrong head (must REFUSE, head-mismatch)
+  > merge gate REFUSED at deadbeefdeadbeefdeadbeefdeadbeefdeadbeef: 5 violation(s)
+      - [head-mismatch] head moved from deadbeefdeadbeefdeadbeefdeadbeefdeadbeef to 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3; every check below belongs to a commit nobody reviewed
+      - [workflow-runs-unavailable] no workflow runs were read for deadbeefdeadbeefdeadbeefdeadbeefdeadbeef; a required workflow cannot be shown to have passed
+      - [required-workflow-missing] 'CI' has no workflow run at deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+      - [required-workflow-missing] 'Architecture Authority' has no workflow run at deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+      - [required-workflow-missing] 'Sovereign Runtime Release Candidate' has no workflow run at deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+
+=== scenario 3: an unreadable pull request (must REFUSE)
+  > merge gate REFUSED at 32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3: 3 violation(s)
+      - [head-unavailable] the API reported no head; merge evidence is unavailable, which is not a pass
+      - [checks-unavailable] no status checks were read; an empty result means the query failed, not that all checks passed
+      - [check-names-unavailable] required check identities were configured but no check names were read; completeness cannot be established from states alone
+
+=== no properties (must REFUSE rather than default)
+  > verifyMergeGate requires expectedHead (the reviewed commit) and prNumber, e.g. -PexpectedHead=<sha> -PprNumber=<number>. Without an explicit commit there is no evidence to tie the checks to, which is a refusal.
+  BUILD FAILED in 1s
+
+=== merge call shape (dry run: no API merge is performed)
+  DRY RUN: would call
+    gh api --method PUT repos/{owner}/{repo}/pulls/518/merge -f sha=32d9a4abf4c74965aeaa1dbe86919bf1bf6edeb3 -f merge_method=squash

@@ -217,6 +217,20 @@ TramAI may describe and verify technical controls. It must not claim that instal
 
 ---
 
+# 6A. GAP-000 enterprise governance operation (strategic alignment)
+
+Building on the 0.8 typed schema and control-to-evidence architecture, 0.9 candidates include:
+
+- authenticated, capability-authorized, persistent configuration mutation APIs, with immutable revisions, validation, impact checks, approved activation and audit linkage;
+- distribution and acknowledgement of safe active configuration across deployment nodes, declared staleness behavior and authoritative rollback/revocation;
+- Dashboard 2.0 administration of **eligible** settings through canonical APIs, not direct policy-store mutation or dashboard-only authorization;
+- useful technical-control coverage/gap and evidence export for organizational compliance teams, without offering automatic certification, legal adjudication or a generic GRC platform;
+- reference deployment/identity profiles verifying separation of operational editors, governance approvers and read-only auditors.
+
+Each candidate requires an explicit implementation spec and acceptance gate; this roadmap change alone does not establish shipping status. See [GAP-000](strategy/governance-assurance/GAP-000.md), [CFG-0001](strategy/governance-assurance/CONFIGURATION-AUTHORITY.md), and [rebaseline](strategy/governance-assurance/ROADMAP-REBASELINE.md).
+
+---
+
 # 7. Explicit non-goals
 
 0.9 does not require:

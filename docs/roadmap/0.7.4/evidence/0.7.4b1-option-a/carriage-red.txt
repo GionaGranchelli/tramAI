@@ -1,0 +1,24 @@
+# G1a Option A - carriage suite BEFORE the boundary binding existed (expected red).
+# command: ./gradlew :examples:spring-ai-authority-boundary:test --tests 'dev.tramai.examples.springaiboundary.GovernedIdentityCarriageTest'
+
+> Task :examples:spring-ai-authority-boundary:test FAILED
+GovernedIdentityCarriageTest > the evaluator receives the canonical governed identity() STANDARD_ERROR
+GovernedIdentityCarriageTest > the evaluator receives the canonical governed identity() FAILED
+GovernedIdentityCarriageTest > both callback overloads carry the same identity() PASSED
+GovernedIdentityCarriageTest > a governed invocation is evaluated as governed, not as legacy() FAILED
+GovernedIdentityCarriageTest > a denial still prevents execution when the identity is carried() PASSED
+GovernedIdentityCarriageTest > the boundary re-mints nothing it was given() PASSED
+5 tests completed, 2 failed
+
+# assertion detail (the two failures name the missing transport):
+GovernedIdentityCarriageTest > the evaluator receives the canonical governed identity() STANDARD_ERROR
+    SLF4J(W): No SLF4J providers were found.
+    SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+    SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+
+GovernedIdentityCarriageTest > the evaluator receives the canonical governed identity() FAILED
+    org.opentest4j.AssertionFailedError at GovernedIdentityCarriageTest.kt:74
+
+GovernedIdentityCarriageTest > both callback overloads carry the same identity() PASSED
+
+GovernedIdentityCarriageTest > a governed invocation is evaluated as governed, not as legacy() FAILED

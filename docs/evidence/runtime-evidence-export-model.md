@@ -8,14 +8,14 @@
 
 ## What This Model Covers
 
-This document defines the evidence shape for exporting TramAI runtime decisions into reviewable, digest-verifiable artifacts. It covers four event families, all implemented:
+This document defines the evidence shape for exporting TramAI runtime decisions into reviewable, digest-verifiable artifacts. It covers four event families, all implemented as exporters:
 
 1. **Policy decisions** — allow/deny/require-approval outcomes produced by policy evaluation at runtime.
 2. **Approval decisions** — approve/deny outcomes produced by the approval decision control plane.
-3. **Provider routing decisions** — selected/fallback/blocked routes produced by the provider router at runtime.
+3. **Provider routing decisions** — selected/fallback/blocked routes. The exporter below is implemented; **no live production producer is wired to it** (see [§C](#c-provider-routing-decisions-exporter-implemented--no-live-production-producer) and the [G4 task record](../roadmap/0.7.4/0.7.4b6-G4-PROVIDER-ROUTING-EVIDENCE.md)).
 4. **Tool permission decisions** — allow/deny/require-approval outcomes for tool exposure, execution, and result reinjection.
 
-The model defines the record shape, bundle placement, verification semantics, and privacy/sanitisation rules. All four exporters, the `RuntimeEvidenceBundleWriter`, and the bundle verifier are implemented.
+The model defines the record shape, bundle placement, verification semantics, and privacy/sanitisation rules. All four exporters, the `RuntimeEvidenceBundleWriter`, and the bundle verifier are implemented. **Engine implementations and evidence producers are different things:** an exporter converts source records a caller supplies, and for `provider.route` the repository has not established a production path that supplies them.
 
 ---
 
@@ -114,15 +114,31 @@ The existing approval decision control plane creates outbox records with event k
 
 **Source:** The outbox records produced by `SovereignOpsApprovalDecisionControlPlane` (see [approval decision evidence tests](../../tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalDecisionControlPlaneTest.kt)).
 
-### C. Provider Routing Decisions (Implemented)
+### C. Provider Routing Decisions (Exporter implemented — no live production producer)
 
-Provider routing decisions are produced when the provider resolution layer selects, falls back, or blocks a route to a model provider. All three decision kinds are exported by `ProviderRoutingRuntimeEvidenceExporter`.
+The exporter is implemented and supported: `ProviderRoutingRuntimeEvidenceExporter` converts `ProviderRouteDecisionEvidenceSource` records a caller supplies into `provider.route` records, for all three decision kinds.
+
+**The repository has not established a live production producer for this family.** No production call site constructs a source or invokes `ProviderRoutingRuntimeEvidenceExporter.export`; the only references in the tree are the exporter itself, its unit test, a bundle integration test, a benchmark and a build-logic preflight test. A caller can produce these records today, but nothing in the engine emits them on its own. The [G4 task record](../roadmap/0.7.4/0.7.4b6-G4-PROVIDER-ROUTING-EVIDENCE.md) carries the source-cited inventory and the wiring follow-up.
 
 | Field | Value |
 |-------|-------|
 | `eventType` | `"provider.route"` |
 | `source.component` | `"provider-router"` |
 | `decision.kind` | `SELECTED`, `FALLBACK`, `BLOCKED` |
+
+#### What each decision kind attests — and what it does not
+
+The three kinds report **routing-authority decisions**, not execution outcomes. The distinctions below are the contract; the routing machinery collapses them unless the producer is careful, which is part of why the producer is not yet wired.
+
+| Kind | Attests | Does **not** attest |
+|------|---------|---------------------|
+| `SELECTED` | The routing authority selected this route at the enforcement point, for this attempt or run. | That the provider was called, returned a response, or succeeded. Selection precedes dispatch. A `SELECTED` record with no terminal record says nothing about the outcome. |
+| `FALLBACK` | Execution actually moved — or was authorized to move — away from one route to another according to the routing authority. | That a fallback was merely *configured*. A route order in `ProviderRoutingPlan` is not a fallback. `routeIndex > 0` alone is **not** proof a fallback occurred: it reports position in the configured order, so a run whose earlier candidates were excluded before any attempt can start at a later index. |
+| `BLOCKED` | The routing authority refused an eligible route or reached a terminal refusal state. | That an exception occurred. Cancellation, ordinary provider transport failures after dispatch, and post-dispatch errors are not routing refusals and must not be recorded as `BLOCKED`. |
+
+Reason-code mapping, stated per cause rather than by analogy: governance rejection → `policy-blocked`; model-registry rejection → `model-registry-blocked`; no viable or no authorized candidate → `no-route`; circuit-breaker rejection → `circuit-breaker-open`; provider transport failure → `provider-failure`; streaming startup failure → `streaming-startup-failure`. Only these six codes are allowlisted; anything else is normalised to the generic constant, so an unclassified refusal loses its cause rather than inventing one.
+
+**Source:** supplied by the caller. Fixtures in the exporter's unit test, the benchmark, and the bundle integration test are **synthetic or manually supplied**; the `provider-routing.jsonl` file appearing in an example bundle shows the writer working on supplied records, and is **not** evidence of live routing capture. **The absence of `provider.route` records does not establish that no routing, fallback, or blocked decision occurred.**
 
 ### D. Tool Permission Decisions (Implemented)
 
@@ -147,6 +163,68 @@ Tool permission decisions are produced when the policy engine evaluates a tool a
 - Raw tool arguments, secrets, or API keys
 - `REDACT_RESULT` or `ALLOW_INTERNAL_ONLY` decisions (not valid for tool.permission)
 - Provider or model metadata
+
+#### What a `tool.permission` decision attests — and what it does not
+
+A `tool.permission` record is **evidence of an authorization decision at one enforcement point**. It is not
+evidence that the operation ran, completed, succeeded, or changed external state. Those are different facts, and
+the record carries only the first.
+
+**Decision semantics (normative).**
+
+| `decision.kind` | Attests | Does not attest |
+|-----------------|---------|-----------------|
+| `ALLOW` | The policy engine authorized the operation at the specified enforcement point. | Proof that execution started, completed or succeeded. |
+| `DENY` | The policy engine refused permission at the specified enforcement point. | Proof about every possible execution path outside the governed boundary. |
+| `REQUIRE_APPROVAL` | The policy engine required approval. | That approval was subsequently granted, or that execution resumed. |
+
+**Three facts, kept apart.**
+
+1. **Policy decision** — what the policy engine authorized or refused. This is the fact the record attests.
+2. **Enforcement contract** — what a particular governed boundary is designed and tested to prevent. It is a
+   property of that boundary and its tests, not of the record.
+3. **Execution completion** — whether the operation ran, and what it returned. This is a **separate fact that
+   `tool.permission` does not attest**, in either direction: a record's presence does not establish completion,
+   and the absence of any completion evidence is not evidence of success *or* of failure.
+
+**Why the decision is recorded before the effect.** A governed boundary records the authorization **before** it
+invokes the guarded action, deliberately: if the authorization audit write cannot be accepted, the action must not
+run at all (fail closed). One consequence is that an `ALLOW` record is produced both by an implementation whose
+action then succeeded and by one whose action threw or failed after authorization — the record itself does not
+distinguish those outcomes, and no reader may resolve the difference from it.
+
+**Reserved metadata (framework-owned).** Two reserved key groups may accompany the family allowlist above. Both
+are validated atomically — all keys of a group present, or none, which is legacy evidence — and both participate
+in `digests.payloadDigest`:
+
+- `identity.workloadId`, `identity.configurationId`, `identity.configurationVersion`, `identity.environmentId`,
+  `identity.deploymentId` — the governed run identity; `workflowRunId` remains the single canonical run
+  identifier and is deliberately not duplicated in metadata.
+- `boundary.id` and `boundary.enforcementStrength` — the enforcement boundary a producer **declares**, and the
+  strength its registration grants it. Strength is resolved from the framework-owned registration; a
+  caller-supplied strength, or an unregistered identifier, is refused rather than accepted or downgraded.
+
+**Workload identity is declared, not authenticated.** The `identity.*` values are supplied by the producing
+integration and validated only for *syntax* (non-blank, no surrounding whitespace, bounded length, no control
+characters — no silent canonicalisation). They are **not** authenticated against the workload registration
+authority (`tramai-control-plane`), and no check ties them to a workload that is registered to produce this event.
+A record therefore attests the identity that was **declared** at the boundary; it does not attest that the
+declaring process was entitled to declare it. This is a known, unresolved limitation of `runtime-evidence.v1`,
+tracked as T1 in the 0.7.4a audit; authenticity of the workload origin is separate, unimplemented work. A reader
+must not treat a valid identity tuple as proof of workload origin, and must not infer origin from the absence of a
+mismatch — nothing checks for one.
+
+**A v1 record's meaning is fixed by the schema version it declares.** If workload or event origin is authenticated in
+a later release, that work must not be read back into existing records: a `runtime-evidence.v1` record that carried no
+authenticity claim still carries none, and presenting a historical v1 record as origin-authenticated after the fact is
+a misreading rather than an upgrade. Changing what these records attest requires a new schema version. Frozen in
+`CHECKPOINT-0.7.4b-GOVERNANCE-EVIDENCE-SCHEMA-FREEZE.md` (disposition D1a).
+
+A declared boundary does **not** become a verified origin through this: **a producer-declared boundary identifier
+and its registered strength do not independently verify the event's origin**, and the strength is scoped to the
+declared enforcement point only — it says nothing about any other path by which the host application might reach
+the same side effect. Verified event-origin attribution is separate, unimplemented work and is not established by
+this model.
 
 ---
 
@@ -197,6 +275,8 @@ No sub-manifest is placed under `runtime-evidence/`. The root `manifest.json` at
 - The system is production-ready.
 - The evidence proves EU AI Act or any regulatory compliance.
 - The evidence chain replaces an audit.
+- An `ALLOW` record proves the operation executed, completed or succeeded — or, conversely, that the absence of a
+  completion record means the operation failed. `tool.permission` attests the authorization decision only.
 
 This matches the existing evidence-chain boundary documented in the [Sovereign Lab Evidence Chain](../../examples/sovereign-lab/EVIDENCE-CHAIN.md): the verifier checks manifests, paths, sizes, digests, and claim boundaries, but does **not** verify evidence truth, compliance, production readiness, security certification, or audit sufficiency.
 
@@ -222,6 +302,10 @@ These rules are not optional. A verifier that encounters raw sensitive data in a
 - Evidence records prove that a decision was recorded with a specific outcome. They do not prove the decision was correct, compliant, or sufficiently reviewed.
 - Bundle artifacts are local, reviewable evidence artifacts — they are not production deployments, compliance submissions, or certification materials.
 - The bundle verifier checks structural integrity and digest consistency. It does not verify correctness of recorded decisions.
+- An `ALLOW` record attests authorization, not execution completion: it does not establish that the operation ran, succeeded, or changed external state, and it does not let a reader infer either outcome from its absence.
+- `provider.route` is a **supported record family without a live production producer**. The exporter converts caller-supplied sources; nothing in the engine emits these records yet (G4, 0.7.4b6). Records present in tests, benchmarks or example bundles are synthetic or manually supplied.
+- A successful route selection does **not** prove the provider returned a response. The family reports routing decisions, and the outcome of the call that followed is a separate fact this family does not attest.
+- The absence of `provider.route` records does **not** establish that no routing, fallback or blocked decision occurred.
 
 ---
 
@@ -233,7 +317,7 @@ The following PRs (in order) will implement the runtime evidence export defined 
 |----|-------|--------|
 | #184 | Implement policy decision exporter: capture `policy.decision` events during workflow execution and write to `policy-decisions.jsonl` | ✅ Implemented |
 | #185 | Implement approval decision exporter: capture `approval.decision` events from the outbox store and write to `approval-decisions.jsonl` | ✅ Implemented |
-| #186 | Implement provider routing exporter: capture `provider.route` events | ✅ Implemented |
+| #186 | Implement provider routing exporter: capture `provider.route` events | ⚠️ Exporter implemented; **producer not wired** — see [G4](../roadmap/0.7.4/0.7.4b6-G4-PROVIDER-ROUTING-EVIDENCE.md) |
 | #187 | Map runtime events to evidence bundle sections | ✅ Documented |
 | #199 | Add verifier rules for runtime evidence records | ✅ Implemented |
 | #199 | Integrate runtime evidence into the sovereign lab evidence bundle lifecycle | ✅ Implemented |

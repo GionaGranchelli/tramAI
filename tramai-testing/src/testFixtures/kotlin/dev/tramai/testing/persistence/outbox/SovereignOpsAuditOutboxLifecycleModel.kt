@@ -11,7 +11,6 @@ internal data class SovereignOpsAuditOutboxLifecycleModel(
     val predecessorClaims: List<ModeledClaim>,
     val auditFields: ModeledAuditFields,
 ) {
-
     companion object {
         const val WORKER_A = "worker-A"
         const val WORKER_B = "worker-B"
@@ -24,43 +23,81 @@ internal data class SovereignOpsAuditOutboxLifecycleModel(
         fun absent(
             now: Instant,
             auditFields: ModeledAuditFields = ModeledAuditFields.fixture(),
-        ): SovereignOpsAuditOutboxLifecycleModel = SovereignOpsAuditOutboxLifecycleModel(
-            now = now,
-            current = null,
-            predecessorClaims = emptyList(),
-            auditFields = auditFields,
-        )
+        ): SovereignOpsAuditOutboxLifecycleModel =
+            SovereignOpsAuditOutboxLifecycleModel(
+                now = now,
+                current = null,
+                predecessorClaims = emptyList(),
+                auditFields = auditFields,
+            )
     }
 
     fun apply(
         action: SovereignOpsAuditOutboxLifecycleAction,
         claimDuration: Duration,
     ): SovereignOpsAuditOutboxLifecycleOutcome {
-        val outcome = when (action) {
-            SovereignOpsAuditOutboxLifecycleAction.AppendPrepared -> appendPrepared()
-            SovereignOpsAuditOutboxLifecycleAction.MarkReady -> markReady()
-            SovereignOpsAuditOutboxLifecycleAction.MarkPreparedPermanentFailure ->
-                markFailed(expectedAttemptCount = 0, retryable = false, errorCode = PREPARED_ERROR)
-            SovereignOpsAuditOutboxLifecycleAction.ClaimWorkerA -> claim(WORKER_A, claimDuration)
-            SovereignOpsAuditOutboxLifecycleAction.ClaimWorkerB -> claim(WORKER_B, claimDuration)
-            SovereignOpsAuditOutboxLifecycleAction.MarkEmittedCurrent ->
-                markEmitted(current?.attemptCount)
-            SovereignOpsAuditOutboxLifecycleAction.MarkRetryableFailureCurrent ->
-                markFailed(current?.attemptCount, retryable = true, errorCode = RETRYABLE_ERROR)
-            SovereignOpsAuditOutboxLifecycleAction.MarkPermanentFailureCurrent ->
-                markFailed(current?.attemptCount, retryable = false, errorCode = PERMANENT_ERROR)
-            SovereignOpsAuditOutboxLifecycleAction.MarkEmittedStaleAttempt ->
-                markEmitted(predecessorClaims.firstOrNull()?.generation)
-            SovereignOpsAuditOutboxLifecycleAction.MarkRetryableFailureStaleAttempt ->
-                markFailed(predecessorClaims.firstOrNull()?.generation, retryable = true, errorCode = STALE_RETRYABLE_ERROR)
-            SovereignOpsAuditOutboxLifecycleAction.MarkPermanentFailureStaleAttempt ->
-                markFailed(predecessorClaims.firstOrNull()?.generation, retryable = false, errorCode = STALE_PERMANENT_ERROR)
-            SovereignOpsAuditOutboxLifecycleAction.AdvanceBeforeClaimExpiry -> advanceBeforeExpiry()
-            SovereignOpsAuditOutboxLifecycleAction.AdvanceToExactClaimExpiry -> advanceToExactExpiry()
-            SovereignOpsAuditOutboxLifecycleAction.AdvancePastClaimExpiry -> advancePastExpiry()
-            SovereignOpsAuditOutboxLifecycleAction.ObserveCurrent ->
-                SovereignOpsAuditOutboxLifecycleOutcome.Success(this)
-        }
+        val outcome =
+            when (action) {
+                SovereignOpsAuditOutboxLifecycleAction.AppendPrepared -> {
+                    appendPrepared()
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.MarkReady -> {
+                    markReady()
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.MarkPreparedPermanentFailure -> {
+                    markFailed(expectedAttemptCount = 0, retryable = false, errorCode = PREPARED_ERROR)
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.ClaimWorkerA -> {
+                    claim(WORKER_A, claimDuration)
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.ClaimWorkerB -> {
+                    claim(WORKER_B, claimDuration)
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.MarkEmittedCurrent -> {
+                    markEmitted(current?.attemptCount)
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.MarkRetryableFailureCurrent -> {
+                    markFailed(current?.attemptCount, retryable = true, errorCode = RETRYABLE_ERROR)
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.MarkPermanentFailureCurrent -> {
+                    markFailed(current?.attemptCount, retryable = false, errorCode = PERMANENT_ERROR)
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.MarkEmittedStaleAttempt -> {
+                    markEmitted(predecessorClaims.firstOrNull()?.generation)
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.MarkRetryableFailureStaleAttempt -> {
+                    markFailed(predecessorClaims.firstOrNull()?.generation, retryable = true, errorCode = STALE_RETRYABLE_ERROR)
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.MarkPermanentFailureStaleAttempt -> {
+                    markFailed(predecessorClaims.firstOrNull()?.generation, retryable = false, errorCode = STALE_PERMANENT_ERROR)
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.AdvanceBeforeClaimExpiry -> {
+                    advanceBeforeExpiry()
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.AdvanceToExactClaimExpiry -> {
+                    advanceToExactExpiry()
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.AdvancePastClaimExpiry -> {
+                    advancePastExpiry()
+                }
+
+                SovereignOpsAuditOutboxLifecycleAction.ObserveCurrent -> {
+                    SovereignOpsAuditOutboxLifecycleOutcome.Success(this)
+                }
+            }
         validateTransition(action, outcome)
         return outcome
     }
@@ -71,10 +108,11 @@ internal data class SovereignOpsAuditOutboxLifecycleModel(
         } else {
             success(
                 copy(
-                    current = ModeledOutbox(
-                        auditFields = auditFields,
-                        status = SovereignOpsAuditOutboxStatus.PREPARED,
-                    ),
+                    current =
+                        ModeledOutbox(
+                            auditFields = auditFields,
+                            status = SovereignOpsAuditOutboxStatus.PREPARED,
+                        ),
                 ),
             )
         }
@@ -93,14 +131,15 @@ internal data class SovereignOpsAuditOutboxLifecycleModel(
         if (!record.isClaimable(now)) return rejected()
         val previousClaim = record.modeledClaimOrNull()
         val nextAttempt = record.attemptCount + 1
-        val updated = record.copy(
-            status = SovereignOpsAuditOutboxStatus.EMITTING,
-            attemptCount = nextAttempt,
-            lastErrorCode = null,
-            claimedBy = worker,
-            claimedAt = now,
-            claimExpiresAt = now.plus(claimDuration),
-        )
+        val updated =
+            record.copy(
+                status = SovereignOpsAuditOutboxStatus.EMITTING,
+                attemptCount = nextAttempt,
+                lastErrorCode = null,
+                claimedBy = worker,
+                claimedAt = now,
+                claimExpiresAt = now.plus(claimDuration),
+            )
         return success(
             copy(
                 current = updated,
@@ -120,10 +159,11 @@ internal data class SovereignOpsAuditOutboxLifecycleModel(
         }
         return success(
             copy(
-                current = record.copy(
-                    status = SovereignOpsAuditOutboxStatus.EMITTED,
-                    emittedAt = now,
-                ),
+                current =
+                    record.copy(
+                        status = SovereignOpsAuditOutboxStatus.EMITTED,
+                        emittedAt = now,
+                    ),
             ),
         )
     }
@@ -134,20 +174,22 @@ internal data class SovereignOpsAuditOutboxLifecycleModel(
         errorCode: String,
     ): SovereignOpsAuditOutboxLifecycleOutcome {
         val record = current ?: return rejected()
-        val legalStatus = if (retryable) {
-            record.status == SovereignOpsAuditOutboxStatus.EMITTING
-        } else {
-            record.status == SovereignOpsAuditOutboxStatus.EMITTING ||
-                record.status == SovereignOpsAuditOutboxStatus.PREPARED
-        }
+        val legalStatus =
+            if (retryable) {
+                record.status == SovereignOpsAuditOutboxStatus.EMITTING
+            } else {
+                record.status == SovereignOpsAuditOutboxStatus.EMITTING ||
+                    record.status == SovereignOpsAuditOutboxStatus.PREPARED
+            }
         if (expectedAttemptCount == null || !legalStatus || record.attemptCount != expectedAttemptCount) {
             return rejected()
         }
-        val target = if (retryable) {
-            SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
-        } else {
-            SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
-        }
+        val target =
+            if (retryable) {
+                SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
+            } else {
+                SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
+            }
         return success(copy(current = record.copy(status = target, lastErrorCode = errorCode)))
     }
 
@@ -171,10 +213,11 @@ internal data class SovereignOpsAuditOutboxLifecycleModel(
         action: SovereignOpsAuditOutboxLifecycleAction,
         outcome: SovereignOpsAuditOutboxLifecycleOutcome,
     ) {
-        val next = when (outcome) {
-            is SovereignOpsAuditOutboxLifecycleOutcome.Success -> outcome.next
-            is SovereignOpsAuditOutboxLifecycleOutcome.Failure -> outcome.unchanged
-        }
+        val next =
+            when (outcome) {
+                is SovereignOpsAuditOutboxLifecycleOutcome.Success -> outcome.next
+                is SovereignOpsAuditOutboxLifecycleOutcome.Failure -> outcome.unchanged
+            }
         check(next.invariants().isEmpty()) {
             "${action.describe()} violated invariants: ${next.invariants().joinToString()}"
         }
@@ -231,7 +274,7 @@ internal data class SovereignOpsAuditOutboxLifecycleModel(
         return violations
     }
 
-    private fun success(next: SovereignOpsAuditOutboxLifecycleModel) =
+    private fun success(next: SovereignOpsAuditOutboxLifecycleModel): SovereignOpsAuditOutboxLifecycleOutcome.Success =
         SovereignOpsAuditOutboxLifecycleOutcome.Success(next)
 
     private fun rejected() = SovereignOpsAuditOutboxLifecycleOutcome.Failure(this)
@@ -240,16 +283,19 @@ internal data class SovereignOpsAuditOutboxLifecycleModel(
         this == SovereignOpsAuditOutboxLifecycleAction.ClaimWorkerA ||
             this == SovereignOpsAuditOutboxLifecycleAction.ClaimWorkerB
 
-    private fun ModeledOutbox.isClaimable(at: Instant): Boolean = when (status) {
-        SovereignOpsAuditOutboxStatus.PENDING,
-        SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE,
-        -> true
-        SovereignOpsAuditOutboxStatus.EMITTING -> claimExpiresAt?.isBefore(at) == true
-        SovereignOpsAuditOutboxStatus.PREPARED,
-        SovereignOpsAuditOutboxStatus.EMITTED,
-        SovereignOpsAuditOutboxStatus.FAILED_PERMANENT,
-        -> false
-    }
+    private fun ModeledOutbox.isClaimable(at: Instant): Boolean =
+        when (status) {
+            SovereignOpsAuditOutboxStatus.PENDING,
+            SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE,
+            -> true
+
+            SovereignOpsAuditOutboxStatus.EMITTING -> claimExpiresAt?.isBefore(at) == true
+
+            SovereignOpsAuditOutboxStatus.PREPARED,
+            SovereignOpsAuditOutboxStatus.EMITTED,
+            SovereignOpsAuditOutboxStatus.FAILED_PERMANENT,
+            -> false
+        }
 
     private fun ModeledOutbox.modeledClaimOrNull(): ModeledClaim? {
         val worker = claimedBy ?: return null
@@ -257,7 +303,6 @@ internal data class SovereignOpsAuditOutboxLifecycleModel(
         val expires = claimExpiresAt ?: return null
         return ModeledClaim(attemptCount, worker, claimed, expires)
     }
-
 }
 
 internal data class ModeledClaim(
@@ -287,34 +332,40 @@ internal data class ModeledAuditFields(
     val actor: String,
     val workflowRunId: String?,
     val correlationId: String?,
-    val approvalStatus: String,
+    val approvalStatus: String?,
     val approvalVersion: Long?,
     val reasonDigest: String,
     val reasonLength: Int,
     val createdAt: Instant,
 ) {
     companion object {
-        fun fixture(outboxId: String = "modeled-outbox"): ModeledAuditFields = ModeledAuditFields(
-            outboxId = outboxId,
-            aggregateType = "approval",
-            aggregateIdDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            operation = "denyApproval",
-            eventKey = "event-$outboxId",
-            actor = "operator-1",
-            workflowRunId = "workflow-$outboxId",
-            correlationId = "correlation-$outboxId",
-            approvalStatus = "DENIED",
-            approvalVersion = 7L,
-            reasonDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            reasonLength = 42,
-            createdAt = SovereignOpsAuditOutboxFixtures.T0,
-        )
+        fun fixture(outboxId: String = "modeled-outbox"): ModeledAuditFields =
+            ModeledAuditFields(
+                outboxId = outboxId,
+                aggregateType = "approval",
+                aggregateIdDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                operation = "denyApproval",
+                eventKey = "event-$outboxId",
+                actor = "operator-1",
+                workflowRunId = "workflow-$outboxId",
+                correlationId = "correlation-$outboxId",
+                approvalStatus = "DENIED",
+                approvalVersion = 7L,
+                reasonDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                reasonLength = 42,
+                createdAt = SovereignOpsAuditOutboxFixtures.T0,
+            )
     }
 }
 
 internal sealed interface SovereignOpsAuditOutboxLifecycleOutcome {
-    data class Success(val next: SovereignOpsAuditOutboxLifecycleModel) : SovereignOpsAuditOutboxLifecycleOutcome
-    data class Failure(val unchanged: SovereignOpsAuditOutboxLifecycleModel) : SovereignOpsAuditOutboxLifecycleOutcome
+    data class Success(
+        val next: SovereignOpsAuditOutboxLifecycleModel,
+    ) : SovereignOpsAuditOutboxLifecycleOutcome
+
+    data class Failure(
+        val unchanged: SovereignOpsAuditOutboxLifecycleModel,
+    ) : SovereignOpsAuditOutboxLifecycleOutcome
 }
 
 internal enum class SovereignOpsAuditOutboxLifecycleAction {

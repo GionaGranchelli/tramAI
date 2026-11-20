@@ -16,6 +16,7 @@ plugins {
     id("tramai.compiler-warnings")
     id("tramai.dependency-hygiene")
     id("tramai.static-safety-guards")
+    id("tramai.direct-approval-mutation-guard")
     alias(libs.plugins.spotless)
 }
 
@@ -158,7 +159,7 @@ sonar {
 }
 
 val tramaiGroup = providers.gradleProperty("tramaiGroup").orElse("dev.tramai")
-val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.6.0")
+val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.7.0-SNAPSHOT")
 val tramaiProjectUrl = providers.gradleProperty("tramaiProjectUrl").orElse("https://github.com/GionaGranchelli/tramAI")
 val tramaiScmUrl = providers.gradleProperty("tramaiScmUrl").orElse("https://github.com/GionaGranchelli/tramAI.git")
 val tramaiScmConnection = providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/GionaGranchelli/tramAI.git")

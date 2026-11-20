@@ -3,7 +3,6 @@ package dev.tramai.spring.sovereign.ops.rest
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalId
-import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
@@ -11,6 +10,7 @@ import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
+import dev.tramai.spring.sovereign.ops.OperatorAuthority
 import kotlinx.coroutines.runBlocking
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -49,174 +49,284 @@ class ApprovalControlPlaneController(
     private val approvalStore: ApprovalStore,
     private val approvalContinuationStore: ApprovalContinuationStore,
 ) {
-
     @GetMapping("/{approvalId}")
     fun getApproval(
         @PathVariable approvalId: String,
-    ): ResponseEntity<ApprovalStatusResponse> = runBlocking {
-        val approval = approvalStore.get(approvalId)
-            ?: return@runBlocking ResponseEntity.notFound().build()
-        val continuation = approvalContinuationStore.get(approvalId)
-        ResponseEntity.ok(
-            ApprovalStatusResponse(
-                approvalId = approvalId,
-                status = approval.status.name,
-                version = approval.version,
-                requestedBy = approval.requestedBy,
-                requestedAt = approval.requestedAt,
-                expiresAt = approval.expiresAt,
-                decidedBy = approval.decidedBy,
-                decidedAt = approval.decidedAt,
-                continuationStatus = continuation?.status?.name,
-            ),
-        )
-    }
+    ): ResponseEntity<ApprovalStatusResponse> =
+        runBlocking {
+            val approval =
+                approvalStore.get(approvalId)
+                    ?: return@runBlocking ResponseEntity.notFound().build()
+            val continuation = approvalContinuationStore.get(approvalId)
+            ResponseEntity.ok(
+                ApprovalStatusResponse(
+                    approvalId = approvalId,
+                    status = approval.status.name,
+                    version = approval.version,
+                    requestedBy = approval.requestedBy,
+                    requestedAt = approval.requestedAt,
+                    expiresAt = approval.expiresAt,
+                    decidedBy = approval.decidedBy,
+                    decidedAt = approval.decidedAt,
+                    continuationStatus = continuation?.status?.name,
+                ),
+            )
+        }
 
     @PostMapping("/{approvalId}/approve")
     fun approve(
         @PathVariable approvalId: String,
         @RequestBody request: ApproveDenyRequest,
-    ): ResponseEntity<ApprovalControlPlaneResponse> = runBlocking {
-        val result = decisionControlPlane.approve(
-            ApprovalDecisionCommand(
-                approvalId = parseOrBadRequest { ApprovalId(approvalId) },
-                actorId = request.actorId,
-                actorRole = parseOrBadRequest { ApproverRole(request.actorRole) },
-                comment = request.comment,
-                expectedVersion = request.expectedVersion,
-                correlationId = request.correlationId,
-            ),
-        )
-        mapDecisionResult(result, approvalId)
-    }
+        authority: OperatorAuthority,
+    ): ResponseEntity<ApprovalControlPlaneResponse> =
+        runBlocking {
+            val expectedVersion = request.expectedVersion
+            if (expectedVersion == null || expectedVersion < 0) {
+                return@runBlocking expectedVersionRejected(approvalId, expectedVersion)
+            }
+            val result =
+                decisionControlPlane.approve(
+                    ApprovalDecisionCommand(
+                        approvalId = parseOrBadRequest { ApprovalId(approvalId) },
+                        expectedVersion = expectedVersion,
+                        comment = request.comment,
+                        correlationId = request.correlationId,
+                    ),
+                    authority,
+                )
+            mapDecisionResult(result, approvalId)
+        }
 
     @PostMapping("/{approvalId}/deny")
     fun deny(
         @PathVariable approvalId: String,
         @RequestBody request: ApproveDenyRequest,
-    ): ResponseEntity<ApprovalControlPlaneResponse> = runBlocking {
-        val result = decisionControlPlane.deny(
-            ApprovalDecisionCommand(
-                approvalId = parseOrBadRequest { ApprovalId(approvalId) },
-                actorId = request.actorId,
-                actorRole = parseOrBadRequest { ApproverRole(request.actorRole) },
-                comment = request.comment,
-                expectedVersion = request.expectedVersion,
-                correlationId = request.correlationId,
-            ),
-        )
-        mapDecisionResult(result, approvalId)
-    }
+        authority: OperatorAuthority,
+    ): ResponseEntity<ApprovalControlPlaneResponse> =
+        runBlocking {
+            val expectedVersion = request.expectedVersion
+            if (expectedVersion == null || expectedVersion < 0) {
+                return@runBlocking expectedVersionRejected(approvalId, expectedVersion)
+            }
+            val result =
+                decisionControlPlane.deny(
+                    ApprovalDecisionCommand(
+                        approvalId = parseOrBadRequest { ApprovalId(approvalId) },
+                        expectedVersion = expectedVersion,
+                        comment = request.comment,
+                        correlationId = request.correlationId,
+                    ),
+                    authority,
+                )
+            mapDecisionResult(result, approvalId)
+        }
 
     @PostMapping("/{approvalId}/resume")
     fun resume(
         @PathVariable approvalId: String,
         @RequestBody request: ResumeRequest,
-    ): ResponseEntity<ApprovalControlPlaneResponse> = runBlocking {
-        val result = resumeControlPlane.resume(
-            ApprovalResumeCommand(
-                approvalId = parseOrBadRequest { ApprovalId(approvalId) },
-                resumeToken = parseOrBadRequest { ResumeToken(request.resumeToken) },
-                resumedBy = request.resumedBy,
-                expectedApprovalVersion = request.expectedApprovalVersion,
-                expectedContinuationVersion = request.expectedContinuationVersion,
-            ),
-        )
-        mapResumeResult(result, approvalId)
-    }
+    ): ResponseEntity<ApprovalControlPlaneResponse> =
+        runBlocking {
+            val result =
+                resumeControlPlane.resume(
+                    ApprovalResumeCommand(
+                        approvalId = parseOrBadRequest { ApprovalId(approvalId) },
+                        resumeToken = parseOrBadRequest { ResumeToken(request.resumeToken) },
+                        resumedBy = request.resumedBy,
+                        expectedApprovalVersion = request.expectedApprovalVersion,
+                        expectedContinuationVersion = request.expectedContinuationVersion,
+                    ),
+                )
+            mapResumeResult(result, approvalId)
+        }
 
     // -- helpers --
+
+    /**
+     * Fail-closed precondition mapping. A decision without a caller-observed version is a malformed request,
+     * answered here so that it never becomes a control-plane command - and therefore never reaches the
+     * authoritative mutation store. The body carries a stable code and nothing sensitive.
+     */
+    private fun expectedVersionRejected(
+        approvalId: String,
+        supplied: Long?,
+    ): ResponseEntity<ApprovalControlPlaneResponse> =
+        ResponseEntity.badRequest().body(
+            ApprovalControlPlaneResponse(
+                status = "INVALID_PRECONDITION",
+                approvalId = approvalId,
+                expectedVersion = supplied,
+                message =
+                    if (supplied == null) {
+                        "tramai-approval-expected-version-required"
+                    } else {
+                        "tramai-approval-invalid-expected-version"
+                    },
+            ),
+        )
+
+    /** A committed decision: same shape for approve and deny, so the mapping stays short. */
+    private fun decidedResponse(
+        status: String,
+        approvalId: String,
+        decidedBy: String,
+        version: Long,
+    ): ResponseEntity<ApprovalControlPlaneResponse> =
+        ResponseEntity.ok(
+            ApprovalControlPlaneResponse(
+                status = status,
+                approvalId = approvalId,
+                actorId = decidedBy,
+                version = version,
+            ),
+        )
+
+    /** 409 for a stale precondition; extracted so the result mapping stays within the length ceiling. */
+    private fun staleResponse(
+        result: ApprovalDecisionResult.Stale,
+        approvalId: String,
+    ): ResponseEntity<ApprovalControlPlaneResponse> =
+        ResponseEntity.status(HttpStatus.CONFLICT).body(
+            ApprovalControlPlaneResponse(
+                status = "STALE",
+                approvalId = approvalId,
+                expectedVersion = result.expectedVersion,
+                currentVersion = result.currentVersion,
+                message = "tramai-approval-version-stale",
+            ),
+        )
 
     private fun mapDecisionResult(
         result: ApprovalDecisionResult,
         approvalId: String,
-    ): ResponseEntity<ApprovalControlPlaneResponse> = when (result) {
-        is ApprovalDecisionResult.Approved -> ResponseEntity.ok(
-            ApprovalControlPlaneResponse(
-                status = "APPROVED",
-                approvalId = approvalId,
-                actorId = result.decidedBy,
-                version = result.version,
-            ),
-        )
-        is ApprovalDecisionResult.Denied -> ResponseEntity.ok(
-            ApprovalControlPlaneResponse(
-                status = "DENIED",
-                approvalId = approvalId,
-                actorId = result.decidedBy,
-                version = result.version,
-            ),
-        )
-        is ApprovalDecisionResult.AlreadyApproved -> ResponseEntity.ok(
-            ApprovalControlPlaneResponse(
-                status = "ALREADY_APPROVED",
-                approvalId = approvalId,
-                actorId = result.decidedBy,
-            ),
-        )
-        is ApprovalDecisionResult.AlreadyDenied -> ResponseEntity.ok(
-            ApprovalControlPlaneResponse(
-                status = "ALREADY_DENIED",
-                approvalId = approvalId,
-                actorId = result.decidedBy,
-            ),
-        )
-        is ApprovalDecisionResult.Expired -> ResponseEntity.status(HttpStatus.CONFLICT).body(
-            ApprovalControlPlaneResponse(
-                status = "EXPIRED",
-                approvalId = approvalId,
-            ),
-        )
-        is ApprovalDecisionResult.NotFound -> ResponseEntity.notFound().build()
-        is ApprovalDecisionResult.Conflict -> ResponseEntity.status(HttpStatus.CONFLICT).body(
-            ApprovalControlPlaneResponse(
-                status = "CONFLICT",
-                approvalId = approvalId,
-                message = result.reason,
-            ),
-        )
-    }
+    ): ResponseEntity<ApprovalControlPlaneResponse> =
+        when (result) {
+            is ApprovalDecisionResult.Approved -> {
+                decidedResponse("APPROVED", approvalId, result.decidedBy, result.version)
+            }
+
+            is ApprovalDecisionResult.Denied -> {
+                decidedResponse("DENIED", approvalId, result.decidedBy, result.version)
+            }
+
+            is ApprovalDecisionResult.AlreadyApproved -> {
+                ResponseEntity.ok(
+                    ApprovalControlPlaneResponse(
+                        status = "ALREADY_APPROVED",
+                        approvalId = approvalId,
+                        actorId = result.decidedBy,
+                    ),
+                )
+            }
+
+            is ApprovalDecisionResult.AlreadyDenied -> {
+                ResponseEntity.ok(
+                    ApprovalControlPlaneResponse(
+                        status = "ALREADY_DENIED",
+                        approvalId = approvalId,
+                        actorId = result.decidedBy,
+                    ),
+                )
+            }
+
+            is ApprovalDecisionResult.Stale -> {
+                staleResponse(result, approvalId)
+            }
+
+            // 0.7.6e: an authorization refusal is not a business denial and not a conflict. 403 names the
+            // exact reason so a client can distinguish a missing capability from an unmet role requirement.
+            is ApprovalDecisionResult.Unauthorized -> {
+                ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                    ApprovalControlPlaneResponse(
+                        status = "UNAUTHORIZED",
+                        approvalId = approvalId,
+                        message = result.reason.wireName,
+                    ),
+                )
+            }
+
+            is ApprovalDecisionResult.Expired -> {
+                ResponseEntity.status(HttpStatus.CONFLICT).body(
+                    ApprovalControlPlaneResponse(
+                        status = "EXPIRED",
+                        approvalId = approvalId,
+                    ),
+                )
+            }
+
+            is ApprovalDecisionResult.NotFound -> {
+                ResponseEntity.notFound().build()
+            }
+
+            is ApprovalDecisionResult.Conflict -> {
+                ResponseEntity.status(HttpStatus.CONFLICT).body(
+                    ApprovalControlPlaneResponse(
+                        status = "CONFLICT",
+                        approvalId = approvalId,
+                        message = result.reason,
+                    ),
+                )
+            }
+        }
 
     private fun mapResumeResult(
         result: ApprovalResumeResult,
         approvalId: String,
-    ): ResponseEntity<ApprovalControlPlaneResponse> = when (result) {
-        is ApprovalResumeResult.Resumed -> ResponseEntity.ok(
-            ApprovalControlPlaneResponse(
-                status = "RESUMED",
-                approvalId = approvalId,
-                actorId = result.resumedBy,
-            ),
-        )
-        is ApprovalResumeResult.NotFound -> ResponseEntity.notFound().build()
-        is ApprovalResumeResult.NotApproved -> ResponseEntity.status(HttpStatus.CONFLICT).body(
-            ApprovalControlPlaneResponse(
-                status = "NOT_APPROVED",
-                approvalId = approvalId,
-                message = "approval-status-${result.status.name}",
-            ),
-        )
-        is ApprovalResumeResult.AlreadyCompleted -> ResponseEntity.ok(
-            ApprovalControlPlaneResponse(
-                status = "ALREADY_COMPLETED",
-                approvalId = approvalId,
-            ),
-        )
-        is ApprovalResumeResult.Conflict -> ResponseEntity.status(HttpStatus.CONFLICT).body(
-            ApprovalControlPlaneResponse(
-                status = "CONFLICT",
-                approvalId = approvalId,
-                message = result.reason,
-            ),
-        )
-        is ApprovalResumeResult.Failed -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-            ApprovalControlPlaneResponse(
-                status = "FAILED",
-                approvalId = approvalId,
-                message = "approval-resume-failed",
-            ),
-        )
-    }
+    ): ResponseEntity<ApprovalControlPlaneResponse> =
+        when (result) {
+            is ApprovalResumeResult.Resumed -> {
+                ResponseEntity.ok(
+                    ApprovalControlPlaneResponse(
+                        status = "RESUMED",
+                        approvalId = approvalId,
+                        actorId = result.resumedBy,
+                    ),
+                )
+            }
+
+            is ApprovalResumeResult.NotFound -> {
+                ResponseEntity.notFound().build()
+            }
+
+            is ApprovalResumeResult.NotApproved -> {
+                ResponseEntity.status(HttpStatus.CONFLICT).body(
+                    ApprovalControlPlaneResponse(
+                        status = "NOT_APPROVED",
+                        approvalId = approvalId,
+                        message = "approval-status-${result.status.name}",
+                    ),
+                )
+            }
+
+            is ApprovalResumeResult.AlreadyCompleted -> {
+                ResponseEntity.ok(
+                    ApprovalControlPlaneResponse(
+                        status = "ALREADY_COMPLETED",
+                        approvalId = approvalId,
+                    ),
+                )
+            }
+
+            is ApprovalResumeResult.Conflict -> {
+                ResponseEntity.status(HttpStatus.CONFLICT).body(
+                    ApprovalControlPlaneResponse(
+                        status = "CONFLICT",
+                        approvalId = approvalId,
+                        message = result.reason,
+                    ),
+                )
+            }
+
+            is ApprovalResumeResult.Failed -> {
+                ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApprovalControlPlaneResponse(
+                        status = "FAILED",
+                        approvalId = approvalId,
+                        message = "approval-resume-failed",
+                    ),
+                )
+            }
+        }
 }
 
 /**

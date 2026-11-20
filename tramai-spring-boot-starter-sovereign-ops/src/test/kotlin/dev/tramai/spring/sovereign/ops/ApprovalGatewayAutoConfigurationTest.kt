@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.spring.sovereign.ops
 
 import dev.tramai.core.approval.ApprovalContinuation
@@ -17,6 +19,18 @@ import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
+import dev.tramai.core.exception.GovernedRunContinuityException
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ResumeOperationReference
@@ -31,22 +45,23 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutatio
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
-import java.time.Clock
-import java.time.Instant
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
+import java.time.Clock
+import java.time.Instant
 
 class ApprovalGatewayAutoConfigurationTest {
-
-    private val contextRunner = ApplicationContextRunner()
-        .withConfiguration(
-            AutoConfigurations.of(ApprovalGatewayAutoConfiguration::class.java),
-        )
+    private val contextRunner =
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(ApprovalGatewayAutoConfiguration::class.java),
+            )
 
     // ── 1. Does not create default gateway without explicit opt-in ─────
 
@@ -65,8 +80,7 @@ class ApprovalGatewayAutoConfigurationTest {
         contextRunner
             .withPropertyValues(
                 "tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true",
-            )
-            .withUserConfiguration(FullGatewayConfig::class.java)
+            ).withUserConfiguration(FullGatewayConfig::class.java)
             .run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
                 assertThat(ctx.getBean(ApprovalGateway::class.java))
@@ -114,16 +128,17 @@ class ApprovalGatewayAutoConfigurationTest {
             .withUserConfiguration(RecordingAuditIntentConfig::class.java)
             .run { ctx ->
                 val gateway = ctx.getBean(ApprovalGateway::class.java)
-                val recordingStore = ctx.getBean(RecordingApprovalRequestMutationStore::class.java)
+                val recordingStore = ctx.getBean(RecordingMutationStore::class.java)
 
                 runBlocking {
                     gateway.requestApproval(
                         subject = ApprovalSubject("test-claim"),
-                        recommendation = ApprovalRecommendation(
-                            type = "test",
-                            summary = "test recommendation",
-                            payload = emptyMap(),
-                        ),
+                        recommendation =
+                            ApprovalRecommendation(
+                                type = "test",
+                                summary = "test recommendation",
+                                payload = emptyMap(),
+                            ),
                         requiredRole = ApproverRole("reviewer"),
                         workflowRunId = WorkflowRunId("wf-test"),
                     )
@@ -137,6 +152,47 @@ class ApprovalGatewayAutoConfigurationTest {
             }
     }
 
+    // ── 1b. A governed run fails closed before the mutation store is touched ──
+
+    @Test
+    fun `transactional gateway rejects a governed run without calling the mutation store`() {
+        contextRunner
+            .withUserConfiguration(RecordingAuditIntentConfig::class.java)
+            .run { ctx ->
+                val gateway = ctx.getBean(ApprovalGateway::class.java)
+                val recordingStore = ctx.getBean(RecordingMutationStore::class.java)
+
+                val thrown =
+                    runBlocking {
+                        try {
+                            withContext(GovernedRunScope(governedRunIdentity())) {
+                                gateway.requestApproval(
+                                    subject = ApprovalSubject("governed-claim"),
+                                    recommendation =
+                                        ApprovalRecommendation(
+                                            type = "test",
+                                            summary = "test recommendation",
+                                            payload = emptyMap(),
+                                        ),
+                                    requiredRole = ApproverRole("reviewer"),
+                                    workflowRunId = WorkflowRunId("wf-governed"),
+                                )
+                            }
+                            null
+                        } catch (e: GovernedRunContinuityException) {
+                            e
+                        }
+                    }
+
+                assertThat(thrown).isNotNull
+                assertThat(thrown!!.message).contains("governed-run-1")
+                // Fail closed: the persistence contract carries no governed identity, so no
+                // mutation is attempted and no un-attributed request can be written.
+                assertThat(recordingStore.calls).isZero()
+                assertThat(recordingStore.lastAuditIntent).isNull()
+            }
+    }
+
     // ── 2. Backs off when custom gateway exists ───────────────────────
 
     @Test
@@ -145,8 +201,7 @@ class ApprovalGatewayAutoConfigurationTest {
             .withUserConfiguration(
                 FullGatewayConfig::class.java,
                 CustomApprovalGatewayConfig::class.java,
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
                 val gateway = ctx.getBean(ApprovalGateway::class.java)
                 assertThat(gateway).isInstanceOf(CustomApprovalGateway::class.java)
@@ -206,34 +261,68 @@ private val twoDigest = Sha256Digest.of("sha256:22222222222222222222222222222222
 
 private class GatewayTestSuspendedInvocationStore : SuspendedInvocationStore {
     private val store = mutableMapOf<String, SuspendedInvocationMetadata>()
+
     override suspend fun create(
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
-    ) { store[metadata.approvalId] = metadata }
+    ) {
+        store[metadata.approvalId] = metadata
+    }
 
     override suspend fun get(approvalId: String): SuspendedInvocationMetadata? = store[approvalId]
+
     override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? = null
+
     override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? = store.remove(approvalId)
 }
 
 private class GatewayTestApprovalContinuationStore : ApprovalContinuationStore {
     private val store = mutableMapOf<String, ApprovalContinuation>()
-    override suspend fun create(continuation: ApprovalContinuation, arguments: SensitiveToolArguments): ApprovalContinuation {
+
+    override suspend fun create(
+        continuation: ApprovalContinuation,
+        arguments: SensitiveToolArguments,
+    ): ApprovalContinuation {
         store[continuation.approvalId] = continuation
         return continuation
     }
+
     override suspend fun get(approvalId: String): ApprovalContinuation? = store[approvalId]
-    override suspend fun claimForExecution(approvalId: String, expectedVersion: Long, claimedBy: String): ClaimedApprovalContinuation =
-        throw UnsupportedOperationException("stub")
-    override suspend fun complete(approvalId: String, expectedVersion: Long, completedBy: String): ApprovalContinuation =
-        throw UnsupportedOperationException("stub")
-    override suspend fun expire(approvalId: String, expectedVersion: Long): ApprovalContinuation =
-        throw UnsupportedOperationException("stub")
-    override suspend fun cancel(approvalId: String, expectedVersion: Long): ApprovalContinuation =
-        throw UnsupportedOperationException("stub")
-    override suspend fun findStaleClaimed(claimedBefore: Instant, limit: Int): List<ApprovalContinuation> = emptyList()
-    override suspend fun forceCancelClaimed(approvalId: String, expectedVersion: Long, cancelledBy: String, reasonCode: String): ApprovalContinuation =
-        throw UnsupportedOperationException("stub")
+
+    override suspend fun claimForExecution(
+        approvalId: String,
+        expectedVersion: Long,
+        claimedBy: String,
+    ): ClaimedApprovalContinuation = throw UnsupportedOperationException("stub")
+
+    override suspend fun complete(
+        approvalId: String,
+        expectedVersion: Long,
+        completedBy: String,
+    ): ApprovalContinuation = throw UnsupportedOperationException("stub")
+
+    override suspend fun expire(
+        approvalId: String,
+        expectedVersion: Long,
+    ): ApprovalContinuation = throw UnsupportedOperationException("stub")
+
+    override suspend fun cancel(
+        approvalId: String,
+        expectedVersion: Long,
+    ): ApprovalContinuation = throw UnsupportedOperationException("stub")
+
+    override suspend fun findStaleClaimed(
+        claimedBefore: Instant,
+        limit: Int,
+    ): List<ApprovalContinuation> = emptyList()
+
+    override suspend fun forceCancelClaimed(
+        approvalId: String,
+        expectedVersion: Long,
+        cancelledBy: String,
+        reasonCode: String,
+    ): ApprovalContinuation = throw UnsupportedOperationException("stub")
+
     override suspend fun sweepExpired(): Int = 0
 }
 
@@ -248,41 +337,39 @@ private class TestApprovalGatewayRequestFactory : ApprovalGatewayRequestFactory 
         val wfRunId = workflowRunId?.value ?: "wf-run-1"
         val sensitiveArgs = SensitiveToolArguments.of("{}")
         return ApprovalGatewayPersistenceRequest(
-            approvalRequest = ApprovalRequest(
-                approvalId = "auto-test",
-                binding = dev.tramai.core.approval.ApprovalBinding(
+            approvalRequest = testApprovalRequest(now, wfRunId),
+            continuation =
+                ApprovalContinuation(
+                    approvalId = "auto-test",
                     workflowRunId = wfRunId,
-                    toolName = "test-tool",
+                    correlationId = "corr",
+                    toolCallId = "tc",
+                    toolName = "test",
                     argumentsDigest = zeroDigest,
                     policyVersion = "v1",
                     workflowDigest = oneDigest,
-                    approvalTokenDigest = twoDigest,
+                    status = ApprovalContinuationStatus.PENDING,
+                    createdAt = now,
+                    approvalExpiresAt = now.plusSeconds(3600),
+                    claimedBy = null,
+                    claimedAt = null,
+                    completedAt = null,
+                    version = 0L,
                 ),
-                status = ApprovalStatus.PENDING,
-                requestedBy = "test",
-                requestedAt = now,
-                expiresAt = now.plusSeconds(3600),
-                decidedBy = null, decidedAt = null, decisionComment = null,
-                consumedBy = null, consumedAt = null, version = 0L,
-            ),
-            continuation = ApprovalContinuation(
-                approvalId = "auto-test", workflowRunId = wfRunId,
-                correlationId = "corr", toolCallId = "tc", toolName = "test",
-                argumentsDigest = zeroDigest, policyVersion = "v1",
-                workflowDigest = oneDigest, status = ApprovalContinuationStatus.PENDING,
-                createdAt = now, approvalExpiresAt = now.plusSeconds(3600),
-                claimedBy = null, claimedAt = null, completedAt = null, version = 0L,
-            ),
             sensitiveArguments = sensitiveArgs,
-            suspendedInvocationMetadata = SuspendedInvocationMetadata(
-                approvalId = "auto-test", toolCallId = "tc", toolName = "test",
-                toolCallIndex = 0, correlationId = "corr",
-                identity = EngineExecutionIdentity(wfRunId, "corr", oneDigest, "v1", "test"),
-                securityContext = ExecutionSecurityContext(),
-                operationReference = ResumeOperationReference("t.S", "m", "()V", zeroDigest),
-                replayEnvelopeDigest = zeroDigest,
-                toolReference = ResumeToolReference("test", zeroDigest),
-            ),
+            suspendedInvocationMetadata =
+                SuspendedInvocationMetadata(
+                    approvalId = "auto-test",
+                    toolCallId = "tc",
+                    toolName = "test",
+                    toolCallIndex = 0,
+                    correlationId = "corr",
+                    identity = EngineExecutionIdentity(wfRunId, "corr", oneDigest, "v1", "test"),
+                    securityContext = ExecutionSecurityContext(),
+                    operationReference = ResumeOperationReference("t.S", "m", "()V", zeroDigest),
+                    replayEnvelopeDigest = zeroDigest,
+                    toolReference = ResumeToolReference("test", zeroDigest),
+                ),
             replayEnvelope = SensitiveReplayEnvelope.of(emptyList()),
             resumeToken = ResumeToken("public-token"),
         )
@@ -291,8 +378,11 @@ private class TestApprovalGatewayRequestFactory : ApprovalGatewayRequestFactory 
 
 private open class FullGatewayConfig {
     @Bean open fun testApprovalStore(): ApprovalStore = StubApprovalStore()
+
     @Bean open fun testApprovalContinuationStore(): ApprovalContinuationStore = GatewayTestApprovalContinuationStore()
+
     @Bean open fun testSuspendedInvocationStore(): SuspendedInvocationStore = GatewayTestSuspendedInvocationStore()
+
     @Bean open fun testGatewayRequestFactory(): ApprovalGatewayRequestFactory = TestApprovalGatewayRequestFactory()
 }
 
@@ -330,19 +420,67 @@ private open class TransactionalWithAuditIntentConfig : TransactionalGatewayConf
         }
 }
 
+private fun testApprovalRequest(
+    now: Instant,
+    workflowRunId: String,
+): dev.tramai.core.approval.ApprovalRequest =
+    dev.tramai.core.approval.ApprovalRequest(
+        approvalId = "auto-test",
+        binding =
+            dev.tramai.core.approval.ApprovalBinding(
+                workflowRunId = workflowRunId,
+                toolName = "test-tool",
+                argumentsDigest = zeroDigest,
+                policyVersion = "v1",
+                workflowDigest = oneDigest,
+                approvalTokenDigest = twoDigest,
+            ),
+        status = ApprovalStatus.PENDING,
+        requestedBy = "test",
+        requestedAt = now,
+        expiresAt = now.plusSeconds(3600),
+        decidedBy = null,
+        decidedAt = null,
+        decisionComment = null,
+        consumedBy = null,
+        consumedAt = null,
+        version = 0L,
+    )
+
+private fun governedRunIdentity(): GovernedRunIdentity =
+    GovernedRunIdentity(
+        deployment =
+            WorkloadDeploymentIdentity(
+                workloadId = WorkloadId("claims"),
+                configuration =
+                    WorkloadConfigurationIdentity(
+                        id = ConfigurationId("claims-prod"),
+                        version = ConfigurationVersion("17"),
+                    ),
+                environmentId = EnvironmentId("production"),
+                deploymentId = DeploymentId("eu-west-amsterdam-01"),
+            ),
+        runId = RunId("governed-run-1"),
+    )
+
 /**
  * Recording mutation store that captures the last audit intent passed to
  * [createApprovalRequest] for verification in the recording test.
  */
-private class RecordingApprovalRequestMutationStore(
+private class RecordingMutationStore(
     var lastAuditIntent: SovereignOpsAuditOutboxRecord? = null,
 ) : SovereignOpsApprovalRequestMutationStore {
+    /** Number of times [createApprovalRequest] was invoked. */
+    var calls: Int = 0
+        private set
+
     override suspend fun createApprovalRequest(
         request: ApprovalGatewayPersistenceRequest,
         auditIntent: SovereignOpsAuditOutboxRecord?,
         inboxMetadata: dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata?,
         resumeCredential: ApprovalResumeCredentialRecord?,
     ): SovereignOpsApprovalRequestMutationResult {
+        calls++
         lastAuditIntent = auditIntent
         return SovereignOpsApprovalRequestMutationResult.Created(
             approvalId = request.approvalRequest.approvalId,
@@ -355,11 +493,9 @@ private class RecordingApprovalRequestMutationStore(
 private open class RecordingAuditIntentConfig {
     @Bean
     @Primary
-    open fun testApprovalMutationStore(): RecordingApprovalRequestMutationStore =
-        RecordingApprovalRequestMutationStore()
+    open fun testApprovalMutationStore(): RecordingMutationStore = RecordingMutationStore()
 
-    @Bean open fun testGatewayRequestFactory(): ApprovalGatewayRequestFactory =
-        TestApprovalGatewayRequestFactory()
+    @Bean open fun testGatewayRequestFactory(): ApprovalGatewayRequestFactory = TestApprovalGatewayRequestFactory()
 
     @Bean open fun testAuditIntentFactory(): ApprovalGatewayAuditIntentFactory =
         ApprovalGatewayAuditIntentFactory { _, _, _, _ ->
@@ -379,7 +515,9 @@ private open class RecordingAuditIntentConfig {
 
 private open class StoresOnlyConfig {
     @Bean open fun testApprovalStore(): ApprovalStore = StubApprovalStore()
+
     @Bean open fun testApprovalContinuationStore(): ApprovalContinuationStore = GatewayTestApprovalContinuationStore()
+
     @Bean open fun testSuspendedInvocationStore(): SuspendedInvocationStore = GatewayTestSuspendedInvocationStore()
 }
 
@@ -390,19 +528,25 @@ private open class CustomApprovalGatewayConfig {
 
 private open class MissingApprovalStoreConfig {
     @Bean open fun testApprovalContinuationStore(): ApprovalContinuationStore = GatewayTestApprovalContinuationStore()
+
     @Bean open fun testSuspendedInvocationStore(): SuspendedInvocationStore = GatewayTestSuspendedInvocationStore()
+
     @Bean open fun testGatewayRequestFactory(): ApprovalGatewayRequestFactory = TestApprovalGatewayRequestFactory()
 }
 
 private open class MissingContinuationStoreConfig {
     @Bean open fun testApprovalStore(): ApprovalStore = StubApprovalStore()
+
     @Bean open fun testSuspendedInvocationStore(): SuspendedInvocationStore = GatewayTestSuspendedInvocationStore()
+
     @Bean open fun testGatewayRequestFactory(): ApprovalGatewayRequestFactory = TestApprovalGatewayRequestFactory()
 }
 
 private open class MissingSuspendedInvocationStoreConfig {
     @Bean open fun testApprovalStore(): ApprovalStore = StubApprovalStore()
+
     @Bean open fun testApprovalContinuationStore(): ApprovalContinuationStore = GatewayTestApprovalContinuationStore()
+
     @Bean open fun testGatewayRequestFactory(): ApprovalGatewayRequestFactory = TestApprovalGatewayRequestFactory()
 }
 
@@ -410,11 +554,21 @@ private open class MissingSuspendedInvocationStoreConfig {
 
 private class StubApprovalStore : ApprovalStore {
     override suspend fun create(request: ApprovalRequest): ApprovalRequest = request
+
     override suspend fun get(approvalId: String): ApprovalRequest? = null
-    override suspend fun transition(approvalId: String, expectedVersion: Long, transition: ApprovalTransition): ApprovalRequest =
-        throw UnsupportedOperationException("stub")
-    override suspend fun consumeApprovedOrReplay(approvalId: String, expectedVersion: Long, presentedTokenDigest: Sha256Digest, consumedBy: String) =
-        throw UnsupportedOperationException("stub")
+
+    override suspend fun transition(
+        approvalId: String,
+        expectedVersion: Long,
+        transition: ApprovalTransition,
+    ): ApprovalRequest = throw UnsupportedOperationException("stub")
+
+    override suspend fun consumeApprovedOrReplay(
+        approvalId: String,
+        expectedVersion: Long,
+        presentedTokenDigest: Sha256Digest,
+        consumedBy: String,
+    ) = throw UnsupportedOperationException("stub")
 }
 
 private class CustomApprovalGateway : ApprovalGateway {

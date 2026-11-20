@@ -1,0 +1,136 @@
+=== Shell-verifier compatibility correction: evidence ===
+
+--- Part 1: reproduced BEFORE fixing, at the artifact level, no test involved ---------
+The only variable is governed identity attribution. Same record, same structure:
+  with five identity keys + workflowRunId -> rejected as 'not allowlisted' (exit 1)
+  identity + run id stripped, re-finalized -> 'Evidence bundle verified:' (exit 0)
+Transcript: f1-shell-red.txt
+
+--- Part 2: artifact-level acceptance + negative controls, cache-free and Gradle-free ---
+Verifier sha256 3e0f36ecf4c72e12ae0246eb6f20eb45d06150e74229ef5eb7f5d38c2046db25.
+All nine checks as intended, including: with ONLY this fix reverted the attributed record
+is refused while the legacy control still verifies (the fix is load-bearing and scoped to
+attribution), and restoring the fix byte-identically verifies again.
+
+========= ARTIFACT-LEVEL PROOF (cache-free, Gradle-free) 2026-10-13T11:39:57+02:00 =========
+verifier sha256: 3e0f36ecf4c72e12ae0246eb6f20eb45d06150e74229ef5eb7f5d38c2046db25
+
+########## LEG A: verifier as SHIPPED (corrected) ##########
+  complete attributed record -> must VERIFY                exit=0  OK
+      Evidence bundle verified: /tmp/g1b_artifact_bundle2
+  partial identity (4 of 5) -> must REFUSE (partial)       exit=1  OK
+      Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: partial governed identity attribution, expected all five reserved keys or none, missing: ['identity.deploymentId']
+  all five, NO workflowRunId -> must REFUSE                exit=1  OK
+      Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: missing or blank canonical workflowRunId for governed identity attribution, got: None
+  all five, BLANK workflowRunId -> must REFUSE             exit=1  OK
+      Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: missing or blank canonical workflowRunId for governed identity attribution, got: '   '
+  unknown metadata key -> must REFUSE (not allowlisted)    exit=1  OK
+      Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: metadata key 'unexpectedKey' is not allowlisted for tool.permission
+  legacy record, zero identity keys -> must VERIFY         exit=0  OK
+      Evidence bundle verified: /tmp/g1b_artifact_bundle2
+
+########## LEG B: ONLY the shell verifier reverted to its committed pre-fix state ##########
+  GOVERNED_IDENTITY_KEYS occurrences: 0 (0 expected)
+  complete attributed record -> must now REFUSE (fix is load-bearing) exit=1  OK
+      Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: metadata key 'identity.workloadId' is not allowlisted for tool.permission
+  legacy record still verifies without the fix (matched control) exit=0  OK
+      Evidence bundle verified: /tmp/g1b_artifact_bundle2
+
+########## LEG C: restore ##########
+  restored byte-identically: YES
+  complete attributed record -> VERIFIES again             exit=0  OK
+      Evidence bundle verified: /tmp/g1b_artifact_bundle2
+
+=== tree must show exactly the 2 corrected files ===
+  examples/sovereign-lab/verify-evidence-bundle.sh
+  tramai-spring-boot-starter-sovereign-ops/src/test/kotlin/dev/tramai/spring/sovereign/ops/evidence/RuntimeEvidenceBundleIntegrationTest.kt
+========= DONE 2026-10-13T11:39:59+02:00 =========
+
+--- Part 3: JVM discrimination, sequential, execution proven (--rerun --no-build-cache) -
+Leg 1 corrected tree: execution PROVEN, boundary 7/7, security 13/13.
+Leg 2 ONLY the shell fix reverted: execution PROVEN, 5 of 7 fail, each on the absent-fix root
+'identity.configurationId is not allowlisted for tool.permission'.
+Leg 3 restored byte-identically: execution PROVEN, 7/7 and 13/13.
+
+Harness errors of mine, found and DISCARDED rather than reported as verdicts:
+  * editing the shell script does not invalidate Gradle's test task, so an early
+    'reverted -> green' reading was UP-TO-DATE (35/35 tasks untouched) - VOID;
+  * a second attempt was served FROM-CACHE, so --no-build-cache was required - VOID;
+  * one 'red control leg' was caused by two of my experiments overlapping, one mutating
+    verify-evidence-bundle.sh mid-flight; the same test in isolation passes 1/1.
+
+========= SEQUENTIAL DISCRIMINATOR 2026-10-13T11:40:56+02:00 =========
+  guard: no other discriminating script running
+  verifier sha256 (fixed): 3e0f36ecf4c72e12ae0246eb6f20eb45d06150e74229ef5eb7f5d38c2046db25
+
+########## LEG 1: corrected tree (expect 7/7 GREEN) ##########
+---------- PHASE control ----------
+  gradle exit=0
+  task line: > Task :tramai-spring-boot-starter-sovereign-ops:test
+  execution: PROVEN
+  dev.tramai.spring.sovereign.ops.evidence.RuntimeEvidenceBundleIntegrationTest
+    tests="7" skipped="0" failures="0" errors="0"
+  dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest
+    tests="13" skipped="0" failures="0" errors="0"
+
+########## LEG 2: ONLY the shell verifier reverted (expect the attribution tests to FAIL) ##########
+  GOVERNED_IDENTITY_KEYS occurrences: 0 (0 expected)
+---------- PHASE reverted ----------
+  gradle exit=1
+  task line: > Task :tramai-spring-boot-starter-sovereign-ops:test FAILED
+  execution: PROVEN
+  dev.tramai.spring.sovereign.ops.evidence.RuntimeEvidenceBundleIntegrationTest
+    tests="7" skipped="0" failures="5" errors="0"
+    !! FAILED: reviewer verifier rejects tool-permission evidence with unallowlisted metadata key()
+       org.opentest4j.AssertionFailedError: Verify must fail with not allowlisted reason:
+       exitCode: 1
+       stdout:
+       
+       stderr:
+       Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: metadata key 'identity.configurationId' is not allowlisted for tool.permission
+    !! FAILED: reviewer verifier detects on-disk tampering of tool-permission evidence after finalization()
+       org.opentest4j.AssertionFailedError: Verify must fail with sha256 mismatch reason:
+       exitCode: 1
+       stdout:
+       
+       stderr:
+       Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: metadata key 'identity.configurationId' is not allowlisted for tool.permission
+    !! FAILED: reviewer pipeline finalizes and verifies sovereign bundle with attributed tool-permission evidence()
+       org.opentest4j.AssertionFailedError: Verify must exit 0:
+       exitCode: 1
+       stdout:
+       
+       stderr:
+       Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: metadata key 'identity.configurationId' is not allowlisted for tool.permission
+    !! FAILED: reviewer verifier rejects attributed tool-permission evidence with missing or blank workflowRunId()
+       org.opentest4j.AssertionFailedError: Verify must fail naming missing/blank canonical run id:
+       exitCode: 1
+       stdout:
+       
+       stderr:
+       Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: metadata key 'identity.configurationId' is not allowlisted for tool.permission
+    !! FAILED: reviewer verifier rejects tool-permission evidence with partial governed identity()
+       org.opentest4j.AssertionFailedError: Verify must fail with partial attribution reason:
+       exitCode: 1
+       stdout:
+       
+       stderr:
+       Evidence bundle verification failed: runtime-evidence/tool-permissions.jsonl line 1: metadata key 'identity.configurationId' is not allowlisted for tool.permission
+  dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest
+    tests="13" skipped="0" failures="0" errors="0"
+
+########## LEG 3: restored (expect 7/7 GREEN) ##########
+  restored byte-identically: YES
+---------- PHASE restored ----------
+  gradle exit=0
+  task line: > Task :tramai-spring-boot-starter-sovereign-ops:test
+  execution: PROVEN
+  dev.tramai.spring.sovereign.ops.evidence.RuntimeEvidenceBundleIntegrationTest
+    tests="7" skipped="0" failures="0" errors="0"
+  dev.tramai.security.evidence.ToolPermissionEvidenceAttributionTest
+    tests="13" skipped="0" failures="0" errors="0"
+
+=== tree ===
+  examples/sovereign-lab/verify-evidence-bundle.sh
+  tramai-spring-boot-starter-sovereign-ops/src/test/kotlin/dev/tramai/spring/sovereign/ops/evidence/RuntimeEvidenceBundleIntegrationTest.kt
+========= DONE 2026-10-13T11:41:07+02:00 =========

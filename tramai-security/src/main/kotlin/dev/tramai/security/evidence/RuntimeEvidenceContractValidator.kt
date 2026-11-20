@@ -22,15 +22,23 @@ package dev.tramai.security.evidence
  */
 internal object RuntimeEvidenceContractValidator {
     private val APPROVAL_REASON_CODES = setOf("approval-approved", "approval-denied")
-    private val ROUTING_REASON_CODES = setOf(
-        "provider-selected",
-        "provider-fallback",
-        "provider-blocked",
-    )
-    private val ALLOWED_FALLBACK_REASONS = setOf(
-        "provider-failure", "streaming-startup-failure", "circuit-breaker-open",
-        "model-registry-blocked", "policy-blocked", "no-route",
-    )
+    private val ROUTING_REASON_CODES =
+        setOf(
+            "provider-selected",
+            "provider-fallback",
+            "provider-blocked",
+        )
+    private val ALLOWED_FALLBACK_REASONS =
+        setOf(
+            "provider-failure",
+            "streaming-startup-failure",
+            "circuit-breaker-open",
+            "model-registry-blocked",
+            "policy-blocked",
+            "no-route",
+        )
+
+    private const val TOOL_PERMISSION_EVENT_TYPE = "tool.permission"
 
     private val TOOL_RISK_LEVELS = setOf("LOW", "MEDIUM", "HIGH", "CRITICAL")
 
@@ -63,7 +71,10 @@ internal object RuntimeEvidenceContractValidator {
         }
     }
 
-    private fun validateEventId(record: RuntimeEvidenceRecord, seenEventIds: MutableSet<String>) {
+    private fun validateEventId(
+        record: RuntimeEvidenceRecord,
+        seenEventIds: MutableSet<String>,
+    ) {
         require(record.eventId.isNotBlank()) {
             "eventId must not be blank"
         }
@@ -74,11 +85,12 @@ internal object RuntimeEvidenceContractValidator {
     }
 
     private fun validateDecisionKind(record: RuntimeEvidenceRecord) {
-        val allowedKinds = requireNotNull(
-            RuntimeEvidenceBundleWriter.ALLOWED_DECISION_KINDS[record.eventType]
-        ) {
-            "No allowed decision kinds defined for event type: ${record.eventType}"
-        }
+        val allowedKinds =
+            requireNotNull(
+                RuntimeEvidenceBundleWriter.ALLOWED_DECISION_KINDS[record.eventType],
+            ) {
+                "No allowed decision kinds defined for event type: ${record.eventType}"
+            }
         require(record.decision.kind in allowedKinds) {
             "Invalid decision.kind '${record.decision.kind}' for event type " +
                 "'${record.eventType}'. Allowed: $allowedKinds"
@@ -86,11 +98,12 @@ internal object RuntimeEvidenceContractValidator {
     }
 
     private fun validateSourceComponent(record: RuntimeEvidenceRecord) {
-        val expectedComponent = requireNotNull(
-            RuntimeEvidenceBundleWriter.EXPECTED_SOURCE_COMPONENTS[record.eventType]
-        ) {
-            "No expected source component defined for event type: ${record.eventType}"
-        }
+        val expectedComponent =
+            requireNotNull(
+                RuntimeEvidenceBundleWriter.EXPECTED_SOURCE_COMPONENTS[record.eventType],
+            ) {
+                "No expected source component defined for event type: ${record.eventType}"
+            }
         require(record.source.component == expectedComponent) {
             "source.component must be '$expectedComponent' " +
                 "for event type '${record.eventType}', " +
@@ -109,10 +122,36 @@ internal object RuntimeEvidenceContractValidator {
     }
 
     private fun validateMetadata(record: RuntimeEvidenceRecord) {
-        val allowedKeys = requireNotNull(
-            RuntimeEvidenceBundleWriter.ALLOWED_METADATA_KEYS[record.eventType]
-        ) {
-            "No allowed metadata keys defined for event type: ${record.eventType}"
+        val familyAllowedKeys =
+            requireNotNull(
+                RuntimeEvidenceBundleWriter.ALLOWED_METADATA_KEYS[record.eventType],
+            ) {
+                "No allowed metadata keys defined for event type: ${record.eventType}"
+            }
+
+        // Governed attribution is cross-family framework metadata, so it composes here rather than
+        // being duplicated into each family vocabulary above. Validation is atomic: a partial
+        // tuple is corruption, never a silent downgrade to legacy evidence.
+        //
+        // Enforcement-boundary provenance is deliberately NOT cross-family: only an event type that
+        // declares an enforcement boundary may carry it, so composing it everywhere would let another
+        // family claim tool-boundary provenance. Its applicability rule needs the enforcement point the
+        // record itself claims, so that a registration cannot be applied to a point it does not cover.
+        val boundaryKeys =
+            if (record.eventType == TOOL_PERMISSION_EVENT_TYPE) {
+                RuntimeBoundaryProvenance.metadataKeys
+            } else {
+                emptySet()
+            }
+
+        val allowedKeys =
+            familyAllowedKeys +
+                RuntimeEvidenceAttribution.metadataKeys +
+                boundaryKeys
+
+        RuntimeEvidenceAttribution.validate(record.workflowRunId, record.metadata)
+        if (boundaryKeys.isNotEmpty()) {
+            RuntimeBoundaryProvenance.validate(record.metadata["enforcementPoint"].orEmpty(), record.metadata)
         }
 
         for (key in record.metadata.keys) {
@@ -153,10 +192,14 @@ internal object RuntimeEvidenceContractValidator {
                     }
                 }
             }
+
             "provider.route" -> {
                 for (digestKey in listOf(
-                    "requestedModelDigest", "selectedProviderDigest", "selectedModelDigest",
-                    "previousProviderDigest", "previousModelDigest",
+                    "requestedModelDigest",
+                    "selectedProviderDigest",
+                    "selectedModelDigest",
+                    "previousProviderDigest",
+                    "previousModelDigest",
                 )) {
                     val value = record.metadata[digestKey]
                     if (value != null) {
@@ -186,6 +229,7 @@ internal object RuntimeEvidenceContractValidator {
                     }
                 }
             }
+
             "tool.permission" -> {
                 val toolName = record.metadata["toolName"]
                 require(!toolName.isNullOrBlank()) {
@@ -218,16 +262,30 @@ internal object RuntimeEvidenceContractValidator {
                         "for approval.decision: $reasonCode"
                 }
             }
+
             "provider.route" -> {
                 require(reasonCode in ROUTING_REASON_CODES) {
                     "decision.reasonCode must be one of $ROUTING_REASON_CODES " +
                         "for provider.route: $reasonCode"
                 }
             }
+
             "policy.decision", "tool.permission" -> {
                 require(RuntimeEvidenceBundleWriter.REASON_CODE_REGEX.matches(reasonCode)) {
                     "decision.reasonCode must match ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$: " +
                         reasonCode
+                }
+            }
+
+            "governance.decision" -> {
+                val family =
+                    requireNotNull(GOVERNANCE_REASON_CODES[record.decision.kind]) {
+                        "No closed reason family defined for governance decision kind: " +
+                            "${record.decision.kind}"
+                    }
+                require(reasonCode in family) {
+                    "decision.reasonCode '$reasonCode' is not in the closed reason family for " +
+                        "'${record.decision.kind}'. Allowed: ${family.sorted()}"
                 }
             }
         }

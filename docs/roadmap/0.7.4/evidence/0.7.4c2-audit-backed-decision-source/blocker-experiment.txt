@@ -1,0 +1,198 @@
+0.7.4c2 — blocker experiment and coverage-contract evidence
+================================================================================
+Base: release/0.7.0 = ce503dda0e68da4ba294538aa44b5afb19b7ae10 (#531)
+Worktree: /home/gionag/tramai-c2 (branch task/0.7.4c2-audit-backed-decision-source)
+Date of runs: 2026-10-15
+
+EXPERIMENT — is :tramai-control-plane -> :tramai-security legal?
+--------------------------------------------------------------------------------
+Purpose: establish, before writing any implementation, whether the module that owns the 0.7.4c1
+seam could read the real AuditStore SPI. The 0.7.4c1 seam is `internal` to :tramai-control-plane,
+so only that module can implement GovernanceDecisionFactSource.
+
+Mutation under test (scratch, reverted):
+  tramai-control-plane/build.gradle.kts: + implementation(project(":tramai-security"))
+  tramai-control-plane/src/main/kotlin/dev/tramai/controlplane/ScratchAuditProbe.kt:
+      internal class ScratchAuditProbe(private val store: AuditStore)
+
+Command (both runs, canonical task, JDK 21):
+  JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew verify060Architecture --console=plain
+
+RUN 1 — CONTROL, pristine base (no scratch edge)
+  exit=1
+  "0.6.0 architecture verification FAILED: api-architecture"
+  report checks:
+    api-architecture            FAIL   (pre-existing; see section below)
+    cancellation-safety         PASS
+    dependency-boundaries       PASS   <-- the edge under test is NOT violated at base
+    dependency-cycles           PASS
+    global-state                PASS
+    module-manifest             PASS
+    protocol-catalog            PASS
+    provider-contracts          PASS
+    publishing-topology         PASS
+    store-contracts             PASS
+
+RUN 2 — EXPERIMENT, control-plane + tramai-security edge
+  exit=1
+  "0.6.0 architecture verification FAILED: api-architecture, dependency-boundaries"
+  dependency-boundaries diagnostics (verbatim from
+  build/reports/tramai/architecture/architecture-report.json):
+    FORBIDDEN_LAYER_EDGE  "Dependency policy violation: :tramai-control-plane may not depend on
+                           :tramai-security (governance-security)"
+                           modulePath: :tramai-control-plane, severity: FAILURE
+    FORBIDDEN_LAYER_EDGE  "Forbidden edge: :tramai-control-plane (core-contracts) ->
+                           :tramai-security (governance-security): Core contracts must not depend
+                           on governance-security"
+                           modulePath: :tramai-control-plane, severity: FAILURE
+
+  dependency-cycles in the same run: PASS (no cycle is created; the refusal is the layer policy)
+
+Attribution: the only difference between the runs is the scratch edge, and `dependency-boundaries`
+flips PASS -> FAIL with a diagnostic that names the edge. VERIFIED.
+
+Restoration: scratch class deleted and build.gradle.kts restored from a pre-mutation copy;
+`git status --porcelain` empty (byte-identical restore).
+
+UNRELATED PRE-EXISTING FAILURE (recorded, not touched)
+--------------------------------------------------------------------------------
+api-architecture fails at the pristine base as well, for three modules, with the same diagnostic
+identity in both runs:
+  API_COMPATIBILITY_FAILED  "API module ':tramai-control-plane' changed without an exact hash-bound
+                             migration entry; add an entry binding
+                             fromSha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+                             toSha256=71acccdcab31390b76032fc1979384dea72cce7dca8f6a5156254c2fb319e675
+                             for targetVersion=0.7.0 in config/quality/api-migrations.yml"
+  API_COMPATIBILITY_FAILED  same for ':tramai-persistence-jdbc' and ':tramai-security'
+  API_COMPATIBILITY_FAILED  "Migration entry for ':tramai-control-plane' is stale, orphaned,
+                             hash-mismatched, or not landed (declared b73b76d... -> 71acccd...
+                             for 0.7.0, actual e3b0c44... -> 71acccd...)"
+Classification: environmental / base configuration gap. Reproduced at the exact pristine base with
+the same diagnostic identity; no gate, migration file or baseline was modified in response.
+
+ENVIRONMENT NOTE (why JDK 21 for the canonical invocation)
+--------------------------------------------------------------------------------
+With JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 the same task fails earlier and elsewhere:
+  Execution failed for task ':examples:governed-workflow:apiBuild'
+    > A failure occurred while executing kotlinx.validation.AbiBuildWorker
+      > Unsupported class file major version 69
+Also reproduced at the pristine base (examples:governed-workflow and
+examples:sovereign-document-intelligence). The boundary check therefore cannot be exercised under
+JDK 25; JDK 21 was used for the controlled pair, which is the same task and the same properties.
+
+COVERAGE-CONTRACT EVIDENCE (paths at the base SHA)
+--------------------------------------------------------------------------------
+Audit SPI and stores
+  tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditStore.kt
+      appendNext(auditStreamId, eventFactory); readStream; readStreamPage(after, limit) whose
+      DEFAULT implementation delegates to readStream and filters; latestEvent.
+  tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditEvent.kt
+      schemaVersion, hashAlgorithm, auditStreamId, eventId, sequenceNumber, workflowRunId?,
+      correlationId?, actor?, enforcementPoint, decision, policyVersion?, workflowDigest?,
+      previousEventHash?, eventHash, timestamp, reasonCode?, metadata (all safe-typed).
+  tramai-security/src/main/kotlin/dev/tramai/security/audit/InMemoryAuditStore.kt
+      appendNext validates, in order: non-blank stream id, non-blank eventId, auditStreamId
+      equality, sequenceNumber == (latest ?: 0) + 1 ("audit-sequence-gap"),
+      previousEventHash == latest?.eventHash ("audit-hash-chain-broken"),
+      eventHash == copy(eventHash="").calculateHash() ("audit-event-hash-mismatch"),
+      schemaVersion == CURRENT_AUDIT_SCHEMA_VERSION, unique eventId per stream.
+      Reads take the same per-stream Mutex as appends -> a full read is a consistent view.
+  tramai-persistence-file/src/main/kotlin/dev/tramai/persistence/file/FileAuditStore.kt
+      class doc: "Read operations do not acquire locks (immutable files are safe to read
+      concurrently)"; per-stream ReentrantLock used for appends only -> a page read is not a
+      snapshot of the append point.
+  tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcAuditStore.kt
+      appends serialise on "SELECT ... FROM audit_stream_heads ... FOR UPDATE"; reads issue their own
+      SELECT ... ORDER BY sequence_number ASC outside that transaction.
+  tramai-testing/src/testFixtures/kotlin/dev/tramai/testing/persistence/audit/AuditStoreTck.kt
+      asserts: first append receives latest == null; first event has sequence 1; first
+      previousEventHash is null; second append's factory receives the exact latest event; second
+      event has sequence 2; second previousEventHash equals first eventHash; metadata round-trips;
+      wrong auditStreamId rejected ("audit-stream-id-mismatch").
+  tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditChainVerifier.kt
+      verify(events) checks stream-id homogeneity, schema version, hash algorithm, unique event ids,
+      chain position (index/predecessor) and each event's recomputed hash; returns
+      isValid = true for an EMPTY list.
+
+Stream identity and run association
+  tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditStreamIdResolver.kt
+      DefaultAuditStreamIdResolver: workflowRunId when non-blank, else correlationId, else throws;
+      the resolver is an interface, so the default mapping streamId == workflowRunId is a default,
+      not a store guarantee.
+
+Family partitioning (reused, not reinvented)
+  tramai-security/src/main/kotlin/dev/tramai/security/evidence/PolicyDecisionRuntimeEvidenceExporter.kt
+      ALLOWED_METADATA_KEYS; export = events where enforcementPoint NOT in TOOL_ENFORCEMENT_POINTS
+      and decision in {ALLOW, DENY, REQUIRE_APPROVAL}.
+  tramai-security/src/main/kotlin/dev/tramai/security/evidence/ToolPermissionRuntimeEvidenceExporter.kt
+      TOOL_ENFORCEMENT_POINTS = {BEFORE_TOOL_EXPOSURE, BEFORE_TOOL_EXECUTION,
+      BEFORE_TOOL_RESULT_REINJECTION}; TOOL_PERMISSION_ALLOWED_METADATA_KEYS; a recognised tool
+      enforcement event missing metadata.toolName fails closed.
+  Other event families present in the same streams: AuditEngineApprovalLifecycleAuditEmitter,
+  AuditEngineDlpRedactionAuditEmitter, sovereign-ops outbox traffic -> a stream is not a decision
+  log, so a family-filtered read is a strict subset of the stream.
+
+Evidence bundles (C2.4)
+  tramai-security/src/main/kotlin/dev/tramai/security/evidence/RuntimeEvidenceRecord.kt
+      no sequenceNumber field (read the type).
+  tramai-security/src/main/kotlin/dev/tramai/security/evidence/RuntimeEvidenceJsonlWriter.kt
+      writes records in list order, one JSON object per line, trailing newline, empty string for an
+      empty list -> line order is serialisation order.
+  tramai-security/src/main/kotlin/dev/tramai/security/evidence/RuntimeEvidenceBundleWriter.kt,
+  ManifestJsonReader.kt, RuntimeEvidenceContractValidator.kt
+      the manifest describes the files the writer produced; no source range is attested.
+
+Module-graph evidence
+  config/quality/module-catalog.yml: ":tramai-control-plane" layer core-contracts; ":tramai-security"
+      layer governance-security; dependencyPolicies.core.allowedLayers = [core-contracts, testing-support].
+  config/quality/module-boundaries.yml: forbiddenEdges includes core-contracts -> governance-security
+      ("Core contracts must not depend on governance-security").
+  build-logic/src/main/kotlin/dev/tramai/build/quality/BaselineVerifier.kt (lines ~699-720):
+      edge policy applied to the current dependency graph, emitting FORBIDDEN_LAYER_EDGE.
+
+Contracts that would have to be referenced by any adapter
+  tramai-control-plane/src/main/kotlin/dev/tramai/controlplane/GovernanceProjectionReader.kt:19
+      internal interface GovernanceDecisionFactSource
+  tramai-control-plane/src/main/kotlin/dev/tramai/controlplane/GovernanceProjection.kt
+      internal DecisionKind / RecordedDecision / DecisionFactRead (assertedRange) / FactAuthority /
+      FactFreshness / Completeness / DecisionProjection / GovernanceProjection
+
+OWNER REVIEW CORRECTIONS (2026-10-15)
+--------------------------------------------------------------------------------
+Finding 1 (P1) — family classification. This record's earlier draft said an unrecognised
+enforcement point belongs to neither decision family. The code says otherwise:
+PolicyDecisionRuntimeEvidenceExporter filters `filterNot { enforcementPoint in
+TOOL_ENFORCEMENT_POINTS }` and then only on the decision token, so
+
+    enforcementPoint = "UNKNOWN_BOUNDARY", decision = "ALLOW"
+
+passes the policy-family filters and would be exported as policy.decision. The correction recorded
+in the task document is: the policy family is defined by exclusion, not by a recognised-boundary
+allowlist, and the audit-backed adapter must fail closed on unsupported enforcement-point/decision
+combinations instead of inheriting that behaviour (C2.2 forbids exactly this reclassification).
+
+Finding 2 (P2) — sanitization is not a store guarantee. The store validates stream id, sequence
+contiguity, event-id uniqueness, hash chain, event-hash recomputation and schema version, and
+nothing else: no metadata allowlist, no reason-code format, no decision or enforcement-point
+vocabulary. Those protections exist in the emitters (AuditEnginePolicyDecisionAuditEmitter:
+ALLOWED_ATTRIBUTE_KEYS and the SAFE_REASON_CODE regex) and in the exporters, and a direct
+AuditStore.appendNext caller bypasses them. The document now requires the adapter to treat persisted
+metadata, reason codes, decisions and enforcement points as untrusted input with an explicit
+projection-field allowlist, and to describe boundary provenance as what the record *declares* rather
+than what the event is proven to have come from.
+
+PLACEMENT DECISION (owner, 2026-10-15): Option C refined — relocate the internal projection
+implementation into :tramai-security.
+Static legality verified at this base:
+  config/quality/module-catalog.yml
+      ":tramai-security" is layer governance-security with dependencyPolicy framework;
+      dependencyPolicies.framework.allowedLayers includes core-contracts.
+  config/quality/module-boundaries.yml
+      no forbiddenEdges row has fromLayer: governance-security (so governance-security ->
+      core-contracts is not forbidden).
+  tramai-control-plane/build.gradle.kts
+      depends on tramai-core only: no reverse edge, so no cycle is introduced.
+  precedent: tramai-persistence-jdbc already depends on both :tramai-security and
+      :tramai-control-plane.
+The architecture gate must still confirm the new edge at implementation time; that is part of the
+continuation, not an assumption.

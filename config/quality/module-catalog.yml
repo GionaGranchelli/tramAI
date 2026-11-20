@@ -69,12 +69,25 @@ modules:
     publishability: excluded
     apiStability: excluded
 
+  - path: ":examples:spring-ai-authority-boundary"
+    <<: *example
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+    rationale: "Executable authority-boundary proof for checkpoint 0.7-XR1 (task 0.7-XR1-0001)."
+
   - path: ":examples:java-consumer-smoke"
     <<: *example
     layer: applications-examples
     publishability: excluded
     apiStability: excluded
     rationale: "Java consumer compilation proof for stable API compatibility (Epic 10.2)."
+
+  - path: ":examples:timeline-reconstruction"
+    <<: *example
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
 
   - path: ":examples:kotlin-consumer-smoke"
     <<: *example
@@ -113,6 +126,15 @@ modules:
     layer: core-contracts
     publishability: published
     apiStability: stable
+
+  - path: ":tramai-control-plane"
+    description: "Authoritative control-plane registration and lifecycle state boundary for governed workloads."
+    <<: *core
+    rationale: "Canonical mutable authority binding workload identity to governed configuration, metadata and lifecycle; consumed by persistence adapters and later 0.7 control-plane candidates."
+    maturity: preview
+    layer: core-contracts
+    publishability: published
+    apiStability: preview
 
   - path: ":tramai-core"
     description: "Core annotations, request models, provider registry, and exception types for Tramai."

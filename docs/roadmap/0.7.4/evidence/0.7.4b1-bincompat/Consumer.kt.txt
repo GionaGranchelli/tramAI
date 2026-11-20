@@ -1,0 +1,165 @@
+package bincompat
+
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
+import dev.tramai.core.policy.ClassificationSource
+import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.policy.EnforcementPoint
+import dev.tramai.core.policy.PolicyContext
+import dev.tramai.core.policy.ToolSecurityMetadata
+
+/**
+ * An already-compiled consumer of the released `PolicyContext` contract, compiled against the BASE
+ * artifact and then run unchanged against the candidate artifact.
+ *
+ * Note on the short `<init>` overloads: the published JVM descriptors drop trailing parameters, but
+ * `actorId` and `policyVersion` carry no default, so those short forms are not callable from Kotlin
+ * source. Kotlin callers use named arguments or the full 16-argument form; the JVM descriptors are
+ * measured by reflection below, which is where a compiled caller would link from.
+ */
+object Consumer {
+    private const val WORKLOAD = "workload-bincompat"
+
+    private fun report(
+        category: String,
+        body: () -> Unit,
+    ) {
+        try {
+            body()
+            println("OK    $category")
+        } catch (failure: Throwable) {
+            println("FAIL  $category -> ${failure::class.java.name}: ${failure.message}")
+        }
+    }
+
+    private fun context(
+        actor: String = "actor-bincompat",
+        correlation: String = "corr-bincompat",
+    ): PolicyContext =
+        PolicyContext(
+            enforcementPoint = EnforcementPoint.BEFORE_TOOL_EXECUTION,
+            correlationId = correlation,
+            actorId = actor,
+            policyVersion = "policy-bincompat-v1",
+        )
+
+    @JvmStatic
+    fun main(args: Array<String>) {
+        // 1. Named-argument construction (synthetic default-arguments constructor).
+        report("constructor/named-args") {
+            check(context().correlationId == "corr-bincompat")
+        }
+
+        // 2. Full 16-argument positional construction — the widest published constructor.
+        report("constructor/positional-16") {
+            val full =
+                PolicyContext(
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                    "workflow-bincompat",
+                    "run-bincompat",
+                    "corr-bincompat",
+                    "actor-bincompat",
+                    "provider-bincompat",
+                    "model-bincompat",
+                    "fallback-bincompat",
+                    null,
+                    null,
+                    "tool-bincompat",
+                    null,
+                    "destination-bincompat",
+                    "policy-bincompat-v1",
+                    "digest-bincompat",
+                    mapOf("k" to "v"),
+                )
+            check(full.attributes["k"] == "v")
+        }
+
+        // 3. copy() with every argument supplied — the published `copy` descriptor.
+        report("copy/all-args") {
+            val copied =
+                context().copy(
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                    null,
+                    null,
+                    "corr-bincompat",
+                    "actor-copied",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "policy-bincompat-v1",
+                    null,
+                    emptyMap(),
+                )
+            check(copied.actorId == "actor-copied")
+        }
+
+        // 4. copy() with named arguments — the synthetic `copy$default` descriptor.
+        report("copy/named-args(copy\$default)") {
+            check(context().copy(actorId = "actor-copied").actorId == "actor-copied")
+        }
+
+        // 5. Destructuring — componentN accessors.
+        report("destructuring/componentN") {
+            val (point, _, _, correlation) = context()
+            check(point == EnforcementPoint.BEFORE_TOOL_EXECUTION && correlation == "corr-bincompat")
+        }
+
+        // 6. Getters across the width of the contract.
+        report("getters/sample") {
+            val context = context()
+            check(context.actorId == "actor-bincompat" && context.policyVersion == "policy-bincompat-v1")
+            check(context.enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXECUTION)
+        }
+
+        // 7. data-class behaviour.
+        report("data-class/equals-hashCode-toString") {
+            val a = context()
+            val b = context()
+            check(a == b && a.hashCode() == b.hashCode() && a.toString().isNotEmpty())
+        }
+
+        // 8. JVM constructor descriptors — what a compiled caller links against.
+        println("INFO  jvm-constructor-arity=" + PolicyContext::class.java.declaredConstructors.map { it.parameterTypes.size }.sorted())
+
+        // 9. The published `copy` descriptor, looked up exactly as a compiled call site would.
+        report("reflection/copy-16arg-descriptor") {
+            val types =
+                arrayOf(
+                    EnforcementPoint::class.java,
+                    String::class.java,
+                    String::class.java,
+                    String::class.java,
+                    String::class.java,
+                    String::class.java,
+                    String::class.java,
+                    String::class.java,
+                    DataClassification::class.java,
+                    ClassificationSource::class.java,
+                    String::class.java,
+                    ToolSecurityMetadata::class.java,
+                    String::class.java,
+                    String::class.java,
+                    String::class.java,
+                    Map::class.java,
+                )
+            PolicyContext::class.java.getMethod("copy", *types)
+        }
+
+        // 10. componentN descriptors at the width of the released contract.
+        report("reflection/component16-descriptor") {
+            PolicyContext::class.java.getMethod("component16")
+        }
+    }
+}

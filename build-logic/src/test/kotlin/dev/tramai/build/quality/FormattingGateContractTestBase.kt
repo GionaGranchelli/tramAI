@@ -132,7 +132,11 @@ abstract class FormattingGateContractTestBase {
         }
         proc.destroy()
         unlockGit()
-        return Run(proc.exitValue(), output.toString())
+        val exited = proc.waitFor(15, TimeUnit.SECONDS)
+        return Run(
+            if (exited) proc.exitValue() else -1,
+            output.toString() + "\n[gradleUntil: no '$needle' within the deadline; child process destroyed]",
+        )
     }
 
     private fun unlockGit() {

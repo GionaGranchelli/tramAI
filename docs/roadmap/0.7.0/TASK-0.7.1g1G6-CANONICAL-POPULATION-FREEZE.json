@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "task": "TASK-0.7.1g1G6",
+  "parent": "TASK-0.7.1",
+  "title": "Final canonical population reconciliation and digest freeze",
+  "checkpoint": "284faa4fe590eaf20c91843c119053fb6c384b4d",
+  "checkpointProvenance": "squash merge of #465; G5 closed at 52/52 with remainder 0; admission ledger admissions: []",
+  "campaign": {
+    "configuration": "the real committed 7-family canonical configuration, NO narrowing (worktree config diff empty)",
+    "worktree": "/tmp/tramai-g6-measure at the checkpoint",
+    "measuredCommit": "284faa4fe590eaf20c91843c119053fb6c384b4d",
+    "buildResult": "BUILD SUCCESSFUL",
+    "durationSeconds": 2943,
+    "reportCount": 14,
+    "families": [
+      "approval",
+      "evidence",
+      "policy",
+      "retry",
+      "routing",
+      "structuredOutput",
+      "tools"
+    ],
+    "analyzer": {
+      "pluginVersion": "1.19.0",
+      "engineVersion": "1.22.1",
+      "mutators": [
+        "CONDITIONALS_BOUNDARY",
+        "INCREMENTS",
+        "INVERT_NEGS",
+        "MATH",
+        "NEGATE_CONDITIONALS",
+        "TRUE_RETURNS",
+        "FALSE_RETURNS",
+        "PRIMITIVE_RETURNS",
+        "EMPTY_RETURNS",
+        "NULL_RETURNS",
+        "VOID_METHOD_CALLS"
+      ],
+      "timeoutConst": 4000,
+      "timeoutFactor": 1.25
+    }
+  },
+  "frozenPopulation": {
+    "rows": 2544,
+    "statuses": {
+      "KILLED": 1836,
+      "NO_COVERAGE": 190,
+      "SURVIVED": 448,
+      "TIMED_OUT": 70
+    },
+    "outcomes": {
+      "KILLED": 1836,
+      "NON_KILLED": 708
+    },
+    "byFamily": {
+      "approval": 918,
+      "evidence": 808,
+      "policy": 209,
+      "retry": 155,
+      "routing": 15,
+      "structuredOutput": 382,
+      "tools": 57
+    },
+    "completePopulationDigest": "9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0",
+    "digestRecipe": "the repository's own MutationRatchetVerifier.canonicalProjection(): sorted 'identity|status|outcome|family|module' lines, then 'topology=' over family:modules, then 'analyzer=plugin|engine|sorted mutators|timeoutConst|timeoutFactor', SHA-256",
+    "digestImplementationValidated": "the same implementation reproduces the committed population's digest 9e2febc775dd1c2c33d8cabc805e54690b2eaacc6d9ce82bea2758e1c7866230 exactly",
+    "supersededDigest": "7081ed74\u2026 is NOT reused: the measured artifact and custody record both moved since it was produced"
+  },
+  "reconciliation": {
+    "committedRows": 2384,
+    "freshRows": 2544,
+    "shared": 2195,
+    "baseOnly": 189,
+    "candidateOnly": 349,
+    "changedStatusAmongShared": 52,
+    "candidateOnlyByStatus": {
+      "SURVIVED": 27,
+      "KILLED": 282,
+      "TIMED_OUT": 36,
+      "NO_COVERAGE": 4
+    },
+    "candidateOnlyByFamily": {
+      "approval": 296,
+      "evidence": 53
+    },
+    "identityLoss": 0,
+    "identityGainOrSubstitution": 0,
+    "unexplainedDisappearance": 0
+  },
+  "disappearanceCustody": {
+    "baseOnlyRows": 189,
+    "withSourceLevelCounterpart": 189,
+    "withoutCounterpart": 0,
+    "mechanism": "the canonical identity deliberately excludes source line but includes PIT block/index, so an edited mutation site keeps its source-level key while its identity changes. All 189 base-only rows match a fresh row on (module, class, method, descriptor, mutator, description).",
+    "caveat": "this is a key-level relocation match, not a proof of semantic identity; the evolution ledger (mutation-evolution.yml) is empty and cites none of the 189, so it is not the custody mechanism here."
+  },
+  "admissibility": {
+    "appearingNonKilled": 67,
+    "covered": 67,
+    "missing": [],
+    "byDocument": {
+      "P1-manifest": 16,
+      "G5b": 36,
+      "G5c": 11,
+      "G5d": 4
+    },
+    "doubleCoverage": 0,
+    "note": "16 prior adjudications recorded in the P1 candidate-only manifest, 36 G5b TOOLING_LIMITATION, 11 G5c EQUIVALENT (the twelfth G5c identity was KILLED and is not in the appearing population), 4 G5d UNREACHABLE"
+  },
+  "determinism": {
+    "independentAggregation": "re-derived from the 14 raw PIT reports with XML unescaping: 2544 unique identities, identical identity set, 0 status mismatches, 0 family mismatches",
+    "digestReproduced": true
+  },
+  "artifactRelativeCaveat": "The four G5d UNREACHABLE classifications rest on resolveGovernedSuspension()/resolveGovernedIdentity() being unable to suspend. If either resolver ever gains a genuine suspension point, those four must become candidates for re-adjudication rather than remain grandfathered.",
+  "authorityChanges": "none \u2014 ledger remains admissions: []; no baseline, classification, enrollment, mutator, timeout or ceiling change; the campaign was run in an isolated worktree and its outputs were not committed",
+  "endpoint": "CANONICAL POPULATION FROZEN \u2014 P1 MINT UNBLOCKED",
+  "notDone": [
+    "P1 authorizations were not minted",
+    "P2 consumption was not performed",
+    "no authority file was modified"
+  ]
+}

@@ -3,51 +3,75 @@ package dev.tramai.engine
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.ConversationId
 import dev.tramai.core.annotations.Operation
-import dev.tramai.core.annotations.System as SystemMessage
 import dev.tramai.core.annotations.SystemPrompt
-import dev.tramai.core.annotations.User as UserMessage
+import dev.tramai.core.approval.ApprovalChallenge
+import dev.tramai.core.approval.ApprovalContinuation
+import dev.tramai.core.approval.ApprovalContinuationStatus
+import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ApprovalRecoveryCoordinator
+import dev.tramai.core.approval.ApprovalResumeAdmission
+import dev.tramai.core.approval.ApprovalToken
+import dev.tramai.core.approval.AuthorizeResumeCommand
+import dev.tramai.core.approval.ClaimedApprovalContinuation
+import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.IdempotencyKeyUtil
+import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.SensitiveToolArguments
+import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.approval.ValidateResumeCommand
+import dev.tramai.core.coroutines.rethrowIfCancellation
+import dev.tramai.core.exception.ApprovalNotFoundException
+import dev.tramai.core.exception.ApprovalSuspendedException
+import dev.tramai.core.exception.CachedModelProvenanceMismatchException
+import dev.tramai.core.exception.CircuitBreakerOpenException
+import dev.tramai.core.exception.ConfigurationException
+import dev.tramai.core.exception.ModelRegistryException
+import dev.tramai.core.exception.PolicyViolationException
+import dev.tramai.core.exception.ProviderCapabilityException
+import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.exception.TimeoutException
+import dev.tramai.core.exception.TokenBudgetExceededException
+import dev.tramai.core.exception.ToolInvalidInputException
+import dev.tramai.core.exception.TramaiException
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
 import dev.tramai.core.memory.UuidConversationIdProvider
-import dev.tramai.core.exception.ModelRegistryException
-import dev.tramai.core.exception.CircuitBreakerOpenException
-import dev.tramai.core.exception.CachedModelProvenanceMismatchException
-import dev.tramai.core.exception.ConfigurationException
-import dev.tramai.core.exception.ProviderCapabilityException
-import dev.tramai.core.exception.ProviderException
-import dev.tramai.core.exception.PolicyViolationException
-import dev.tramai.core.exception.TokenBudgetExceededException
-import dev.tramai.core.exception.TramaiException
-import dev.tramai.core.exception.TimeoutException
+import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
+import dev.tramai.core.model.ModelRegistry
+import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.model.NoOpModelRegistry
+import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.model.StreamChunk
-import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolDefinition
 import dev.tramai.core.model.ToolResult
-import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationObserver
+import dev.tramai.core.observation.NoOpToolFailureDiagnosticObserver
 import dev.tramai.core.observation.OperationCallContext
+import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
-import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.ToolFailureDiagnosticObserver
-import dev.tramai.core.observation.NoOpToolFailureDiagnosticObserver
+import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
+import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.StreamCapable
-import dev.tramai.core.policy.PolicyEngine
-import dev.tramai.core.policy.PolicyDecisionAuditEmitter
-import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
-import dev.tramai.core.security.DlpContentType
+import dev.tramai.core.provider.resolveCandidates
 import dev.tramai.core.security.DlpContentLocation
+import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInspectionException
 import dev.tramai.core.security.DlpInterceptor
@@ -55,20 +79,32 @@ import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
-import dev.tramai.core.structured.StructuredOutputHandler
-import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
 import dev.tramai.core.structured.NoOpStructuredOutputFailureDiagnosticObserver
-import dev.tramai.core.approval.ApprovalContinuation
-import dev.tramai.core.approval.ApprovalContinuationStatus
-import dev.tramai.core.approval.ApprovalContinuationStore
-import dev.tramai.core.approval.ClaimedApprovalContinuation
-import dev.tramai.core.approval.ApprovalChallenge
-import dev.tramai.core.approval.ApprovalGateCoordinator
-import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
-import dev.tramai.core.approval.ApprovalToken
-import dev.tramai.core.approval.CreateApprovalCommand
-import dev.tramai.core.approval.AuthorizeResumeCommand
-import dev.tramai.core.approval.IdempotencyKeyUtil
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
+import dev.tramai.core.structured.StructuredOutputHandler
+import dev.tramai.engine.approval.ApprovalResumeCoordinator
+import dev.tramai.engine.approval.ApprovalSuspensionCoordinator
+import dev.tramai.engine.approval.ClaimedResumeExecutionRequest
+import dev.tramai.engine.approval.ClaimedResumeExecutor
+import dev.tramai.engine.approval.ContinuationClaimService
+import dev.tramai.engine.approval.ReplayAuthorizationService
+import dev.tramai.engine.budget.TokenBudgetCoordinator
+import dev.tramai.engine.cache.OperationCacheCoordinator
+import dev.tramai.engine.cache.OperationCacheKeyRequest
+import dev.tramai.engine.cache.OperationCacheLookupRequest
+import dev.tramai.engine.cache.OperationCacheLookupResult
+import dev.tramai.engine.cache.OperationCacheStoreRequest
+import dev.tramai.engine.components.ApprovalCapability
+import dev.tramai.engine.components.EngineComponentFactory
+import dev.tramai.engine.components.EngineComponents
+import dev.tramai.engine.invocation.InvocationExecutionCoordinator
+import dev.tramai.engine.invocation.TramaiInvocationHandler
+import dev.tramai.engine.memory.ConversationMemoryCoordinator
+import dev.tramai.engine.memory.PersistConversationTurnRequest
+import dev.tramai.engine.planning.OperationDefinitionCompiler
+import dev.tramai.engine.planning.OperationFingerprintFactory
+import dev.tramai.engine.planning.ServiceDefinition
+import dev.tramai.engine.planning.ServiceDefinitionCompiler
 import dev.tramai.engine.provider.AttemptCounter
 import dev.tramai.engine.provider.ProviderAttemptExecutor
 import dev.tramai.engine.provider.ProviderAuthorizationService
@@ -80,6 +116,13 @@ import dev.tramai.engine.provider.ProviderInvocationGate
 import dev.tramai.engine.provider.ProviderResolutionGate
 import dev.tramai.engine.provider.ProviderResponseSanitizer
 import dev.tramai.engine.provider.ProviderRetryPolicy
+import dev.tramai.engine.streaming.StreamingBeforeResponseReturnGate
+import dev.tramai.engine.streaming.StreamingExecutionCoordinator
+import dev.tramai.engine.streaming.StreamingExecutionRequest
+import dev.tramai.engine.structured.ResumedStructuredResponseRequest
+import dev.tramai.engine.structured.StructuredAttemptExecutor
+import dev.tramai.engine.structured.StructuredResponseCoordinator
+import dev.tramai.engine.structured.StructuredResponseRequest
 import dev.tramai.engine.tool.ToolApprovalGate
 import dev.tramai.engine.tool.ToolAuthorizationCoordinator
 import dev.tramai.engine.tool.ToolCallBatchRequest
@@ -89,47 +132,15 @@ import dev.tramai.engine.tool.ToolInvocationExecutor
 import dev.tramai.engine.tool.ToolReinjectionCoordinator
 import dev.tramai.engine.tool.ToolResultSanitizer
 import dev.tramai.engine.tool.ToolRetryPolicy
-import dev.tramai.engine.approval.ApprovalResumeCoordinator
-import dev.tramai.engine.approval.ApprovalSuspensionCoordinator
-import dev.tramai.engine.approval.ClaimedResumeExecutionRequest
-import dev.tramai.engine.approval.ClaimedResumeExecutor
-import dev.tramai.engine.approval.ContinuationClaimService
-import dev.tramai.engine.approval.ReplayAuthorizationService
-import dev.tramai.engine.approval.ResumeOperationRegistry as ApprovalResumeOperationRegistry
-import dev.tramai.engine.budget.TokenBudgetCoordinator
-import dev.tramai.engine.cache.OperationCacheCoordinator
-import dev.tramai.engine.cache.OperationCacheKeyRequest
-import dev.tramai.engine.cache.OperationCacheLookupRequest
-import dev.tramai.engine.cache.OperationCacheLookupResult
-import dev.tramai.engine.cache.OperationCacheStoreRequest
-import dev.tramai.engine.memory.ConversationMemoryCoordinator
-import dev.tramai.engine.memory.PersistConversationTurnRequest
-import dev.tramai.engine.structured.ResumedStructuredResponseRequest
-import dev.tramai.engine.structured.StructuredAttemptExecutor
-import dev.tramai.engine.structured.StructuredResponseCoordinator
-import dev.tramai.engine.structured.StructuredResponseRequest
-import dev.tramai.engine.streaming.StreamingBeforeResponseReturnGate
-import dev.tramai.engine.streaming.StreamingExecutionCoordinator
-import dev.tramai.engine.streaming.StreamingExecutionRequest
-import dev.tramai.core.approval.ValidateResumeCommand
-import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
-import dev.tramai.core.approval.SensitiveToolArguments
-import dev.tramai.core.approval.ToolArgumentsDigester
-import dev.tramai.core.approval.Sha256Digest
-import dev.tramai.core.coroutines.rethrowIfCancellation
-import dev.tramai.core.exception.ApprovalSuspendedException
-import dev.tramai.core.exception.ApprovalNotFoundException
-import dev.tramai.core.exception.ToolInvalidInputException
-import dev.tramai.core.model.*
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -151,16 +162,9 @@ import java.util.Base64
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.reflect.KClass
-import dev.tramai.engine.components.ApprovalCapability
-import dev.tramai.engine.components.EngineComponentFactory
-import dev.tramai.engine.components.EngineComponents
-import dev.tramai.engine.planning.OperationDefinitionCompiler
-import dev.tramai.engine.planning.OperationFingerprintFactory
-import dev.tramai.engine.planning.ServiceDefinition
-import dev.tramai.engine.planning.ServiceDefinitionCompiler
-import dev.tramai.engine.invocation.InvocationExecutionCoordinator
-import dev.tramai.engine.invocation.TramaiInvocationHandler
-import dev.tramai.core.provider.resolveCandidates
+import dev.tramai.core.annotations.System as SystemMessage
+import dev.tramai.core.annotations.User as UserMessage
+import dev.tramai.engine.approval.ResumeOperationRegistry as ApprovalResumeOperationRegistry
 
 private const val UNREGISTERED_TOOL_NAME = "unregistered_tool"
 
@@ -171,6 +175,7 @@ internal typealias ResumeOperationRegistry = ApprovalResumeOperationRegistry
 /**
  * Runtime engine that turns annotated service interfaces into AI-backed proxies.
  */
+@Suppress("LongParameterList")
 class TramaiEngine internal constructor(
     private val components: EngineComponents,
 ) : AutoCloseable {
@@ -204,82 +209,195 @@ class TramaiEngine internal constructor(
     private val toolArgumentsDigester = (components.approvals.capability as? ApprovalCapability.Enabled)?.argumentsDigester
     private val approvalGateCoordinator = (components.approvals.capability as? ApprovalCapability.Enabled)?.gateCoordinator
     private val approvalLifecycleAuditEmitter = components.approvals.approvalLifecycleAuditEmitter
+    private val approvalResumeAdmission = components.approvals.resumeAdmission
+    private val approvalRecoveryCoordinator = components.approvals.recoveryCoordinator
+    private val approvalResumeEvidenceRequired = components.approvals.approvalResumeEvidenceRequired
     private val clock = components.execution.clock
     private val structuredOutputFailureDiagnosticObserver = components.observation.structuredOutputFailureDiagnosticObserver
 
     constructor(
         providerRegistry: ProviderRegistry,
-    structuredOutputHandler: StructuredOutputHandler? = null,
-    toolRegistry: ToolRegistry = ToolRegistry(),
-    operationObserver: OperationObserver = NoOpOperationObserver,
-    operationInterceptor: OperationInterceptor = NoOpOperationInterceptor,
-    responseCache: OperationResponseCache = NoOpOperationResponseCache,
-    modelRegistry: ModelRegistry = NoOpModelRegistry,
-    modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
-    circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
-    retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
-    tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
-    promptSanitizer: PromptSanitizer? = null,
-    chatMemory: ChatMemory? = null,
-    conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
-    job: Job = SupervisorJob(),
-    scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
-    policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
-    dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
-    dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
-    toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
-    engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
-    toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
-    policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
-    // Approval suspension dependencies
-    suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
-    approvalContinuationStore: ApprovalContinuationStore? = null,
-    toolArgumentsDigester: ToolArgumentsDigester? = null,
-    approvalGateCoordinator: ApprovalGateCoordinator? = null,
-    approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
-    clock: Clock = Clock.systemUTC(),
-) : this(EngineComponentFactory.create(
-    providerRegistry, structuredOutputHandler, toolRegistry, operationObserver, operationInterceptor, responseCache,
-    modelRegistry, modelRegistrySettings, circuitBreakerSettings, retryPolicySettings, tokenBudgetSettings, promptSanitizer,
-    chatMemory, conversationIdProvider, policyEngine, dlpInterceptor, dlpRedactionAuditEmitter,
-    toolResultFilteringSettings, engineEventObserver, toolFailureDiagnosticObserver, policyDecisionAuditEmitter,
-    suspendedInvocationStore, approvalContinuationStore, toolArgumentsDigester, approvalGateCoordinator,
-    approvalLifecycleAuditEmitter, clock,
-))
+        structuredOutputHandler: StructuredOutputHandler?,
+        toolRegistry: ToolRegistry,
+        operationObserver: OperationObserver,
+        operationInterceptor: OperationInterceptor,
+        responseCache: OperationResponseCache,
+        modelRegistry: ModelRegistry,
+        modelRegistrySettings: ModelRegistrySettings,
+        circuitBreakerSettings: CircuitBreakerSettings,
+        retryPolicySettings: RetryPolicySettings,
+        tokenBudgetSettings: TokenBudgetSettings,
+        promptSanitizer: PromptSanitizer?,
+        chatMemory: ChatMemory?,
+        conversationIdProvider: ConversationIdProvider,
+        job: Job,
+        scope: CoroutineScope,
+        policyEngine: dev.tramai.core.policy.PolicyEngine?,
+        dlpInterceptor: DlpInterceptor,
+        dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
+        toolResultFilteringSettings: ToolResultFilteringSettings,
+        engineEventObserver: EngineEventObserver,
+        toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver,
+        policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
+        // Approval suspension dependencies
+        suspendedInvocationStore: SuspendedInvocationStore,
+        approvalContinuationStore: ApprovalContinuationStore?,
+        toolArgumentsDigester: ToolArgumentsDigester?,
+        approvalGateCoordinator: ApprovalGateCoordinator?,
+        approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter,
+        approvalResumeAdmission: ApprovalResumeAdmission?,
+        approvalRecoveryCoordinator: ApprovalRecoveryCoordinator?,
+        clock: Clock,
+    ) : this(
+        providerRegistry = providerRegistry,
+        structuredOutputHandler = structuredOutputHandler,
+        toolRegistry = toolRegistry,
+        operationObserver = operationObserver,
+        operationInterceptor = operationInterceptor,
+        responseCache = responseCache,
+        modelRegistry = modelRegistry,
+        modelRegistrySettings = modelRegistrySettings,
+        circuitBreakerSettings = circuitBreakerSettings,
+        retryPolicySettings = retryPolicySettings,
+        tokenBudgetSettings = tokenBudgetSettings,
+        promptSanitizer = promptSanitizer,
+        chatMemory = chatMemory,
+        conversationIdProvider = conversationIdProvider,
+        job = job,
+        scope = scope,
+        policyEngine = policyEngine,
+        dlpInterceptor = dlpInterceptor,
+        dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
+        toolResultFilteringSettings = toolResultFilteringSettings,
+        engineEventObserver = engineEventObserver,
+        toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+        policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+        suspendedInvocationStore = suspendedInvocationStore,
+        approvalContinuationStore = approvalContinuationStore,
+        toolArgumentsDigester = toolArgumentsDigester,
+        approvalGateCoordinator = approvalGateCoordinator,
+        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+        approvalResumeAdmission = approvalResumeAdmission,
+        approvalRecoveryCoordinator = approvalRecoveryCoordinator,
+        approvalResumeEvidenceRequired = false,
+        clock = clock,
+    )
+
+    constructor(
+        providerRegistry: ProviderRegistry,
+        structuredOutputHandler: StructuredOutputHandler? = null,
+        toolRegistry: ToolRegistry = ToolRegistry(),
+        operationObserver: OperationObserver = NoOpOperationObserver,
+        operationInterceptor: OperationInterceptor = NoOpOperationInterceptor,
+        responseCache: OperationResponseCache = NoOpOperationResponseCache,
+        modelRegistry: ModelRegistry = NoOpModelRegistry,
+        modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
+        circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
+        retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
+        tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
+        promptSanitizer: PromptSanitizer? = null,
+        chatMemory: ChatMemory? = null,
+        conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
+        job: Job = SupervisorJob(),
+        scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
+        policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
+        dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
+        dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
+        toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
+        engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
+        toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
+        policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
+        // Approval suspension dependencies
+        suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
+        approvalContinuationStore: ApprovalContinuationStore? = null,
+        toolArgumentsDigester: ToolArgumentsDigester? = null,
+        approvalGateCoordinator: ApprovalGateCoordinator? = null,
+        approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        approvalResumeAdmission: ApprovalResumeAdmission? = null,
+        approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
+        approvalResumeEvidenceRequired: Boolean = false,
+        clock: Clock = Clock.systemUTC(),
+    ) : this(
+        EngineComponentFactory.create(
+            providerRegistry,
+            structuredOutputHandler,
+            toolRegistry,
+            operationObserver,
+            operationInterceptor,
+            responseCache,
+            modelRegistry,
+            modelRegistrySettings,
+            circuitBreakerSettings,
+            retryPolicySettings,
+            tokenBudgetSettings,
+            promptSanitizer,
+            chatMemory,
+            conversationIdProvider,
+            policyEngine,
+            dlpInterceptor,
+            dlpRedactionAuditEmitter,
+            toolResultFilteringSettings,
+            engineEventObserver,
+            toolFailureDiagnosticObserver,
+            policyDecisionAuditEmitter,
+            suspendedInvocationStore,
+            approvalContinuationStore,
+            toolArgumentsDigester,
+            approvalGateCoordinator,
+            approvalLifecycleAuditEmitter,
+            clock,
+            approvalResumeAdmission,
+            approvalRecoveryCoordinator,
+            approvalResumeEvidenceRequired,
+        ),
+    )
+
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
-    private val migrationWarningGuard = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val migrationWarningGuard =
+        java.util.concurrent.atomic
+            .AtomicBoolean(false)
     private val resolvedPolicyEngine: PolicyEngine = components.security.resolvedPolicyEngine
     private val isLegacyFallback: Boolean = components.security.isLegacyFallback
     private val resumeOperationRegistry: ResumeOperationRegistry = ResumeOperationRegistry()
-    private val approvalPolicyHelper = PolicyEnforcementHelper(
-        resolvedPolicyEngine,
-        migrationWarningGuard,
-        isLegacyFallback = isLegacyFallback,
-        auditEmitter = policyDecisionAuditEmitter,
-    )
-    private val continuationClaimService = ContinuationClaimService(
-        approvalContinuationStore = approvalContinuationStore,
-    )
-    private val replayAuthorizationService = ReplayAuthorizationService(
-        approvalGateCoordinator = approvalGateCoordinator,
-        suspendedInvocationStore = suspendedInvocationStore,
-        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
-        policyHelper = approvalPolicyHelper,
-        engineEventObserver = engineEventObserver,
-    )
-    private val approvalResumeCoordinator = ApprovalResumeCoordinator(
-        approvalContinuationStore = approvalContinuationStore,
-        suspendedInvocationStore = suspendedInvocationStore,
-        resumeOperationRegistry = resumeOperationRegistry,
-        toolRegistry = toolRegistry,
-        toolArgumentsDigester = toolArgumentsDigester,
-        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
-        engineEventObserver = engineEventObserver,
-        claimService = continuationClaimService,
-        authorizationService = replayAuthorizationService,
-    )
-    private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val approvalPolicyHelper =
+        PolicyEnforcementHelper(
+            resolvedPolicyEngine,
+            migrationWarningGuard,
+            isLegacyFallback = isLegacyFallback,
+            auditEmitter = policyDecisionAuditEmitter,
+        )
+    private val continuationClaimService =
+        ContinuationClaimService(
+            approvalContinuationStore = approvalContinuationStore,
+        )
+    private val replayAuthorizationService =
+        ReplayAuthorizationService(
+            approvalGateCoordinator = approvalGateCoordinator,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+            policyHelper = approvalPolicyHelper,
+            engineEventObserver = engineEventObserver,
+        )
+    private val approvalResumeCoordinator =
+        ApprovalResumeCoordinator(
+            approvalResumeAdmission = approvalResumeAdmission,
+            approvalRecoveryCoordinator = approvalRecoveryCoordinator,
+            approvalContinuationStore = approvalContinuationStore,
+            suspendedInvocationStore = suspendedInvocationStore,
+            resumeOperationRegistry = resumeOperationRegistry,
+            toolRegistry = toolRegistry,
+            toolArgumentsDigester = toolArgumentsDigester,
+            approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+            engineEventObserver = engineEventObserver,
+            claimService = continuationClaimService,
+            authorizationService = replayAuthorizationService,
+            evidenceRequired = approvalResumeEvidenceRequired,
+        )
+    private val closed =
+        java.util.concurrent.atomic
+            .AtomicBoolean(false)
     private val engineThreadMarker = ThreadLocal<Boolean>()
+
     /**
      * Internally owned lifecycle job and scope. The engine's OWN work (blocking
      * calls, streaming collections) parents here — never to the caller-supplied
@@ -289,34 +407,42 @@ class TramaiEngine internal constructor(
      * job lives (and without risking the caller-job join deadlock).
      */
     private val lifecycleJob: Job = SupervisorJob()
+
     // Every engine-owned child (streaming collection, future lifecycle tasks)
     // carries the engine-thread marker: close() called from ANY engine-owned
     // coroutine (provider/interceptor/observer re-entering close) skips the
     // join and cannot self-deadlock. Encoding ownership once at the scope
     // level is stronger than decorating individual launches.
     private var lifecycleDispatcher: CoroutineDispatcher = Dispatchers.Default
-    private val lifecycleScope: CoroutineScope by lazy { CoroutineScope(
-        lifecycleJob + lifecycleDispatcher + engineThreadMarker.asContextElement(true) + CoroutineExceptionHandler { _, error ->
-            // Engine-owned background work can outlive its caller (e.g. a
-            // streaming collection abandoned mid-flight). Its failure is
-            // already surfaced to the caller's continuation when one exists.
-            // Orphaned failures must not crash the process or leak onto a
-            // shared global handler. Log FIXED safe metadata only — never the
-            // raw throwable: the failure may carry externally supplied
-            // exception messages (PII), which the safe-error-boundary work
-            // (Epic 1.2) keeps out of normal logs.
-            System.getLogger("dev.tramai.engine.TramaiEngine").log(
-                System.Logger.Level.WARNING,
-                "Engine-owned coroutine failed after close or abandonment (type: ${error::class.qualifiedName})",
-            )
-        },
-    ) }
+    private val lifecycleScope: CoroutineScope by lazy {
+        CoroutineScope(
+            lifecycleJob + lifecycleDispatcher + engineThreadMarker.asContextElement(true) +
+                CoroutineExceptionHandler { _, error ->
+                    // Engine-owned background work can outlive its caller (e.g. a
+                    // streaming collection abandoned mid-flight). Its failure is
+                    // already surfaced to the caller's continuation when one exists.
+                    // Orphaned failures must not crash the process or leak onto a
+                    // shared global handler. Log FIXED safe metadata only — never the
+                    // raw throwable: the failure may carry externally supplied
+                    // exception messages (PII), which the safe-error-boundary work
+                    // (Epic 1.2) keeps out of normal logs.
+                    System.getLogger("dev.tramai.engine.TramaiEngine").log(
+                        System.Logger.Level.WARNING,
+                        "Engine-owned coroutine failed after close or abandonment " +
+                            "(type: ${error::class.qualifiedName})",
+                    )
+                },
+        )
+    }
+
     /**
      * Suspend-invocation jobs launched for caller continuations. They are
      * children of the CALLER's job (so parent cancellation propagates), but the
      * engine tracks them so close() terminates in-flight work it owns.
      */
-    private val activeInvocationJobs = java.util.concurrent.ConcurrentHashMap.newKeySet<Job>()
+    private val activeInvocationJobs =
+        java.util.concurrent.ConcurrentHashMap
+            .newKeySet<Job>()
 
     /**
      * Internal deterministic-dispatch seam for the engine-owned lifecycle
@@ -425,7 +551,8 @@ class TramaiEngine internal constructor(
         toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
         engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
         toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
-        structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
+        structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
+            NoOpStructuredOutputFailureDiagnosticObserver,
         policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
         suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
         approvalContinuationStore: ApprovalContinuationStore? = null,
@@ -433,36 +560,38 @@ class TramaiEngine internal constructor(
         approvalGateCoordinator: ApprovalGateCoordinator? = null,
         approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
         clock: Clock = Clock.systemUTC(),
-    ) : this(EngineComponentFactory.create(
-        providerRegistry = ProviderRegistry.singleProvider(provider),
-        structuredOutputHandler = structuredOutputHandler,
-        toolRegistry = toolRegistry,
-        operationObserver = operationObserver,
-        operationInterceptor = operationInterceptor,
-        responseCache = responseCache,
-        modelRegistry = modelRegistry,
-        modelRegistrySettings = modelRegistrySettings,
-        circuitBreakerSettings = circuitBreakerSettings,
-        retryPolicySettings = retryPolicySettings,
-        tokenBudgetSettings = tokenBudgetSettings,
-        promptSanitizer = promptSanitizer,
-        chatMemory = chatMemory,
-        conversationIdProvider = conversationIdProvider,
-        policyEngine = policyEngine,
-        dlpInterceptor = dlpInterceptor,
-        dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
-        toolResultFilteringSettings = toolResultFilteringSettings,
-        engineEventObserver = engineEventObserver,
-        toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
-        policyDecisionAuditEmitter = policyDecisionAuditEmitter,
-        suspendedInvocationStore = suspendedInvocationStore,
-        approvalContinuationStore = approvalContinuationStore,
-        toolArgumentsDigester = toolArgumentsDigester,
-        approvalGateCoordinator = approvalGateCoordinator,
-        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
-        clock = clock,
-        structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
-    ))
+    ) : this(
+        EngineComponentFactory.create(
+            providerRegistry = ProviderRegistry.singleProvider(provider),
+            structuredOutputHandler = structuredOutputHandler,
+            toolRegistry = toolRegistry,
+            operationObserver = operationObserver,
+            operationInterceptor = operationInterceptor,
+            responseCache = responseCache,
+            modelRegistry = modelRegistry,
+            modelRegistrySettings = modelRegistrySettings,
+            circuitBreakerSettings = circuitBreakerSettings,
+            retryPolicySettings = retryPolicySettings,
+            tokenBudgetSettings = tokenBudgetSettings,
+            promptSanitizer = promptSanitizer,
+            chatMemory = chatMemory,
+            conversationIdProvider = conversationIdProvider,
+            policyEngine = policyEngine,
+            dlpInterceptor = dlpInterceptor,
+            dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
+            toolResultFilteringSettings = toolResultFilteringSettings,
+            engineEventObserver = engineEventObserver,
+            toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+            policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = approvalContinuationStore,
+            toolArgumentsDigester = toolArgumentsDigester,
+            approvalGateCoordinator = approvalGateCoordinator,
+            approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+            clock = clock,
+            structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
+        ),
+    )
 
     /**
      * Additive configuration: creates an engine from a provider registry with
@@ -493,7 +622,8 @@ class TramaiEngine internal constructor(
         toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
         engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
         toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
-        structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
+        structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
+            NoOpStructuredOutputFailureDiagnosticObserver,
         policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
         suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
         approvalContinuationStore: ApprovalContinuationStore? = null,
@@ -501,36 +631,38 @@ class TramaiEngine internal constructor(
         approvalGateCoordinator: ApprovalGateCoordinator? = null,
         approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
         clock: Clock = Clock.systemUTC(),
-    ) : this(EngineComponentFactory.create(
-        providerRegistry = providerRegistry,
-        structuredOutputHandler = structuredOutputHandler,
-        toolRegistry = toolRegistry,
-        operationObserver = operationObserver,
-        operationInterceptor = operationInterceptor,
-        responseCache = responseCache,
-        modelRegistry = modelRegistry,
-        modelRegistrySettings = modelRegistrySettings,
-        circuitBreakerSettings = circuitBreakerSettings,
-        retryPolicySettings = retryPolicySettings,
-        tokenBudgetSettings = tokenBudgetSettings,
-        promptSanitizer = promptSanitizer,
-        chatMemory = chatMemory,
-        conversationIdProvider = conversationIdProvider,
-        policyEngine = policyEngine,
-        dlpInterceptor = dlpInterceptor,
-        dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
-        toolResultFilteringSettings = toolResultFilteringSettings,
-        engineEventObserver = engineEventObserver,
-        toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
-        policyDecisionAuditEmitter = policyDecisionAuditEmitter,
-        suspendedInvocationStore = suspendedInvocationStore,
-        approvalContinuationStore = approvalContinuationStore,
-        toolArgumentsDigester = toolArgumentsDigester,
-        approvalGateCoordinator = approvalGateCoordinator,
-        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
-        clock = clock,
-        structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
-    ))
+    ) : this(
+        EngineComponentFactory.create(
+            providerRegistry = providerRegistry,
+            structuredOutputHandler = structuredOutputHandler,
+            toolRegistry = toolRegistry,
+            operationObserver = operationObserver,
+            operationInterceptor = operationInterceptor,
+            responseCache = responseCache,
+            modelRegistry = modelRegistry,
+            modelRegistrySettings = modelRegistrySettings,
+            circuitBreakerSettings = circuitBreakerSettings,
+            retryPolicySettings = retryPolicySettings,
+            tokenBudgetSettings = tokenBudgetSettings,
+            promptSanitizer = promptSanitizer,
+            chatMemory = chatMemory,
+            conversationIdProvider = conversationIdProvider,
+            policyEngine = policyEngine,
+            dlpInterceptor = dlpInterceptor,
+            dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
+            toolResultFilteringSettings = toolResultFilteringSettings,
+            engineEventObserver = engineEventObserver,
+            toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+            policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = approvalContinuationStore,
+            toolArgumentsDigester = toolArgumentsDigester,
+            approvalGateCoordinator = approvalGateCoordinator,
+            approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+            clock = clock,
+            structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
+        ),
+    )
 
     /**
      * Creates a proxy implementation for the given Tramai service interface.
@@ -538,33 +670,37 @@ class TramaiEngine internal constructor(
     fun <T : Any> create(serviceType: KClass<T>): T {
         check(!closed.get()) { "Tramai runtime is closed" }
         val definition = serviceDefinitionCompiler.compile(serviceType)
-        val executionCoordinator = InvocationExecutionCoordinator(
-            components = components,
-            circuitBreaker = circuitBreaker,
-            retryDelayPolicy = retryDelayPolicy,
-            migrationWarningGuard = migrationWarningGuard,
-            lifecycleScope = lifecycleScope,
-            isClosed = closed,
-            serviceDefinition = definition,
-            resumeOperationRegistry = resumeOperationRegistry,
-        )
-        val handler = TramaiInvocationHandler(
-            serviceDefinition = definition,
-            lifecycleJob = lifecycleJob,
-            lifecycleScope = lifecycleScope,
-            isClosed = closed,
-            engineThreadMarker = engineThreadMarker,
-            activeInvocationJobs = activeInvocationJobs,
-            contextFactory = executionCoordinator.contextFactory,
-            executionCoordinator = executionCoordinator,
-        )
+        val executionCoordinator =
+            InvocationExecutionCoordinator(
+                components = components,
+                circuitBreaker = circuitBreaker,
+                retryDelayPolicy = retryDelayPolicy,
+                migrationWarningGuard = migrationWarningGuard,
+                lifecycleScope = lifecycleScope,
+                isClosed = closed,
+                serviceDefinition = definition,
+                resumeOperationRegistry = resumeOperationRegistry,
+            )
+        val handler =
+            TramaiInvocationHandler(
+                serviceDefinition = definition,
+                lifecycleJob = lifecycleJob,
+                lifecycleScope = lifecycleScope,
+                isClosed = closed,
+                engineThreadMarker = engineThreadMarker,
+                activeInvocationJobs = activeInvocationJobs,
+                contextFactory = executionCoordinator.contextFactory,
+                executionCoordinator = executionCoordinator,
+            )
 
         @Suppress("UNCHECKED_CAST")
-        return (Proxy.newProxyInstance(
-            serviceType.java.classLoader,
-            arrayOf(serviceType.java),
-            handler,
-        ) as T).also {
+        return (
+            Proxy.newProxyInstance(
+                serviceType.java.classLoader,
+                arrayOf(serviceType.java),
+                handler,
+            ) as T
+        ).also {
             resumeOperationRegistry.registerAll(
                 serviceDefinition = definition,
                 resumeExecutor = executionCoordinator,
@@ -583,16 +719,17 @@ class TramaiEngine internal constructor(
     fun registerService(serviceType: KClass<*>) {
         check(!closed.get()) { "Tramai runtime is closed" }
         val definition = serviceDefinitionCompiler.compile(serviceType)
-        val executionCoordinator = InvocationExecutionCoordinator(
-            components = components,
-            circuitBreaker = circuitBreaker,
-            retryDelayPolicy = retryDelayPolicy,
-            migrationWarningGuard = migrationWarningGuard,
-            lifecycleScope = lifecycleScope,
-            isClosed = closed,
-            serviceDefinition = definition,
-            resumeOperationRegistry = resumeOperationRegistry,
-        )
+        val executionCoordinator =
+            InvocationExecutionCoordinator(
+                components = components,
+                circuitBreaker = circuitBreaker,
+                retryDelayPolicy = retryDelayPolicy,
+                migrationWarningGuard = migrationWarningGuard,
+                lifecycleScope = lifecycleScope,
+                isClosed = closed,
+                serviceDefinition = definition,
+                resumeOperationRegistry = resumeOperationRegistry,
+            )
         resumeOperationRegistry.registerAll(
             serviceDefinition = definition,
             resumeExecutor = executionCoordinator,
@@ -619,8 +756,7 @@ class TramaiEngine internal constructor(
      * Typed convenience overload for [resumeApproval].
      */
     @Suppress("UNCHECKED_CAST")
-    suspend inline fun <reified R> resumeApprovalTyped(command: ResumeApprovalCommand): R =
-        resumeApproval(command) as R
+    suspend inline fun <reified R> resumeApprovalTyped(command: ResumeApprovalCommand): R = resumeApproval(command) as R
 
     /**
      * Cancels all engine-initiated work and, except from one of the engine's
@@ -638,9 +774,10 @@ class TramaiEngine internal constructor(
             // Synchronized with the launch+add in invokeSuspend: either the
             // launch completed first (its job is in the set and gets cancelled
             // here) or close() won and the launch's in-lock re-check rejects it.
-            val tracked = synchronized(activeInvocationJobs) {
-                activeInvocationJobs.toList()
-            }
+            val tracked =
+                synchronized(activeInvocationJobs) {
+                    activeInvocationJobs.toList()
+                }
             tracked.forEach { it.cancel() }
             if (engineThreadMarker.get() != true) {
                 // Wait for the engine-owned hierarchy AND every tracked
@@ -732,19 +869,21 @@ data class OperationDefinition(
     val hasMultiMessageAnnotations: Boolean get() =
         systemAnnotations.isNotEmpty() || userAnnotations.isNotEmpty()
 
-    private fun sanitizedArgumentValues(arguments: List<Any?>): List<String> = arguments.map { argument ->
-        val rendered = when (argument) {
-            is ClassifiedDocument<*> -> argument.payload?.toString() ?: ""
-            else -> argument?.toString() ?: ""
+    private fun sanitizedArgumentValues(arguments: List<Any?>): List<String> =
+        arguments.map { argument ->
+            val rendered =
+                when (argument) {
+                    is ClassifiedDocument<*> -> argument.payload?.toString() ?: ""
+                    else -> argument?.toString() ?: ""
+                }
+            promptSanitizer?.sanitize(rendered) ?: rendered
         }
-        promptSanitizer?.sanitize(rendered) ?: rendered
-    }
 
     fun toRequest(
         arguments: List<Any?>,
         modelName: String = operation.model,
-    ): ModelRequest {
-        return ModelRequest(
+    ): ModelRequest =
+        ModelRequest(
             model = modelName,
             messages = initialMessages(arguments),
             tools = toolDefinitions.takeIf { it.isNotEmpty() },
@@ -752,7 +891,6 @@ data class OperationDefinition(
             operationInterface = method.declaringClass.name,
             operationMethod = method.name,
         )
-    }
 
     fun initialMessages(
         arguments: List<Any?>,
@@ -769,11 +907,12 @@ data class OperationDefinition(
     private fun buildMessagesFromAnnotations(
         arguments: List<String>,
         schemaJson: String?,
-    ): List<Message> = buildList {
-        add(annotationSystemMessage(arguments))
-        addAll(annotationUserMessages(arguments))
-        appendSchemaConstraint(schemaJson)
-    }
+    ): List<Message> =
+        buildList {
+            add(annotationSystemMessage(arguments))
+            addAll(annotationUserMessages(arguments))
+            appendSchemaConstraint(schemaJson)
+        }
 
     /**
      * Builds the system message used by multi-message annotations.
@@ -792,18 +931,26 @@ data class OperationDefinition(
      */
     private fun annotationUserMessages(arguments: List<String>): List<Message> =
         when {
-            userAnnotations.isNotEmpty() -> userAnnotations.map { template ->
-                Message(role = MessageRole.USER, content = interpolate(template, arguments))
+            userAnnotations.isNotEmpty() -> {
+                userAnnotations.map { template ->
+                    Message(role = MessageRole.USER, content = interpolate(template, arguments))
+                }
             }
-            operation.prompt.isNotBlank() -> listOf(
-                Message(role = MessageRole.USER, content = interpolate(operation.prompt, arguments))
-            )
-            else -> listOf(
-                Message(
-                    role = MessageRole.USER,
-                    content = "Execute the operation ${method.name} with the provided parameters.",
+
+            operation.prompt.isNotBlank() -> {
+                listOf(
+                    Message(role = MessageRole.USER, content = interpolate(operation.prompt, arguments)),
                 )
-            )
+            }
+
+            else -> {
+                listOf(
+                    Message(
+                        role = MessageRole.USER,
+                        content = "Execute the operation ${method.name} with the provided parameters.",
+                    ),
+                )
+            }
         }
 
     /**
@@ -818,44 +965,50 @@ data class OperationDefinition(
             return
         }
         val last = this[lastUserIndex]
-        this[lastUserIndex] = last.copy(
-            content = last.content + "\n\nRespond only with valid JSON matching this schema:\n$schemaJson",
-        )
+        this[lastUserIndex] =
+            last.copy(
+                content = last.content + "\n\nRespond only with valid JSON matching this schema:\n$schemaJson",
+            )
     }
 
     private fun buildMessagesFromPrompt(
         arguments: List<String>,
         schemaJson: String?,
     ): List<Message> {
-        val messages = buildList {
-            // Class-level @SystemPrompt still applies for backward compat
-            if (!classLevelSystemPrompt.isNullOrBlank()) {
-                add(Message(role = MessageRole.SYSTEM, content = classLevelSystemPrompt))
-            }
+        val messages =
+            buildList {
+                // Class-level @SystemPrompt still applies for backward compat
+                if (!classLevelSystemPrompt.isNullOrBlank()) {
+                    add(Message(role = MessageRole.SYSTEM, content = classLevelSystemPrompt))
+                }
 
-            val userMessage = buildString {
-                append(operation.prompt)
-                if (!schemaJson.isNullOrBlank()) {
-                    append("\n\nRespond only with valid JSON matching this schema:\n")
-                    append(schemaJson)
-                }
-                if (arguments.isNotEmpty()) {
-                    append("\n\nArguments:")
-                    arguments.forEachIndexed { index, value ->
-                        append("\n- ")
-                        append(parameterNames.getOrElse(index) { "arg$index" })
-                        append(": ")
-                        append(value)
+                val userMessage =
+                    buildString {
+                        append(operation.prompt)
+                        if (!schemaJson.isNullOrBlank()) {
+                            append("\n\nRespond only with valid JSON matching this schema:\n")
+                            append(schemaJson)
+                        }
+                        if (arguments.isNotEmpty()) {
+                            append("\n\nArguments:")
+                            arguments.forEachIndexed { index, value ->
+                                append("\n- ")
+                                append(parameterNames.getOrElse(index) { "arg$index" })
+                                append(": ")
+                                append(value)
+                            }
+                        }
                     }
-                }
+                add(Message(role = MessageRole.USER, content = userMessage))
             }
-            add(Message(role = MessageRole.USER, content = userMessage))
-        }
 
         return messages
     }
 
-    private fun interpolate(template: String, arguments: List<String>): String {
+    private fun interpolate(
+        template: String,
+        arguments: List<String>,
+    ): String {
         var result = template
         arguments.forEachIndexed { index, value ->
             val name = parameterNames.getOrElse(index) { "arg$index" }
@@ -864,44 +1017,54 @@ data class OperationDefinition(
         return result
     }
 
-    private fun defaultSystemMessage(): String = buildString {
-        append("You are an AI assistant implementing the \"")
-        append(method.declaringClass.simpleName)
-        append("\" service.\nMethod: ")
-        append(method.name)
-        append("(")
-        append(parameterNames.joinToString(", "))
-        append(")\nReturn type: ")
-        append(returnTypeDescription)
-    }
+    private fun defaultSystemMessage(): String =
+        buildString {
+            append("You are an AI assistant implementing the \"")
+            append(method.declaringClass.simpleName)
+            append("\" service.\nMethod: ")
+            append(method.name)
+            append("(")
+            append(parameterNames.joinToString(", "))
+            append(")\nReturn type: ")
+            append(returnTypeDescription)
+        }
 
     fun cacheKey(
         arguments: List<Any?>,
         schemaJson: String? = null,
-    ): OperationCacheKey = buildCacheKey(
-        digestSource = initialMessages(arguments, schemaJson),
-        securityPartition = ExecutionSecurityContext.fromArguments(arguments.toTypedArray()).toCacheSecurityPartition(),
-    )
+    ): OperationCacheKey =
+        buildCacheKey(
+            digestSource = initialMessages(arguments, schemaJson),
+            securityPartition =
+                ExecutionSecurityContext
+                    .fromArguments(arguments.toTypedArray())
+                    .toCacheSecurityPartition(),
+        )
 
     internal fun buildCacheKey(
         digestSource: List<Message>,
         securityPartition: CacheSecurityPartition,
         operationFingerprint: String? = null,
-    ): OperationCacheKey = OperationCacheKey(
-        serviceInterface = method.declaringClass.name,
-        methodName = method.name,
-        requestedModel = operation.model,
-        explicitProvider = operation.provider.takeIf { it.isNotBlank() },
-        requestDigest = sha256Hex(CanonicalMessageEncoder.encode(digestSource)),
-        operationFingerprint = operationFingerprint ?: OperationFingerprintFactory().create(toolDefinitions, operation),
-        securityPartition = securityPartition,
-    )
+    ): OperationCacheKey =
+        OperationCacheKey(
+            serviceInterface = method.declaringClass.name,
+            methodName = method.name,
+            requestedModel = operation.model,
+            explicitProvider = operation.provider.takeIf { it.isNotBlank() },
+            requestDigest = sha256Hex(CanonicalMessageEncoder.encode(digestSource)),
+            operationFingerprint =
+                operationFingerprint
+                    ?: OperationFingerprintFactory().create(toolDefinitions, operation),
+            securityPartition = securityPartition,
+        )
 
-    fun structuredContract(handler: StructuredOutputHandler) = handler.createContract(
-        requireNotNull(returnType) {
-            "Structured return type $returnTypeDescription could not be inspected without Kotlin reflection metadata"
-        },
-    )
+    fun structuredContract(handler: StructuredOutputHandler) =
+        handler.createContract(
+            requireNotNull(returnType) {
+                "Structured return type $returnTypeDescription could not be inspected without Kotlin " +
+                    "reflection metadata"
+            },
+        )
 
     companion object {
         /**
@@ -916,15 +1079,16 @@ data class OperationDefinition(
             userAnnotations: List<String> = emptyList(),
             toolDefinitions: List<ToolDefinition> = emptyList(),
             promptSanitizer: PromptSanitizer? = null,
-        ): OperationDefinition = dev.tramai.engine.planning.OperationDefinitionCompiler.compileDefinition(
-            method = method,
-            operation = operation,
-            classLevelSystemPrompt = classLevelSystemPrompt,
-            systemAnnotations = systemAnnotations,
-            userAnnotations = userAnnotations,
-            toolDefinitions = toolDefinitions,
-            promptSanitizer = promptSanitizer,
-        )
+        ): OperationDefinition =
+            dev.tramai.engine.planning.OperationDefinitionCompiler.compileDefinition(
+                method = method,
+                operation = operation,
+                classLevelSystemPrompt = classLevelSystemPrompt,
+                systemAnnotations = systemAnnotations,
+                userAnnotations = userAnnotations,
+                toolDefinitions = toolDefinitions,
+                promptSanitizer = promptSanitizer,
+            )
     }
 }
 
@@ -936,20 +1100,21 @@ internal fun buildOperationCacheKeyForTesting(
     promptSanitizer: PromptSanitizer? = null,
     toolRegistry: ToolRegistry = ToolRegistry(),
 ): OperationCacheKey {
-    val definition = ServiceDefinitionCompiler(
-        OperationDefinitionCompiler(toolRegistry, promptSanitizer, OperationFingerprintFactory()),
-    ).compile(serviceType)
-    val method = serviceType.java.methods.firstOrNull { it.name == methodName }
-        ?: throw IllegalArgumentException("No method named '$methodName' on ${serviceType.java.name}")
-    val operation = definition.operations[method]?.definition
-        ?: throw IllegalArgumentException("No operation metadata for ${serviceType.java.name}.$methodName")
+    val definition =
+        ServiceDefinitionCompiler(
+            OperationDefinitionCompiler(toolRegistry, promptSanitizer, OperationFingerprintFactory()),
+        ).compile(serviceType)
+    val method =
+        serviceType.java.methods.firstOrNull { it.name == methodName }
+            ?: throw IllegalArgumentException("No method named '$methodName' on ${serviceType.java.name}")
+    val operation =
+        definition.operations[method]?.definition
+            ?: throw IllegalArgumentException("No operation metadata for ${serviceType.java.name}.$methodName")
     return operation.buildCacheKey(
         digestSource = operation.initialMessages(arguments, schemaJson),
         securityPartition = ExecutionSecurityContext.fromArguments(arguments.toTypedArray()).toCacheSecurityPartition(),
     )
 }
-
-
 
 enum class ReturnKind {
     STRING,
@@ -958,11 +1123,11 @@ enum class ReturnKind {
     STREAMING,
 }
 
-
-private fun ExecutionSecurityContext.toCacheSecurityPartition() = CacheSecurityPartition(
-    dataClassification = dataClassification,
-    classificationSource = classificationSource,
-)
+private fun ExecutionSecurityContext.toCacheSecurityPartition() =
+    CacheSecurityPartition(
+        dataClassification = dataClassification,
+        classificationSource = classificationSource,
+    )
 
 internal fun buildRequestDigest(messages: List<Message>): String = sha256Hex(CanonicalMessageEncoder.encode(messages))
 
@@ -970,9 +1135,3 @@ internal fun sha256Hex(input: String): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(StandardCharsets.UTF_8))
     return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
 }
-
-
-
-/** @see TramaiEngine */
-
-/** @see TramaiEngine */
