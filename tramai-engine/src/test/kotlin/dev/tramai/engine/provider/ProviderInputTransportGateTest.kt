@@ -56,6 +56,14 @@ class ProviderInputTransportGateTest {
             MinimizationOutcome(replaced, if (replaced != text) 1 else 0, inspectionCompleted = true)
         }
 
+    private val injectingInterceptor =
+        object : OperationInterceptor {
+            override fun interceptRequest(
+                context: OperationCallContext,
+                messages: List<Message>,
+            ): List<Message> = messages + Message.text("leaked sk-secret-12345")
+        }
+
     private fun baseRouting(): ProviderRoutingConfiguration =
         ProviderRoutingConfiguration(
             enabled = true,
@@ -159,23 +167,26 @@ class ProviderInputTransportGateTest {
         )
     }
 
-    private fun syncRequest(retries: Int = 0) =
-        ProviderExecutionRequest(
-            componentOperation(retries),
-            listOf(Message.text("hello")),
-            AttemptCounter(),
-            "cid",
-            ExecutionSecurityContext(
-                dataClassification = DataClassification.INTERNAL,
-                classificationSource = ClassificationSource.DECLARED,
-            ),
-            ProviderRouteGate { },
+    private fun syncRequest(
+        retries: Int = 0,
+        governedRun: dev.tramai.core.identity.GovernedRunIdentity? =
             dev.tramai.core.identity.GovernedRunIdentity(
                 workloadId,
                 dev.tramai.core.identity
                     .RunId("run-1"),
             ),
-        )
+    ) = ProviderExecutionRequest(
+        componentOperation(retries),
+        listOf(Message.text("hello")),
+        AttemptCounter(),
+        "cid",
+        ExecutionSecurityContext(
+            dataClassification = DataClassification.INTERNAL,
+            classificationSource = ClassificationSource.DECLARED,
+        ),
+        ProviderRouteGate { },
+        governedRun,
+    )
 
     @Test
     fun `sync coordinator projects interceptor-injected secret before provider complete`() {
@@ -195,13 +206,6 @@ class ProviderInputTransportGateTest {
                     },
                     minimizers = mapOf(MinimizationObligation.REDACT_SECRETS to minimizer),
                 )
-            val injectingInterceptor =
-                object : OperationInterceptor {
-                    override fun interceptRequest(
-                        context: OperationCallContext,
-                        messages: List<Message>,
-                    ): List<Message> = messages + Message.text("leaked sk-secret-12345")
-                }
             val plan =
                 ProviderRoutingPlan
                     .builder()
@@ -236,6 +240,13 @@ class ProviderInputTransportGateTest {
                         return ModelResponse("ok")
                     }
                 }
+            val injectingInterceptor =
+                object : OperationInterceptor {
+                    override fun interceptRequest(
+                        context: OperationCallContext,
+                        messages: List<Message>,
+                    ): List<Message> = messages + Message.text("leaked sk-secret-12345")
+                }
             val plan =
                 ProviderRoutingPlan
                     .builder()
@@ -259,6 +270,7 @@ class ProviderInputTransportGateTest {
             assertEquals(0, captured.size)
             assertEquals(1, observer.attempts.size)
             assertEquals(null, breaker.openUntilMillis("openai"))
+            assertEquals(listOf(BreakerDisposition.NEUTRAL), breaker.dispositions)
         }
     }
 
@@ -316,6 +328,123 @@ class ProviderInputTransportGateTest {
                 assertEquals("leaked [REDACTED]", req.messages.last().content)
                 assertFalse(req.toString().contains("sk-secret-12345"))
             }
+        }
+    }
+
+    @Test
+    fun `sync cross-deployment fallback projects independently for fallback deployment`() {
+        runBlocking {
+            val primaryCaptured = mutableListOf<ModelRequest>()
+            val fallbackCaptured = mutableListOf<ModelRequest>()
+            val primaryProvider =
+                object : ModelProvider {
+                    override suspend fun complete(request: ModelRequest): ModelResponse {
+                        primaryCaptured.add(request)
+                        throw dev.tramai.core.exception
+                            .ProviderException("primary down", retryable = true)
+                    }
+                }
+            val fallbackProvider =
+                object : ModelProvider {
+                    override suspend fun complete(request: ModelRequest): ModelResponse {
+                        fallbackCaptured.add(request)
+                        return ModelResponse("ok-fallback")
+                    }
+                }
+            val injectingInterceptor =
+                object : OperationInterceptor {
+                    override fun interceptRequest(
+                        context: OperationCallContext,
+                        messages: List<Message>,
+                    ): List<Message> = messages + Message.text("leaked sk-secret-12345")
+                }
+            val plan =
+                ProviderRoutingPlan
+                    .builder()
+                    .provider("openai", primaryProvider)
+                    .provider("anthropic", fallbackProvider)
+                    .model("model", "openai")
+                    .defaultProvider("openai")
+                    .fallbackProvider("model", "anthropic")
+                    .build()
+            val coord =
+                syncCoordinator(plan, ProviderGovernanceConfiguration.from(fallbackRouting())!!, injectingInterceptor)
+
+            coord.execute(syncRequest(retries = 0))
+            assertEquals(1, primaryCaptured.size)
+            assertEquals(1, fallbackCaptured.size)
+            assertEquals(
+                "leaked [REDACTED]",
+                fallbackCaptured
+                    .single()
+                    .messages
+                    .last()
+                    .content,
+            )
+            assertFalse(fallbackCaptured.single().toString().contains("sk-secret-12345"))
+        }
+    }
+
+    private fun fallbackRouting(): ProviderRoutingConfiguration =
+        ProviderRoutingConfiguration(
+            enabled = true,
+            workloadZones = mapOf(workloadId to ProviderTrustZone.LOCAL),
+            providerDeployments =
+                mapOf(
+                    "openai" to deployment,
+                    "anthropic" to
+                        ProviderDeployment(
+                            "eu-fallback",
+                            "anthropic",
+                            NamedTrustZone(TrustZoneName("eu-fb"), ProviderTrustZone.EU_CLOUD),
+                        ),
+                ),
+            allowedZonePairs = setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.EU_CLOUD),
+            rules =
+                mapOf(
+                    DataClassification.INTERNAL to
+                        ClassificationRoutingRule(
+                            allowedZones = setOf(ProviderTrustZone.LOCAL, ProviderTrustZone.EU_CLOUD),
+                            allowedFallbackZones = setOf(ProviderTrustZone.EU_CLOUD),
+                        ),
+                ),
+        ).withMinimization(
+            minimizationPolicy = { _, _ ->
+                MinimizationRequirement.Required(setOf(MinimizationObligation.REDACT_SECRETS))
+            },
+            minimizers = mapOf(MinimizationObligation.REDACT_SECRETS to minimizer),
+        )
+
+    @Test
+    fun `sync governed configuration with admitted run identity cannot bypass release enforcement`() {
+        runBlocking {
+            val captured = mutableListOf<ModelRequest>()
+            val provider =
+                object : ModelProvider {
+                    override suspend fun complete(request: ModelRequest): ModelResponse {
+                        captured.add(request)
+                        return ModelResponse("ok")
+                    }
+                }
+            val injectingInterceptor =
+                object : OperationInterceptor {
+                    override fun interceptRequest(
+                        context: OperationCallContext,
+                        messages: List<Message>,
+                    ): List<Message> = messages + Message.text("leaked sk-secret-12345")
+                }
+            val plan =
+                ProviderRoutingPlan
+                    .builder()
+                    .provider("openai", provider)
+                    .defaultProvider("openai")
+                    .build()
+            val coord = syncCoordinator(plan, ProviderGovernanceConfiguration.from(baseRouting())!!)
+
+            assertThrows<ProviderInputReleaseException> {
+                coord.execute(syncRequest())
+            }
+            assertEquals(0, captured.size)
         }
     }
 }
