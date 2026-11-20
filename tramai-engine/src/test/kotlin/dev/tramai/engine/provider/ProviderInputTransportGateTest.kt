@@ -112,13 +112,14 @@ class ProviderInputTransportGateTest {
         governance: ProviderGovernanceConfiguration,
         interceptor: OperationInterceptor = object : OperationInterceptor {},
         breaker: ProviderCircuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
+        observer: dev.tramai.core.observation.OperationObserver = NoOpOperationObserver,
     ): ProviderExecutionCoordinator {
         val retryPolicy =
             ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 })
         val executor =
             ProviderAttemptExecutor(
                 "service",
-                NoOpOperationObserver,
+                observer,
                 interceptor,
                 breaker,
                 retryPolicy,
@@ -177,7 +178,7 @@ class ProviderInputTransportGateTest {
         )
 
     @Test
-    fun `sync coordinator projects interceptor-injected secret before provider complete`() =
+    fun `sync coordinator projects interceptor-injected secret before provider complete`() {
         runBlocking {
             val captured = mutableListOf<ModelRequest>()
             val provider =
@@ -222,9 +223,10 @@ class ProviderInputTransportGateTest {
             )
             assertFalse(captured.single().toString().contains("sk-secret-12345"))
         }
+    }
 
     @Test
-    fun `sync coordinator missing policy makes zero provider calls without retry or breaker poisoning`() =
+    fun `sync coordinator missing policy makes zero provider calls without retry or breaker poisoning`() {
         runBlocking {
             val captured = mutableListOf<ModelRequest>()
             val provider =
@@ -240,21 +242,44 @@ class ProviderInputTransportGateTest {
                     .provider("openai", provider)
                     .defaultProvider("openai")
                     .build()
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings())
-            val coord = syncCoordinator(plan, ProviderGovernanceConfiguration.from(baseRouting())!!, breaker = breaker)
+            val sink = OrderedSink()
+            val observer = AttemptRecordingObserver(sink)
+            val breaker = RecordingCircuitBreaker(CircuitBreakerSettings())
+            val coord =
+                syncCoordinator(
+                    plan,
+                    ProviderGovernanceConfiguration.from(baseRouting())!!,
+                    breaker = breaker,
+                    observer = observer,
+                )
 
             assertThrows<ProviderInputReleaseException> {
                 coord.execute(syncRequest(retries = 2))
             }
             assertEquals(0, captured.size)
+            assertEquals(1, observer.attempts.size)
             assertEquals(null, breaker.openUntilMillis("openai"))
         }
+    }
 
     @Test
-    fun `sync retry reevaluates release policy and projection on every attempt`() =
+    fun `sync retry reevaluates release policy and projection on every attempt`() {
         runBlocking {
             val captured = mutableListOf<ModelRequest>()
             var policyEvaluations = 0
+            var minimizerCalls = 0
+            val countingMinimizer =
+                ObligationMinimizer { text ->
+                    minimizerCalls++
+                    minimizer.minimize(text)
+                }
+            val injectingInterceptor =
+                object : OperationInterceptor {
+                    override fun interceptRequest(
+                        context: OperationCallContext,
+                        messages: List<Message>,
+                    ): List<Message> = messages + Message.text("leaked sk-secret-12345")
+                }
             val provider =
                 object : ModelProvider {
                     override suspend fun complete(request: ModelRequest): ModelResponse {
@@ -272,7 +297,7 @@ class ProviderInputTransportGateTest {
                         policyEvaluations++
                         MinimizationRequirement.Required(setOf(MinimizationObligation.REDACT_SECRETS))
                     },
-                    minimizers = mapOf(MinimizationObligation.REDACT_SECRETS to minimizer),
+                    minimizers = mapOf(MinimizationObligation.REDACT_SECRETS to countingMinimizer),
                 )
             val plan =
                 ProviderRoutingPlan
@@ -280,10 +305,17 @@ class ProviderInputTransportGateTest {
                     .provider("openai", provider)
                     .defaultProvider("openai")
                     .build()
-            val coord = syncCoordinator(plan, ProviderGovernanceConfiguration.from(configured)!!)
+            val coord =
+                syncCoordinator(plan, ProviderGovernanceConfiguration.from(configured)!!, injectingInterceptor)
 
             coord.execute(syncRequest(retries = 1))
             assertEquals(2, captured.size)
             assertEquals(2, policyEvaluations)
+            assertEquals(4, minimizerCalls)
+            captured.forEach { req ->
+                assertEquals("leaked [REDACTED]", req.messages.last().content)
+                assertFalse(req.toString().contains("sk-secret-12345"))
+            }
         }
+    }
 }
