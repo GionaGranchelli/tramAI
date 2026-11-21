@@ -209,4 +209,56 @@ class ProviderInputReleaseEvidenceTest {
             )
         }
     }
+
+    @Test
+    fun `public TramaiEngine construction delivers release evidence to configured recorder`() {
+        val recorded = mutableListOf<ProviderInputReleaseEvidence>()
+        val routing =
+            ProviderRoutingConfiguration(
+                enabled = true,
+                workloadZones = mapOf(workloadId to ProviderTrustZone.LOCAL),
+                providerDeployments = mapOf("openai" to primaryDeployment),
+                allowedZonePairs = setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.EU_CLOUD),
+                rules =
+                    mapOf(
+                        DataClassification.INTERNAL to
+                            ClassificationRoutingRule(
+                                allowedZones = setOf(ProviderTrustZone.LOCAL, ProviderTrustZone.EU_CLOUD),
+                                allowedFallbackZones = emptySet(),
+                            ),
+                    ),
+            ).withMinimization(
+                minimizationPolicy =
+                    ProviderMinimizationPolicy { _, _ ->
+                        MinimizationRequirement.Required(setOf(MinimizationObligation.REDACT_SECRETS))
+                    },
+                minimizers = mapOf(MinimizationObligation.REDACT_SECRETS to minimizer),
+            )
+        val policyEngine =
+            object : dev.tramai.core.policy.PolicyEngine, dev.tramai.security.ProviderRoutingConfigurationSource {
+                override val providerRoutingConfiguration: ProviderRoutingConfiguration = routing
+
+                override suspend fun evaluate(context: dev.tramai.core.policy.PolicyContext): dev.tramai.core.policy.PolicyDecision =
+                    dev.tramai.core.policy.PolicyDecision.Allow
+            }
+        val provider =
+            object : dev.tramai.core.provider.ModelProvider {
+                override suspend fun complete(request: ModelRequest) =
+                    dev.tramai.core.model
+                        .ModelResponse("ok")
+            }
+        val engine =
+            dev.tramai.engine.TramaiEngine(
+                providerRegistry =
+                    dev.tramai.core.provider.ProviderRegistry
+                        .builder()
+                        .provider("openai", provider)
+                        .defaultProvider("openai")
+                        .build(),
+                policyEngine = policyEngine,
+                releaseEvidenceRecorder = ProviderInputReleaseEvidenceRecorder { recorded.add(it) },
+            )
+        assertEquals(0, recorded.size)
+        engine.close()
+    }
 }

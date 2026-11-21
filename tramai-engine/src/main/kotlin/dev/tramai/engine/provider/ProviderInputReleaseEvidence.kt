@@ -5,7 +5,7 @@ import dev.tramai.core.identity.GovernedRunIdentity
 /**
  * Authoritative outcome of a governed pre-transport provider-input release check.
  */
-internal enum class ProviderInputReleaseOutcome {
+enum class ProviderInputReleaseOutcome {
     RAW_PERMITTED,
     MINIMIZED,
     DENIED,
@@ -14,7 +14,7 @@ internal enum class ProviderInputReleaseOutcome {
 /**
  * Provenance of a provider-input release evidence record.
  */
-internal enum class ProviderInputReleaseProvenance {
+enum class ProviderInputReleaseProvenance {
     TRAMAI_ENFORCED,
 }
 
@@ -22,7 +22,7 @@ internal enum class ProviderInputReleaseProvenance {
  * Minimal, content-free evidence record emitted by [ProviderInputTransportGate]
  * for each governed provider-input release evaluation.
  */
-internal data class ProviderInputReleaseEvidence(
+data class ProviderInputReleaseEvidence(
     val workloadId: String?,
     val runId: String?,
     val selectedDeploymentId: String,
@@ -44,6 +44,6 @@ internal data class ProviderInputReleaseCorrelation(
 /**
  * Internal sink for recording [ProviderInputReleaseEvidence] at the transport gate.
  */
-internal fun interface ProviderInputReleaseEvidenceRecorder {
+fun interface ProviderInputReleaseEvidenceRecorder {
     fun record(evidence: ProviderInputReleaseEvidence)
 }

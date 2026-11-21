@@ -316,6 +316,9 @@ class TramaiEngine internal constructor(
         approvalResumeAdmission: ApprovalResumeAdmission? = null,
         approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
         approvalResumeEvidenceRequired: Boolean = false,
+        releaseEvidenceRecorder: dev.tramai.engine.provider.ProviderInputReleaseEvidenceRecorder =
+            dev.tramai.engine.provider
+                .ProviderInputReleaseEvidenceRecorder {},
         clock: Clock = Clock.systemUTC(),
     ) : this(
         EngineComponentFactory.create(
@@ -349,6 +352,7 @@ class TramaiEngine internal constructor(
             approvalResumeAdmission,
             approvalRecoveryCoordinator,
             approvalResumeEvidenceRequired,
+            releaseEvidenceRecorder = releaseEvidenceRecorder,
         ),
     )
 
