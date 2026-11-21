@@ -316,9 +316,6 @@ class TramaiEngine internal constructor(
         approvalResumeAdmission: ApprovalResumeAdmission? = null,
         approvalRecoveryCoordinator: ApprovalRecoveryCoordinator? = null,
         approvalResumeEvidenceRequired: Boolean = false,
-        releaseEvidenceRecorder: dev.tramai.engine.provider.ProviderInputReleaseEvidenceRecorder =
-            dev.tramai.engine.provider
-                .ProviderInputReleaseEvidenceRecorder {},
         clock: Clock = Clock.systemUTC(),
     ) : this(
         EngineComponentFactory.create(
@@ -352,6 +349,42 @@ class TramaiEngine internal constructor(
             approvalResumeAdmission,
             approvalRecoveryCoordinator,
             approvalResumeEvidenceRequired,
+        ),
+    )
+
+    constructor(
+        providerRegistry: ProviderRegistry,
+        policyEngine: PolicyEngine,
+        releaseEvidenceRecorder: dev.tramai.engine.provider.ProviderInputReleaseEvidenceRecorder,
+    ) : this(
+        EngineComponentFactory.create(
+            providerRegistry = providerRegistry,
+            structuredOutputHandler = null,
+            toolRegistry = ToolRegistry(),
+            operationObserver = NoOpOperationObserver,
+            operationInterceptor = NoOpOperationInterceptor,
+            responseCache = NoOpOperationResponseCache,
+            modelRegistry = NoOpModelRegistry,
+            modelRegistrySettings = ModelRegistrySettings(),
+            circuitBreakerSettings = CircuitBreakerSettings(),
+            retryPolicySettings = RetryPolicySettings(),
+            tokenBudgetSettings = TokenBudgetSettings(),
+            promptSanitizer = null,
+            chatMemory = null,
+            conversationIdProvider = UuidConversationIdProvider(),
+            policyEngine = policyEngine,
+            dlpInterceptor = NoOpDlpInterceptor,
+            dlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
+            toolResultFilteringSettings = ToolResultFilteringSettings(),
+            engineEventObserver = NoOpEngineEventObserver,
+            toolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
+            policyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
+            suspendedInvocationStore = InMemorySuspendedInvocationStore(),
+            approvalContinuationStore = null,
+            toolArgumentsDigester = null,
+            approvalGateCoordinator = null,
+            approvalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+            clock = Clock.systemUTC(),
             releaseEvidenceRecorder = releaseEvidenceRecorder,
         ),
     )

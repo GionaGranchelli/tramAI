@@ -212,54 +212,86 @@ class ProviderInputReleaseEvidenceTest {
         }
     }
 
+    @dev.tramai.core.annotations.AiService
+    private interface SimpleChatService {
+        @dev.tramai.core.annotations.Operation(prompt = "Answer", model = "model")
+        suspend fun chat(input: dev.tramai.core.model.ClassifiedDocument<String>): String
+    }
+
+    private fun publicEngineRouting(): ProviderRoutingConfiguration =
+        ProviderRoutingConfiguration(
+            enabled = true,
+            workloadZones = mapOf(workloadId to ProviderTrustZone.LOCAL),
+            providerDeployments = mapOf("openai" to primaryDeployment),
+            allowedZonePairs = setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.EU_CLOUD),
+            rules =
+                DataClassification.entries.associateWith {
+                    ClassificationRoutingRule(
+                        allowedZones = setOf(ProviderTrustZone.LOCAL, ProviderTrustZone.EU_CLOUD),
+                        allowedFallbackZones = emptySet(),
+                    )
+                },
+        ).withMinimization(
+            minimizationPolicy =
+                ProviderMinimizationPolicy { _, _ ->
+                    MinimizationRequirement.Required(setOf(MinimizationObligation.REDACT_SECRETS))
+                },
+            minimizers = mapOf(MinimizationObligation.REDACT_SECRETS to minimizer),
+        )
+
     @Test
     fun `public TramaiEngine construction delivers release evidence to configured recorder`() {
-        val recorded = mutableListOf<ProviderInputReleaseEvidence>()
-        val routing =
-            ProviderRoutingConfiguration(
-                enabled = true,
-                workloadZones = mapOf(workloadId to ProviderTrustZone.LOCAL),
-                providerDeployments = mapOf("openai" to primaryDeployment),
-                allowedZonePairs = setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.EU_CLOUD),
-                rules =
-                    mapOf(
-                        DataClassification.INTERNAL to
-                            ClassificationRoutingRule(
-                                allowedZones = setOf(ProviderTrustZone.LOCAL, ProviderTrustZone.EU_CLOUD),
-                                allowedFallbackZones = emptySet(),
-                            ),
-                    ),
-            ).withMinimization(
-                minimizationPolicy =
-                    ProviderMinimizationPolicy { _, _ ->
-                        MinimizationRequirement.Required(setOf(MinimizationObligation.REDACT_SECRETS))
-                    },
-                minimizers = mapOf(MinimizationObligation.REDACT_SECRETS to minimizer),
-            )
-        val policyEngine =
-            object : dev.tramai.core.policy.PolicyEngine, dev.tramai.security.ProviderRoutingConfigurationSource {
-                override val providerRoutingConfiguration: ProviderRoutingConfiguration = routing
+        kotlinx.coroutines.runBlocking {
+            val recorded = mutableListOf<ProviderInputReleaseEvidence>()
+            var providerCalls = 0
+            val policyEngine =
+                object : dev.tramai.core.policy.PolicyEngine, dev.tramai.security.ProviderRoutingConfigurationSource {
+                    override val providerRoutingConfiguration: ProviderRoutingConfiguration = publicEngineRouting()
 
-                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
-            }
-        val provider =
-            object : dev.tramai.core.provider.ModelProvider {
-                override suspend fun complete(request: ModelRequest) =
-                    dev.tramai.core.model
-                        .ModelResponse("ok")
-            }
-        val engine =
-            dev.tramai.engine.TramaiEngine(
-                providerRegistry =
-                    dev.tramai.core.provider.ProviderRegistry
-                        .builder()
-                        .provider("openai", provider)
-                        .defaultProvider("openai")
-                        .build(),
-                policyEngine = policyEngine,
-                releaseEvidenceRecorder = ProviderInputReleaseEvidenceRecorder { recorded.add(it) },
-            )
-        assertEquals(0, recorded.size)
-        engine.close()
+                    override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+                }
+            val provider =
+                object : dev.tramai.core.provider.ModelProvider {
+                    override suspend fun complete(request: ModelRequest): dev.tramai.core.model.ModelResponse {
+                        providerCalls++
+                        return dev.tramai.core.model
+                            .ModelResponse("ok")
+                    }
+                }
+            val engine =
+                dev.tramai.engine.TramaiEngine(
+                    providerRegistry =
+                        dev.tramai.core.provider.ProviderRegistry
+                            .builder()
+                            .provider("openai", provider)
+                            .defaultProvider("openai")
+                            .build(),
+                    policyEngine = policyEngine,
+                    releaseEvidenceRecorder = ProviderInputReleaseEvidenceRecorder { recorded.add(it) },
+                )
+            val service = engine.create(SimpleChatService::class)
+            val result =
+                kotlinx.coroutines.withContext(
+                    dev.tramai.core.identity
+                        .GovernedRunScope(run),
+                ) {
+                    service.chat(
+                        dev.tramai.core.model.ClassifiedDocument(
+                            "hello sk-secret-12345",
+                            DataClassification.INTERNAL,
+                            dev.tramai.core.policy.ClassificationSource.DECLARED,
+                        ),
+                    )
+                }
+            assertEquals("ok", result)
+            assertEquals(1, providerCalls)
+            val ev = recorded.single()
+            assertEquals("eu-prod", ev.selectedDeploymentId)
+            assertEquals(ProviderInputReleaseOutcome.MINIMIZED, ev.outcome)
+            assertEquals(1, ev.redactionCount)
+            assertEquals(0, ev.attempt)
+            assertFalse(ev.toString().contains("sk-secret-12345"))
+            engine.close()
+        }
     }
 }
