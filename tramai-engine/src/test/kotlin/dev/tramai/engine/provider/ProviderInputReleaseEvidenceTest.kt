@@ -238,8 +238,9 @@ class ProviderInputReleaseEvidenceTest {
             object : dev.tramai.core.policy.PolicyEngine, dev.tramai.security.ProviderRoutingConfigurationSource {
                 override val providerRoutingConfiguration: ProviderRoutingConfiguration = routing
 
-                override suspend fun evaluate(context: dev.tramai.core.policy.PolicyContext): dev.tramai.core.policy.PolicyDecision =
-                    dev.tramai.core.policy.PolicyDecision.Allow
+                override suspend fun evaluate(
+                    context: dev.tramai.core.policy.PolicyContext,
+                ): dev.tramai.core.policy.PolicyDecision = dev.tramai.core.policy.PolicyDecision.Allow
             }
         val provider =
             object : dev.tramai.core.provider.ModelProvider {
