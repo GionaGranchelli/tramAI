@@ -501,6 +501,13 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "D7-E1 adds approvalResumeEvidenceRequired to TramaiEngine and EngineComponents for explicit E9 rollout enforcement."
     migration: "Additive. Defaults to false; existing consumers require no change."
+
+  - module: ":tramai-engine"
+    fromSha256: "2be18464bc69a5c9c0b387d7a88cf6701066f5f4bf31c4e93ec8d9a82aa45dfc"
+    toSha256: "8b47c0e299253bd9395094ddd868b8a0fe77432a53aff68d0729e604b303ee8c"
+    targetVersion: "0.7.0"
+    rationale: "P0-A4 adds safe provider-input release evidence types (ProviderInputReleaseEvidence, ProviderInputReleaseOutcome, ProviderInputReleaseProvenance, ProviderInputReleaseEvidenceRecorder) and an additive 3-argument TramaiEngine constructor."
+    migration: "Additive. All existing TramaiEngine constructors are preserved; pass releaseEvidenceRecorder to the new 3-argument constructor to receive release evidence."
   - module: ":tramai-orchestration"
     fromSha256: "7c2c0a00fd8422ae11f0c0ee091aa09e9391998e249de9cb5b510aee53650eeb"
     toSha256: "5530b5ce2752d3ade7d7bae1feb0dbedea9042bb509bf15a319614304857d9e6"
