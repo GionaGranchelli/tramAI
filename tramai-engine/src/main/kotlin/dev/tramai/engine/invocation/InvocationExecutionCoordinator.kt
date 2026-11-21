@@ -114,7 +114,11 @@ internal class InvocationExecutionCoordinator(
      * configured routing.
      */
     private val providerGovernance =
-        components.security.routingConfiguration?.let { ProviderGovernanceConfiguration.from(it) }
+        components.security.routingConfiguration?.let { routing ->
+            dev.tramai.engine.provider.ProviderGovernanceConfiguration.from(routing)?.apply {
+                releaseEvidenceRecorder = components.security.releaseEvidenceRecorder
+            }
+        }
 
     private val structuredOutputHandler = components.execution.structuredOutputHandler
     private val toolRegistry = components.tools.toolRegistry
