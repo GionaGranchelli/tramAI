@@ -7,6 +7,8 @@ import dev.tramai.core.identity.WorkloadId
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.policy.PolicyContext
+import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderRoutingConfiguration
 import dev.tramai.security.ProviderTrustZone
@@ -238,9 +240,7 @@ class ProviderInputReleaseEvidenceTest {
             object : dev.tramai.core.policy.PolicyEngine, dev.tramai.security.ProviderRoutingConfigurationSource {
                 override val providerRoutingConfiguration: ProviderRoutingConfiguration = routing
 
-                override suspend fun evaluate(
-                    context: dev.tramai.core.policy.PolicyContext,
-                ): dev.tramai.core.policy.PolicyDecision = dev.tramai.core.policy.PolicyDecision.Allow
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
             }
         val provider =
             object : dev.tramai.core.provider.ModelProvider {
