@@ -3009,6 +3009,55 @@ class StreamingExecutionCoordinatorTest {
                 kotlin.test.assertEquals(listOf("dep-primary", "dep-fallback"), evaluatedDeployments.distinct())
             }
         }
+
+        @Test
+        fun `streaming coordinator records correlated safe release evidence`() {
+            runBlocking {
+                val recorded = mutableListOf<dev.tramai.engine.provider.ProviderInputReleaseEvidence>()
+                val sink = OrderedSink()
+                val provider =
+                    RecordingProvider("p") {
+                        kotlinx.coroutines.flow.flowOf(
+                            StreamChunk.Token("tok"),
+                            StreamChunk.Complete(""),
+                        )
+                    }
+                val routingPlan = plan("p" to provider)
+                val governance =
+                    streamGovernance(routingPlan) { _, _ ->
+                        dev.tramai.security.governance.MinimizationRequirement.Required(
+                            setOf(dev.tramai.security.governance.MinimizationObligation.REDACT_SECRETS),
+                        )
+                    }.apply {
+                        releaseEvidenceRecorder =
+                            dev.tramai.engine.provider
+                                .ProviderInputReleaseEvidenceRecorder { recorded.add(it) }
+                    }
+                val coord =
+                    coordinator(
+                        routingPlan,
+                        RecordingOperationObserver(sink),
+                        StreamingCoordinatorTestOptions(
+                            sink = sink,
+                            governance = governance,
+                            operationInterceptor = secretInjector,
+                        ),
+                    )
+
+                coord.execute(streamRequest()).toList()
+                val ev = recorded.single()
+                kotlin.test.assertEquals(governedRun.deployment.workloadId.value, ev.workloadId)
+                kotlin.test.assertEquals(governedRun.runId.value, ev.runId)
+                kotlin.test.assertEquals("dep-p", ev.selectedDeploymentId)
+                kotlin.test.assertEquals(
+                    dev.tramai.engine.provider.ProviderInputReleaseOutcome.MINIMIZED,
+                    ev.outcome,
+                )
+                kotlin.test.assertEquals(1, ev.redactionCount)
+                kotlin.test.assertEquals(0, ev.attempt)
+                kotlin.test.assertFalse(ev.toString().contains("sk-secret-12345"))
+            }
+        }
     }
 
     private data class StreamingCoordinatorTestOptions(

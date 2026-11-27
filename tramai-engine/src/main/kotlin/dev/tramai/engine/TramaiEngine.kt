@@ -352,6 +352,43 @@ class TramaiEngine internal constructor(
         ),
     )
 
+    constructor(
+        providerRegistry: ProviderRegistry,
+        policyEngine: PolicyEngine,
+        releaseEvidenceRecorder: dev.tramai.engine.provider.ProviderInputReleaseEvidenceRecorder,
+    ) : this(
+        EngineComponentFactory.create(
+            providerRegistry = providerRegistry,
+            structuredOutputHandler = null,
+            toolRegistry = ToolRegistry(),
+            operationObserver = NoOpOperationObserver,
+            operationInterceptor = NoOpOperationInterceptor,
+            responseCache = NoOpOperationResponseCache,
+            modelRegistry = NoOpModelRegistry,
+            modelRegistrySettings = ModelRegistrySettings(),
+            circuitBreakerSettings = CircuitBreakerSettings(),
+            retryPolicySettings = RetryPolicySettings(),
+            tokenBudgetSettings = TokenBudgetSettings(),
+            promptSanitizer = null,
+            chatMemory = null,
+            conversationIdProvider = UuidConversationIdProvider(),
+            policyEngine = policyEngine,
+            dlpInterceptor = NoOpDlpInterceptor,
+            dlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
+            toolResultFilteringSettings = ToolResultFilteringSettings(),
+            engineEventObserver = NoOpEngineEventObserver,
+            toolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
+            policyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
+            suspendedInvocationStore = InMemorySuspendedInvocationStore(),
+            approvalContinuationStore = null,
+            toolArgumentsDigester = null,
+            approvalGateCoordinator = null,
+            approvalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+            clock = Clock.systemUTC(),
+            releaseEvidenceRecorder = releaseEvidenceRecorder,
+        ),
+    )
+
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val migrationWarningGuard =
         java.util.concurrent.atomic

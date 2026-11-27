@@ -426,6 +426,7 @@ private class GovernedCandidateWalk(
                     workloadZone = governanceFacts.trustZone,
                     effectiveClassification = governanceFacts.classification,
                     transportGate = ProviderInputTransportGate(configuration),
+                    run = run,
                 ),
         )
     }
@@ -612,9 +613,9 @@ private class GovernedCandidateWalk(
 private fun releaseEnforcementFor(
     candidateSet: GovernedCandidateSet,
     candidate: ProviderCandidate,
-): (dev.tramai.core.model.ModelRequest) -> dev.tramai.core.model.ModelRequest =
-    { finalRequest ->
-        candidateSet.releaseContext.enforce(finalRequest, candidate.deployment)
+): (dev.tramai.core.model.ModelRequest, Int) -> dev.tramai.core.model.ModelRequest =
+    { finalRequest, attempt ->
+        candidateSet.releaseContext.enforce(finalRequest, candidate.deployment, attempt)
     }
 
 /** What one governed execution may run, in what order, and where each candidate's route is. */

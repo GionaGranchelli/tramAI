@@ -83,6 +83,9 @@ internal object EngineComponentFactory {
         identitySource: EngineIdentitySource = DefaultEngineIdentitySource,
         structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
             NoOpStructuredOutputFailureDiagnosticObserver,
+        releaseEvidenceRecorder: dev.tramai.engine.provider.ProviderInputReleaseEvidenceRecorder =
+            dev.tramai.engine.provider
+                .ProviderInputReleaseEvidenceRecorder {},
     ): EngineComponents {
         val capability = approvalCapability(approvalContinuationStore, toolArgumentsDigester, approvalGateCoordinator)
         requireApprovalResumeComposition(approvalResumeAdmission, approvalRecoveryCoordinator)
@@ -100,6 +103,7 @@ internal object EngineComponentFactory {
                 dlpRedactionAuditEmitter,
                 policyDecisionAuditEmitter,
                 (policyEngine as? ProviderRoutingConfigurationSource)?.providerRoutingConfiguration,
+                releaseEvidenceRecorder,
             ),
             ApprovalComponents(
                 suspendedInvocationStore,

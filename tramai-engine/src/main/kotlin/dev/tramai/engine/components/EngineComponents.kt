@@ -71,6 +71,9 @@ internal data class SecurityComponents(
     val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
     /** The configured routing topology, or null when no configuration carries one. */
     val routingConfiguration: ProviderRoutingConfiguration?,
+    val releaseEvidenceRecorder: dev.tramai.engine.provider.ProviderInputReleaseEvidenceRecorder =
+        dev.tramai.engine.provider
+            .ProviderInputReleaseEvidenceRecorder {},
 )
 
 /** Explicit approval capability: partial approval state is unrepresentable. */

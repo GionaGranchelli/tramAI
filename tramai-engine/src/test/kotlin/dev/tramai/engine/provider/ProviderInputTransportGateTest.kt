@@ -498,4 +498,43 @@ class ProviderInputTransportGateTest {
             assertEquals(0, captured.size)
         }
     }
+
+    @Test
+    fun `sync coordinator records correlated safe release evidence`() {
+        runBlocking {
+            val recorded = mutableListOf<ProviderInputReleaseEvidence>()
+            val provider =
+                object : ModelProvider {
+                    override suspend fun complete(request: ModelRequest): ModelResponse = ModelResponse("ok")
+                }
+            val configured =
+                baseRouting().withMinimization(
+                    minimizationPolicy = { _, _ ->
+                        MinimizationRequirement.Required(setOf(MinimizationObligation.REDACT_SECRETS))
+                    },
+                    minimizers = mapOf(MinimizationObligation.REDACT_SECRETS to minimizer),
+                )
+            val governance =
+                ProviderGovernanceConfiguration.from(configured)!!.apply {
+                    releaseEvidenceRecorder = ProviderInputReleaseEvidenceRecorder { recorded.add(it) }
+                }
+            val plan =
+                ProviderRoutingPlan
+                    .builder()
+                    .provider("openai", provider)
+                    .defaultProvider("openai")
+                    .build()
+            val coord = syncCoordinator(plan, governance, injectingInterceptor)
+
+            coord.execute(syncRequest())
+            val ev = recorded.single()
+            assertEquals(workloadId.workloadId.value, ev.workloadId)
+            assertEquals("run-1", ev.runId)
+            assertEquals("eu-prod", ev.selectedDeploymentId)
+            assertEquals(ProviderInputReleaseOutcome.MINIMIZED, ev.outcome)
+            assertEquals(1, ev.redactionCount)
+            assertEquals(0, ev.attempt)
+            assertFalse(ev.toString().contains("sk-secret-12345"))
+        }
+    }
 }

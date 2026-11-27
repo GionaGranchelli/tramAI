@@ -33,6 +33,9 @@ internal class ProviderGovernanceConfiguration(
         ProviderMinimizationPolicy { _, _ -> MinimizationRequirement.MissingOrDenied },
     val minimizers: Map<MinimizationObligation, ObligationMinimizer> = emptyMap(),
 ) {
+    internal var releaseEvidenceRecorder: ProviderInputReleaseEvidenceRecorder =
+        ProviderInputReleaseEvidenceRecorder {}
+
     companion object {
         /** Projects the configured routing topology; the configured zone pairs feed the existing policy. */
         fun from(routing: ProviderRoutingConfiguration): ProviderGovernanceConfiguration? {

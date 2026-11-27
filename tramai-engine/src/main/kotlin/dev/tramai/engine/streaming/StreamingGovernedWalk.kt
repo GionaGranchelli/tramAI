@@ -341,8 +341,8 @@ internal class StreamingGovernedWalk(
         candidate: StreamingCandidate,
     ): StreamingCandidate =
         candidate.copy(
-            releaseEnforcement = { finalRequest ->
-                envelope.releaseContext.enforce(finalRequest, envelope.deploymentOf(candidate.route))
+            releaseEnforcement = { finalRequest, attempt ->
+                envelope.releaseContext.enforce(finalRequest, envelope.deploymentOf(candidate.route), attempt)
             },
         )
 }
